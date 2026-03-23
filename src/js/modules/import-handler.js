@@ -160,6 +160,9 @@ const ImportHandler = {
   async doImport(data) {
     if (!data) return;
     App.showLoading('Importiere Schülerdaten…');
+    // Disable dirty-tracking during bulk import (full-write at end)
+    App._bulkImport = true;
+    if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
     const getMap = f => document.getElementById('map_' + f)?.value || '';
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
@@ -430,9 +433,11 @@ const ImportHandler = {
     if (stats.frNotFound.size) parts.push(`⚠️ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
     if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
-    // Force immediate save so imported data is persisted to disk
-    if (App.dbFileHandle && imported > 0) {
-      try { await App.mergeAndSave(true); } catch(e) { console.warn('Post-import save:', e); }
+    // Re-enable dirty-tracking
+    App._bulkImport = false;
+    // Full-write: export entire in-memory DB to disk (no merge-replay needed)
+    if (App.dbFileHandle) {
+      try { await App.fullSave(); } catch(e) { console.warn('Post-import save:', e); }
     }
 
     App.hideLoading();

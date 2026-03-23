@@ -2109,18 +2109,36 @@ const App = {
   },
   run(sql, params = []) {
     this.db.run(sql, params);
+    // During bulk import: skip dirty-tracking, full-write happens at end
+    if (this._bulkImport) return;
     // ── Dirty-Tracking: record the SQL + params for merge-save ──
     this._dirtyOps.push({ sql, params: [...params] });
-    // Cap dirty ops to prevent memory leak on persistent save failures
-    if (this._dirtyOps.length > 500) {
-      console.warn('[Save] Dirty ops capped at 500 (oldest dropped)');
-      this._dirtyOps = this._dirtyOps.slice(-400);
-    }
     this.markDirty();
   },
+  _bulkImport: false,
   // Run without tracking (used during merge-import to avoid re-tracking)
   _runSilent(sql, params = []) {
     this.db.run(sql, params);
+  },
+  // Full-write: export entire in-memory DB to disk (used after bulk imports)
+  async fullSave() {
+    if (!this.dbFileHandle || !this.db) return;
+    const data = this.db.export();
+    const writable = await this.dbFileHandle.createWritable();
+    await writable.write(data);
+    await writable.close();
+    const f2 = await this.dbFileHandle.getFile();
+    this.dbLastModified = f2.lastModified;
+    this._lastFileSize = f2.size;
+    this._dirtyOps = [];
+    this.unsavedChanges = false;
+    this.saveCount++;
+    const timeStr = new Date().toLocaleTimeString('de-DE');
+    document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+    document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+    this._broadcastChange();
+    this._writeSyncMarker();
+    console.log('[Save] Full-write nach Import abgeschlossen');
   },
   scalar(sql, params = []) {
     const r = this.query(sql, params);
