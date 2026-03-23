@@ -1837,7 +1837,7 @@ const App = {
       if (document.hidden) return;
       if (!this.dirHandle || this._mergeInProgress) return;
       this._pollSyncMarker();
-    }, 8000);
+    }, 3000);
   },
 
   async _pollSyncMarker() {
@@ -2120,25 +2120,47 @@ const App = {
   _runSilent(sql, params = []) {
     this.db.run(sql, params);
   },
-  // Full-write: export entire in-memory DB to disk (used after bulk imports)
+  // Full-write after bulk import: merge other users' changes first, then write
   async fullSave() {
     if (!this.dbFileHandle || !this.db) return;
-    const data = this.db.export();
-    const writable = await this.dbFileHandle.createWritable();
-    await writable.write(data);
-    await writable.close();
-    const f2 = await this.dbFileHandle.getFile();
-    this.dbLastModified = f2.lastModified;
-    this._lastFileSize = f2.size;
-    this._dirtyOps = [];
-    this.unsavedChanges = false;
-    this.saveCount++;
-    const timeStr = new Date().toLocaleTimeString('de-DE');
-    document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
-    document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
-    this._broadcastChange();
-    this._writeSyncMarker();
-    console.log('[Save] Full-write nach Import abgeschlossen');
+    this._mergeInProgress = true;
+    try {
+      // 1) Read disk version to preserve other users' changes
+      const file = await this.dbFileHandle.getFile();
+      const buf = await file.arrayBuffer();
+      const SQL = await App._getSqlJs();
+      const diskDb = new SQL.Database(new Uint8Array(buf));
+
+      // 2) Import other users' changes INTO our in-memory DB before writing
+      this._importFromDisk(diskDb);
+      diskDb.close();
+
+      // 3) NOW export our merged in-memory DB (has both our import + others' edits)
+      const data = this.db.export();
+      const writable = await this.dbFileHandle.createWritable();
+      await writable.write(data);
+      await writable.close();
+
+      const f2 = await this.dbFileHandle.getFile();
+      this.dbLastModified = f2.lastModified;
+      this._lastFileSize = f2.size;
+      this._dirtyOps = [];
+      this.unsavedChanges = false;
+      this.saveCount++;
+      this._saveRetryCount = 0;
+      this._saveCooldownUntil = null;
+      const timeStr = new Date().toLocaleTimeString('de-DE');
+      document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+      this._broadcastChange();
+      this._writeSyncMarker();
+      console.log('[Save] Full-write nach Import abgeschlossen (mit Merge)');
+    } catch(e) {
+      console.error('[Save] fullSave error:', e);
+      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
+    } finally {
+      this._mergeInProgress = false;
+    }
   },
   scalar(sql, params = []) {
     const r = this.query(sql, params);
@@ -2410,7 +2432,36 @@ const App = {
         }
       });
 
-      // ── 3) aktive_sitzung: no longer synced via DB (positions use files) ──
+      // ── 3) kw_maengel: additive sync (import new rows from other users) ──
+      try {
+        const diskKM = this._readTable(diskDb, 'kw_maengel');
+        const localKMKeys = new Set(
+          this.query('SELECT kontrollergebnis_id||"_"||ausbildungsjahr||"_"||kalenderwoche as k FROM kw_maengel').map(r => r.k)
+        );
+        diskKM.forEach(dkm => {
+          const key = dkm.kontrollergebnis_id + '_' + dkm.ausbildungsjahr + '_' + dkm.kalenderwoche;
+          if (!localKMKeys.has(key)) {
+            this._runSilent('INSERT OR IGNORE INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)',
+              [dkm.kontrollergebnis_id, dkm.ausbildungsjahr, dkm.kalenderwoche, dkm.maengel_codes||'', dkm.fehltage||0]);
+            this._importChangeCount++;
+          } else {
+            // Update if disk has newer/more data
+            const lkm = this.query('SELECT * FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
+              [dkm.kontrollergebnis_id, dkm.ausbildungsjahr, dkm.kalenderwoche])[0];
+            if (lkm && dkm.maengel_codes && dkm.maengel_codes !== lkm.maengel_codes) {
+              // Merge codes: union of both sets
+              const localCodes = (lkm.maengel_codes||'').split(',').filter(Boolean);
+              const diskCodes = (dkm.maengel_codes||'').split(',').filter(Boolean);
+              const merged = [...new Set([...localCodes, ...diskCodes])].join(',');
+              if (merged !== lkm.maengel_codes) {
+                this._runSilent('UPDATE kw_maengel SET maengel_codes=? WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
+                  [merged, dkm.kontrollergebnis_id, dkm.ausbildungsjahr, dkm.kalenderwoche]);
+                this._importChangeCount++;
+              }
+            }
+          }
+        });
+      } catch(e) { /* kw_maengel table may not exist */ }
 
       // ── 4) kontrolltermine: import new + update status/pruefer ──
       const diskKT = this._readTable(diskDb, 'kontrolltermine');
