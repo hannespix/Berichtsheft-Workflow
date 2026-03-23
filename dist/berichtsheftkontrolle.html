@@ -12690,7 +12690,7 @@ const Views = {
             <div class="card-header" style="font-size:15px">👥 Mehrbenutzer-Betrieb & Synchronisation</div>
             <p>Mehrere Ausbildungsberater können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
-            <p>1. Alle Sachbearbeiter öffnen die gleiche HTML-Datei und wählen denselben Arbeitsordner</p>
+            <p>1. Alle Sachbearbeiter öffnen dieselbe HTML-Datei und wählen denselben Arbeitsordner</p>
             <p>2. Jeder Sachbearbeiter wählt seinen Namen in der Benutzerauswahl (Topbar, rechts oben)</p>
             <p>3. Änderungen werden automatisch im 8-Sekunden-Intervall mit der gemeinsamen Datenbankdatei synchronisiert</p>
             <p>4. Ein <strong>Synchronisationsmarker</strong> (<code>_bhk/sync_*</code>) signalisiert anderen Instanzen, dass Änderungen vorliegen</p>
@@ -12727,9 +12727,9 @@ const Views = {
 
             <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">📌 Was lohnt sich nachzuerfassen?</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>🔴 <strong>Priorität 1 – Pflicht (~15 Min.):</strong> Offene Wiedervorlagen! Sonst gehen Fristen verloren. Nur die aktuell offenen WV eintragen (Azubi, Frist, Art).</p>
-              <p>🟡 <strong>Priorität 2 – Empfohlen (~30 Min.):</strong> Letztes Kontrollergebnis pro Schüler. Dann funktioniert das Ampel-System und das Dashboard zeigt korrekte Zahlen.</p>
-              <p>🟢 <strong>Priorität 3 – Optional (~60 Min.):</strong> KW-Mängelcodes der letzten Durchsicht, wenn der Verlauf bei der nächsten Kontrolle sichtbar sein soll.</p>
+              <p>🔴 <strong>Priorität 1 – Pflicht (~15 Min.):</strong> Offene Wiedervorlagen übernehmen – andernfalls gehen laufende Fristen verloren. Nur die aktuell offenen Wiedervorlagen eintragen (Auszubildender, Frist, Art der Wiedervorlage).</p>
+              <p>🟡 <strong>Priorität 2 – Empfohlen (~30 Min.):</strong> Letztes Durchsichtsergebnis je Auszubildendem erfassen. Damit arbeitet das Ampelsystem korrekt und das Dashboard zeigt zutreffende Kennzahlen.</p>
+              <p>🟢 <strong>Priorität 3 – Optional (~60 Min.):</strong> KW-Mängelcodes der letzten Durchsicht übernehmen, sofern der Mängelverlauf bei der nächsten Kontrolle sichtbar sein soll.</p>
               <p>⚪ <strong>Weglassen:</strong> Ältere Durchsichten und Detail-KWs. Der Aufwand übersteigt den Nutzen – diese Daten sind auf den archivierten Papierbögen vorhanden.</p>
             </div>
 
@@ -12737,35 +12737,35 @@ const Views = {
             <div style="margin-top:4px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Voraussetzung:</strong> In <em>Einstellungen → Sichtbare Menüpunkte</em> die <strong>Nacherfassung</strong> aktivieren.</p>
               <p style="margin-top:6px"><strong>Schritt 1:</strong> Sidebar → <em>Nacherfassung</em> öffnen</p>
-              <p><strong>Schritt 2:</strong> Datum der letzten Durchsicht eintragen, Prüfer wählen, Schule auswählen</p>
-              <p><strong>Schritt 3:</strong> In der Tabelle für jeden Schüler eintragen:</p>
+              <p><strong>Schritt 2:</strong> Datum der letzten Durchsicht eintragen, Ausbildungsberater wählen, Berufsschule auswählen</p>
+              <p><strong>Schritt 3:</strong> In der Tabelle je Auszubildendem eintragen:</p>
               <p style="margin-left:16px">• <strong>Ergebnis:</strong> "In Ordnung" oder entsprechendes Mängel-Ergebnis</p>
               <p style="margin-left:16px">• <strong>WV-Frist:</strong> Erscheint automatisch bei Mängeln (+4 Wochen, anpassbar)</p>
               <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte</p>
               <p style="margin-left:16px">• <strong>Bemerkung:</strong> Optional, Freitext</p>
               <p><strong>Schritt 4:</strong> "💾 Alle speichern" → Kontrolltermin + Ergebnisse + WV werden angelegt</p>
-              <p style="margin-top:6px"><strong>Tipp:</strong> Die aufklappbare Liste <em>"Noch nicht kontrollierte Schüler"</em> zeigt, welche Azubis noch keine Kontrolle in der DB haben – gruppiert nach Schule.</p>
+              <p style="margin-top:6px"><strong>Tipp:</strong> Die aufklappbare Liste <em>„Noch nicht kontrollierte Auszubildende"</em> zeigt, welche Auszubildenden noch keine Durchsicht im Datenbestand haben – gruppiert nach Berufsschule.</p>
             </div>
 
             <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">⏱ Zeitschätzung für die Erstbefüllung</p>
             <div style="margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
               <div style="padding:8px;background:var(--clr-amber-light);border-radius:var(--radius)">
                 <div style="font-weight:700">Ohne Schnellerfassung</div>
-                <p>20 Schüler: ~45 Min. (Einzelansicht)</p>
-                <p>200 Schüler: ~6 Stunden</p>
-                <p>600 Schüler: ~2 Tage</p>
+                <p>20 Auszubildende: ~45 Min. (Einzelansicht)</p>
+                <p>200 Auszubildende: ~6 Stunden</p>
+                <p>600 Auszubildende: ~2 Tage</p>
               </div>
               <div style="padding:8px;background:var(--clr-green-light);border-radius:var(--radius)">
                 <div style="font-weight:700">Mit Schnellerfassung</div>
-                <p>20 Schüler: ~10 Min. (Tabelle)</p>
-                <p>200 Schüler: ~1,5 Stunden</p>
-                <p>600 Schüler: ~4 Stunden</p>
+                <p>20 Auszubildende: ~10 Min. (Tabelle)</p>
+                <p>200 Auszubildende: ~1,5 Stunden</p>
+                <p>600 Auszubildende: ~4 Stunden</p>
               </div>
             </div>
 
             <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">💡 Wichtig: AP und ZP sind zwei getrennte Felder</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p>Jeder Azubi hat sowohl eine <strong>Abschlussprüfung (AP)</strong> als auch eine <strong>Zwischenprüfung (ZP)</strong>. Beide Werte kommen aus dem IBYKUS-Export und werden als separate Felder gespeichert:</p>
+              <p>Für jeden Auszubildenden werden sowohl der Termin der <strong>Abschlussprüfung (AP)</strong> als auch der Termin der <strong>Zwischenprüfung (ZP)</strong> geführt. Beide Werte stammen aus dem IBYKUS-Export und werden als getrennte Felder gespeichert:</p>
               <p style="margin-top:4px">• <strong>AP</strong> (S2027, W2027): Bestimmt den Abschlussjahrgang → Klassen- und Termin-Zuordnung</p>
               <p>• <strong>ZP</strong> (H2026, F2027): Wird im ZP-Filter und in der Anzeige verwendet</p>
               <p style="margin-top:4px">Im Jahrgänge-Filter kann <strong>entweder</strong> nach AP oder nach ZP gefiltert werden (nicht beides gleichzeitig), weil die Zeitpunkte unterschiedlich sind und eine AND-Verknüpfung keine sinnvollen Ergebnisse liefert.</p>
@@ -12786,7 +12786,7 @@ const Views = {
             <p>• Für Disaster Recovery: gesamten Arbeitsordner sichern</p>
             <p style="margin-top:8px"><strong>Netzlaufwerk-Betrieb:</strong></p>
             <p>• Arbeitsordner auf einem gemeinsamen Netzlaufwerk ablegen (z.B. <code>Z:\\Berichtsheftkontrolle\\</code>)</p>
-            <p>• Jeder Sachbearbeiter öffnet die HTML-Datei lokal im Browser und wählt denselben Ordner</p>
+            <p>• Jeder Sachbearbeiter öffnet dieselbe HTML-Datei im Browser und wählt denselben Arbeitsordner</p>
             <p>• Der Synchronisationsmarker in <code>_bhk/sync_*</code> darf im laufenden Betrieb nicht gelöscht werden</p>
             <p>• Bei Synchronisationsproblemen: Alle Browser-Instanzen schließen, <code>_bhk/sync_*</code> löschen, Anwendung neu starten</p>
             <p style="margin-top:8px"><strong>Datenbank-Wartung:</strong></p>
@@ -12899,7 +12899,7 @@ const Views = {
             <div class="card-header" style="font-size:15px">⏱️ Zeitersparnis & Arbeitserleichterung</div>
             <p>Die Berichtsheftkontrolle ersetzt einen aufwändigen, papiergestützten Verwaltungsprozess, der bisher mit Excel-Listen, Word-Vorlagen, manuellen E-Mails und physischer Aktenablage durchgeführt wurde.</p>
 
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📊 Zeitvergleich pro Durchsicht (ca. 20 Azubis):</p>
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📊 Zeitvergleich je Durchsichtstermin (ca. 20 Auszubildende):</p>
             <div style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
               <div style="padding:10px;background:var(--clr-red-light);border-radius:var(--radius);text-align:center">
                 <div style="font-size:9px;color:var(--clr-red);font-weight:700;text-transform:uppercase">Papier (bisher)</div>
@@ -12914,52 +12914,52 @@ const Views = {
               <div style="padding:10px;background:var(--clr-green-light);border-radius:var(--radius);text-align:center">
                 <div style="font-size:9px;color:var(--clr-green);font-weight:700;text-transform:uppercase">Dieses Tool</div>
                 <div style="font-size:22px;font-weight:700;color:var(--clr-green)">~1 Std.</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Durchsicht direkt im Tool</div>
+                <div style="font-size:10px;color:var(--clr-text-light)">Durchsicht direkt in der Anwendung</div>
               </div>
             </div>
 
             <p style="margin-top:16px;font-weight:700;color:var(--clr-red)">❌ Bisheriger Workflow (papiergestützt):</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>1. Vorbereitung</strong> (~30 Min.): Schülerliste aus IBYKUS exportieren. In Excel-Tabelle manuell übertragen. Durchsichtsbögen einzeln in Word ausfüllen (Name, Betrieb, Schule für jeden Azubi). Bögen ausdrucken.</p>
-              <p><strong>2. Durchsicht</strong> (~60 Min.): Berichtshefte prüfen, Ergebnisse handschriftlich auf Papierbogen eintragen. Mängelcodes in Kästchen ankreuzen. Fehltage zählen und notieren.</p>
-              <p><strong>3. Nachbereitung</strong> (~90 Min.): Ergebnisse von Papierbögen zurück in Excel übertragen. Bei Mängeln: Wiedervorlage-Termin in Outlook-Kalender eintragen. Erinnerung manuell setzen. Einladungen/Anschreiben einzeln in Word erstellen und per E-Mail versenden. Prüfen ob alle Wiedervorlagen bearbeitet wurden.</p>
-              <p><strong>4. Ablage</strong> (~30 Min.): Papierbögen scannen oder kopieren. In E-Akte hochladen oder in Aktenordner abheften. Excel-Liste aktualisieren.</p>
-              <p style="margin-top:4px;color:var(--clr-red)"><strong>Fehlerquellen:</strong> Übertragungsfehler (Papier → Excel), vergessene Wiedervorlagen, veraltete Schülerdaten, keine Übersicht über Gesamtstatus, Abstimmungsprobleme bei mehreren Prüfern.</p>
+              <p><strong>1. Vorbereitung</strong> (~30 Min.): Liste der Auszubildenden aus IBYKUS exportieren, manuell in eine Excel-Tabelle übertragen. Durchsichtsbögen einzeln in Word ausfüllen (Name, Betrieb, Berufsschule je Auszubildendem). Bögen ausdrucken.</p>
+              <p><strong>2. Durchsicht</strong> (~60 Min.): Ausbildungsnachweise prüfen, Ergebnisse handschriftlich auf dem Papierbogen eintragen. Mängelcodes in Kästchen ankreuzen. Fehltage auszählen und notieren.</p>
+              <p><strong>3. Nachbereitung</strong> (~90 Min.): Ergebnisse von den Papierbögen zurück in Excel übertragen. Bei Beanstandungen: Wiedervorlagetermin im Outlook-Kalender eintragen, Erinnerung manuell setzen. Aufforderungsschreiben einzeln in Word erstellen und per E-Mail versenden. Prüfen, ob alle Wiedervorlagen bearbeitet wurden.</p>
+              <p><strong>4. Ablage</strong> (~30 Min.): Papierbögen scannen oder kopieren. In die E-Akte hochladen oder im Aktenordner abheften. Excel-Liste aktualisieren.</p>
+              <p style="margin-top:4px;color:var(--clr-red)"><strong>Fehlerquellen:</strong> Übertragungsfehler (Papier → Excel), vergessene Wiedervorlagen, veraltete Stammdaten, keine Übersicht über den Gesamtstand, Abstimmungsprobleme bei mehreren Sachbearbeitern.</p>
             </div>
 
             <p style="margin-top:12px;font-weight:700;color:var(--clr-amber)">⚠️ Hypothetischer Workflow mit MS Office + E-Akte:</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>Excel als Stammdaten-Verwaltung:</strong> Mehrere Sheets (Azubis, Betriebe, Kontrollergebnisse, Wiedervorlagen). Keine referenzielle Integrität – Tippfehler in Betriebsnamen führen zu Inkonsistenzen. Keine automatische Verknüpfung IBYKUS → Excel.</p>
-              <p><strong>Word-Serienbriefe für Durchsichtsbögen:</strong> Serienbrief-Vorlage pflegen, Datenquelle-Verknüpfung regelmäßig reparieren. Jede Änderung am Bogen-Layout erfordert Word-Kenntnisse. Kein individuelles KW-Raster pro Azubi möglich.</p>
-              <p><strong>Outlook für Wiedervorlagen:</strong> Jede Wiedervorlage manuell als Aufgabe/Termin anlegen. Kein Zusammenhang zur Excel-Tabelle – Doppelpflege. Überfällige WV fallen nicht systematisch auf.</p>
-              <p><strong>E-Akte für Ablage:</strong> PDF-Bögen einzeln hochladen. Keine automatische Zuordnung zum Azubi. Suche nur über Dateiname möglich.</p>
-              <p><strong>Multi-User:</strong> Excel-Dateien auf dem Netzlaufwerk werden von Windows gesperrt (nur ein Benutzer gleichzeitig). Alternativ SharePoint – erfordert IT-Einrichtung und Schulung.</p>
-              <p style="margin-top:4px;color:var(--clr-amber)"><strong>Aufwand:</strong> Hoher initialer Einrichtungsaufwand (2-3 Tage). Fragile Verknüpfungen die bei Windows-Updates oder Pfadänderungen brechen. Keine Gesamtübersicht / Dashboard. Kein Ampel-System.</p>
+              <p><strong>Excel als Stammdatenverwaltung:</strong> Mehrere Tabellenblätter (Auszubildende, Betriebe, Kontrollergebnisse, Wiedervorlagen). Keine referenzielle Integrität – Tippfehler in Betriebsnamen führen zu Inkonsistenzen. Keine automatische Verknüpfung mit dem IBYKUS-Datenbestand.</p>
+              <p><strong>Word-Serienbriefe für Durchsichtsbögen:</strong> Serienbriefvorlage pflegen, Datenquellverknüpfung regelmäßig reparieren. Jede Änderung am Bogenlayout erfordert Word-Kenntnisse. Kein individuelles KW-Raster je Auszubildendem möglich.</p>
+              <p><strong>Outlook für Wiedervorlagen:</strong> Jede Wiedervorlage manuell als Aufgabe bzw. Termin anlegen. Kein Zusammenhang zur Excel-Tabelle – Doppelpflege. Überfällige Wiedervorlagen fallen nicht systematisch auf.</p>
+              <p><strong>E-Akte für Ablage:</strong> PDF-Bögen einzeln hochladen. Keine automatische Zuordnung zum Auszubildenden. Suche nur über den Dateinamen möglich.</p>
+              <p><strong>Mehrbenutzer-Betrieb:</strong> Excel-Dateien auf dem Netzlaufwerk werden von Windows gesperrt (nur ein Benutzer gleichzeitig). Alternativ SharePoint – erfordert IT-Einrichtung und Schulung.</p>
+              <p style="margin-top:4px;color:var(--clr-amber)"><strong>Aufwand:</strong> Hoher initialer Einrichtungsaufwand (2–3 Tage). Fragile Verknüpfungen, die bei Windows-Updates oder Pfadänderungen brechen. Keine Gesamtübersicht, kein Ampelsystem.</p>
             </div>
 
             <p style="margin-top:12px;font-weight:700;color:var(--clr-green)">✅ Workflow mit der Berichtsheftkontrolle:</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>1. Vorbereitung</strong> (~2 Min.): IBYKUS-CSV importieren → alle Schülerdaten, Betriebe, Schulen, Klassen werden automatisch angelegt und aktualisiert. Kontrolltermin anlegen mit KW-Kalender und Klassenfilter.</p>
-              <p><strong>2. Durchsicht</strong> (~45 Min.): Berichtshefte prüfen, Mängelcodes direkt im KW-Raster per Tastatur eingeben. Fehltage mit einem Klick. Pflichtteile als Dropdown. Ergebnis auswählen → Wiedervorlage wird automatisch angelegt mit korrektem Fristdatum.</p>
-              <p><strong>3. Nachbereitung</strong> (~10 Min.): PDF-Export aller Durchsichtsbögen mit einem Klick. E-Mail-Vorlagen für Einladungen/Anschreiben automatisch generiert (Betrieb, Schule, Azubi – alles vorausgefüllt). Wiedervorlagen-Übersicht zeigt offene und überfällige WV auf einen Blick.</p>
+              <p><strong>1. Vorbereitung</strong> (~2 Min.): IBYKUS-CSV importieren → sämtliche Stammdaten, Betriebe, Berufsschulen und Klassen werden automatisch angelegt bzw. aktualisiert. Durchsichtstermin anlegen und Klassen zuweisen.</p>
+              <p><strong>2. Durchsicht</strong> (~45 Min.): Ausbildungsnachweise prüfen, Mängelcodes direkt im KW-Raster per Tastatur eingeben. Fehltage mit einem Klick. Pflichtbestandteile als Dropdown. Ergebnis auswählen → Wiedervorlage wird automatisch mit korrektem Fristdatum angelegt.</p>
+              <p><strong>3. Nachbereitung</strong> (~10 Min.): PDF-Export aller Durchsichtsbögen mit einem Klick. E-Mail-Vorlagen für Aufforderungsschreiben werden automatisch erzeugt (Betrieb, Schule, Auszubildender – vollständig vorausgefüllt). Wiedervorlagen-Übersicht zeigt offene und überfällige Vorgänge auf einen Blick.</p>
               <p><strong>4. Ablage</strong> (~2 Min.): PDF-Durchsichtsbögen sind sofort verfügbar. Export als Sammel-PDF oder Einzelbögen. Automatische Archivierung als Snapshot in der Datenbank.</p>
             </div>
 
             <p style="margin-top:16px;font-weight:700;color:var(--clr-forest-dark)">📋 Konkrete Arbeitserleichterungen:</p>
             <div style="margin-top:6px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>⏱ <strong>Individuelle Durchsichtsbögen</strong> – Werden automatisch aus den Stammdaten generiert. Kein manuelles Ausfüllen von Name, Betrieb, Schule, Klasse mehr. KW-Raster mit 4 Ausbildungsjahren, Fehltage-Berechnung, Pflichtteile – alles auf einem Bogen.</p>
-              <p>⏱ <strong>Einladungen und Anschreiben</strong> – Vorausgefüllte E-Mail-Vorlagen mit allen Daten des Azubis und Betriebs. Ein Klick öffnet den E-Mail-Client mit fertigem Text. Word-Serienbriefe für postalischen Versand möglich.</p>
-              <p>⏱ <strong>Wiedervorlagen</strong> – Werden automatisch aus dem Kontrollergebnis angelegt. Frist, Art (E-Mail/Post/Persönlich), Zuständigkeit – alles in einem System. Überfällige WV werden rot hervorgehoben. Kein manuelles Nachhalten in Outlook oder Excel mehr.</p>
-              <p>⏱ <strong>Pflege der Wiedervorlagen</strong> – Dashboard zeigt auf einen Blick: Wie viele WV sind offen? Wie viele überfällig? Welche Azubis sind betroffen? Welche Betriebe haben die meisten Beanstandungen? Filter nach Jahrgang, Fachrichtung, Amt – sofort.</p>
-              <p>⏱ <strong>Ablage der Durchsichtsbögen</strong> – PDF-Export einzeln oder als Sammel-PDF für den gesamten Kontrolltermin. Archiv-Snapshots in der Datenbank. Kein Scannen, kein manuelles Hochladen in die E-Akte.</p>
-              <p>⏱ <strong>Abstimmung zwischen Prüfern</strong> – Drei Prüfer arbeiten gleichzeitig an derselben Datenbank. Live-Synchronisation alle 8 Sekunden. Lock-System verhindert Konflikte. Jeder sieht sofort, was die anderen bereits erledigt haben.</p>
-              <p>⏱ <strong>Jahresbericht</strong> – Kompletter Jahresbericht als PDF mit Statistiken (Schulen, Fachrichtungen, Ämter, Mängelverteilung) auf Knopfdruck. Früher: tagelange Auswertung der Excel-Tabellen.</p>
-              <p>⏱ <strong>Datenqualität</strong> – IBYKUS-Import hält die Stammdaten automatisch aktuell. Keine manuelle Pflege, keine veralteten Adressen, keine doppelten Einträge. Betriebe werden automatisch verknüpft.</p>
+              <p>⏱ <strong>Individuelle Durchsichtsbögen</strong> – Werden automatisch aus den Stammdaten erzeugt. Kein manuelles Ausfüllen von Name, Betrieb, Berufsschule und Klasse mehr. KW-Raster über 4 Ausbildungsjahre, Fehltageberechnung und Pflichtbestandteile – alles auf einem Bogen.</p>
+              <p>⏱ <strong>Aufforderungsschreiben und Einladungen</strong> – Vorausgefüllte E-Mail-Vorlagen mit allen Daten des Auszubildenden und des Betriebs. Ein Klick öffnet den E-Mail-Client mit fertigem Text. Word-Serienbriefe für postalischen Versand möglich.</p>
+              <p>⏱ <strong>Wiedervorlagen</strong> – Werden automatisch aus dem Durchsichtsergebnis angelegt. Frist, Art (E-Mail/Post/persönlich) und Zuständigkeit – alles in einem System. Überfällige Wiedervorlagen werden farblich hervorgehoben. Kein manuelles Nachhalten in Outlook oder Excel mehr.</p>
+              <p>⏱ <strong>Wiedervorlagen-Übersicht</strong> – Das Dashboard zeigt auf einen Blick: Wie viele Wiedervorlagen sind offen? Wie viele überfällig? Welche Auszubildenden und welche Betriebe sind betroffen? Filterung nach Jahrgang, Fachrichtung und Amt ist sofort möglich.</p>
+              <p>⏱ <strong>Ablage der Durchsichtsbögen</strong> – PDF-Export einzeln oder als Sammel-PDF je Durchsichtstermin. Archivierung als Snapshot in der Datenbank. Kein Scannen, kein manuelles Hochladen in die E-Akte.</p>
+              <p>⏱ <strong>Abstimmung zwischen Sachbearbeitern</strong> – Drei Ausbildungsberater arbeiten gleichzeitig an derselben Datenbank. Automatische Synchronisation im 8-Sekunden-Intervall. Das Sperrsystem verhindert Bearbeitungskonflikte. Jeder sieht unmittelbar, was die anderen bereits erledigt haben.</p>
+              <p>⏱ <strong>Jahresbericht</strong> – Vollständiger Jahresbericht als PDF mit Statistiken (Berufsschulen, Fachrichtungen, Ämter, Mängelverteilung) auf Knopfdruck. Bisher: tagelange manuelle Auswertung der Excel-Tabellen.</p>
+              <p>⏱ <strong>Datenqualität</strong> – Der IBYKUS-Import hält die Stammdaten automatisch aktuell. Keine manuelle Pflege, keine veralteten Adressen, keine doppelten Einträge. Ausbildungsbetriebe werden automatisch verknüpft.</p>
             </div>
 
             <p style="margin-top:16px;font-weight:700;color:var(--clr-forest-dark)">📈 Hochrechnung Zeitersparnis pro Jahr:</p>
             <div style="margin-top:6px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>Bei ca. 600 Azubis, ~25 Kontrolltermine/Jahr, 3 Prüfern:</p>
+              <p>Bei ca. 600 Auszubildenden, ~25 Durchsichtsterminen/Jahr und 3 Ausbildungsberatern:</p>
               <p>• <strong>Papier-Workflow:</strong> ~25 × 4 Std. = <strong>100 Stunden</strong>/Jahr (reine Verwaltung, ohne die eigentliche Prüfung)</p>
               <p>• <strong>MS Office:</strong> ~25 × 2,5 Std. = <strong>62 Stunden</strong>/Jahr + hoher Einrichtungsaufwand + Fehlerkorrektur</p>
               <p>• <strong>Berichtsheftkontrolle:</strong> ~25 × 1 Std. = <strong>25 Stunden</strong>/Jahr (inkl. Import, Export, Wiedervorlagen)</p>
@@ -13079,7 +13079,7 @@ const Views = {
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
             Prüfen Sie den BAV-Status-Filter in der Topbar (📋-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
             <p style="margin-top:8px"><strong>Können mehrere Sachbearbeiter gleichzeitig mit der Anwendung arbeiten?</strong><br>
-            Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen die HTML-Datei im Browser und wählen denselben Ordner. Das integrierte Synchronisationssystem gleicht Änderungen im 8-Sekunden-Intervall ab und verhindert durch ein Sperrsystem gleichzeitige Bearbeitung desselben Datensatzes.</p>
+            Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen dieselbe HTML-Datei im Browser und wählen denselben Arbeitsordner. Das integrierte Synchronisationssystem gleicht Änderungen im 8-Sekunden-Intervall ab und verhindert durch ein Sperrsystem gleichzeitige Bearbeitung desselben Datensatzes.</p>
             <p style="margin-top:8px"><strong>Welche Browser werden unterstützt?</strong><br>
             Ausschließlich <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> (Chromium-basiert). Mozilla Firefox und Apple Safari werden nicht unterstützt, da diese Browser die erforderliche File System Access API nicht implementieren.</p>
             <p style="margin-top:8px"><strong>Wie viele Datensätze kann die Datenbank verarbeiten?</strong><br>
