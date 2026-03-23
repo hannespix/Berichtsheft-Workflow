@@ -1,0 +1,544 @@
+const BerichteHandler = {
+  exportKlasse() {
+    const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name`);
+    App.openModal('Klassenübersicht exportieren', `
+      <div class="form-group"><label>Klasse auswählen</label><select class="form-control" id="mExpKlasse">
+        ${klassen.map(k => `<option value="${k.id}">${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
+      </select></div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.doExportKlasse()">PDF erstellen</button>`);
+  },
+  doExportKlasse() {
+    const klasseId = document.getElementById('mExpKlasse').value;
+    const klasse = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?`, [klasseId])[0];
+    const schueler = App.query(`SELECT s.*, ke.ergebnis, ke.fehltage_gesamt, ke.bemerkung as ke_bemerkung
+      FROM schueler s LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE s.klasse_id=? ORDER BY s.nachname`, [klasseId]);
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('l', 'mm', 'a4');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text(`Berichtsheftkontrolle – ${klasse.schule} – ${klasse.klassenbezeichnung}`, 14, 15);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+
+    const rows = schueler.map(s => [
+      s.nachname + ', ' + s.vorname,
+      s.ausbildungsstaette,
+      ergebnisLabel(s.ergebnis),
+      s.fehltage_gesamt || '0',
+      s.ke_bemerkung || ''
+    ]);
+
+    doc.autoTable({
+      startY: 22,
+      head: [['Name', 'Betrieb', 'Ergebnis', 'Fehltage', 'Bemerkung']],
+      body: rows,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [45, 80, 22] },
+    });
+
+    const today = new Date().toISOString().split('T')[0].replace(/-/g,'');
+    doc.save(`Klassenuebersicht_${klasse.schule}_${klasse.klassenbezeichnung}_${schueler.length}Schueler_${today}.pdf`.replace(/[\/ \\:,;]/g,'_'));
+    App.closeModal();
+    App.toast('PDF erstellt', 'success');
+  },
+
+  exportEinzel() {
+    const termine = App.query(`SELECT kt.*
+      FROM kontrolltermine kt
+      ORDER BY kt.geplant_datum DESC`);
+    App.openModal('Einzelnen Durchsichtsbogen exportieren', `
+      <div class="form-group"><label>Kontrolltermin</label><select class="form-control" id="mExpTermin" onchange="BerichteHandler.loadSchuelerForExport(this.value)">
+        <option value="">– Bitte wählen –</option>
+        ${termine.map(t => {
+          const klassen = App.getTerminKlassen(t.id);
+          const schule = klassen.length ? klassen[0].schule : '?';
+          const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+          return `<option value="${t.id}">${formatDate(t.geplant_datum)} – ${esc(schule)} – ${esc(klassenStr)}</option>`;
+        }).join('')}
+      </select></div>
+      <div class="form-group"><label>Schüler</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.doExportEinzel()">PDF erstellen</button>`);
+  },
+  loadSchuelerForExport(terminId) {
+    const sel = document.getElementById('mExpSchueler');
+    if (!terminId) { sel.innerHTML = '<option value="">– Termin wählen –</option>'; return; }
+    const schueler = App.getTerminSchueler(parseInt(terminId));
+    sel.innerHTML = schueler.map(s => `<option value="${s.id}">${esc(s.nachname)}, ${esc(s.vorname)}</option>`).join('');
+  },
+  doExportEinzel() {
+    const tid = document.getElementById('mExpTermin')?.value;
+    const sid = document.getElementById('mExpSchueler')?.value;
+    if (!tid || !sid) return App.toast('Bitte Termin und Schüler wählen', 'error');
+    PDFExport.generateSingle(parseInt(tid), parseInt(sid));
+    App.closeModal();
+  },
+
+  exportStatistik() {
+    const data = App.query(`SELECT bs.name as schule, k.klassenbezeichnung, k.lehrjahr,
+      COUNT(s.id) as total_schueler,
+      SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
+      SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
+      SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
+      FROM schueler s
+      JOIN klassen k ON s.klasse_id=k.id
+      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      GROUP BY bs.name, k.klassenbezeichnung, k.lehrjahr`);
+
+    let csv = 'Schule;Klasse;Lehrjahr;Gesamt;In Ordnung;Mangelhaft;Unkontrolliert\n';
+    data.forEach(r => {
+      csv += `${r.schule};${r.klassenbezeichnung};${r.lehrjahr};${r.total_schueler};${r.ok};${r.mangelhaft};${r.unkontrolliert}\n`;
+    });
+
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `BH-Statistik_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    App.toast('CSV exportiert', 'success');
+  },
+
+  // ── Jahresbericht-Generator ──
+  // ── Gesamtpaket: Alle Exports für einen Termin auf einmal ──
+  gesamtpaket(terminId) {
+    const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!termin) return;
+    const klassen = App.getTerminKlassen(terminId);
+    const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+    const schule = klassen.length ? klassen[0].schule : '?';
+    const schueler = App.getTerminSchueler(terminId);
+    const mangelCount = schueler.filter(s => {
+      const ke = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
+      return ke?.ergebnis && ke.ergebnis !== 'in_ordnung';
+    }).length;
+
+    App.openModal('📦 Gesamtpaket – ' + klassenStr, `
+      <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Schüler · ${mangelCount} beanstandet</p>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> 📄 Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> 📊 Seriendruck-CSV für Betriebe (${mangelCount} beanstandet)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpEmail" style="accent-color:var(--clr-forest)"> 📧 E-Mail an Schule öffnen
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpBriefe" style="accent-color:var(--clr-forest)"> 📄 PDF-Anschreiben an Betriebe
+        </label>
+        ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpWord" checked style="accent-color:var(--clr-forest)"> 📝 Word-Serienbriefe (aus Vorlage)
+        </label>` : ''}
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> 📊 Statistik-CSV
+        </label>
+      </div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.doGesamtpaket(${terminId})">📦 Alles exportieren</button>`);
+  },
+
+  doGesamtpaket(terminId) {
+    App.closeModal();
+    App.showLoading('Gesamtpaket wird erstellt…');
+    let delay = 0;
+    if (document.getElementById('gpPDF')?.checked) {
+      setTimeout(() => PlanungHandler.exportTerminPDF(terminId), delay);
+      delay += 500;
+    }
+    if (document.getElementById('gpCSV')?.checked) {
+      setTimeout(() => Workflows.exportSeriendruckCSV(terminId), delay);
+      delay += 500;
+    }
+    if (document.getElementById('gpBriefe')?.checked) {
+      setTimeout(() => Workflows.exportSeriendruckPDF(terminId), delay);
+      delay += 500;
+    }
+    if (document.getElementById('gpWord')?.checked) {
+      setTimeout(() => Workflows.exportSeriendruckWord(terminId), delay);
+      delay += 800;
+    }
+    if (document.getElementById('gpStatistik')?.checked) {
+      setTimeout(() => BerichteHandler.exportStatistik(), delay);
+      delay += 500;
+    }
+    if (document.getElementById('gpEmail')?.checked) {
+      setTimeout(() => Workflows.emailSchule(terminId), delay);
+      delay += 500;
+    }
+    setTimeout(() => { App.hideLoading(); App.toast('Gesamtpaket erstellt', 'success'); }, delay + 300);
+  },
+
+  jahresbericht() {
+    App.showLoading('Erstelle Jahresbericht…');
+    setTimeout(() => { // Allow spinner to render
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const LM = 18; const RM = 192; const PW = RM - LM;
+    const COL_GREEN = [45, 80, 22];
+    const COL_LIGHT = [245, 240, 232];
+    const COL_GRAY = [130, 130, 130];
+    const today = new Date().toLocaleDateString('de-DE');
+    const sj = (() => { const now = new Date(); return now.getMonth() >= 7 ? `${now.getFullYear()}/${now.getFullYear()+1}` : `${now.getFullYear()-1}/${now.getFullYear()}`; })();
+
+    // ── Data queries ──
+    const totalSchueler = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    const totalInaktiv = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
+    const totalAbgeschlossen = App.scalar("SELECT COUNT(*) FROM schueler WHERE status='ap_bestanden'") || 0;
+    const kontrolliert = App.scalar('SELECT COUNT(DISTINCT schueler_id) FROM kontrollergebnisse WHERE ergebnis != ""') || 0;
+    const nichtKontrolliert = totalSchueler - kontrolliert;
+    const okCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis='in_ordnung'") || 0;
+    const mangelCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis != '' AND ergebnis != 'in_ordnung'") || 0;
+    const termine = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="durchgefuehrt"') || 0;
+    const termineGeplant = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="geplant"') || 0;
+    const offeneWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
+    const erledigteWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='erledigt'") || 0;
+    const einsendungen = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE typ='einsendung' AND status='durchgefuehrt'") || 0;
+
+    // Top Mängel-Codes
+    const topCodes = App.query(`SELECT maengel_codes FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H'`);
+    const codeCount = {};
+    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { codeCount[c] = (codeCount[c]||0) + 1; }));
+    const sortedCodes = Object.entries(codeCount).sort((a,b) => b[1] - a[1]);
+    const totalCodeEntries = sortedCodes.reduce((s, [,c]) => s + c, 0);
+    const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'BS-Themen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
+
+    // Per-school stats
+    const schoolStats = App.query(`SELECT bs.name as schule, bs.ort,
+      COUNT(DISTINCT s.id) as total,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as mangel,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis IS NULL OR ke.ergebnis='' THEN s.id END) as offen
+      FROM schueler s
+      JOIN klassen k ON s.klasse_id=k.id
+      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      WHERE s.aktiv=1
+      GROUP BY bs.id ORDER BY bs.name`);
+
+    // Per-Fachrichtung stats
+    const frStats = App.query(`SELECT 
+      CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'Unbekannt') as fachrichtung,
+      COUNT(DISTINCT s.id) as total,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as mangel
+      FROM schueler s
+      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
+      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      WHERE s.aktiv=1
+      GROUP BY f.id ORDER BY total DESC`);
+
+    // Betrieb-Ranking (top 10 problematic)
+    const betriebRank = App.query(`SELECT 
+      CASE WHEN b.zusatzbezeichnung != '' THEN b.zusatzbezeichnung || ' ' ELSE '' END || COALESCE(b.vorname || ' ','') || COALESCE(b.name, s.ausbildungsstaette) as betrieb,
+      COUNT(DISTINCT s.id) as azubis,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN ke.id END) as maengel,
+      COUNT(DISTINCT CASE WHEN w.status IN ('offen','ueberfaellig') THEN w.id END) as offene_wv
+      FROM schueler s
+      LEFT JOIN betriebe b ON s.betrieb_id=b.id
+      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      LEFT JOIN wiedervorlagen w ON w.schueler_id=s.id
+      WHERE s.aktiv=1
+      GROUP BY COALESCE(b.id, s.ausbildungsstaette) HAVING maengel > 0
+      ORDER BY maengel DESC LIMIT 10`);
+
+    // ── Helper functions ──
+    function drawHeader(doc, y) {
+      doc.setFillColor(...COL_GREEN);
+      doc.rect(LM, y, PW, 14, 'F');
+      doc.setTextColor(255,255,255);
+      doc.setFont('helvetica','bold'); doc.setFontSize(14);
+      doc.text('Jahresbericht Berichtsheftkontrolle Gärtner', LM + 5, y + 9);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.text(`Schuljahr ${sj}`, RM - 5, y + 6, { align: 'right' });
+      doc.text(`Stand: ${today}`, RM - 5, y + 10, { align: 'right' });
+      return y + 18;
+    }
+
+    function drawFooter(doc, page) {
+      doc.setDrawColor(...COL_GREEN); doc.setLineWidth(0.5);
+      doc.line(LM, 286, RM, 286);
+      doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(...COL_GRAY);
+      doc.text('Regierungspräsidium Freiburg · Abt. 3 · Referat 31 · Berichtsheftkontrolle Gärtner', LM, 290);
+      doc.text(`Seite ${page}`, RM, 290, { align: 'right' });
+    }
+
+    function drawSectionTitle(doc, y, title) {
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(...COL_GREEN);
+      doc.text(title, LM, y);
+      doc.setDrawColor(...COL_GREEN); doc.setLineWidth(0.3);
+      doc.line(LM, y + 1.5, LM + doc.getTextWidth(title) + 2, y + 1.5);
+      return y + 6;
+    }
+
+    function drawMetric(doc, x, y, w, label, value, sub) {
+      doc.setFillColor(...COL_LIGHT); doc.setDrawColor(220,215,208);
+      doc.roundedRect(x, y, w, 22, 2, 2, 'FD');
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
+      doc.text(label, x + w/2, y + 6, { align: 'center' });
+      doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(...COL_GREEN);
+      doc.text(`${value}`, x + w/2, y + 15, { align: 'center' });
+      if (sub) { doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(...COL_GRAY); doc.text(sub, x + w/2, y + 20, { align: 'center' }); }
+    }
+
+    function drawTableHeader(doc, y, cols) {
+      doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 7, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(255,255,255);
+      cols.forEach((c, i) => {
+        const maxW = (i < cols.length - 1) ? (cols[i+1].x - c.x - 2) : (RM - c.x);
+        const opts = c.align === 'right' ? { align: 'right', maxWidth: maxW } : c.align === 'center' ? { align: 'center', maxWidth: maxW } : { maxWidth: maxW };
+        doc.text(c.label, c.x, y + 5, opts);
+      });
+      return y + 8;
+    }
+
+    function drawTableRow(doc, y, cols, values, stripe) {
+      if (stripe) { doc.setFillColor(250,248,244); doc.rect(LM, y - 3.5, PW, 5.5, 'F'); }
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(40,40,40);
+      cols.forEach((c, i) => {
+        const val = `${values[i] || ''}`;
+        const maxW = (i < cols.length - 1) ? (cols[i+1].x - c.x - 2) : (RM - c.x);
+        const opts = c.align === 'right' ? { align: 'right', maxWidth: maxW } : c.align === 'center' ? { align: 'center', maxWidth: maxW } : { maxWidth: maxW };
+        doc.text(val.substring(0, 60), c.x, y, opts);
+      });
+      return y + 5.5;
+    }
+
+    // ══════════════════════════════════════
+    // PAGE 1: Zusammenfassung
+    // ══════════════════════════════════════
+    let y = drawHeader(doc, 12);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...COL_GRAY);
+    doc.text('Regierungspräsidium Freiburg · Abteilung 3 · Referat 31', LM, y); y += 7;
+
+    // Key Metrics (6 boxes)
+    const mw = (PW - 10) / 3;
+    drawMetric(doc, LM, y, mw, 'Aktive Azubis', totalSchueler, nichtKontrolliert > 0 ? `${nichtKontrolliert} noch offen` : 'alle kontrolliert');
+    drawMetric(doc, LM + mw + 5, y, mw, 'Kontrolliert', kontrolliert, `${totalSchueler > 0 ? Math.round(kontrolliert/totalSchueler*100) : 0}% Abdeckung`);
+    drawMetric(doc, LM + 2*(mw+5), y, mw, 'In Ordnung', okCount, `${kontrolliert > 0 ? Math.round(okCount/kontrolliert*100) : 0}% Erfolgsquote`);
+    y += 26;
+    drawMetric(doc, LM, y, mw, 'Beanstandungen', mangelCount, '');
+    drawMetric(doc, LM + mw + 5, y, mw, 'Termine', termine, einsendungen ? `davon ${einsendungen} Einsendungen` : `${termineGeplant} geplant`);
+    drawMetric(doc, LM + 2*(mw+5), y, mw, 'Wiedervorlagen', offeneWV, `${erledigteWV} erledigt`);
+    y += 30;
+
+    // Mängel-Codes Ranking
+    y = drawSectionTitle(doc, y, 'Häufigste Mängelcodes');
+    if (sortedCodes.length) {
+      const maxCodeCount = sortedCodes[0]?.[1] || 1;
+      const barStartX = LM + 60;
+      const barMaxW = 65;
+      sortedCodes.slice(0, 9).forEach(([code, count], i) => {
+        const pct = Math.round(count / totalCodeEntries * 100);
+        const barW = Math.max(count / maxCodeCount * barMaxW, 2);
+        // Alternating background
+        if (i % 2 === 0) { doc.setFillColor(250,248,245); doc.rect(LM, y - 3.5, PW, 5.5, 'F'); }
+        // Code letter
+        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...COL_GREEN);
+        doc.text(`${code}`, LM + 1, y);
+        // Label
+        doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80,80,80);
+        doc.text(`${codeLabels[code]||code}`, LM + 7, y);
+        // Bar
+        doc.setFillColor(253,230,226); doc.rect(barStartX, y - 3, barW, 4, 'F');
+        doc.setFillColor(192, 57, 43); doc.rect(barStartX, y - 3, Math.min(barW * 0.4, barW), 4, 'F');
+        // Count + percentage
+        doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(0);
+        doc.text(`${count}`, barStartX + barW + 3, y);
+        doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...COL_GRAY);
+        doc.text(`(${pct}%)`, barStartX + barW + 3 + doc.getTextWidth(`${count}`) + 2, y);
+        y += 6;
+      });
+    } else {
+      doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(...COL_GRAY);
+      doc.text('Keine Mängel erfasst', LM, y); y += 5;
+    }
+    y += 5;
+
+    // Ergebnisse pro Schule
+    y = drawSectionTitle(doc, y, 'Ergebnisse pro Berufsschule');
+    const sCols = [{label:'Schule',x:LM+2},{label:'Ort',x:LM+72},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+124,align:'center'},{label:'Mängel',x:LM+140,align:'center'},{label:'Offen',x:LM+156,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
+    y = drawTableHeader(doc, y, sCols);
+    schoolStats.forEach((s, i) => {
+      const q = s.ok + s.mangel > 0 ? Math.round(s.ok / (s.ok + s.mangel) * 100) + '%' : '–';
+      y = drawTableRow(doc, y, sCols, [s.schule, s.ort || '', s.total, s.ok, s.mangel, s.offen, q], i % 2 === 0);
+    });
+    y += 6;
+
+    // Ergebnisse pro Fachrichtung
+    if (y > 235) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+    y = drawSectionTitle(doc, y, 'Ergebnisse pro Fachrichtung');
+    const fCols = [{label:'Fachrichtung',x:LM+2},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+126,align:'center'},{label:'Mängel',x:LM+144,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
+    y = drawTableHeader(doc, y, fCols);
+    frStats.forEach((f, i) => {
+      const q = f.ok + f.mangel > 0 ? Math.round(f.ok / (f.ok + f.mangel) * 100) + '%' : '–';
+      y = drawTableRow(doc, y, fCols, [f.fachrichtung, f.total, f.ok, f.mangel, q], i % 2 === 0);
+    });
+    y += 6;
+
+    // Auffällige Betriebe
+    if (betriebRank.length) {
+      if (y > 230) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+      y = drawSectionTitle(doc, y, 'Betriebe mit häufigsten Beanstandungen');
+      const bCols = [{label:'#',x:LM+2},{label:'Betrieb',x:LM+10},{label:'Azubis',x:LM+115,align:'center'},{label:'Mängel',x:LM+135,align:'center'},{label:'Off. WV',x:RM-2,align:'right'}];
+      y = drawTableHeader(doc, y, bCols);
+      betriebRank.forEach((b, i) => {
+        y = drawTableRow(doc, y, bCols, [i+1, b.betrieb, b.azubis, b.maengel, b.offene_wv || '–'], i % 2 === 0);
+      });
+    }
+
+    // Zusatzinfos
+    y += 8;
+    if (y > 265) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
+    doc.text(`Noch geplante Termine: ${termineGeplant} · Abgeschlossene Prüflinge (AP bestanden): ${totalAbgeschlossen} · Inaktive Schüler: ${totalInaktiv}`, LM, y);
+
+    drawFooter(doc, doc.internal.getNumberOfPages());
+
+    // ══════════════════════════════════════
+    // NEUE SEITE: Detaillierte Berufsschul-Statistik
+    // ══════════════════════════════════════
+    doc.addPage();
+    let pageNum = doc.internal.getNumberOfPages();
+    y = drawHeader(doc, 12);
+    y = drawSectionTitle(doc, y, 'Detaillierte Berufsschul-Statistik');
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...COL_GRAY);
+    doc.text('Aufschlüsselung der aktiven Azubis je Berufsschule nach Fachrichtung und zuständigem Amt', LM, y); y += 6;
+
+    // Query: Per school → per Fachrichtung → count
+    const schulDetail = App.query(`SELECT bs.id as bs_id, bs.name as schule, bs.ort,
+      CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'Unbekannt') as fachrichtung,
+      f.typ as fr_typ, COUNT(s.id) as cnt
+      FROM schueler s
+      JOIN klassen k ON s.klasse_id=k.id
+      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
+      WHERE s.aktiv=1
+      GROUP BY bs.id, f.id ORDER BY bs.name, f.typ DESC, cnt DESC`);
+
+    // Query: Per school → per Amt → count
+    const schulAmt = App.query(`SELECT bs.id as bs_id, bs.name as schule,
+      s.zustaendiges_amt as amt, COUNT(s.id) as cnt
+      FROM schueler s
+      JOIN klassen k ON s.klasse_id=k.id
+      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      WHERE s.aktiv=1 AND s.zustaendiges_amt != ''
+      GROUP BY bs.id, s.zustaendiges_amt ORDER BY bs.name, cnt DESC`);
+
+    // Group data by school
+    const schoolIds = [...new Set(schulDetail.map(r => r.bs_id))];
+
+    schoolIds.forEach(bsId => {
+      const frRows = schulDetail.filter(r => r.bs_id === bsId);
+      const amtRows = schulAmt.filter(r => r.bs_id === bsId);
+      if (!frRows.length) return;
+      const schoolName = frRows[0].schule;
+      const schoolOrt = frRows[0].ort || '';
+      const schoolTotal = frRows.reduce((s, r) => s + r.cnt, 0);
+
+      // Check page space (school header + rows)
+      const neededHeight = 16 + Math.max(frRows.length, amtRows.length) * 5 + 8;
+      if (y + neededHeight > 270) {
+        drawFooter(doc, pageNum); doc.addPage(); pageNum = doc.internal.getNumberOfPages();
+        y = drawHeader(doc, 12);
+      }
+
+      // School header bar
+      doc.setFillColor(240,237,230); doc.rect(LM, y - 1, PW, 8, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...COL_GREEN);
+      doc.text(`${schoolName}`, LM + 2, y + 4);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
+      if (schoolOrt) doc.text(`${schoolOrt}`, LM + 2 + doc.getTextWidth(schoolName + '  '), y + 4);
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...COL_GREEN);
+      doc.text(`${schoolTotal} Azubis`, RM - 2, y + 4, { align: 'right' });
+      y += 10;
+
+      // Two-column layout: left = Fachrichtungen, right = Ämter
+      const midX = LM + PW * 0.52;
+      const leftW = midX - LM - 4;
+      const rightW = RM - midX - 2;
+
+      // Left column header: Fachrichtungen
+      doc.setFillColor(...COL_GREEN);
+      doc.rect(LM, y, leftW, 5.5, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
+      doc.text('Fachrichtung', LM + 2, y + 4);
+      doc.text('Anz.', LM + leftW - 12, y + 4, { align: 'right' });
+      doc.text('%', LM + leftW - 2, y + 4, { align: 'right' });
+
+      // Right column header: Ämter
+      doc.setFillColor(...COL_GREEN);
+      doc.rect(midX, y, rightW, 5.5, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
+      doc.text('Zuständiges Amt', midX + 2, y + 4);
+      doc.text('Anz.', midX + rightW - 12, y + 4, { align: 'right' });
+      doc.text('%', midX + rightW - 2, y + 4, { align: 'right' });
+      y += 6.5;
+
+      const maxRows = Math.max(frRows.length, amtRows.length);
+      for (let i = 0; i < maxRows; i++) {
+        if (i % 2 === 0) {
+          doc.setFillColor(250,248,244);
+          doc.rect(LM, y - 3, leftW, 5, 'F');
+          doc.rect(midX, y - 3, rightW, 5, 'F');
+        }
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(40,40,40);
+
+        // Left: Fachrichtung
+        if (i < frRows.length) {
+          const fr = frRows[i];
+          const isFW = fr.fr_typ === 'Fachwerker';
+          if (isFW) { doc.setTextColor(180,130,20); } else { doc.setTextColor(40,40,40); }
+          doc.text(fr.fachrichtung.substring(0, 35), LM + 2, y);
+          doc.setTextColor(40,40,40);
+          doc.text(`${fr.cnt}`, LM + leftW - 12, y, { align: 'right' });
+          doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...COL_GRAY);
+          doc.text(`${Math.round(fr.cnt / schoolTotal * 100)}%`, LM + leftW - 2, y, { align: 'right' });
+        }
+
+        // Right: Amt
+        if (i < amtRows.length) {
+          const a = amtRows[i];
+          const amtName = App.AEMTER[a.amt] || a.amt;
+          doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(40,40,40);
+          doc.text(`${a.amt} ${amtName}`.substring(0, 30), midX + 2, y);
+          doc.text(`${a.cnt}`, midX + rightW - 12, y, { align: 'right' });
+          doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...COL_GRAY);
+          doc.text(`${Math.round(a.cnt / schoolTotal * 100)}%`, midX + rightW - 2, y, { align: 'right' });
+        }
+        y += 5;
+      }
+      y += 4;
+    });
+
+    // Gesamtübersicht nach Amt (alle Schulen)
+    if (y + 50 > 270) {
+      drawFooter(doc, pageNum); doc.addPage(); pageNum = doc.internal.getNumberOfPages();
+      y = drawHeader(doc, 12);
+    }
+    y = drawSectionTitle(doc, y + 2, 'Gesamtübersicht nach zuständigem Amt');
+    const amtGesamt = App.query(`SELECT s.zustaendiges_amt as amt, COUNT(s.id) as cnt
+      FROM schueler s WHERE s.aktiv=1 AND s.zustaendiges_amt != ''
+      GROUP BY s.zustaendiges_amt ORDER BY cnt DESC`);
+    const amtCols = [{label:'Amt',x:LM+2},{label:'Bezeichnung',x:LM+22},{label:'Azubis',x:LM+110,align:'center'},{label:'Anteil',x:RM-2,align:'right'}];
+    y = drawTableHeader(doc, y, amtCols);
+    amtGesamt.forEach((a, i) => {
+      const pct = totalSchueler > 0 ? Math.round(a.cnt / totalSchueler * 100) + '%' : '–';
+      y = drawTableRow(doc, y, amtCols, [a.amt, App.AEMTER[a.amt] || '?', a.cnt, pct], i % 2 === 0);
+      if (y > 275) { drawFooter(doc, pageNum); doc.addPage(); pageNum = doc.internal.getNumberOfPages(); y = drawHeader(doc, 12); }
+    });
+
+    drawFooter(doc, pageNum);
+
+    doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${new Date().toISOString().split('T')[0]}.pdf`);
+    App.hideLoading();
+    App.toast('Jahresbericht erstellt', 'success');
+    }, 50); // end setTimeout
+  }
+};
