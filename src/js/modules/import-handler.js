@@ -143,14 +143,17 @@ const ImportHandler = {
       const gm = f => document.getElementById('map_'+f)?.value||'';
       const data = window._importData;
       if (!data) return;
-      let h = '<table class="data-table"><thead><tr><th>Name</th><th>Betrieb</th><th>Beruf-Code</th><th>Schule</th><th>AV-Beginn</th><th>AV-Ende</th></tr></thead><tbody>';
+      let h = '<table class="data-table"><thead><tr><th>Name</th><th>Betrieb</th><th>Beruf-Code</th><th>Schule</th><th>AV-Beginn</th><th>AV-Ende</th><th>BAV-Status</th></tr></thead><tbody>';
       data.slice(0,3).forEach(r => {
+        const bavRaw = (r[gm('bav_status')]||'').trim().toUpperCase();
+        const bavColor = bavRaw === 'ENDE' ? 'var(--clr-red)' : 'var(--clr-green)';
         h += '<tr><td><strong>'+(r[gm('nachname')]||'?')+'</strong>, '+(r[gm('vorname')]||'?')+'</td>';
         h += '<td>'+(r[gm('ausbildungsstaette')]||'–')+'</td>';
         h += '<td>'+(r[gm('beruf_code')]||'–')+'</td>';
         h += '<td>'+(r[gm('berufsschule')]||'–')+'</td>';
         h += '<td>'+(r[gm('ausbildungsbeginn')]||'–')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsende')]||'–')+'</td></tr>';
+        h += '<td>'+(r[gm('ausbildungsende')]||'–')+'</td>';
+        h += '<td style="color:'+bavColor+';font-weight:600">'+(bavRaw||'–')+'</td></tr>';
       });
       h += '</tbody></table>';
       document.getElementById('mappedPreview').innerHTML = h;
@@ -341,8 +344,14 @@ const ImportHandler = {
       const pruefungserfolg_wdh1 = peW1Raw === '1' ? 'bestanden' : peW1Raw === '2' ? 'nicht_bestanden' : '';
       const peW2Raw = (row[getMap('pruefungserfolg_wdh2')]||'').trim();
       const pruefungserfolg_wdh2 = peW2Raw === '1' ? 'bestanden' : peW2Raw === '2' ? 'nicht_bestanden' : '';
-      const bav_status = (row[getMap('bav_status')]||'').trim();
+      const bav_status = (row[getMap('bav_status')]||'').trim().toUpperCase();
       const zwischenpruefung = (row[getMap('zwischenpruefung')]||'').trim();
+
+      // BAV-Status → aktiv/inaktiv ableiten:
+      // BESTAET (Bestätigt) + BEARB (Bearbeitet) = aktives Ausbildungsverhältnis
+      // ENDE = Ausbildungsverhältnis beendet → inaktiv setzen
+      const bavAktiv = bav_status === 'ENDE' ? 0 : 1;
+      const bavStatus = bav_status === 'ENDE' ? 'abgebrochen' : 'aktiv';
 
       // 1) Fachrichtung (by numeric code)
       const frId = matchFR(berufCode);
@@ -389,6 +398,24 @@ const ImportHandler = {
         if (bav_status && ex.bav_status !== bav_status) changes.push(['bav_status', bav_status, ex.bav_status]);
         if (zwischenpruefung && ex.zwischenpruefung !== zwischenpruefung) changes.push(['zwischenpruefung', zwischenpruefung, ex.zwischenpruefung]);
 
+        // BAV-Status geändert → aktiv/status synchronisieren
+        if (bav_status && ex.bav_status !== bav_status) {
+          if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
+          if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
+          if (bavAktiv === 0 && ex.aktiv === 1) {
+            const today = new Date().toISOString().slice(0,10);
+            if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
+            if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', 'BAV beendet (IBYKUS)', ex.inaktiv_grund]);
+            stats.bavEnde = (stats.bavEnde || 0) + 1;
+          }
+          if (bavAktiv === 1 && ex.aktiv === 0) {
+            // BAV wieder aktiv (z.B. BEARB nach ENDE) → reaktivieren
+            changes.push(['inaktiv_datum', '', ex.inaktiv_datum]);
+            changes.push(['inaktiv_grund', '', ex.inaktiv_grund]);
+            stats.bavReaktiviert = (stats.bavReaktiviert || 0) + 1;
+          }
+        }
+
         if (changes.length) {
           changes.forEach(([field, newVal]) => {
             App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
@@ -401,9 +428,10 @@ const ImportHandler = {
       }
 
       // 7) Insert
-      App.run('INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,ausbildungsbeginn,ausbildungsende,ibykus_id,klasse_id,jahrgang_id,betrieb_id,telefon,email,zustaendiges_amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung]);
+      App.run('INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,ausbildungsbeginn,ausbildungsende,ibykus_id,klasse_id,jahrgang_id,betrieb_id,telefon,email,zustaendiges_amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,aktiv,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,bavAktiv,bavStatus]);
       imported++;
+      if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
     });
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
@@ -431,6 +459,8 @@ const ImportHandler = {
     if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);
     // H/F codes now stored as Frühjahr/Herbst directly
     if (stats.frNotFound.size) parts.push(`⚠️ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
+    if (stats.bavEnde) parts.push(`⚠️ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
+    if (stats.bavReaktiviert) parts.push(`✅ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
     // Re-enable dirty-tracking
