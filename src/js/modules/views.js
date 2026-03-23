@@ -1540,7 +1540,7 @@ const Views = {
   nacherfassung() {
     const mc = document.getElementById('mainContent');
     const schulen = App.query("SELECT DISTINCT bs.* FROM berufsschulen bs WHERE 1=1" + App.gf('schulen') + " ORDER BY bs.name");
-    const jahrgaenge = App.query("SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ");
+    const jahrgaenge = App.query("SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, CASE typ WHEN 'Sommer' THEN 1 WHEN 'Winter' THEN 2 WHEN 'Frühjahr' THEN 3 WHEN 'Herbst' THEN 4 ELSE 5 END");
     const aemter = App.query("SELECT DISTINCT zustaendiges_amt FROM schueler WHERE aktiv=1 AND zustaendiges_amt != '' ORDER BY zustaendiges_amt");
 
     mc.innerHTML = `<div class="fade-in" style="padding-top:28px">
@@ -1577,10 +1577,31 @@ const Views = {
             </select>
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Jahrgang (AP)</label>
+            <label style="font-size:11px">Jahrgang</label>
             <select class="form-control" id="neJahrgang" style="width:auto" onchange="NacherfassungHandler.loadSchueler()">
-              <option value="">Alle</option>
-              ${jahrgaenge.map(j => `<option value="${j.id}">${esc(j.bezeichnung)}</option>`).join('')}
+              <option value="">– optional –</option>
+              ${(() => {
+                const ap = jahrgaenge.filter(j => j.typ === 'Sommer' || j.typ === 'Winter');
+                const zp = jahrgaenge.filter(j => j.typ === 'Frühjahr' || j.typ === 'Herbst');
+                const other = jahrgaenge.filter(j => !['Sommer','Winter','Frühjahr','Herbst'].includes(j.typ));
+                let opts = '';
+                if (ap.length) {
+                  opts += '<optgroup label="AP (Abschlussprüfung)">';
+                  opts += ap.map(j => `<option value="${j.id}">${esc(j.bezeichnung)} (${j.typ} ${j.jahr})</option>`).join('');
+                  opts += '</optgroup>';
+                }
+                if (zp.length) {
+                  opts += '<optgroup label="ZP (Zwischenprüfung)">';
+                  opts += zp.map(j => `<option value="${j.id}">${esc(j.bezeichnung)} (${j.typ} ${j.jahr})</option>`).join('');
+                  opts += '</optgroup>';
+                }
+                if (other.length) {
+                  opts += '<optgroup label="Sonstige">';
+                  opts += other.map(j => `<option value="${j.id}">${esc(j.bezeichnung)}</option>`).join('');
+                  opts += '</optgroup>';
+                }
+                return opts;
+              })()}
             </select>
           </div>
           <div class="form-group" style="margin:0">
