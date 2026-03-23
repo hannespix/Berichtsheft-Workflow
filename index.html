@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Berichtsheftkontrolle – Ausbildungsberater Gärtner</title>
+
+<!-- ═══ EXTERNAL LIBRARIES (offline-fähig via libs/) ═══ -->
+<script src="libs/sql-wasm.js"></script>
+<script src="libs/papaparse.min.js"></script>
+<script src="libs/xlsx.full.min.js"></script>
+<script src="libs/jspdf.umd.min.js"></script>
+<script src="libs/jspdf.plugin.autotable.min.js"></script>
+<script src="libs/pizzip.js"></script>
+<script src="libs/docxtemplater.js"></script>
+<script src="libs/FileSaver.min.js"></script>
+<script src="libs/pdf.min.js"></script>
+<script src="libs/chart.umd.min.js"></script>
+
+<!-- ═══ LIBRARY INIT ═══ -->
+<script>
+  // Fix blurry charts on Windows DPI scaling (125%, 150%, etc.)
+  if (typeof Chart !== 'undefined') {
+    Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 2);
+    Chart.defaults.font.family = "'Nunito Sans', sans-serif";
+  }
+</script>
+<script>
+  // PDF.js Worker setup (inline worker via Blob URL)
+  if (window.pdfjsLib) {
+    fetch('libs/pdf.worker.min.js')
+      .then(r => r.text())
+      .then(code => {
+        const blob = new Blob([code], { type: 'application/javascript' });
+        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+      })
+      .catch(() => { /* offline fallback: worker runs on main thread */ });
+  }
+</script>
+
+<!-- ═══ FONTS ═══ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+
+<!-- ═══ STYLES ═══ -->
+<link rel="stylesheet" href="src/css/styles.css">
+
+</head>
+<body>
+
+<!-- ═══ CONNECT SCREEN (shown before DB is loaded) ═══ -->
+<div id="connectScreen" class="connect-screen">
+  <div class="connect-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2C6.48 2 2 6 2 10.5c0 2.5 1.5 4.5 3 6L3 22l4-2c1.5.6 3.2 1 5 1 5.52 0 10-4 10-8.5S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+    <h1>Berichtsheftkontrolle</h1>
+    <p>Ausbildungsberater Gärtner<br>Planen, durchführen und nachverfolgen von Berichtsheftdurchsichten</p>
+    <div id="connectInfo"></div>
+    <div id="connectActions" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto">
+      <button class="btn btn-primary" onclick="App.start()" style="font-size:15px;padding:12px 28px;width:100%">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="20" height="20"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        Arbeitsordner auswählen
+      </button>
+      <button class="btn btn-secondary" onclick="App.promptNewDb()" style="font-size:13px;padding:8px 16px;width:100%">
+        ✨ Neue Datenbank erstellen
+      </button>
+      <button class="btn btn-secondary" onclick="App.startDemo()" style="font-size:12px;padding:8px 16px;width:100%">
+        🎮 Demo-Modus (ohne Datenbank)
+      </button>
+    </div>
+    <p style="font-size:11px;color:var(--clr-text-light);margin-top:12px">
+      Datenbanken werden im Unterordner <strong>Datenbanken/</strong> gespeichert.<br>
+      App-Daten (Sync, Backups) liegen in <strong>_bhk/</strong>.
+    </p>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
+      <a href="#" onclick="document.getElementById('startHilfe').style.display=document.getElementById('startHilfe').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">📖 Hilfe & Dokumentation</a>
+      <a href="#" onclick="document.getElementById('startDatenschutz').style.display=document.getElementById('startDatenschutz').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">🔒 Datenschutz & Sicherheit</a>
+    </div>
+    <div id="startDatenschutz" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
+      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">🔒 Datenschutz & Unbedenklichkeit</p>
+      <p><strong>Keine personenbezogenen Daten verlassen das Intranet.</strong></p>
+      <p style="margin-top:6px">• Die Anwendung läuft <strong>vollständig lokal</strong> im Browser – kein Server, keine Cloud, kein Internet erforderlich</p>
+      <p>• Alle Daten (Azubi-Stammdaten, Kontrollergebnisse) liegen als SQLite-Datei auf Ihrem <strong>lokalen Netzlaufwerk</strong></p>
+      <p>• Alle JavaScript-Bibliotheken sind in <strong>separate Dateien ausgelagert</strong> – <strong>kein Internet nötig, kein Netzwerkverkehr</strong></p>
+      <p>• Die Datenbasis in <strong>IBYKUS bleibt das führende System</strong> – dieses Tool ist ein Arbeitsinstrument für die Kontrolle, kein Ersatz</p>
+      <p>• Durchsichtsbögen werden regelmäßig als <strong>PDF exportiert und archiviert</strong></p>
+    </div>
+    <div id="startHilfe" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
+      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">📖 Kurzanleitung</p>
+      <p><strong>1.</strong> Arbeitsordner auswählen (oder neu erstellen)</p>
+      <p><strong>2.</strong> IBYKUS-CSV importieren (Schüler-Import)</p>
+      <p><strong>3.</strong> Kontrolltermine planen (Kontrollplanung)</p>
+      <p><strong>4.</strong> Berichtshefte kontrollieren (Durchführung)</p>
+      <p><strong>5.</strong> Wiedervorlagen bearbeiten + Berichte exportieren</p>
+      <p style="margin-top:8px">Ausführliche Hilfe mit allen Funktionen finden Sie nach dem Start unter <strong>Sidebar → Hilfe</strong>.</p>
+    </div>
+    <p id="browserHint" style="font-size:12px;color:var(--clr-amber);margin-top:8px;display:none">
+      ⚠️ <strong>Bitte Google Chrome oder Microsoft Edge verwenden!</strong><br>
+      <span style="font-size:11px;color:var(--clr-text-light)">Dieses Tool benötigt die File System Access API (Chrome, Edge, Brave).</span>
+    </p>
+    <script>
+      if (!('showDirectoryPicker' in window)) document.getElementById('browserHint').style.display = '';
+    </script>
+  </div>
+</div>
+
+<!-- ═══ MAIN APP (hidden until DB loaded) ═══ -->
+<div id="appMain" style="display:none; flex-direction:column; height:100%;"></div>
+
+<!-- ═══ GLOBAL SEARCH OVERLAY ═══ -->
+<div id="globalSearchOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);backdrop-filter:blur(3px)" onclick="GlobalSearch.close()">
+  <div style="max-width:560px;margin:80px auto 0;background:var(--clr-cream);border-radius:16px;box-shadow:0 25px 80px rgba(0,0,0,.3);overflow:hidden" onclick="event.stopPropagation()">
+    <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--clr-sand)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--clr-sage)" stroke-width="2" width="20" height="20"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="globalSearchInput" class="form-control" placeholder="Name, Betrieb, Schule, Ort, Tel, E-Mail…" style="border:none;font-size:15px;padding:8px 4px;outline:none;width:100%" oninput="GlobalSearch._doSearch(this.value)" onkeydown="GlobalSearch._handleKey(event)" autofocus role="combobox" aria-expanded="true" aria-controls="globalSearchResults" aria-autocomplete="list">
+    </div>
+    <div id="globalSearchResults" role="listbox" style="max-height:400px;overflow-y:auto;padding:8px"></div>
+    <div style="padding:6px 16px;background:var(--clr-warm);font-size:10px;color:var(--clr-text-light);display:flex;gap:12px">
+      <span>↑↓ Navigieren</span><span>Enter Auswählen</span><span>Esc Schließen</span><span style="margin-left:auto">Ctrl+K</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APPLICATION MODULES ═══ -->
+<script src="src/js/app-core.js"></script>
+<script src="src/js/modules/views.js"></script>
+<script src="src/js/modules/stammdaten.js"></script>
+<script src="src/js/modules/import-handler.js"></script>
+<script src="src/js/modules/planung.js"></script>
+<script src="src/js/modules/nacherfassung.js"></script>
+<script src="src/js/modules/pdf-export.js"></script>
+<script src="src/js/modules/kontrolle.js"></script>
+<script src="src/js/modules/kw-nav.js"></script>
+<script src="src/js/modules/undo-manager.js"></script>
+<script src="src/js/modules/llm-helper.js"></script>
+<script src="src/js/modules/blockplan-analyzer.js"></script>
+<script src="src/js/modules/global-search.js"></script>
+<script src="src/js/modules/keyboard-shortcuts.js"></script>
+<script src="src/js/modules/bulk-schueler.js"></script>
+<script src="src/js/modules/bulk-wv.js"></script>
+<script src="src/js/modules/workflows.js"></script>
+<script src="src/js/modules/wiedervorlagen.js"></script>
+<script src="src/js/modules/berichte.js"></script>
+<script src="src/js/modules/table-sort.js"></script>
+<script src="src/js/modules/schueler-view.js"></script>
+<script src="src/js/utils.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Datenbank (enthält personenbezogene Daten - NICHT committen!)
+*.sqlite
+*.db
+
+# Backups
+backups/*.sqlite
+
+# Alte monolithische Dateien (nach Migration entfernen)
+Berichtsheftkontrolle_extracted/
+berichtsheftkontrolle.bundle
+Berichtsheftkontrolle.zip
+berichtsheftkontrolle_preview.html
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Node (falls später Build-Tools)
+node_modules/
