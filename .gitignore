@@ -23,8 +23,5 @@ desktop.ini
 .vscode/
 .idea/
 
-# Quellcode-Ordner (wird bei jedem Build aus den Quelldateien erzeugt)
-dist/quellcode/
-
 # Node (falls später Build-Tools)
 node_modules/

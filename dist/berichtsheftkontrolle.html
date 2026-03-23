@@ -12896,54 +12896,38 @@ const Views = {
           </div>
 
           <div id="help_21" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">📦 Quellcode bereitstellen & mit GitHub weiterentwickeln</div>
-            <p>Im Ordner <code>dist/quellcode/</code> befindet sich stets der vollständige, aktuelle Quellcode der Anwendung. Dieser Ordner wird bei jedem Build automatisch aktualisiert und kann direkt für die Versionsverwaltung mit Git/GitHub verwendet werden.</p>
+            <div class="card-header" style="font-size:15px">📦 Quellcode & Weiterentwicklung mit GitHub</div>
+            <p>Der vollständige Quellcode der Anwendung wird auf GitHub verwaltet. Von dort kann er als ZIP-Archiv heruntergeladen und zur Nachvollziehbarkeit neben der fertigen HTML-Datei auf dem Netzlaufwerk abgelegt werden.</p>
 
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📋 Schritt-für-Schritt: Quellcode auf GitHub bereitstellen</p>
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📋 Quellcode auf dem Netzlaufwerk bereitstellen</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.9">
-              <p><strong>Voraussetzungen:</strong></p>
-              <p>• Ein GitHub-Konto (<a href="https://github.com" target="_blank" style="color:var(--clr-forest)">github.com</a>)</p>
-              <p>• Git ist auf dem Rechner installiert (<a href="https://git-scm.com" target="_blank" style="color:var(--clr-forest)">git-scm.com</a>)</p>
-              <p>• Optional: GitHub CLI (<code>gh</code>) für vereinfachte Authentifizierung</p>
-
-              <p style="margin-top:10px"><strong>1. Neues Repository auf GitHub anlegen</strong></p>
-              <p style="margin-left:12px">Auf <a href="https://github.com/new" target="_blank" style="color:var(--clr-forest)">github.com/new</a> ein neues Repository erstellen:</p>
-              <p style="margin-left:12px">• Name: z.B. <code>berichtsheftkontrolle</code></p>
-              <p style="margin-left:12px">• Sichtbarkeit: <strong>Private</strong> (enthält dienstliche Konfiguration)</p>
-              <p style="margin-left:12px">• Kein README, kein .gitignore, keine Lizenz hinzufügen (kommt aus dem Quellcode)</p>
-
-              <p style="margin-top:10px"><strong>2. Quellcode-Ordner als Git-Repository initialisieren</strong></p>
+              <p><strong>1.</strong> Auf GitHub die Repository-Seite öffnen</p>
+              <p><strong>2.</strong> Grüne Schaltfläche <strong>„Code"</strong> → <strong>„Download ZIP"</strong> wählen</p>
+              <p><strong>3.</strong> Das heruntergeladene ZIP-Archiv entpacken</p>
+              <p><strong>4.</strong> Den entpackten Ordner in einen Unterordner <code>quellcode</code> neben die HTML-Datei auf dem Netzlaufwerk kopieren</p>
+              <p style="margin-top:8px">Die Ordnerstruktur auf dem Netzlaufwerk sieht dann so aus:</p>
               <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                cd dist/quellcode<br>
-                git init<br>
-                git add .<br>
-                git commit -m "Initiale Version der Berichtsheftkontrolle"
+                N:\\Berichtsheftkontrolle\\<br>
+                ├── berichtsheftkontrolle.html &nbsp;&nbsp;← Fertige Anwendung<br>
+                ├── berichtsheftkontrolle.sqlite &nbsp;← Datenbank (wird automatisch angelegt)<br>
+                └── quellcode\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entpacktes ZIP von GitHub<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;├── CLAUDE.md<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;├── build.sh<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;├── index.html<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;├── src\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← CSS + JavaScript-Module<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;├── libs\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Bibliotheken<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;└── fonts\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Schriftarten
               </div>
-
-              <p style="margin-top:10px"><strong>3. Mit GitHub verbinden und hochladen</strong></p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                git remote add origin https://github.com/BENUTZERNAME/berichtsheftkontrolle.git<br>
-                git branch -M main<br>
-                git push -u origin main
-              </div>
-              <p style="margin-left:12px;color:var(--clr-text-light)"><em>BENUTZERNAME durch den eigenen GitHub-Benutzernamen ersetzen.</em></p>
-
-              <p style="margin-top:10px"><strong>4. Bei Aktualisierungen: Neue Version hochladen</strong></p>
-              <p style="margin-left:12px">Nach einem neuen Build (<code>./build.sh</code>) den aktualisierten Quellcode committen:</p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                cd dist/quellcode<br>
-                git add .<br>
-                git commit -m "Version 1.2 – Beschreibung der Änderungen"<br>
-                git push
-              </div>
+              <p style="margin-top:6px;color:var(--clr-text-light)"><em>Bei jeder neuen Version der Anwendung den Quellcode-Ordner durch den aktuellen ZIP-Download ersetzen.</em></p>
             </div>
 
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">🤖 Schritt-für-Schritt: Mit Claude Code weiterentwickeln</p>
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">🤖 Mit Claude Code weiterentwickeln</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.9">
               <p><strong>Voraussetzungen:</strong></p>
-              <p>• Node.js installiert (Version 18+): <a href="https://nodejs.org" target="_blank" style="color:var(--clr-forest)">nodejs.org</a></p>
-              <p>• Claude Code installiert: <code>npm install -g @anthropic-ai/claude-code</code></p>
-              <p>• Ein Anthropic API-Schlüssel oder Claude Max/Pro Abonnement</p>
+              <p>• Ein GitHub-Konto mit dem Quellcode-Repository</p>
+              <p>• Node.js (Version 18+): <a href="https://nodejs.org" target="_blank" style="color:var(--clr-forest)">nodejs.org</a></p>
+              <p>• Claude Code: <code>npm install -g @anthropic-ai/claude-code</code></p>
+              <p>• Ein Anthropic-API-Schlüssel oder ein Claude-Max/Pro-Abonnement</p>
 
               <p style="margin-top:10px"><strong>1. Repository klonen (einmalig)</strong></p>
               <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
@@ -12955,10 +12939,10 @@ const Views = {
               <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
                 claude
               </div>
-              <p style="margin-left:12px">Claude Code liest automatisch die <code>CLAUDE.md</code>-Datei und kennt dadurch die gesamte Projektstruktur, Konventionen und Architektur.</p>
+              <p style="margin-left:12px">Claude Code liest automatisch die Datei <code>CLAUDE.md</code> und kennt dadurch die gesamte Projektstruktur, die Konventionen und die Architektur.</p>
 
-              <p style="margin-top:10px"><strong>3. Änderungen beschreiben</strong></p>
-              <p style="margin-left:12px">Im Claude-Code-Terminal den gewünschten Änderungswunsch eingeben, z.B.:</p>
+              <p style="margin-top:10px"><strong>3. Änderungswunsch beschreiben</strong></p>
+              <p style="margin-left:12px">Im Claude-Code-Terminal den gewünschten Änderungswunsch in natürlicher Sprache eingeben, z.B.:</p>
               <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
                 &gt; Füge eine neue Spalte "Ausbildereignung" zum IBYKUS-Import hinzu.<br>
                 &gt; Die Spalte soll in der Stammdaten-Ansicht angezeigt werden.
@@ -12967,25 +12951,21 @@ const Views = {
 
               <p style="margin-top:10px"><strong>4. Testen und bereitstellen</strong></p>
               <p style="margin-left:12px">• Die erzeugte Datei <code>dist/berichtsheftkontrolle.html</code> im Browser öffnen und testen</p>
-              <p style="margin-left:12px">• Bei Erfolg: <code>dist/berichtsheftkontrolle.html</code> auf das Netzlaufwerk kopieren</p>
-              <p style="margin-left:12px">• Änderungen in Git sichern: <code>git add . &amp;&amp; git commit -m "Beschreibung" &amp;&amp; git push</code></p>
+              <p style="margin-left:12px">• Bei Erfolg: die HTML-Datei auf das Netzlaufwerk kopieren</p>
+              <p style="margin-left:12px">• Änderungen in Git sichern und auf GitHub hochladen:</p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                git add . &amp;&amp; git commit -m "Beschreibung der Änderung" &amp;&amp; git push
+              </div>
+              <p style="margin-left:12px">• Anschließend den <code>quellcode</code>-Ordner auf dem Netzlaufwerk durch einen frischen ZIP-Download von GitHub ersetzen</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📁 Inhalt des Quellcode-Ordners</p>
-            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-family:monospace;font-size:11px;line-height:1.7">
-              quellcode/<br>
-              ├── CLAUDE.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Projektkonventionen für KI-Entwicklung<br>
-              ├── README.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Projektbeschreibung<br>
-              ├── index.html &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entwicklungs-Einstiegspunkt<br>
-              ├── build.sh &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Build-Script → erzeugt die HTML-Datei<br>
-              ├── src/css/styles.css &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Alle Styles<br>
-              ├── src/js/app-core.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Anwendungskern<br>
-              ├── src/js/utils.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Hilfsfunktionen<br>
-              ├── src/js/modules/*.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← 20 Fachmodule<br>
-              ├── libs/*.js + .wasm &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Bibliotheken<br>
-              └── fonts/*.woff2 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Eingebettete Schriftarten
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">💡 Warum den Quellcode neben die HTML-Datei legen?</p>
+            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
+              <p>• <strong>Nachvollziehbarkeit:</strong> Jeder Sachbearbeiter kann jederzeit nachsehen, wie die Anwendung aufgebaut ist</p>
+              <p>• <strong>Unabhängigkeit:</strong> Auch ohne GitHub-Zugang ist der Quellcode verfügbar – die Anwendung bleibt wartbar</p>
+              <p>• <strong>Dokumentation:</strong> Die Datei <code>CLAUDE.md</code> im Quellcode beschreibt die gesamte Architektur und dient gleichzeitig als Projekthandbuch</p>
+              <p>• <strong>Weitergabe:</strong> Bei einer Übergabe an andere Sachbearbeiter oder Dienststellen liegt alles beisammen</p>
             </div>
-            <p style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Der Quellcode-Ordner wird bei jedem Ausführen von <code>./build.sh</code> automatisch aktualisiert. Er enthält alle Dateien, die für einen eigenständigen Build der Anwendung erforderlich sind – ohne Abhängigkeiten von externen Paketmanagern oder dem Internet.</p>
           </div>
 
           <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
