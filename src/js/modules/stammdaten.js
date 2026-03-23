@@ -525,7 +525,7 @@ const StammdatenTab = {
       <div class="form-row">
         <div class="form-group"><label>Jahrgang (AP)</label><select class="form-control" id="mKlJG">
           <option value="">–</option>
-          ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)} (${j.typ} ${j.jahr})</option>`).join('')}
+          ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)}${j.typ ? ' ('+j.typ+' '+j.jahr+')' : ''}</option>`).join('')}
         </select></div>
         <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mKlFR">
           <option value="">– Alle –</option>
@@ -580,7 +580,7 @@ const StammdatenTab = {
       <div class="form-row">
         <div class="form-group"><label>Jahrgang (AP)</label><select class="form-control" id="mKlJG">
           <option value="">–</option>
-          ${jgs.map(j => `<option value="${j.id}" ${j.id===r.jahrgang_id?'selected':''}>${esc(j.bezeichnung)} (${j.typ} ${j.jahr})</option>`).join('')}
+          ${jgs.map(j => `<option value="${j.id}" ${j.id===r.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}${j.typ ? ' ('+j.typ+' '+j.jahr+')' : ''}</option>`).join('')}
         </select></div>
         <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mKlFR">
           <option value="">– Alle –</option>

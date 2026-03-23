@@ -95,17 +95,22 @@ const App = {
     '90':'RP Tübingen','91':'RP Stuttgart','92':'RP Karlsruhe','93':'RP Freiburg'
   },
   amtLabel(code) { return code ? `${code} ${this.AEMTER[code]||'?'}` : '–'; },
+  // Prefix → Label (einheitlich für AP und ZP)
+  _prefixLabel(code) {
+    if (!code) return '';
+    const map = { S: 'Sommer', W: 'Winter', F: 'Frühjahr', H: 'Herbst' };
+    const p = code[0];
+    return map[p] || '';
+  },
   zpLabel(code) {
     if (!code) return '–';
-    if (code.startsWith('H')) return code + ' (Herbst ' + code.substring(1) + ')';
-    if (code.startsWith('F')) return code + ' (Frühjahr ' + code.substring(1) + ')';
-    return code;
+    const lbl = this._prefixLabel(code);
+    return lbl ? code + ' (' + lbl + ' ' + code.substring(1) + ')' : code;
   },
   jgLabel(bez) {
     if (!bez) return '–';
-    if (bez.startsWith('S')) return bez + ' (Sommer ' + bez.substring(1) + ')';
-    if (bez.startsWith('W')) return bez + ' (Winter ' + bez.substring(1) + ')';
-    return bez;
+    const lbl = this._prefixLabel(bez);
+    return lbl ? bez + ' (' + lbl + ' ' + bez.substring(1) + ')' : bez;
   },
 
   setJgFilter(val) {
@@ -667,11 +672,11 @@ const App = {
     const isAllZp = activeZp.length === 0;
     const isAll = isAllJg && isAllZp;
 
-    // Sort ZP: group by year desc, within year F before H
+    // Sort ZP: group by year desc, within year alphabetically by prefix
     const zpSorted = [...zpCodes].sort((a, b) => {
       const ya = parseInt(a.substring(1)), yb = parseInt(b.substring(1));
       if (ya !== yb) return yb - ya;
-      return a[0] === 'F' ? -1 : 1;
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
     });
 
     // Determine active mode: 'all', 'ap', or 'zp'
@@ -691,7 +696,7 @@ const App = {
     // ── AP Section ──
     html += `<div style="padding:4px 12px 2px;font-size:9px;font-weight:700;color:${apOff?'var(--clr-text-light)':'var(--clr-forest)'};text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)</div>`;
     jgs.forEach(j => {
-      const label = j.typ;
+      const label = this._prefixLabel(j.bezeichnung) || j.typ;
       const chk = !apOff && (isAllJg || activeJg.includes(j.id));
       html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px;${apOff?'opacity:0.4':''}" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
         <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} ${apOff?'disabled':''} onchange="App._applyJgExclusive('ap')" style="accent-color:var(--clr-forest)">
@@ -703,7 +708,7 @@ const App = {
     if (zpSorted.length) {
       html += `<div style="padding:4px 12px 2px;font-size:9px;font-weight:700;color:${zpOff?'var(--clr-text-light)':'var(--clr-amber)'};text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)</div>`;
       zpSorted.forEach(code => {
-        const sem = code[0] === 'H' ? 'Herbst' : 'Frühjahr';
+        const sem = this._prefixLabel(code) || code[0];
         const yr = code.substring(1);
         const chk = !zpOff && (isAllZp || activeZp.includes(code));
         html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px;${zpOff?'opacity:0.4':''}" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
@@ -724,7 +729,7 @@ const App = {
     CREATE TABLE IF NOT EXISTS abschlussjahrgaenge (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       bezeichnung TEXT NOT NULL UNIQUE,
-      typ TEXT NOT NULL DEFAULT 'Sommer' CHECK (typ IN ('Sommer','Winter','Frühjahr','Herbst')),
+      typ TEXT NOT NULL DEFAULT '',
       jahr INTEGER NOT NULL,
       pruefungstermin TEXT DEFAULT '',
       aktiv INTEGER DEFAULT 0
@@ -3247,7 +3252,7 @@ const App = {
           this.db.run(`CREATE TABLE abschlussjahrgaenge (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             bezeichnung TEXT NOT NULL UNIQUE,
-            typ TEXT NOT NULL DEFAULT 'Sommer' CHECK (typ IN ('Sommer','Winter','Frühjahr','Herbst')),
+            typ TEXT NOT NULL DEFAULT '',
             jahr INTEGER,
             pruefungstermin TEXT DEFAULT '',
             aktiv INTEGER DEFAULT 1

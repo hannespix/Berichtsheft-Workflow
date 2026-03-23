@@ -34,7 +34,7 @@ const BulkSchueler = {
     const jgs = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ');
     App.openModal(`${ids.length} Schüler → Jahrgang ändern`, `
       <div class="form-group"><label>Abschlussjahrgang</label><select class="form-control" id="mBulkJG">
-        ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)} (${j.typ} ${j.jahr})</option>`).join('')}
+        ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)}${j.typ ? ' ('+j.typ+' '+j.jahr+')' : ''}</option>`).join('')}
       </select></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="BulkSchueler.doAssignJahrgang()">Ändern (${ids.length})</button>`);

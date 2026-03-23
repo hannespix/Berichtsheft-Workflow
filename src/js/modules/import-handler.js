@@ -213,18 +213,17 @@ const ImportHandler = {
 
     function getJG(code) {
       if (!code) return null;
-      code = code.toString().trim().toUpperCase();
-      // Match AP codes: S=Sommer, W=Winter, F=Frühjahr, H=Herbst
-      const m = code.match(/^([SWHF])(\d{4})$/);
-      if (!m) return null;
-      const prefix = m[1];
-      const year = parseInt(m[2]);
+      code = code.toString().trim();
+      // Direkt den IBYKUS-Wert übernehmen - keine Anpassungen!
+      const bez = code;
+      // Versuche Prefix und Jahr zu extrahieren für Sortierung
+      const m = code.toUpperCase().match(/^([SWHF])(\d{4})$/);
       const typMap = { S: 'Sommer', W: 'Winter', F: 'Frühjahr', H: 'Herbst' };
-      const typ = typMap[prefix];
-      const bez = `${prefix}${year}`;
+      const typ = m ? (typMap[m[1]] || m[1]) : '';
+      const year = m ? parseInt(m[2]) : (parseInt(code.match(/\d{4}/)?.[0]) || 0);
       let jg = jahrgaenge.find(j => j.bezeichnung === bez);
       if (jg) return jg.id;
-      // Create new Jahrgang
+      // Create new Jahrgang with original IBYKUS value as bezeichnung
       App.run('INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung,typ,jahr) VALUES (?,?,?)', [bez,typ,year]);
       const n = App.query('SELECT * FROM abschlussjahrgaenge WHERE bezeichnung=?', [bez]);
       if (n.length) { jahrgaenge.push(n[0]); stats.jahrgaenge.add(bez); return n[0].id; }
