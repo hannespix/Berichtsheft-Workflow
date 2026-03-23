@@ -14,24 +14,8 @@ const WiedervorlagenHandler = {
 
     if (w.kontrolltermin_id) {
       // Navigate to Kontrolle view and open this student's Durchsicht
-      App.closeModal();
-      App.navigate('kontrolle');
-      setTimeout(() => {
-        const sel = document.getElementById('selKontrolltermin');
-        if (sel) sel.value = w.kontrolltermin_id;
-        KontrolleHandler.loadTermin(w.kontrolltermin_id);
-        setTimeout(() => {
-          const idx = KontrolleHandler.currentSchuelerList.findIndex(s => s.id === w.schueler_id);
-          if (idx >= 0) {
-            KontrolleHandler.currentIndex = idx;
-            KontrolleHandler._viewMode = 'einzeln';
-            KontrolleHandler.enterSchüler();
-            App.toast('Bitte Ergebnis auf "In Ordnung" setzen – Wiedervorlage wird automatisch erledigt', 'info');
-          } else {
-            App.toast('Schüler nicht im aktuellen Termin gefunden', 'warning');
-          }
-        }, 250);
-      }, 150);
+      KontrolleHandler.goToKontrolle(w.kontrolltermin_id, w.schueler_id);
+      App.toast('Bitte Ergebnis auf „In Ordnung" setzen – Wiedervorlage wird automatisch erledigt', 'info');
     } else {
       // Fallback: kein Kontrolltermin verknüpft → direkt erledigen
       App.openModal('Wiedervorlage als erledigt markieren', '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + new Date().toISOString().split('T')[0] + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2"></textarea></div>',
@@ -93,7 +77,7 @@ const WiedervorlagenHandler = {
 
       <!-- ── Quick Actions: Zur Kontrolle + PDF ── -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding:10px;background:var(--clr-leaf-light);border-radius:var(--radius);border:1px solid #c8deb8">
-        ${w.kontrolltermin_id ? `<button class="btn btn-sm btn-primary" onclick="App.closeModal();App.navigate('kontrolle');setTimeout(()=>{KontrolleHandler.startKontrolle(${w.kontrolltermin_id});setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(s=>s.id===${w.schueler_id});if(idx>=0)KontrolleHandler.goTo(idx);},200)},200)" title="${esc(terminLabel)}">
+        ${w.kontrolltermin_id ? `<button class="btn btn-sm btn-primary" onclick="KontrolleHandler.goToKontrolle(${w.kontrolltermin_id},${w.schueler_id})" title="${esc(terminLabel)}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
           Zur Kontrolle springen
         </button>` : ''}

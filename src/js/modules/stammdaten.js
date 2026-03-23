@@ -1147,7 +1147,7 @@ const StammdatenTab = {
             <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">📧</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">📞</a>` : ''}</td>
             <td class="btn-group" style="white-space:nowrap">
               <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten">✏️</button>
-              ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();App.navigate('kontrolle');setTimeout(()=>{KontrolleHandler.startKontrolle(${s.letzter_termin_id});setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(sc=>sc.id===${s.id});if(idx>=0)KontrolleHandler.goTo(idx)},200)},200)" title="Letzte Kontrolle">📋</button>` : ''}
+              ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle">📋</button>` : ''}
             </td>
           </tr>`).join('')}
         </tbody>
@@ -1201,7 +1201,7 @@ const StammdatenTab = {
               <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">📧</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">📞</a>` : ''}</td>
               <td class="btn-group" style="white-space:nowrap">
                 <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✏️</button>
-                ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();App.navigate('kontrolle');setTimeout(()=>{KontrolleHandler.startKontrolle(${s.letzter_termin_id});setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(sc=>sc.id===${s.id});if(idx>=0)KontrolleHandler.goTo(idx)},200)},200)" title="Letzte Kontrolle öffnen">📋</button>` : ''}
+                ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle öffnen">📋</button>` : ''}
               </td>
             </tr>`;
           }).join('')}

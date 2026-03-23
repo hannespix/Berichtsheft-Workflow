@@ -45,10 +45,13 @@ const App = {
     try { localStorage.setItem('bhk_current_user', name); } catch(e) {}
     this._restoreUserSettings();
     this._populateUserSelect();
-    // Sync Kontrolle-Prüfer if a session is active
-    if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.currentTerminId) {
-      KontrolleHandler.setActivePruefer(name);
-      if (this.currentView === 'kontrolle') KontrolleHandler.renderSchueler();
+    // Sync Kontrolle-Prüfer
+    if (typeof KontrolleHandler !== 'undefined') {
+      KontrolleHandler.activePruefer = name;
+      if (KontrolleHandler.currentTerminId) {
+        KontrolleHandler.setActivePruefer(name);
+        if (this.currentView === 'kontrolle') KontrolleHandler.renderSchueler();
+      }
     }
     this.toast(name ? `👤 ${name}` : 'Kein Benutzer', 'info');
   },

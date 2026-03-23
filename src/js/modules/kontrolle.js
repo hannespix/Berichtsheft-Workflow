@@ -9,6 +9,25 @@ const KontrolleHandler = {
     this.loadTermin(terminId);
   },
 
+  // Zentrale Navigation: Kontrolle öffnen und direkt zu einem bestimmten Schüler springen
+  goToKontrolle(terminId, schuelerId) {
+    App.closeModal();
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      this.startKontrolle(terminId);
+      if (schuelerId) {
+        setTimeout(() => {
+          const idx = this.currentSchuelerList.findIndex(s => s.id === schuelerId);
+          if (idx >= 0) {
+            this.goTo(idx);
+          } else {
+            App.toast('Auszubildender nicht im Termin gefunden', 'warning');
+          }
+        }, 200);
+      }
+    }, 200);
+  },
+
   loadTermin(terminId) {
     if (!terminId) {
       document.getElementById('kontrolleContent').innerHTML = '';
@@ -19,11 +38,8 @@ const KontrolleHandler = {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return;
 
-    // Set active prüfer (from localStorage or termin default)
-    let storedPruefer = App.currentUser || '';
-    if (!storedPruefer) try { storedPruefer = App.uGet('pruefer') || ''; } catch(e) {}
-    if (!storedPruefer) storedPruefer = (termin.pruefer || '').split(',')[0].trim();
-    this.activePruefer = storedPruefer;
+    // Active prüfer = immer der in der Topbar ausgewählte Benutzer
+    this.activePruefer = App.currentUser || '';
 
     // Load students from ALL linked classes
     this.currentSchuelerList = App.getTerminSchueler(terminId);
@@ -410,12 +426,15 @@ const KontrolleHandler = {
   },
 
   quickSetAllAnwesend(anwesend) {
+    const count = this.currentSchuelerList.length;
+    const label = anwesend ? 'anwesend' : 'abwesend';
+    if (!confirm(`${count} Auszubildende als „${label}" markieren?`)) return;
     this.currentSchuelerList.forEach(s => {
       App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`,
         [anwesend ? 1 : 0, this.activePruefer || '', this.currentTerminId, s.id]);
     });
     this.renderUebersicht();
-    App.toast(`Alle als ${anwesend ? 'anwesend' : 'abwesend'} markiert`, 'success');
+    App.toast(`Alle ${count} als ${label} markiert`, 'success');
   },
 
   // ══════════════════════════════════════
@@ -812,9 +831,8 @@ const KontrolleHandler = {
       <div class="card" style="margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <label style="font-weight:600;white-space:nowrap">Prüfer:</label>
-          <select class="form-control" style="width:auto;padding:4px 8px;font-size:12px" onchange="KontrolleHandler.setActivePruefer(this.value)">
-            ${prueferList.map(p => `<option ${p.name === this.activePruefer ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
-          </select>
+          <span style="padding:4px 10px;background:var(--clr-leaf-light);border-radius:var(--radius);font-weight:600;font-size:12px">${esc(this.activePruefer || '–')}</span>
+          <span style="font-size:10px;color:var(--clr-text-light)" title="Prüfer wird über die Benutzerauswahl in der Topbar (rechts oben) gesteuert">← Topbar</span>
           <!-- Live sync indicator -->
           ${!App.demoMode ? `<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--clr-sage);margin-left:4px" title="Live-Sync alle 6 Sekunden">
             <span id="syncPulse" style="width:6px;height:6px;border-radius:50%;background:var(--clr-green);opacity:0.3;transition:opacity 0.3s"></span>
@@ -999,7 +1017,7 @@ const KontrolleHandler = {
                 <td class="btn-group" style="flex-wrap:wrap">
                   <button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${pke.tid},${s.id})" title="Durchsichtsbogen als PDF">📄 PDF</button>
                   ${snaps.map(snap => `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" title="Archiv vom ${formatDate(snap.snapshot_datum)}">🔍 Archiv</button>`).join('')}
-                  <button class="btn btn-sm btn-secondary" onclick="App.navigate('kontrolle');setTimeout(()=>{KontrolleHandler.startKontrolle(${pke.tid});setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(sc=>sc.id===${s.id});if(idx>=0)KontrolleHandler.goTo(idx);},200)},200)" title="Alte Kontrolle öffnen">→ Öffnen</button>
+                  <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.goToKontrolle(${pke.tid},${s.id})" title="Alte Kontrolle öffnen">→ Öffnen</button>
                 </td>
               </tr>`;
             }).join('')}
@@ -1196,8 +1214,16 @@ const KontrolleHandler = {
     return wv.length ? wv[0].frist_datum : '';
   },
 
+  // Whitelist erlaubter Feldnamen für saveField() – schützt gegen SQL-Injection
+  _allowedFields: new Set(['ergebnis','bemerkung','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb','sachberichte_anzahl','anwesend','bescheinigungen_anzahl','zulassung_ap','pruefungsausschuss']),
+
   saveField(field, value) {
+    if (!this._allowedFields.has(field)) {
+      console.error('saveField: ungültiger Feldname:', field);
+      return;
+    }
     const s = this.currentSchuelerList[this.currentIndex];
+    if (!s) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -1782,7 +1808,6 @@ const KontrolleHandler = {
   setActivePruefer(name) {
     const oldPruefer = this.activePruefer;
     this.activePruefer = name;
-    try { App.uSet('pruefer', name); } catch(e) {}
 
     // Delete old prüfer's position file
     if (oldPruefer && oldPruefer !== name) {
@@ -1920,6 +1945,7 @@ const KontrolleHandler = {
   bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
     if (!ids.length) return App.toast('Bitte Schüler auswählen', 'warning');
+    if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?`)) return;
     const tid = this.currentTerminId;
     const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
     let count = 0;
