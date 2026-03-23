@@ -1633,8 +1633,8 @@ const Views = {
   // ════════════════════════════════════════════
   hilfe() {
     const c = document.getElementById('mainContent');
-    const version = '1.0';
-    const buildDate = '20.03.2026';
+    const version = '1.1';
+    const buildDate = '23.03.2026';
     c.innerHTML = `
     <div class="fade-in" style="padding-top:28px">
     <div style="max-width:900px;margin:0 auto">
@@ -1936,7 +1936,7 @@ const Views = {
 
           <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">🔧 Wartung & Administration</div>
-            <p><strong>Architektur:</strong> Die gesamte Anwendung ist eine einzige HTML-Datei (~5 MB). Kein Server, kein Build-Prozess, keine Installation. Alle Abhängigkeiten (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) sind direkt in die HTML-Datei eingebettet – es werden keine externen Ressourcen geladen.</p>
+            <p><strong>Architektur:</strong> Die gesamte Anwendung ist eine einzige HTML-Datei (~6 MB). Kein Server, keine Installation. Alle Abhängigkeiten (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) sind direkt in die HTML-Datei eingebettet – es werden keine externen Ressourcen geladen.</p>
             <p style="margin-top:8px"><strong>Update-Prozess:</strong></p>
             <p>1. Neue Version der HTML-Datei in den Arbeitsordner kopieren (alte überschreiben)</p>
             <p>2. Browser-Tab mit F5 neu laden – fertig</p>
@@ -1957,21 +1957,29 @@ const Views = {
           </div>
 
           <div id="help_19" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">💻 Weiterentwicklung (direkte Code-Änderungen)</div>
-            <p>Die HTML-Datei kann mit jedem Texteditor bearbeitet werden. Empfohlen: <strong>Visual Studio Code</strong> (kostenlos).</p>
-            <p style="margin-top:8px"><strong>Struktur der Datei (~15.000 Zeilen):</strong></p>
+            <div class="card-header" style="font-size:15px">💻 Weiterentwicklung</div>
+            <p>Der Quellcode ist <strong>modular aufgebaut</strong>. Jedes Modul liegt als eigene Datei in <code>src/js/modules/</code>. Ein Build-Script (<code>build.sh</code>) erzeugt daraus die fertige All-in-One HTML-Datei.</p>
+            <p style="margin-top:8px"><strong>Projektstruktur:</strong></p>
             <div style="background:var(--clr-sand-light);padding:10px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:8px 0;line-height:1.6">
-              Zeile 1–1100 &nbsp;&nbsp;&nbsp;CSS-Styles (Farben, Layout, responsive)<br>
-              Zeile 1100–1400 &nbsp;HTML (Topbar, Sidebar, Filter, Modals)<br>
-              Zeile 1400–1900 &nbsp;App-Kern (Filter, Sync, DB-Management)<br>
-              Zeile 1900–2200 &nbsp;Schema (CREATE TABLE, Migrationen)<br>
-              Zeile 2200–4500 &nbsp;App-Logik (Startup, Sync, Import, Backup)<br>
-              Zeile 4500–6500 &nbsp;Views (Dashboard, Stammdaten, Hilfe)<br>
-              Zeile 6500–8500 &nbsp;Handler (StammdatenTab, PlanungHandler)<br>
-              Zeile 8500–11000 &nbsp;KontrolleHandler (KW-Grid, Einzelansicht)<br>
-              Zeile 11000–13000 &nbsp;PDF-Export, Word-Export, CSV<br>
-              Zeile 13000–15000 &nbsp;GlobalSearch, Keyboard, Init
+              index.html &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entwicklungs-Einstiegspunkt<br>
+              build.sh &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Erzeugt dist/berichtsheftkontrolle.html<br>
+              src/css/styles.css &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Alle Styles (~1170 Zeilen)<br>
+              src/js/app-core.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← App-Kern: DB, Navigation, Save/Load<br>
+              src/js/utils.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Hilfsfunktionen + Init<br>
+              src/js/modules/views.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Dashboard, Sidebar, Hilfe<br>
+              src/js/modules/kontrolle.js &nbsp;← KW-Raster, Einzelansicht (größtes Modul)<br>
+              src/js/modules/stammdaten.js &nbsp;← Azubis, Schulen, Betriebe, Klassen<br>
+              src/js/modules/import-handler.js ← IBYKUS-CSV Import<br>
+              src/js/modules/planung.js &nbsp;&nbsp;&nbsp;← Kontrolltermin-Planung<br>
+              src/js/modules/workflows.js &nbsp;← Workflow-Engine<br>
+              src/js/modules/berichte.js &nbsp;&nbsp;← Statistiken, Jahresbericht<br>
+              src/js/modules/pdf-export.js &nbsp;← PDF-Durchsichtsbogen<br>
+              + 12 weitere Module &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← ~15.000 Zeilen JS gesamt<br>
+              libs/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Libraries (sql.js, Chart.js, …)<br>
+              fonts/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Lokale Schriftarten (DM Sans, Fraunces)
             </div>
+            <p style="margin-top:8px"><strong>Build-Prozess:</strong></p>
+            <p>Nach jeder Code-Änderung <code>./build.sh</code> ausführen. Das Script bettet alle Libraries, Fonts (als Base64) und Module in eine einzelne HTML-Datei ein → <code>dist/berichtsheftkontrolle.html</code> (~6 MB).</p>
             <p style="margin-top:8px"><strong>Einfache Änderungen (ohne Programmierkenntnisse):</strong></p>
             <p>• <em>Textbausteine ändern</em>: In Einstellungen → Textbausteine bearbeiten (kein Code nötig)</p>
             <p>• <em>Farben anpassen</em>: CSS-Variablen am Anfang der Datei (Zeile 20–55) suchen, z.B. <code>--clr-forest: #2d5016</code></p>
@@ -1983,23 +1991,24 @@ const Views = {
             <p>• <em>Neuen Filter hinzufügen</em>: gf()-Funktion erweitern, Button in Filter-Panel, Update-Funktion</p>
             <p>• <em>Neuen View (Seite) hinzufügen</em>: 1) Sidebar-Button, 2) In validViews aufnehmen, 3) Views.neuerView() Funktion, 4) In renderCurrentView registrieren</p>
             <p style="margin-top:8px"><strong>Testen:</strong></p>
-            <p>• HTML-Datei im Browser öffnen → Demo-Modus starten → Änderungen sofort sichtbar</p>
+            <p>• <strong>Modulare Entwicklung:</strong> <code>index.html</code> im Browser öffnen → Demo-Modus → Änderungen sofort sichtbar (ohne Build)</p>
+            <p>• <strong>Produktions-Build:</strong> <code>./build.sh</code> ausführen → <code>dist/berichtsheftkontrolle.html</code> testen</p>
             <p>• Browser-Konsole (F12 → Console) zeigt Fehler an</p>
             <p>• Nach Änderungen: Braces zählen! <code>{</code> und <code>}</code> müssen gleich oft vorkommen</p>
           </div>
 
           <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">🤖 KI-gestützte Entwicklung (Beispiel-Prompts)</div>
-            <p>Diese Anwendung wurde mit Hilfe von <strong>Claude</strong> (Anthropic) entwickelt. Für Änderungen und Erweiterungen können generative KI-Tools sehr effektiv genutzt werden.</p>
-            <p style="margin-top:8px"><strong>Vorgehen:</strong></p>
-            <p>1. Die HTML-Datei als Projektdatei in Claude, ChatGPT oder Cursor laden</p>
-            <p>2. Änderungswunsch als Prompt formulieren (siehe Beispiele unten)</p>
-            <p>3. Geänderte Datei herunterladen und im Arbeitsordner ersetzen</p>
-            <p>4. Im Browser testen (F5), bei Fehlern: Screenshot + Fehlermeldung an die KI senden</p>
-            <p style="margin-top:10px"><strong>Empfohlene Tools:</strong></p>
-            <p>• <strong>Claude.ai</strong> (Projects-Funktion): HTML als Projekt-Datei hochladen, alle Änderungen im Chat iterieren</p>
-            <p>• <strong>Cursor IDE</strong>: Lokaler Editor mit eingebauter KI – ideal für größere Änderungen</p>
-            <p>• <strong>ChatGPT</strong>: Für einzelne Code-Snippets und Erklärungen</p>
+            <p>Diese Anwendung wurde mit <strong>Claude Code</strong> (Anthropic) entwickelt. Für Änderungen und Erweiterungen können KI-Coding-Tools sehr effektiv genutzt werden.</p>
+            <p style="margin-top:8px"><strong>Vorgehen mit Claude Code (empfohlen):</strong></p>
+            <p>1. Terminal im Projektordner öffnen, <code>claude</code> starten</p>
+            <p>2. Änderungswunsch als Prompt eingeben – Claude Code liest die modularen Dateien, bearbeitet den Code und führt <code>build.sh</code> aus</p>
+            <p>3. Im Browser testen (F5), bei Fehlern: Screenshot + Fehlermeldung an Claude Code senden</p>
+            <p>4. Die CLAUDE.md im Projektordner enthält alle Konventionen und wird automatisch gelesen</p>
+            <p style="margin-top:10px"><strong>Alternative Tools:</strong></p>
+            <p>• <strong>Claude Code</strong> (CLI): Primäres Entwicklungstool – arbeitet direkt im Projektordner mit modularer Struktur und Git</p>
+            <p>• <strong>Claude.ai</strong> (Projects): Für Diskussionen und Konzeptarbeit, CLAUDE.md + relevante Module als Kontext hochladen</p>
+            <p>• <strong>Cursor IDE</strong>: Lokaler Editor mit eingebauter KI – ideal für gezielte Einzeländerungen</p>
 
             <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📝 Beispiel-Prompts:</p>
 
@@ -2151,8 +2160,8 @@ const Views = {
 
             <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📡 Netzwerkverkehr:</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius)">
-              <p><strong>Null.</strong> Alle JavaScript-Bibliotheken (Chart.js, sql.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) sind <strong>direkt in die HTML-Datei eingebettet</strong>. Es findet <strong>keinerlei Netzwerkverkehr</strong> statt – die Anwendung funktioniert vollständig offline.</p>
-              <p style="margin-top:6px"><strong>Zu keinem Zeitpunkt</strong> werden Azubi-Namen, Betriebsdaten, Kontrollergebnisse oder andere personenbezogene Daten an externe Server gesendet. Es werden auch keine externen Ressourcen (CDN, Fonts, Analytics) geladen.</p>
+              <p><strong>Null.</strong> Alle JavaScript-Bibliotheken (Chart.js, sql.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und <strong>Schriftarten</strong> (DM Sans, Fraunces – als Base64 eingebettet) sind <strong>direkt in die HTML-Datei eingebettet</strong>. Es findet <strong>keinerlei Netzwerkverkehr</strong> statt – die Anwendung funktioniert vollständig offline.</p>
+              <p style="margin-top:6px"><strong>Zu keinem Zeitpunkt</strong> werden Azubi-Namen, Betriebsdaten, Kontrollergebnisse oder andere personenbezogene Daten an externe Server gesendet. Es werden keine externen Ressourcen geladen – kein CDN, keine Google Fonts, kein Analytics, kein Tracking.</p>
             </div>
 
             <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⚖️ Einordnung:</p>
