@@ -986,8 +986,8 @@ const Views = {
   wiedervorlagen() {
     const today = new Date().toISOString().split('T')[0];
 
-    // Update overdue status (silent – don't create dirty-ops, this is a local view optimization)
-    try { App.db.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
+    try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,

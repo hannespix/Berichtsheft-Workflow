@@ -11727,8 +11727,8 @@ const Views = {
   wiedervorlagen() {
     const today = new Date().toISOString().split('T')[0];
 
-    // Update overdue status (silent – don't create dirty-ops, this is a local view optimization)
-    try { App.db.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
+    try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,
@@ -14304,7 +14304,7 @@ const ImportHandler = {
     } catch(e) { console.warn('Preview:', e); }
   },
 
-  doImport(data) {
+  async doImport(data) {
     if (!data) return;
     App.showLoading('Importiere Schülerdaten…');
     const getMap = f => document.getElementById('map_' + f)?.value || '';
@@ -14554,9 +14554,9 @@ const ImportHandler = {
     if (imported > 0) {
       const mostUsedJgId = Object.entries(jgCounter).sort((a,b) => b[1]-a[1])[0]?.[0];
       if (mostUsedJgId) {
-        // Set as active
-        App.db.run('UPDATE abschlussjahrgaenge SET aktiv=0');
-        App.db.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
+        // Set as active (MUST use App.run for dirty-tracking + auto-save!)
+        App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
+        App.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
         // Jahrgänge updated → auto-selects aktiv
         const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [parseInt(mostUsedJgId)]);
         stats.switchedTo = jgName;
@@ -14576,6 +14576,11 @@ const ImportHandler = {
     // H/F codes now stored as Frühjahr/Herbst directly
     if (stats.frNotFound.size) parts.push(`⚠️ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
     if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
+
+    // Force immediate save so imported data is persisted to disk
+    if (App.dbFileHandle && imported > 0) {
+      try { await App.mergeAndSave(true); } catch(e) { console.warn('Post-import save:', e); }
+    }
 
     App.hideLoading();
     // Log import in einstellungen
