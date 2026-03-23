@@ -9,9 +9,21 @@ Verwaltungstool für Ausbildungsberater Gärtner (RP Freiburg) zur Planung, Durc
 - **File System Access API** – liest/schreibt SQLite direkt auf dem Netzlaufwerk
 - **Multi-User** – 2-3 Personen können gleichzeitig arbeiten (Auto-Save + Conflict Detection)
 
+## Build (All-in-One HTML)
+```bash
+./build.sh    # → dist/berichtsheftkontrolle.html
+```
+Baut eine einzelne, offline-fähige HTML-Datei mit allen Libraries, CSS und JS inline.
+Diese Datei kann direkt auf das Netzlaufwerk kopiert werden - fertig.
+
+**WICHTIG**: Nach jeder Code-Änderung `./build.sh` ausführen und `dist/` mit committen!
+
 ## Projektstruktur
 ```
-├── index.html                    ← Einstiegspunkt (im Browser öffnen)
+├── index.html                    ← Entwicklungs-Einstiegspunkt (modulare Version)
+├── build.sh                      ← Build-Script für All-in-One HTML
+├── dist/
+│   └── berichtsheftkontrolle.html ← FERTIGE Datei für Produktion
 ├── CLAUDE.md                     ← Diese Datei
 ├── src/
 │   ├── css/styles.css            ← Alle Styles (~1170 Zeilen)
