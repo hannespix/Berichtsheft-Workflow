@@ -346,6 +346,7 @@ const PlanungHandler = {
     const selectedSchueler = this._einsendSchuelerIds || [];
 
     if (!dt) return App.toast('Datum ist Pflicht', 'error');
+    if (!pr) return App.toast('Mindestens ein Prüfer muss ausgewählt werden', 'error');
     if (typ === 'schulkontrolle' && !selectedKlassen.length) return App.toast('Mindestens eine Klasse auswählen', 'error');
     if (typ === 'einsendung' && !selectedSchueler.length) return App.toast('Mindestens einen Schüler auswählen', 'error');
     
