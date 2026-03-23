@@ -122,12 +122,13 @@ HTMLHEAD
 </script>
 INITSCRIPT
 
-  # ── Embed PDF Worker inline ──
+  # ── Embed PDF Worker inline (base64 to avoid backtick issues) ──
   echo "<script>"
   echo "if(window.pdfjsLib){"
-  echo -n "  const _pdfWorkerBlob=new Blob([\`"
-  cat "$PDF_WORKER"
-  echo "\`],{type:'application/javascript'});"
+  echo -n '  const _pdfWorkerCode=atob("'
+  base64 -w0 "$PDF_WORKER"
+  echo '");'
+  echo "  const _pdfWorkerBlob=new Blob([_pdfWorkerCode],{type:'application/javascript'});"
   echo "  pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(_pdfWorkerBlob);"
   echo "}"
   echo "</script>"
