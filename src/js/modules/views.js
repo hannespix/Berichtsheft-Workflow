@@ -517,7 +517,7 @@ const Views = {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 800, easing: 'easeOutQuart' },
-      plugins: { legend: { position: isMobile ? 'bottom' : 'bottom', labels: { font: { size: isMobile ? 10 : 11, family: "'Nunito Sans'" }, padding: isMobile ? 4 : 8, boxWidth: isMobile ? 10 : 12 } } }
+      plugins: { legend: { position: isMobile ? 'bottom' : 'bottom', labels: { font: { size: isMobile ? 10 : 11, family: "'DM Sans'" }, padding: isMobile ? 4 : 8, boxWidth: isMobile ? 10 : 12 } } }
     };
 
     // ── 1) Kontrollfortschritt Donut ──
@@ -709,7 +709,7 @@ const Views = {
           options: { ...chartOpts, indexAxis: 'y',
             scales: {
               x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 10 } } },
-              y: { grid: { display: false }, ticks: { font: { size: 11, family: "'Nunito Sans'" } } }
+              y: { grid: { display: false }, ticks: { font: { size: 11, family: "'DM Sans'" } } }
             },
             plugins: { ...chartOpts.plugins, legend: { display: false } },
             onClick: (evt, elems) => {

@@ -122,7 +122,7 @@ HTMLHEAD
   // Fix blurry charts on Windows DPI scaling (125%, 150%, etc.)
   if (typeof Chart !== 'undefined') {
     Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 2);
-    Chart.defaults.font.family = "'Nunito Sans', sans-serif";
+    Chart.defaults.font.family = "'DM Sans', sans-serif";
   }
 </script>
 INITSCRIPT
