@@ -12484,7 +12484,7 @@ const Views = {
         <!-- Navigation -->
         <div class="card" id="helpNav" style="position:sticky;top:8px;padding:8px 0;font-size:13px">
           <div style="padding:4px 16px;font-weight:700;color:var(--clr-forest-dark);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
-          ${['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Multi-User & Sync','Datensicherung','Tastenkürzel','Nacherfassung (Altdaten)','Wartung & Administration','Weiterentwicklung','KI-gestützte Entwicklung','Zeitersparnis & Arbeitserleichterung','Datenschutz & Rechtskonformität','FAQ'].map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:4px 16px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s">${t}</a>`).join('')}
+          ${['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Multi-User & Sync','Datensicherung','Tastenkürzel','Nacherfassung (Altdaten)','Wartung & Administration','Weiterentwicklung','KI-gestützte Entwicklung','Quellcode & GitHub','Zeitersparnis & Arbeitserleichterung','Datenschutz & Rechtskonformität','FAQ'].map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:4px 16px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s">${t}</a>`).join('')}
         </div>
 
         <!-- Content -->
@@ -12896,6 +12896,99 @@ const Views = {
           </div>
 
           <div id="help_21" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">📦 Quellcode bereitstellen & mit GitHub weiterentwickeln</div>
+            <p>Im Ordner <code>dist/quellcode/</code> befindet sich stets der vollständige, aktuelle Quellcode der Anwendung. Dieser Ordner wird bei jedem Build automatisch aktualisiert und kann direkt für die Versionsverwaltung mit Git/GitHub verwendet werden.</p>
+
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📋 Schritt-für-Schritt: Quellcode auf GitHub bereitstellen</p>
+            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.9">
+              <p><strong>Voraussetzungen:</strong></p>
+              <p>• Ein GitHub-Konto (<a href="https://github.com" target="_blank" style="color:var(--clr-forest)">github.com</a>)</p>
+              <p>• Git ist auf dem Rechner installiert (<a href="https://git-scm.com" target="_blank" style="color:var(--clr-forest)">git-scm.com</a>)</p>
+              <p>• Optional: GitHub CLI (<code>gh</code>) für vereinfachte Authentifizierung</p>
+
+              <p style="margin-top:10px"><strong>1. Neues Repository auf GitHub anlegen</strong></p>
+              <p style="margin-left:12px">Auf <a href="https://github.com/new" target="_blank" style="color:var(--clr-forest)">github.com/new</a> ein neues Repository erstellen:</p>
+              <p style="margin-left:12px">• Name: z.B. <code>berichtsheftkontrolle</code></p>
+              <p style="margin-left:12px">• Sichtbarkeit: <strong>Private</strong> (enthält dienstliche Konfiguration)</p>
+              <p style="margin-left:12px">• Kein README, kein .gitignore, keine Lizenz hinzufügen (kommt aus dem Quellcode)</p>
+
+              <p style="margin-top:10px"><strong>2. Quellcode-Ordner als Git-Repository initialisieren</strong></p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                cd dist/quellcode<br>
+                git init<br>
+                git add .<br>
+                git commit -m "Initiale Version der Berichtsheftkontrolle"
+              </div>
+
+              <p style="margin-top:10px"><strong>3. Mit GitHub verbinden und hochladen</strong></p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                git remote add origin https://github.com/BENUTZERNAME/berichtsheftkontrolle.git<br>
+                git branch -M main<br>
+                git push -u origin main
+              </div>
+              <p style="margin-left:12px;color:var(--clr-text-light)"><em>BENUTZERNAME durch den eigenen GitHub-Benutzernamen ersetzen.</em></p>
+
+              <p style="margin-top:10px"><strong>4. Bei Aktualisierungen: Neue Version hochladen</strong></p>
+              <p style="margin-left:12px">Nach einem neuen Build (<code>./build.sh</code>) den aktualisierten Quellcode committen:</p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                cd dist/quellcode<br>
+                git add .<br>
+                git commit -m "Version 1.2 – Beschreibung der Änderungen"<br>
+                git push
+              </div>
+            </div>
+
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">🤖 Schritt-für-Schritt: Mit Claude Code weiterentwickeln</p>
+            <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.9">
+              <p><strong>Voraussetzungen:</strong></p>
+              <p>• Node.js installiert (Version 18+): <a href="https://nodejs.org" target="_blank" style="color:var(--clr-forest)">nodejs.org</a></p>
+              <p>• Claude Code installiert: <code>npm install -g @anthropic-ai/claude-code</code></p>
+              <p>• Ein Anthropic API-Schlüssel oder Claude Max/Pro Abonnement</p>
+
+              <p style="margin-top:10px"><strong>1. Repository klonen (einmalig)</strong></p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                git clone https://github.com/BENUTZERNAME/berichtsheftkontrolle.git<br>
+                cd berichtsheftkontrolle
+              </div>
+
+              <p style="margin-top:10px"><strong>2. Claude Code starten</strong></p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                claude
+              </div>
+              <p style="margin-left:12px">Claude Code liest automatisch die <code>CLAUDE.md</code>-Datei und kennt dadurch die gesamte Projektstruktur, Konventionen und Architektur.</p>
+
+              <p style="margin-top:10px"><strong>3. Änderungen beschreiben</strong></p>
+              <p style="margin-left:12px">Im Claude-Code-Terminal den gewünschten Änderungswunsch eingeben, z.B.:</p>
+              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
+                &gt; Füge eine neue Spalte "Ausbildereignung" zum IBYKUS-Import hinzu.<br>
+                &gt; Die Spalte soll in der Stammdaten-Ansicht angezeigt werden.
+              </div>
+              <p style="margin-left:12px">Claude Code liest die betroffenen Module, nimmt die Änderungen vor und führt <code>./build.sh</code> aus.</p>
+
+              <p style="margin-top:10px"><strong>4. Testen und bereitstellen</strong></p>
+              <p style="margin-left:12px">• Die erzeugte Datei <code>dist/berichtsheftkontrolle.html</code> im Browser öffnen und testen</p>
+              <p style="margin-left:12px">• Bei Erfolg: <code>dist/berichtsheftkontrolle.html</code> auf das Netzlaufwerk kopieren</p>
+              <p style="margin-left:12px">• Änderungen in Git sichern: <code>git add . &amp;&amp; git commit -m "Beschreibung" &amp;&amp; git push</code></p>
+            </div>
+
+            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📁 Inhalt des Quellcode-Ordners</p>
+            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-family:monospace;font-size:11px;line-height:1.7">
+              quellcode/<br>
+              ├── CLAUDE.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Projektkonventionen für KI-Entwicklung<br>
+              ├── README.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Projektbeschreibung<br>
+              ├── index.html &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entwicklungs-Einstiegspunkt<br>
+              ├── build.sh &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Build-Script → erzeugt die HTML-Datei<br>
+              ├── src/css/styles.css &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Alle Styles<br>
+              ├── src/js/app-core.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Anwendungskern<br>
+              ├── src/js/utils.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Hilfsfunktionen<br>
+              ├── src/js/modules/*.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← 20 Fachmodule<br>
+              ├── libs/*.js + .wasm &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Bibliotheken<br>
+              └── fonts/*.woff2 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Eingebettete Schriftarten
+            </div>
+            <p style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Der Quellcode-Ordner wird bei jedem Ausführen von <code>./build.sh</code> automatisch aktualisiert. Er enthält alle Dateien, die für einen eigenständigen Build der Anwendung erforderlich sind – ohne Abhängigkeiten von externen Paketmanagern oder dem Internet.</p>
+          </div>
+
+          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">⏱️ Zeitersparnis & Arbeitserleichterung</div>
             <p>Die Berichtsheftkontrolle ersetzt einen aufwändigen, papiergestützten Verwaltungsprozess, der bisher mit Excel-Listen, Word-Vorlagen, manuellen E-Mails und physischer Aktenablage durchgeführt wurde.</p>
 
@@ -12969,7 +13062,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
             <div class="card-header" style="font-size:15px">🔒 Datenschutz & Rechtskonformität</div>
             <p style="font-weight:600;color:var(--clr-forest-dark)">Datenschutzrechtliche Einordnung für Führungskräfte, Datenschutzbeauftragte und behördliche Prüfungen</p>
 
@@ -13072,7 +13165,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_23" class="card" style="margin-bottom:12px">
+          <div id="help_24" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">❓ Häufig gestellte Fragen (FAQ)</div>
             <p><strong>Die Diagramme im Dashboard werden unscharf dargestellt.</strong><br>
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>

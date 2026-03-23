@@ -195,6 +195,34 @@ FONTS
 
 } > "$OUTPUT"
 
+# ── Quellcode-Ordner zusammenstellen ──
+SOURCE_DIR="$DIST_DIR/quellcode"
+rm -rf "$SOURCE_DIR"
+mkdir -p "$SOURCE_DIR/src/js/modules" "$SOURCE_DIR/src/css" "$SOURCE_DIR/libs" "$SOURCE_DIR/fonts"
+
+# Quelldateien kopieren
+cp index.html "$SOURCE_DIR/"
+cp build.sh "$SOURCE_DIR/"
+cp CLAUDE.md "$SOURCE_DIR/"
+[ -f README.md ] && cp README.md "$SOURCE_DIR/"
+cp "$CSS_FILE" "$SOURCE_DIR/src/css/"
+for mod in "${APP_MODULES[@]}"; do
+  cp "$mod" "$SOURCE_DIR/$(dirname "$mod")/"
+done
+for lib in "${LIBS[@]}"; do
+  cp "$lib" "$SOURCE_DIR/libs/"
+done
+cp "$WASM_FILE" "$SOURCE_DIR/libs/"
+cp "$PDF_WORKER" "$SOURCE_DIR/libs/"
+for font in "${FONT_FILES[@]}"; do
+  cp "$font" "$SOURCE_DIR/fonts/"
+done
+chmod +x "$SOURCE_DIR/build.sh"
+
+SOURCE_SIZE=$(du -sh "$SOURCE_DIR" | cut -f1)
+SOURCE_FILES=$(find "$SOURCE_DIR" -type f | wc -l)
+echo "  Quellcode: $SOURCE_DIR/ ($SOURCE_FILES Dateien, $SOURCE_SIZE)"
+
 # ── Ergebnis ──
 SIZE=$(du -h "$OUTPUT" | cut -f1)
 LINES=$(wc -l < "$OUTPUT")
