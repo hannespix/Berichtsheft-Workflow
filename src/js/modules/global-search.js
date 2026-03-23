@@ -187,6 +187,7 @@ const GlobalSearch = {
         <strong style="color:var(--clr-forest)">F1 oder ?</strong><span>Diese Hilfe anzeigen</span>
         <strong style="color:var(--clr-forest)">F5</strong><span>Datenbank von Disk neu laden</span>
         <strong style="color:var(--clr-forest)">Escape</strong><span>Modal / Sidebar schließen</span>
+        <strong style="color:var(--clr-forest)">/</strong><span>Schüler suchen (Kontrolle)</span>
         <div style="grid-column:span 2;border-top:1px solid var(--clr-sand);margin:6px 0;padding-top:6px;font-weight:600;color:var(--clr-forest)">KW-Grid (Kontrolle)</div>
         <strong style="color:var(--clr-forest)">A–I</strong><span>Mängelcode setzen</span>
         <strong style="color:var(--clr-forest)">0–5</strong><span>Fehltage setzen</span>
