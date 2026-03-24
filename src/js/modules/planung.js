@@ -121,15 +121,46 @@ const PlanungHandler = {
 
       <!-- SECTION: Einsendung -->
       <div id="sectionEinsendung" style="display:none">
+        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:10px">
+          Für eingesendete Berichtshefte, Nachreichungen oder Einzelprüfungen. Ganze Klassen/Standorte oder einzelne Schüler auswählbar.
+        </p>
+
+        <!-- Gruppen-Auswahl per Filter -->
         <div class="form-group">
-          <label>Schüler hinzufügen (Suche)</label>
+          <label>Gruppe auswählen (Filter)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
+            <select class="form-control" id="einsendFJg" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._updateEinsendStandort()">
+              <option value="">📅 Jahrgang: Alle</option>
+              ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
+            </select>
+            <select class="form-control" id="einsendFFr" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._updateEinsendStandort()">
+              <option value="">🌿 Fachrichtung: Alle</option>
+              ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+            </select>
+            <select class="form-control" id="einsendFAmt" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._updateEinsendStandort()">
+              <option value="">🏛 Amt: Alle</option>
+              ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
+            </select>
+            <select class="form-control" id="einsendFBs" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._updateEinsendStandort()">
+              <option value="">🏫 Schule: Alle</option>
+              ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div id="einsendStandortContent" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+
+        <hr style="margin:12px 0;border-color:var(--clr-sand)">
+
+        <!-- Einzelne Schüler manuell hinzufügen -->
+        <div class="form-group">
+          <label>Einzelne Schüler hinzufügen (Suche)</label>
           <input class="form-control" id="mKtEinsendSuche" placeholder="Name eingeben…" style="margin-bottom:6px" oninput="PlanungHandler._searchEinsendSchueler(this.value)">
           <div id="mKtEinsendResults" style="max-height:150px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);display:none"></div>
-          <div id="mKtEinsendSelected" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
         </div>
-        <p style="font-size:11px;color:var(--clr-text-light)">
-          Für eingesendete Berichtshefte, Nachreichungen, oder Einzelprüfungen außerhalb der regulären Schulkontrollen.
-        </p>
+
+        <!-- Ausgewählte Schüler (aus Gruppen + manuell) -->
+        <div id="mKtEinsendSelected" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
+        <div id="einsendCountInfo" style="font-size:11px;color:var(--clr-text-light);margin-top:4px"></div>
       </div>
 
       <div class="form-row">
@@ -304,6 +335,105 @@ const PlanungHandler = {
     this.updateBpHint && this.updateBpHint();
   },
 
+  // ── Einsendung: Standort-Gruppen für Gruppenauswahl ──
+  _updateEinsendStandort() {
+    const content = document.getElementById('einsendStandortContent');
+    if (!content) return;
+
+    const fJg = document.getElementById('einsendFJg')?.value || '';
+    const fFr = document.getElementById('einsendFFr')?.value || '';
+    const fAmt = document.getElementById('einsendFAmt')?.value || '';
+    const fBs = document.getElementById('einsendFBs')?.value || '';
+
+    if (!fJg && !fFr && !fAmt && !fBs) {
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:8px">Filter setzen um Gruppen anzuzeigen…</div>';
+      return;
+    }
+
+    // Jahrgang-ID + Fachrichtung-ID ermitteln
+    const opts = {};
+    if (fJg) {
+      const jgRow = App.query('SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?', [fJg])[0];
+      if (jgRow) opts.jahrgangId = jgRow.id;
+    }
+    if (fFr) {
+      const cleanLabel = fFr.replace(/^FW:\s*/, '');
+      const isFW = fFr.startsWith('FW:');
+      const frRow = App.query('SELECT id FROM fachrichtungen WHERE bezeichnung=? AND typ=?', [cleanLabel, isFW ? 'Fachwerker' : 'Gärtner'])[0];
+      if (frRow) opts.fachrichtungId = frRow.id;
+    }
+    if (fAmt) opts.amt = fAmt;
+
+    const gruppen = App.getStandortgruppen(opts);
+    // Schule-Filter clientseitig anwenden
+    const filtered = fBs ? gruppen.filter(g => g.schule.toLowerCase().includes(fBs.toLowerCase())) : gruppen;
+
+    if (!filtered.length) {
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:8px">Keine Schüler für diese Filterauswahl.</div>';
+      return;
+    }
+
+    const total = filtered.reduce((s, g) => s + g.schueler.length, 0);
+    content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">${total} Schüler an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}</div>`
+      + filtered.map(g => {
+        const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s).isLandesfachklasse).length;
+        const regCount = g.schueler.length - lfkCount;
+        const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
+        const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
+        const ids = g.schueler.map(s => s.id);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:var(--clr-warm);border-radius:6px;border:1px solid var(--clr-sand);cursor:pointer;transition:all .15s"
+          onmouseenter="this.style.borderColor='var(--clr-forest)';this.style.boxShadow='0 1px 4px rgba(45,80,22,0.15)'"
+          onmouseleave="this.style.borderColor='var(--clr-sand)';this.style.boxShadow='none'"
+          onclick="PlanungHandler._addEinsendGruppe([${ids.join(',')}],'${esc(g.schule)}')"
+          title="${schuelerNames}${moreHint}">
+          <div style="flex:1">
+            <strong style="font-size:13px">${esc(g.schule)}</strong>
+            ${g.hasLFK ? ' <span style="font-size:9px;padding:1px 6px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;font-weight:600">LFK</span>' : ''}
+            <div style="font-size:11px;color:var(--clr-text-light)">
+              ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
+            </div>
+          </div>
+          <span style="font-size:11px;color:var(--clr-forest);font-weight:600">+ Alle hinzufügen</span>
+        </div>`;
+      }).join('')
+      + `<button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="PlanungHandler._addEinsendGruppe([${filtered.flatMap(g => g.schueler.map(s => s.id)).join(',')}], 'Alle Standorte')">
+        Alle ${total} Schüler hinzufügen
+      </button>`;
+  },
+
+  _addEinsendGruppe(ids, label) {
+    let added = 0;
+    ids.forEach(id => {
+      if (!this._einsendSchuelerIds.includes(id)) {
+        this._einsendSchuelerIds.push(id);
+        added++;
+      }
+    });
+    this._renderEinsendSelected();
+    App.toast(`${added} Schüler aus "${label}" hinzugefügt`, 'success');
+  },
+
+  _renderEinsendSelected() {
+    const sel = document.getElementById('mKtEinsendSelected');
+    const info = document.getElementById('einsendCountInfo');
+    if (!sel) return;
+
+    if (!this._einsendSchuelerIds.length) {
+      sel.innerHTML = '';
+      if (info) info.textContent = '';
+      return;
+    }
+
+    sel.innerHTML = this._einsendSchuelerIds.map(sid => {
+      const s = this._einsendSchuelerData.find(x => x.id === sid);
+      return `<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--clr-green-light);border-radius:12px;font-size:12px">
+        ${esc(s?.nachname||'?')}, ${esc(s?.vorname||'?')}
+        <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
+      </span>`;
+    }).join('');
+    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Schüler ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
+  },
+
   _einsendSchuelerIds: [],
   _einsendSchuelerData: [],
 
@@ -317,37 +447,23 @@ const PlanungHandler = {
       ((s.nachname||'').toLowerCase().includes(ql) || (s.vorname||'').toLowerCase().includes(ql) || (s.betrieb_display||'').toLowerCase().includes(ql))
     ).slice(0, 10);
     if (!matches.length) { results.innerHTML = '<div style="padding:6px;font-size:12px;color:var(--clr-text-light)">Keine Treffer</div>'; results.style.display = ''; return; }
-    results.innerHTML = matches.map(s => `<div style="padding:4px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--clr-sand)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._addEinsendSchueler(${s.id},'${esc(s.nachname)}','${esc(s.vorname)}')">
+    results.innerHTML = matches.map(s => `<div style="padding:4px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--clr-sand)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._addEinsendSchueler(${s.id})">
       <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span style="color:var(--clr-text-light)">· ${esc(s.betrieb_display||'–')}</span>
     </div>`).join('');
     results.style.display = '';
   },
 
-  _addEinsendSchueler(id, nn, vn) {
+  _addEinsendSchueler(id) {
     if (this._einsendSchuelerIds.includes(id)) return;
     this._einsendSchuelerIds.push(id);
-    const sel = document.getElementById('mKtEinsendSelected');
-    if (sel) sel.innerHTML = this._einsendSchuelerIds.map(sid => {
-      const s = this._einsendSchuelerData.find(x => x.id === sid);
-      return `<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--clr-green-light);border-radius:12px;font-size:12px">
-        ${esc(s?.nachname||'?')}, ${esc(s?.vorname||'?')}
-        <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
-      </span>`;
-    }).join('');
+    this._renderEinsendSelected();
     document.getElementById('mKtEinsendSuche').value = '';
     document.getElementById('mKtEinsendResults').style.display = 'none';
   },
 
   _removeEinsendSchueler(id) {
     this._einsendSchuelerIds = this._einsendSchuelerIds.filter(x => x !== id);
-    const sel = document.getElementById('mKtEinsendSelected');
-    if (sel) sel.innerHTML = this._einsendSchuelerIds.map(sid => {
-      const s = this._einsendSchuelerData.find(x => x.id === sid);
-      return `<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--clr-green-light);border-radius:12px;font-size:12px">
-        ${esc(s?.nachname||'?')}, ${esc(s?.vorname||'?')}
-        <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
-      </span>`;
-    }).join('');
+    this._renderEinsendSelected();
   },
   updateBpHint() {
     const grid = document.getElementById('bpKwGrid');
@@ -464,7 +580,7 @@ const PlanungHandler = {
     if (!dt) return App.toast('Datum ist Pflicht', 'error');
     if (!pr) return App.toast('Mindestens ein Prüfer muss ausgewählt werden', 'error');
     if (typ === 'schulkontrolle' && !selectedKlassen.length) return App.toast('Mindestens eine Klasse auswählen', 'error');
-    if (typ === 'einsendung' && !selectedSchueler.length) return App.toast('Mindestens einen Schüler auswählen', 'error');
+    if (typ === 'einsendung' && !selectedSchueler.length && !standortSchueler.length) return App.toast('Mindestens einen Schüler oder eine Gruppe auswählen', 'error');
     
     // Get jahrgang from first selected class
     const firstChecked = document.querySelector('.chk-termin-kl:checked');
