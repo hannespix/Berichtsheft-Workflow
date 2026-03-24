@@ -53,12 +53,7 @@ const BerichteHandler = {
     App.openModal('Einzelnen Durchsichtsbogen exportieren', `
       <div class="form-group"><label>Kontrolltermin</label><select class="form-control" id="mExpTermin" onchange="BerichteHandler.loadSchuelerForExport(this.value)">
         <option value="">– Bitte wählen –</option>
-        ${termine.map(t => {
-          const klassen = App.getTerminKlassen(t.id);
-          const schule = klassen.length ? klassen[0].schule : '?';
-          const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
-          return `<option value="${t.id}">${formatDate(t.geplant_datum)} – ${esc(schule)} – ${esc(klassenStr)}</option>`;
-        }).join('')}
+        ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
       </select></div>
       <div class="form-group"><label>Schüler</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>

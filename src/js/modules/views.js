@@ -921,7 +921,10 @@ const Views = {
             mTermine.forEach(t => {
               const day = parseInt(t.geplant_datum.split('-')[2]);
               const kl = App.getTerminKlassen(t.id);
-              terminDays[day] = { t, label: kl.map(k => k.klassenbezeichnung).join('+'), status: t.status, pruefer: t.pruefer };
+              const frAj = App.formatTerminFrAj(t.id);
+              const schule = kl.length ? kl[0].schule : '';
+              const calLabel = t.typ === 'einsendung' ? '📬 Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+'));
+              terminDays[day] = { t, label: calLabel, detail: frAj, status: t.status, pruefer: t.pruefer };
             });
 
             let cells = '';
@@ -931,9 +934,9 @@ const Views = {
               const isToday = d === now.getDate() && m === now.getMonth() && year === now.getFullYear();
               const bg = td ? (td.status === 'durchgefuehrt' ? 'var(--clr-green-light)' : 'var(--clr-blue-light)') : '';
               const border = isToday ? '2px solid var(--clr-forest)' : td ? '1px solid var(--clr-sage-light)' : '';
-              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="PlanungHandler.editTermin(${td.t.id})" title="${esc(td.label)} – ${esc(td.pruefer)}"` : ''}>
+              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="PlanungHandler.editTermin(${td.t.id})" title="${esc(td.label)} – ${esc(td.detail)} – ${esc(td.pruefer)}"` : ''}>
                 <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}</div>
-                ${td ? `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.label)}</div>` : ''}
+                ${td ? `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.label)}</div><div style="font-size:8px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.detail)}</div>` : ''}
               </div>`;
             }
             return `<div class="card" style="margin-bottom:8px">
@@ -1016,16 +1019,7 @@ const Views = {
         <div class="form-group">
           <select class="form-control" id="selKontrolltermin" onchange="KontrolleHandler.loadTermin(this.value)">
             <option value="">– Bitte wählen –</option>
-            ${termine.map(t => {
-              const klassenStr = App.formatTerminKlassen(t.id);
-              const klassen = App.getTerminKlassen(t.id);
-              const schule = klassen.length ? klassen[0].schule : '?';
-              const frAj = App.formatTerminFrAj(t.id);
-              const isEins = t.typ === 'einsendung';
-              const schuelerCount = isEins ? App.getTerminSchueler(t.id).length : 0;
-              const label = isEins ? `📬 Einsendung (${schuelerCount} Schüler)` : `${esc(schule)} – ${esc(frAj)}`;
-              return `<option value="${t.id}">KW${getKW(t.geplant_datum)} ${formatDate(t.geplant_datum)} – ${label} (${t.status})</option>`;
-            }).join('')}
+            ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
           </select>
         </div>
       </div>

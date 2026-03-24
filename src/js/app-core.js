@@ -2731,6 +2731,27 @@ const App = {
     return klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
   },
 
+  // Aussagekräftiges Label für einen Kontrolltermin (z.B. für Dropdowns)
+  formatTerminLabel(t) {
+    const klassen = this.getTerminKlassen(t.id);
+    const schule = klassen.length ? klassen[0].schule : '';
+    const frAj = this.formatTerminFrAj(t.id);
+    const count = this.getTerminSchuelerCount(t.id);
+    const isEins = t.typ === 'einsendung';
+    const kw = 'KW' + this._isoKW(new Date(t.geplant_datum + 'T00:00:00'));
+    const datum = (t.geplant_datum || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1');
+    const parts = [`${kw} ${datum}`];
+    if (isEins) {
+      parts.push('📬 Einsendung');
+    } else if (schule) {
+      parts.push(schule);
+    }
+    if (frAj && frAj !== '–') parts.push(frAj);
+    parts.push(`${count} Sch.`);
+    if (t.pruefer) parts.push(t.pruefer);
+    return parts.join(' – ') + ` (${t.status || 'geplant'})`;
+  },
+
   // Format FR + AJ for display (e.g. "GaLaBau 2. AJ, Zierpfl. 2. AJ")
   formatTerminFrAj(terminId, refDate) {
     const klassen = this.getTerminKlassen(terminId);
