@@ -2902,6 +2902,45 @@ const App = {
     return { schule: regulaereSchule, isLandesfachklasse: false };
   },
 
+  // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
+  // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
+  // Optional nach jahrgangId und fachrichtungId filterbar.
+  // Gibt Array von { schule, isLFK, schueler: [...], klasse_ids: Set } zurück.
+  getStandortgruppen(jahrgangId, fachrichtungId, refDate) {
+    let sql = `SELECT s.*,
+      f.code as fr_code, f.bezeichnung as fr_bez, f.typ as fr_typ,
+      k.klassenbezeichnung, k.lehrjahr, k.berufsschule_id,
+      bs.name as schule,
+      j.bezeichnung as jahrgang
+      FROM schueler s
+      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
+      LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+      WHERE s.aktiv=1`;
+    const params = [];
+    if (jahrgangId) { sql += ' AND s.jahrgang_id=?'; params.push(jahrgangId); }
+    if (fachrichtungId) { sql += ' AND s.fachrichtung_id=?'; params.push(fachrichtungId); }
+    sql += ' ORDER BY s.nachname, s.vorname';
+
+    const schuelerList = this.query(sql, params);
+    const gruppen = {}; // key = schulName → { schule, isLFK, schueler, klasse_ids }
+
+    schuelerList.forEach(s => {
+      const ak = this.getAktuelleSchule(s, refDate);
+      const key = ak.schule || '(ohne Schule)';
+      if (!gruppen[key]) {
+        gruppen[key] = { schule: key, isLFK: ak.isLandesfachklasse, schueler: [], klasse_ids: new Set(), hasLFK: false, hasRegulaer: false };
+      }
+      gruppen[key].schueler.push(s);
+      if (s.klasse_id) gruppen[key].klasse_ids.add(s.klasse_id);
+      if (ak.isLandesfachklasse) gruppen[key].hasLFK = true;
+      else gruppen[key].hasRegulaer = true;
+    });
+
+    return Object.values(gruppen).sort((a, b) => b.schueler.length - a.schueler.length);
+  },
+
   // ── Prüfbereich: erste/letzte KW aus Ausbildungsbeginn + heute ──
   getKWRange(beginn) {
     if (!beginn) return null;

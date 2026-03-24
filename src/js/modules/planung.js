@@ -107,6 +107,15 @@ const PlanungHandler = {
           </div>
           <div style="font-size:10px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
         </div>
+
+        <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
+        <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <strong style="font-size:13px;color:#7b2fa0">🏫 Aktuelle Schulstandorte</strong>
+            <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
+          </div>
+          <div id="smartStandortContent"></div>
+        </div>
       </div>
 
       <!-- SECTION: Einsendung -->
@@ -153,6 +162,7 @@ const PlanungHandler = {
         <button class="btn btn-primary" onclick="PlanungHandler.saveTermin()">Speichern</button>`);
     this._einsendSchuelerIds = [];
     this._einsendSchuelerData = allSchueler;
+    this._standortSchuelerIds = [];
     setTimeout(() => { PlanungHandler._updateKwHighlight(); PlanungHandler.updateBpHint(); }, 50);
   },
 
@@ -187,6 +197,79 @@ const PlanungHandler = {
       const hasVisible = [...rows].some(r => r.style.display !== 'none');
       g.style.display = hasVisible ? '' : 'none';
     });
+
+    // Smart-Standort aktualisieren wenn Jahrgang + Fachrichtung gefiltert
+    this._updateSmartStandort(fJg, fFr);
+  },
+
+  _updateSmartStandort(jgBez, frLabel) {
+    const box = document.getElementById('smartStandortBox');
+    const content = document.getElementById('smartStandortContent');
+    if (!box || !content) return;
+
+    // Nur anzeigen wenn mindestens Fachrichtung oder Jahrgang gefiltert
+    if (!jgBez && !frLabel) { box.style.display = 'none'; return; }
+
+    // Jahrgang-ID und Fachrichtung-ID ermitteln
+    let jgId = null, frId = null;
+    if (jgBez) {
+      const jg = App.query('SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?', [jgBez])[0];
+      if (jg) jgId = jg.id;
+    }
+    if (frLabel) {
+      // frLabel format: "FW: Zierpflanzenbau" or "GaLaBau"
+      const cleanLabel = frLabel.replace(/^FW:\s*/, '');
+      const isFW = frLabel.startsWith('FW:');
+      const fr = App.query('SELECT id FROM fachrichtungen WHERE bezeichnung=? AND typ=?', [cleanLabel, isFW ? 'Fachwerker' : 'Gärtner'])[0];
+      if (fr) frId = fr.id;
+    }
+
+    const gruppen = App.getStandortgruppen(jgId, frId);
+    if (!gruppen.length) { box.style.display = 'none'; return; }
+
+    // Check ob es überhaupt LFK-Schüler gibt
+    const hasAnyLFK = gruppen.some(g => g.hasLFK);
+
+    box.style.display = '';
+    content.innerHTML = gruppen.map(g => {
+      const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s).isLandesfachklasse).length;
+      const regCount = g.schueler.length - lfkCount;
+      const klasseIds = [...g.klasse_ids];
+
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:white;border-radius:6px;border:1px solid #d4b8e8;cursor:pointer;transition:all .15s"
+        onmouseenter="this.style.borderColor='#7b2fa0';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
+        onmouseleave="this.style.borderColor='#d4b8e8';this.style.boxShadow='none'"
+        onclick="PlanungHandler._selectStandort([${klasseIds.join(',')}], [${g.schueler.map(s => s.id).join(',')}])"
+        title="Klick = diese Gruppe für den Termin auswählen">
+        <div style="flex:1">
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
+          <div style="font-size:11px;color:var(--clr-text-light)">
+            ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
+          </div>
+        </div>
+        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:#e8d5f5;color:#7b2fa0;border-radius:10px;font-weight:600">LFK</span>' : ''}
+        <span style="font-size:11px;color:var(--clr-forest);font-weight:600">Auswählen →</span>
+      </div>`;
+    }).join('')
+    + (hasAnyLFK ? `<div style="font-size:10px;color:#7b2fa0;margin-top:6px;padding:4px 0">
+      ℹ️ <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
+    </div>` : '');
+  },
+
+  _selectStandort(klasseIds, schuelerIds) {
+    // Alle Klassen-Checkboxen abwählen
+    document.querySelectorAll('.chk-termin-kl').forEach(c => c.checked = false);
+    // Die Klassen dieser Standortgruppe auswählen
+    klasseIds.forEach(kid => {
+      const cb = document.querySelector(`.chk-termin-kl[value="${kid}"]`);
+      if (cb) cb.checked = true;
+    });
+    // Schüler-IDs merken für LFK-Zuordnung beim Speichern
+    this._standortSchuelerIds = schuelerIds;
+    // Visuelles Feedback
+    App.toast(`${schuelerIds.length} Schüler ausgewählt`, 'success');
+    // Blockplan-KW-Kalender aktualisieren
+    this.updateBpHint && this.updateBpHint();
   },
 
   _einsendSchuelerIds: [],
@@ -342,8 +425,9 @@ const PlanungHandler = {
     
     // Get selected class IDs (Schulkontrolle)
     const selectedKlassen = [...document.querySelectorAll('.chk-termin-kl:checked')].map(c => parseInt(c.value));
-    // Get selected students (Einsendung)
+    // Get selected students (Einsendung) + Smart-Standort LFK-Schüler
     const selectedSchueler = this._einsendSchuelerIds || [];
+    const standortSchueler = this._standortSchuelerIds || [];
 
     if (!dt) return App.toast('Datum ist Pflicht', 'error');
     if (!pr) return App.toast('Mindestens ein Prüfer muss ausgewählt werden', 'error');
@@ -372,8 +456,9 @@ const PlanungHandler = {
         selectedKlassen.forEach(klId => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [newId, klId]);
         });
-        // Link individual students (Einsendung)
-        selectedSchueler.forEach(sid => {
+        // Link individual students (Einsendung + Smart-Standort LFK-Schüler)
+        const allExtraSchueler = [...new Set([...selectedSchueler, ...standortSchueler])];
+        allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
         });
       }
