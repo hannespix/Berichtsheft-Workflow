@@ -11714,6 +11714,13 @@ const Views = {
             <p>CSV- oder Excel-Datei hierher ziehen oder klicken (.csv, .xlsx, .xls)</p>
             <input type="file" id="csvFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleFile(this.files[0])">
           </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="csvPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
           <div id="importPreview"></div>
         </div>
       </div>
@@ -11753,6 +11760,13 @@ const Views = {
             <p>Landesfachklasse-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
             <input type="file" id="lfkFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleLFKFile(this.files[0])">
           </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="lfkPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
           <div id="lfkImportPreview"></div>
         </div>
       </div>
@@ -14525,6 +14539,44 @@ const StammdatenTab = {
 
 // ── import-handler.js ──
 const ImportHandler = {
+  // ── Copy & Paste Import: Tab-separierte Daten aus Zwischenablage ──
+  handlePaste(textareaId, mode) {
+    const ta = document.getElementById(textareaId);
+    if (!ta) return;
+    const raw = ta.value.trim();
+    if (!raw) return App.toast('Bitte zuerst Daten einfügen (Ctrl+V)', 'warning');
+
+    // Parse: Zeilen splitten, dann Tab oder Semikolon als Trennzeichen erkennen
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return App.toast('Mindestens 2 Zeilen nötig (Kopfzeile + Daten)', 'error');
+
+    // Trennzeichen erkennen: Tab > Semikolon > Komma
+    const firstLine = lines[0];
+    let sep = '\t';
+    if (firstLine.split('\t').length < 2) {
+      sep = firstLine.split(';').length >= firstLine.split(',').length ? ';' : ',';
+    }
+
+    const headers = lines[0].split(sep).map(h => h.trim().replace(/^["']|["']$/g, '').replace(/^\uFEFF/, ''));
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(sep).map(v => v.trim().replace(/^["']|["']$/g, ''));
+      if (vals.every(v => !v)) continue; // Leere Zeile
+      const row = {};
+      headers.forEach((h, j) => { row[h] = vals[j] || ''; });
+      data.push(row);
+    }
+
+    if (!data.length) return App.toast('Keine Daten erkannt', 'error');
+    App.toast(`${data.length} Zeilen aus Zwischenablage erkannt (${headers.length} Spalten)`, 'success');
+
+    if (mode === 'lfk') {
+      this.showLFKMapping(data, headers);
+    } else {
+      this.showMapping(data, headers);
+    }
+  },
+
   handleFile(file) {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();

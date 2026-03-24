@@ -797,6 +797,13 @@ const Views = {
             <p>CSV- oder Excel-Datei hierher ziehen oder klicken (.csv, .xlsx, .xls)</p>
             <input type="file" id="csvFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleFile(this.files[0])">
           </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="csvPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
           <div id="importPreview"></div>
         </div>
       </div>
@@ -836,6 +843,13 @@ const Views = {
             <p>Landesfachklasse-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
             <input type="file" id="lfkFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleLFKFile(this.files[0])">
           </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="lfkPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
           <div id="lfkImportPreview"></div>
         </div>
       </div>

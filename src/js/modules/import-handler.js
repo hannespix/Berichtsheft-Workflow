@@ -1,4 +1,42 @@
 const ImportHandler = {
+  // ── Copy & Paste Import: Tab-separierte Daten aus Zwischenablage ──
+  handlePaste(textareaId, mode) {
+    const ta = document.getElementById(textareaId);
+    if (!ta) return;
+    const raw = ta.value.trim();
+    if (!raw) return App.toast('Bitte zuerst Daten einfügen (Ctrl+V)', 'warning');
+
+    // Parse: Zeilen splitten, dann Tab oder Semikolon als Trennzeichen erkennen
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return App.toast('Mindestens 2 Zeilen nötig (Kopfzeile + Daten)', 'error');
+
+    // Trennzeichen erkennen: Tab > Semikolon > Komma
+    const firstLine = lines[0];
+    let sep = '\t';
+    if (firstLine.split('\t').length < 2) {
+      sep = firstLine.split(';').length >= firstLine.split(',').length ? ';' : ',';
+    }
+
+    const headers = lines[0].split(sep).map(h => h.trim().replace(/^["']|["']$/g, '').replace(/^\uFEFF/, ''));
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(sep).map(v => v.trim().replace(/^["']|["']$/g, ''));
+      if (vals.every(v => !v)) continue; // Leere Zeile
+      const row = {};
+      headers.forEach((h, j) => { row[h] = vals[j] || ''; });
+      data.push(row);
+    }
+
+    if (!data.length) return App.toast('Keine Daten erkannt', 'error');
+    App.toast(`${data.length} Zeilen aus Zwischenablage erkannt (${headers.length} Spalten)`, 'success');
+
+    if (mode === 'lfk') {
+      this.showLFKMapping(data, headers);
+    } else {
+      this.showMapping(data, headers);
+    }
+  },
+
   handleFile(file) {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
