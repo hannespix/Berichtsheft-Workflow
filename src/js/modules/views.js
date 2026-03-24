@@ -801,6 +801,45 @@ const Views = {
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="cursor:pointer" onclick="document.getElementById('lfkSection').style.display=document.getElementById('lfkSection').style.display==='none'?'':'none'">
+          Landesfachklasse-Import ▾
+        </div>
+        <div id="lfkSection" style="display:none">
+          <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
+            <div style="display:flex;align-items:start;gap:10px">
+              <span style="font-size:20px;line-height:1">🏫</span>
+              <div style="font-size:13px;color:var(--clr-text)">
+                <strong style="color:var(--clr-forest-dark)">Landesfachklassen aus IBYKUS importieren</strong>
+                <p style="margin:8px 0 0;line-height:1.7">
+                  Bestimmte Fachrichtungen besuchen in höheren Ausbildungsjahren eine andere Berufsschule (Landesfachklasse).
+                  Dieser Import ordnet die Landesfachklassen den Schülern zu.
+                </p>
+                <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px">
+                  <span><strong>Gemüsebau:</strong> 3. AJ → Heidelberg</span>
+                  <span><strong>Obstbau:</strong> 2.+3. AJ → Heilbronn</span>
+                  <span><strong>Baumschule:</strong> 3. AJ → OG / Freiburg</span>
+                  <span><strong>Stauden:</strong> 3. AJ → Freiburg</span>
+                </div>
+                <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
+                  💡 <strong>IBYKUS-Export:</strong> Unter <em>Berichtsheftkontrolle-Export</em> die Spalten
+                  <code>Nr.</code>, <code>Besch-Person</code>, <code>Nummer der Klasse</code>, <code>Beschreibung Klasse</code>, <code>Landesfachklasse</code> exportieren.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="drop-zone" id="lfkDropZone" onclick="document.getElementById('lfkFileInput').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="event.preventDefault();this.classList.remove('dragover');ImportHandler.handleLFKFile(event.dataTransfer.files[0])">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Landesfachklasse-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
+            <input type="file" id="lfkFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleLFKFile(this.files[0])">
+          </div>
+          <div id="lfkImportPreview"></div>
+        </div>
+      </div>
+
       <div id="schuelerViewContainer"></div>
     </div>`;
     try { SchuelerView.render(); } catch(e) {}

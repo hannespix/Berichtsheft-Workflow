@@ -568,6 +568,7 @@ const ImportHandler = {
         ${wvCount ? `<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">${wvCount} offene WV</span>` : ''}
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
         ${klasse ? `<span style="padding:3px 8px;background:var(--clr-green-light);border-radius:10px">${esc(klasse.schule)}</span>` : ''}
+        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:#e8d5f5;border-radius:10px;color:#7b2fa0">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
         ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">📧 ${esc(betrieb.email)}</span>` : ''}
       </div>
 
@@ -601,6 +602,9 @@ const ImportHandler = {
         </select></div>
         <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
         <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>🏫 Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Nur bei abweichender Berufsschule (Gemüse, Obst, Baumschule, Stauden)" style="font-size:11px"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>📞 Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
@@ -638,7 +642,7 @@ const ImportHandler = {
     const aktiv = (status === 'aktiv' || status === 'ap_zugelassen') ? 1 : 0;
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
       betrieb_id=?,jahrgang_id=?,ibykus_id=?,ausbildungsbeginn=?,ausbildungsende=?,
-      telefon=?,email=?,zustaendiges_amt=?,
+      telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
       status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
@@ -651,6 +655,7 @@ const ImportHandler = {
        document.getElementById('mSTelefon')?.value?.trim() || '',
        document.getElementById('mSEmail')?.value?.trim() || '',
        document.getElementById('mSAmt')?.value || '',
+       document.getElementById('mSLFK')?.value?.trim() || '',
        status, aktiv,
        document.getElementById('mSAPZu').checked ? 1 : 0,
        document.getElementById('mSAPBe').checked ? 1 : 0,
@@ -685,6 +690,171 @@ const ImportHandler = {
     App.run('DELETE FROM schueler WHERE id=?', [id]);
     try { SchuelerView.render(); } catch(e) {}
   },
+  // ═══════════════════════════════════════════
+  //  LANDESFACHKLASSE-IMPORT
+  // ═══════════════════════════════════════════
+  handleLFKFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    const process = (data, fields) => {
+      if (!data.length) return App.toast('Datei ist leer', 'error');
+      App.toast(`${data.length} Zeilen aus "${file.name}" erkannt`, 'success');
+      this.showLFKMapping(data, fields);
+    };
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+          const fields = Object.keys(data[0] || {}).map(f => f.replace(/^\uFEFF/, ''));
+          process(data, fields);
+        } catch (err) { App.toast('Excel-Fehler: ' + err.message, 'error'); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true, skipEmptyLines: true, dynamicTyping: false,
+        delimitersToGuess: [';', ',', '\t', '|'],
+        complete: (results) => {
+          if (results.meta.fields?.length) results.meta.fields[0] = results.meta.fields[0].replace(/^\uFEFF/, '');
+          process(results.data, results.meta.fields);
+        },
+        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+      });
+    }
+  },
+
+  showLFKMapping(data, fields) {
+    // Column patterns for auto-matching
+    const lfkFieldDefs = {
+      nr:               ['Nr. / BAV-Ident *',  ['nr','nr.','bav-ident','bavident','ident','ibykus','identnr','bav_ident','besch-person']],
+      beschreibung:     ['Beschreibung Klasse', ['beschreibung klasse','beschreibung','klassebeschreibung','klasse']],
+      landesfachklasse: ['Landesfachklasse *',  ['landesfachklasse','lfk','landesfachkl']],
+    };
+    const lfkKeys = Object.keys(lfkFieldDefs);
+
+    function bestMatch(key, columns) {
+      const patterns = lfkFieldDefs[key]?.[1] || [];
+      for (const col of columns) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) return col; }
+      for (const col of columns) { const cl = col.toLowerCase().trim(); for (const p of patterns) { if (cl.includes(p) || p.includes(cl)) return col; } }
+      return '';
+    }
+
+    const matchCount = lfkKeys.filter(f => bestMatch(f, fields)).length;
+    const preview = document.getElementById('lfkImportPreview');
+    preview.innerHTML = `
+      <div style="margin-top:16px">
+        <h4 style="font-family:var(--font-display);margin-bottom:4px">${data.length} Datensätze – Spalten zuordnen:</h4>
+        <p style="font-size:12px;margin-bottom:12px;color:${matchCount >= 2 ? 'var(--clr-green)' : 'var(--clr-amber)'}">
+          <strong>${matchCount} von ${lfkKeys.length}</strong> Spalten automatisch erkannt
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          ${lfkKeys.map(f => {
+            const matched = bestMatch(f, fields);
+            const label = lfkFieldDefs[f][0];
+            return `<div class="form-group" style="margin:0">
+              <label>${label} ${matched ? '✓' : ''}</label>
+              <select class="form-control" id="lfkmap_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
+                <option value="">– nicht zuordnen –</option>
+                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+              </select>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">So funktioniert der LFK-Import:</strong>
+          <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
+            <li>Schüler werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
+            <li>Wenn <strong>Landesfachklasse ≠ Beschreibung Klasse</strong> → wird als LFK gespeichert</li>
+            <li>Betroffene Fachrichtungen: Gemüse (3. AJ), Obst (2.+3. AJ), Baumschule (3. AJ), Stauden (3. AJ)</li>
+            <li>Die <strong>aktuelle Schule</strong> wird dann je nach Ausbildungsjahr automatisch angezeigt</li>
+          </ul>
+        </div>
+        <div style="overflow:auto;max-height:180px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
+          <table class="data-table"><thead><tr>${fields.slice(0,6).map(f => `<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+            ${data.slice(0,5).map(row => `<tr>${fields.slice(0,6).map(f => `<td style="font-size:11px">${esc((row[f]||'').substring(0,35))}</td>`).join('')}</tr>`).join('')}
+          </tbody></table>
+        </div>
+        <button class="btn btn-primary" onclick="ImportHandler.doImportLFK(window._lfkImportData)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Landesfachklassen importieren
+        </button>
+        <button class="btn btn-secondary" onclick="document.getElementById('lfkImportPreview').innerHTML=''">Abbrechen</button>
+      </div>`;
+    window._lfkImportData = data;
+  },
+
+  doImportLFK(data) {
+    if (!data) return;
+    const gm = f => document.getElementById('lfkmap_' + f)?.value || '';
+    const nrCol = gm('nr');
+    const beschCol = gm('beschreibung');
+    const lfkCol = gm('landesfachklasse');
+    if (!nrCol && !lfkCol) return App.toast('Bitte mindestens Nr./BAV-Ident und Landesfachklasse zuordnen', 'error');
+
+    App.showLoading('Importiere Landesfachklassen…');
+    let updated = 0, skipped = 0, notFound = 0, cleared = 0;
+
+    data.forEach(row => {
+      const nr = (row[nrCol] || '').toString().trim();
+      const beschreibung = (row[beschCol] || '').trim();
+      const lfk = (row[lfkCol] || '').trim();
+
+      if (!nr) { skipped++; return; }
+
+      // Landesfachklasse nur speichern wenn sie von der regulären Klasse abweicht
+      let lfkValue = '';
+      if (lfk && beschreibung) {
+        // Normalisiere: "Berufsschule XY" → extrahiere nur den Schulnamen
+        const normBeschr = beschreibung.replace(/^Berufsschule\s+/i, '').trim().toLowerCase();
+        const normLfk = lfk.replace(/^Berufsschule\s+/i, '').trim().toLowerCase();
+        if (normBeschr !== normLfk) {
+          lfkValue = lfk.replace(/^Berufsschule\s+/i, '').trim();
+        }
+      } else if (lfk && !beschreibung) {
+        lfkValue = lfk.replace(/^Berufsschule\s+/i, '').trim();
+      }
+
+      // Finde Schüler: erst per ibykus_id, dann per Nr als allg. Match
+      let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
+      if (!schuelerId) {
+        // Versuche numerischen Teil als BAV-Ident zu matchen
+        schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1', ['%' + nr + '%']);
+      }
+
+      if (!schuelerId) { notFound++; return; }
+
+      const current = App.scalar('SELECT landesfachklasse FROM schueler WHERE id=?', [schuelerId]) || '';
+      if (lfkValue && current !== lfkValue) {
+        App.run('UPDATE schueler SET landesfachklasse=? WHERE id=?', [lfkValue, schuelerId]);
+        updated++;
+      } else if (!lfkValue && current) {
+        // LFK wurde entfernt (Beschreibung = LFK → normal)
+        App.run("UPDATE schueler SET landesfachklasse='' WHERE id=?", [schuelerId]);
+        cleared++;
+      } else {
+        skipped++;
+      }
+    });
+
+    App.hideLoading();
+
+    let parts = [];
+    if (updated) parts.push(`<strong>${updated}</strong> Schüler mit Landesfachklasse aktualisiert`);
+    if (cleared) parts.push(`${cleared} Landesfachklassen entfernt (wieder normale Klasse)`);
+    if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
+    if (notFound) parts.push(`⚠️ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
+
+    App.openModal('LFK-Import abgeschlossen', `
+      <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
+    `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+    document.getElementById('lfkImportPreview').innerHTML = '';
+  },
+
   deleteAllJahrgang() {
     const jg = SchuelerView.filters.jahrgang;
     if (!jg) return App.toast('Bitte zuerst einen Jahrgang im Filter wählen', 'warning');

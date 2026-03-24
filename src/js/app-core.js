@@ -832,6 +832,7 @@ const App = {
       pruefungserfolg_wdh2 TEXT DEFAULT '',
       bav_status TEXT DEFAULT '',
       zwischenpruefung TEXT DEFAULT '',
+      landesfachklasse TEXT DEFAULT '',
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -2867,6 +2868,40 @@ const App = {
     return `${aj}. AJ` + (jg ? ` (${jg.bezeichnung})` : '');
   },
 
+  // ── Aktuelle Schule: Landesfachklasse-Regeln nach Fachrichtung + AJ ──
+  // Bestimmte Fachrichtungen besuchen in höheren AJs eine andere Berufsschule (Landesfachklasse).
+  // Regeln: Gemüsebau: 3. AJ, Obstbau: 2.+3. AJ, Baumschule: 3. AJ, Stauden: 3. AJ
+  // Gibt {schule, isLandesfachklasse} zurück.
+  getAktuelleSchule(schueler, refDate) {
+    const regulaereSchule = schueler.schule || '';
+    const lfk = (schueler.landesfachklasse || '').trim();
+    if (!lfk) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Fachrichtung-Code ermitteln
+    const frCode = schueler.fr_code || (schueler.fachrichtung_id
+      ? (this.query('SELECT code FROM fachrichtungen WHERE id=?', [schueler.fachrichtung_id])[0]?.code || '')
+      : '');
+    if (!frCode) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Aktuelles Ausbildungsjahr
+    const aj = this.getAJFromJahrgang(schueler.jahrgang_id, refDate);
+    if (!aj) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Regeln: Code → ab welchem AJ gilt die Landesfachklasse
+    // Gemüsebau (032/172): 3. AJ | Obstbau (034/174): 2.+3. AJ | Baumschule (033/173): 3. AJ | Stauden (035/175): 3. AJ
+    const lfkRegeln = {
+      '032': 3, '172': 3,   // Gemüsebau
+      '034': 2, '174': 2,   // Obstbau (ab 2. AJ)
+      '033': 3, '173': 3,   // Baumschule
+      '035': 3, '175': 3,   // Staudengärtnerei
+    };
+    const abAJ = lfkRegeln[frCode];
+    if (abAJ && aj >= abAJ) {
+      return { schule: lfk, isLandesfachklasse: true };
+    }
+    return { schule: regulaereSchule, isLandesfachklasse: false };
+  },
+
   // ── Prüfbereich: erste/letzte KW aus Ausbildungsbeginn + heute ──
   getKWRange(beginn) {
     if (!beginn) return null;
@@ -3271,6 +3306,7 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh2 TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN bav_status TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zwischenpruefung TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN landesfachklasse TEXT DEFAULT ''"); } catch(e) {}
       // berufsschulen: email_cc + ansprechpartner_json
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'"); } catch(e) {}
