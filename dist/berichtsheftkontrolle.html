@@ -15387,18 +15387,10 @@ const ImportHandler = {
 
       if (!nr) { skipped++; return; }
 
-      // Landesfachklasse nur speichern wenn sie von der regulären Klasse abweicht
-      let lfkValue = '';
-      if (lfk && beschreibung) {
-        // Normalisiere: "Berufsschule XY" → extrahiere nur den Schulnamen
-        const normBeschr = beschreibung.replace(/^Berufsschule\s+/i, '').trim().toLowerCase();
-        const normLfk = lfk.replace(/^Berufsschule\s+/i, '').trim().toLowerCase();
-        if (normBeschr !== normLfk) {
-          lfkValue = lfk.replace(/^Berufsschule\s+/i, '').trim();
-        }
-      } else if (lfk && !beschreibung) {
-        lfkValue = lfk.replace(/^Berufsschule\s+/i, '').trim();
-      }
+      // Landesfachklasse immer speichern wenn befüllt – das Feld in IBYKUS
+      // bedeutet: Schüler ist einer Landesfachklasse zugeordnet (auch wenn
+      // die Schule zufällig dieselbe ist wie die reguläre Berufsschulklasse)
+      const lfkValue = lfk ? lfk.replace(/^Berufsschule\s+/i, '').trim() : '';
 
       // Finde Schüler: erst per ibykus_id, dann per Nr als allg. Match
       let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
