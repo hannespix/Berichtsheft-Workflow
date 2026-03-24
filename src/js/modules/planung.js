@@ -30,8 +30,9 @@ const PlanungHandler = {
     const pruefer = App.query('SELECT * FROM pruefer WHERE aktiv=1 ORDER BY name');
     const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
 
-    // Filter options
-    const schulen = [...new Set(klassen.map(k => k.schule))].sort();
+    // Filter options – reguläre Schulen + aktuelle LFK-Schulen
+    const lfkSchulen = App.query("SELECT DISTINCT landesfachklasse FROM schueler WHERE aktiv=1 AND landesfachklasse != ''").map(r => r.landesfachklasse);
+    const schulen = [...new Set([...klassen.map(k => k.schule), ...lfkSchulen])].sort();
     const jahrgaenge = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].sort();
     const fachrichtungen = [...new Set(klassen.map(k => (k.fr_typ === 'Fachwerker' ? 'FW: ' : '') + (k.fr_bez || '')).filter(Boolean))].sort();
     const zpValues = App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE aktiv=1 AND zwischenpruefung != '' ORDER BY zwischenpruefung");
@@ -198,49 +199,80 @@ const PlanungHandler = {
       g.style.display = hasVisible ? '' : 'none';
     });
 
-    // Smart-Standort aktualisieren wenn Jahrgang + Fachrichtung gefiltert
-    this._updateSmartStandort(fJg, fFr);
+    // Smart-Standort aktualisieren bei jedem aktiven Filter
+    this._updateSmartStandort({ jg: fJg, zp: fZp, bs: fBs, amt: fAmt, fr: fFr });
   },
 
-  _updateSmartStandort(jgBez, frLabel) {
+  _updateSmartStandort(filters) {
     const box = document.getElementById('smartStandortBox');
     const content = document.getElementById('smartStandortContent');
     if (!box || !content) return;
 
-    // Nur anzeigen wenn mindestens Fachrichtung oder Jahrgang gefiltert
-    if (!jgBez && !frLabel) { box.style.display = 'none'; return; }
+    const { jg, zp, bs, amt, fr } = filters || {};
 
-    // Jahrgang-ID und Fachrichtung-ID ermitteln
-    let jgId = null, frId = null;
-    if (jgBez) {
-      const jg = App.query('SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?', [jgBez])[0];
-      if (jg) jgId = jg.id;
+    // Nur anzeigen wenn mindestens ein Filter aktiv
+    if (!jg && !fr && !amt && !zp && !bs) { box.style.display = 'none'; return; }
+
+    // Jahrgang-ID ermitteln
+    let jgId = null;
+    if (jg) {
+      const jgRow = App.query('SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?', [jg])[0];
+      if (jgRow) jgId = jgRow.id;
     }
-    if (frLabel) {
-      // frLabel format: "FW: Zierpflanzenbau" or "GaLaBau"
-      const cleanLabel = frLabel.replace(/^FW:\s*/, '');
-      const isFW = frLabel.startsWith('FW:');
-      const fr = App.query('SELECT id FROM fachrichtungen WHERE bezeichnung=? AND typ=?', [cleanLabel, isFW ? 'Fachwerker' : 'Gärtner'])[0];
-      if (fr) frId = fr.id;
+    // Fachrichtung-ID ermitteln
+    let frId = null;
+    if (fr) {
+      const cleanLabel = fr.replace(/^FW:\s*/, '');
+      const isFW = fr.startsWith('FW:');
+      const frRow = App.query('SELECT id FROM fachrichtungen WHERE bezeichnung=? AND typ=?', [cleanLabel, isFW ? 'Fachwerker' : 'Gärtner'])[0];
+      if (frRow) frId = frRow.id;
     }
 
-    const gruppen = App.getStandortgruppen(jgId, frId);
-    if (!gruppen.length) { box.style.display = 'none'; return; }
+    const opts = {};
+    if (jgId) opts.jahrgangId = jgId;
+    if (frId) opts.fachrichtungId = frId;
+    if (amt) opts.amt = amt;
+    if (zp) opts.zwischenpruefung = zp;
 
-    // Check ob es überhaupt LFK-Schüler gibt
-    const hasAnyLFK = gruppen.some(g => g.hasLFK);
+    const gruppen = App.getStandortgruppen(opts);
+    if (!gruppen.length) {
+      box.style.display = '';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      return;
+    }
+
+    // Wenn Schule gefiltert: nur Gruppen an dieser Schule ODER LFK-Gruppen dort zeigen
+    const filtered = bs ? gruppen.filter(g => g.schule.toLowerCase().includes(bs.toLowerCase())) : gruppen;
+
+    // Check ob es LFK-Schüler gibt
+    const hasAnyLFK = filtered.some(g => g.hasLFK);
+
+    // Filter-Label für Anzeige
+    const activeFilters = [];
+    if (jg) activeFilters.push(jg);
+    if (fr) activeFilters.push(fr);
+    if (amt) activeFilters.push(`Amt ${amt}`);
+    if (zp) activeFilters.push(`ZP ${zp}`);
+    if (bs) activeFilters.push(bs);
 
     box.style.display = '';
-    content.innerHTML = gruppen.map(g => {
+    content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
+        Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Schüler an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
+      </div>`
+    + filtered.map(g => {
       const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s).isLandesfachklasse).length;
       const regCount = g.schueler.length - lfkCount;
       const klasseIds = [...g.klasse_ids];
+
+      // Schüler-Details für Tooltip
+      const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
+      const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
 
       return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:white;border-radius:6px;border:1px solid #d4b8e8;cursor:pointer;transition:all .15s"
         onmouseenter="this.style.borderColor='#7b2fa0';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
         onmouseleave="this.style.borderColor='#d4b8e8';this.style.boxShadow='none'"
         onclick="PlanungHandler._selectStandort([${klasseIds.join(',')}], [${g.schueler.map(s => s.id).join(',')}])"
-        title="Klick = diese Gruppe für den Termin auswählen">
+        title="${schuelerNames}${moreHint}">
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
           <div style="font-size:11px;color:var(--clr-text-light)">

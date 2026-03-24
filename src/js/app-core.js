@@ -2904,9 +2904,10 @@ const App = {
 
   // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
   // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
-  // Optional nach jahrgangId und fachrichtungId filterbar.
+  // opts: { jahrgangId, fachrichtungId, amt, zwischenpruefung, refDate }
   // Gibt Array von { schule, isLFK, schueler: [...], klasse_ids: Set } zurück.
-  getStandortgruppen(jahrgangId, fachrichtungId, refDate) {
+  getStandortgruppen(opts) {
+    if (!opts) opts = {};
     let sql = `SELECT s.*,
       f.code as fr_code, f.bezeichnung as fr_bez, f.typ as fr_typ,
       k.klassenbezeichnung, k.lehrjahr, k.berufsschule_id,
@@ -2919,15 +2920,17 @@ const App = {
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       WHERE s.aktiv=1`;
     const params = [];
-    if (jahrgangId) { sql += ' AND s.jahrgang_id=?'; params.push(jahrgangId); }
-    if (fachrichtungId) { sql += ' AND s.fachrichtung_id=?'; params.push(fachrichtungId); }
+    if (opts.jahrgangId) { sql += ' AND s.jahrgang_id=?'; params.push(opts.jahrgangId); }
+    if (opts.fachrichtungId) { sql += ' AND s.fachrichtung_id=?'; params.push(opts.fachrichtungId); }
+    if (opts.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(opts.amt); }
+    if (opts.zwischenpruefung) { sql += ' AND s.zwischenpruefung=?'; params.push(opts.zwischenpruefung); }
     sql += ' ORDER BY s.nachname, s.vorname';
 
     const schuelerList = this.query(sql, params);
     const gruppen = {}; // key = schulName → { schule, isLFK, schueler, klasse_ids }
 
     schuelerList.forEach(s => {
-      const ak = this.getAktuelleSchule(s, refDate);
+      const ak = this.getAktuelleSchule(s, opts.refDate);
       const key = ak.schule || '(ohne Schule)';
       if (!gruppen[key]) {
         gruppen[key] = { schule: key, isLFK: ak.isLandesfachklasse, schueler: [], klasse_ids: new Set(), hasLFK: false, hasRegulaer: false };
