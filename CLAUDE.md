@@ -119,6 +119,15 @@ Reihenfolge der `<script>`-Tags in `index.html` ist wichtig!
 - **File System Access API** – Nur Chrome/Edge, kein Firefox/Safari
 - **Deutsche UI** – Alle Labels, Fehlermeldungen auf Deutsch
 
+### Schema-Änderungen (WICHTIG!)
+Die App nutzt eine In-Memory-SQLite-DB und synchronisiert per `mergeAndSave()` mit der Disk-Datei. Schema-Migrationen (ALTER TABLE ADD COLUMN, CREATE TABLE) laufen beim Start nur auf der In-Memory-DB. Die Disk-DB kann ein älteres Schema haben.
+
+**Bei jeder Schema-Änderung müssen ZWEI Stellen gepflegt werden:**
+1. **`migrateDB()`** – Migration auf der In-Memory-DB (beim App-Start)
+2. **`_migrateDiskDb(diskDb)`** – Dieselbe Migration auf der Disk-DB (vor jedem mergeAndSave-Replay)
+
+Wird `_migrateDiskDb` vergessen, schlagen Dirty-Op-Replays still fehl (try/catch verschluckt den Fehler) und Änderungen gehen beim nächsten Reload verloren.
+
 ## Einsatzumgebung
 - **Zielgruppe**: Ausbildungsberater im RP Freiburg (Verwaltung)
 - **Rechner**: Zero-Trust Windows-PCs ohne Admin-Rechte
