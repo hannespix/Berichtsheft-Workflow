@@ -9388,7 +9388,11 @@ const App = {
       const SQL = await App._getSqlJs();
       const diskDb = new SQL.Database(new Uint8Array(buf));
 
-      // 2) Replay our dirty ops onto diskDb
+      // 2) Ensure diskDb has the same schema as our in-memory DB
+      //    (migrations run on in-memory DB at startup but not on disk)
+      this._migrateDiskDb(diskDb);
+
+      // 3) Replay our dirty ops onto diskDb
       const ops = [...this._dirtyOps]; // snapshot
       let replayErrors = 0;
       ops.forEach(op => {
@@ -9401,16 +9405,16 @@ const App = {
         }
       });
 
-      // 3) Write merged diskDb back to file
+      // 4) Write merged diskDb back to file
       const data = diskDb.export();
       const writable = await this.dbFileHandle.createWritable();
       await writable.write(data);
       await writable.close();
 
-      // 4) Import other prüfer's changes into our in-memory DB
+      // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
 
-      // 5) Update timestamp + clear tracking
+      // 6) Update timestamp + clear tracking
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size;
       this._dirtyOps = [];
@@ -9483,6 +9487,64 @@ const App = {
    * Uses timestamp + geaendert_von for intelligent conflict resolution
    */
   _conflicts: [], // [{schueler_id, schueler_name, local_pruefer, disk_pruefer, field, resolved}]
+
+  /**
+   * Apply schema migrations to diskDb so dirty-op replay doesn't fail
+   * on missing columns/tables. Mirrors the ALTERs from migrateDB().
+   */
+  _migrateDiskDb(diskDb) {
+    const run = (sql) => { try { diskDb.run(sql); } catch(e) {} };
+    // Tables
+    run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrolltermin_id INTEGER, schueler_id INTEGER,
+      pruefer TEXT DEFAULT '', seit TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(kontrolltermin_id, pruefer)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS betriebe (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, betriebsnummer TEXT DEFAULT '',
+      name TEXT NOT NULL, firma TEXT DEFAULT '', ansprechpartner TEXT DEFAULT '',
+      strasse TEXT DEFAULT '', plz TEXT DEFAULT '', ort TEXT DEFAULT '',
+      telefon TEXT DEFAULT '', fax TEXT DEFAULT '', email TEXT DEFAULT '',
+      UNIQUE(betriebsnummer)
+    )`);
+    // kontrollergebnisse columns
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN geprueft_kws TEXT DEFAULT '{}'");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN durchsicht_nr INTEGER DEFAULT 1");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN bescheinigungen_anzahl INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN anwesend INTEGER DEFAULT 1");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
+    // schueler columns
+    run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
+    run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
+    run("ALTER TABLE schueler ADD COLUMN ap_zugelassen INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN ap_bestanden INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN inaktiv_grund TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN inaktiv_datum TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN zustaendiges_amt TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN telefon TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN schulabschluss TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh1 TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh2 TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN bav_status TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN zwischenpruefung TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN landesfachklasse TEXT DEFAULT ''");
+    // berufsschulen columns
+    run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''");
+    run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'");
+    // betriebe columns
+    run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''");
+    run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
+    // kontrolltermine columns
+    run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
+    // kw_status columns
+    run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
+  },
 
   _importFromDisk(diskDb) {
     const myPruefer = (KontrolleHandler?.activePruefer || '').toLowerCase();
