@@ -2371,6 +2371,17 @@ const App = {
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
     // kw_status columns
     run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
+    // Ausbilder table
+    run(`CREATE TABLE IF NOT EXISTS ausbilder (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      betrieb_id INTEGER REFERENCES betriebe(id),
+      nachname TEXT DEFAULT '',
+      vorname TEXT DEFAULT '',
+      telefon TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      mobil TEXT DEFAULT '',
+      funktion TEXT DEFAULT ''
+    )`);
   },
 
   _importFromDisk(diskDb) {
@@ -3621,6 +3632,17 @@ const App = {
           FROM kw_maengel km JOIN kontrollergebnisse ke ON km.kontrollergebnis_id=ke.id`);
         console.debug('Migration done');
       }
+      // Ausbilder table for Betriebe
+      this.db.run(`CREATE TABLE IF NOT EXISTS ausbilder (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        betrieb_id INTEGER REFERENCES betriebe(id),
+        nachname TEXT DEFAULT '',
+        vorname TEXT DEFAULT '',
+        telefon TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        mobil TEXT DEFAULT '',
+        funktion TEXT DEFAULT ''
+      )`);
     } catch(e) { console.warn('Migration:', e); }
 
     // ── Multi-Klassen Migration ──

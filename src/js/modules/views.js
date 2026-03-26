@@ -854,6 +854,38 @@ const Views = {
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="cursor:pointer" onclick="document.getElementById('ausbilderSection').style.display=document.getElementById('ausbilderSection').style.display==='none'?'':'none'">
+          Ausbilder-Import ▾
+        </div>
+        <div id="ausbilderSection" style="display:none">
+          <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
+            <div style="display:flex;align-items:start;gap:10px">
+              <span style="font-size:20px;line-height:1">👨‍🏫</span>
+              <div style="font-size:13px;color:var(--clr-text)">
+                <strong style="color:var(--clr-forest-dark)">Ausbilder aus IBYKUS importieren</strong>
+                <p style="margin:8px 0 0;line-height:1.7">
+                  Importiert Ausbilder-Daten und ordnet sie automatisch den bestehenden Betrieben zu
+                  (über Betriebsnummer oder Betriebsname).
+                </p>
+                <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
+                  💡 <strong>Spalten:</strong> Betriebsnummer, Betriebsname, Nachname, Vorname, Telefon, E-Mail, Mobil, Funktion
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="drop-zone" id="ausbilderDropZone" onclick="document.getElementById('ausbilderFileInput').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="event.preventDefault();this.classList.remove('dragover');ImportHandler.handleAusbilderFile(event.dataTransfer.files[0])">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Ausbilder-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
+            <input type="file" id="ausbilderFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleAusbilderFile(this.files[0])">
+          </div>
+          <div id="ausbilderImportPreview"></div>
+        </div>
+      </div>
+
       <div id="schuelerViewContainer"></div>
     </div>`;
     try { SchuelerView.render(); } catch(e) {}

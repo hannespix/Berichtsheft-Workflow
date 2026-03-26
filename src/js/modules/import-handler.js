@@ -337,11 +337,15 @@ const ImportHandler = {
       let b = bnr ? App.query('SELECT * FROM betriebe WHERE betriebsnummer=?', [bnr])[0] : null;
       if (!b) b = App.query('SELECT * FROM betriebe WHERE name=? AND ort=?', [name, ort])[0];
       if (b) {
-        // Update contact data if we have more info now
-        if (email && !b.email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
-        if (tel && !b.telefon) App.run('UPDATE betriebe SET telefon=? WHERE id=?', [tel, b.id]);
-        if (bVorname && !b.vorname) App.run('UPDATE betriebe SET vorname=? WHERE id=?', [bVorname, b.id]);
-        if (zusatz && !b.zusatzbezeichnung) App.run('UPDATE betriebe SET zusatzbezeichnung=? WHERE id=?', [zusatz, b.id]);
+        // Always overwrite with newest import data (unless import field is empty)
+        if (email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
+        if (tel) App.run('UPDATE betriebe SET telefon=? WHERE id=?', [tel, b.id]);
+        if (bVorname) App.run('UPDATE betriebe SET vorname=? WHERE id=?', [bVorname, b.id]);
+        if (zusatz) App.run('UPDATE betriebe SET zusatzbezeichnung=?,firma=? WHERE id=?', [zusatz, zusatz, b.id]);
+        if (strasse) App.run('UPDATE betriebe SET strasse=? WHERE id=?', [strasse, b.id]);
+        if (plz) App.run('UPDATE betriebe SET plz=? WHERE id=?', [plz, b.id]);
+        if (ort) App.run('UPDATE betriebe SET ort=? WHERE id=?', [ort, b.id]);
+        if (fax) App.run('UPDATE betriebe SET fax=? WHERE id=?', [fax, b.id]);
         return b.id;
       }
       // Create new
@@ -598,6 +602,19 @@ const ImportHandler = {
     const ampel = App.getSchuelerAmpel(id);
 
     const statusLabels = {aktiv:'Aktiv',ap_zugelassen:'AP zugelassen',ap_bestanden:'AP bestanden',abgebrochen:'Abgebrochen',verlaengert:'Verlängert'};
+    const geschlechtLabels = {'':'– Nicht angegeben –', m:'Männlich', w:'Weiblich', d:'Divers'};
+    const peLabels = {'':'– Keine Angabe –', bestanden:'Bestanden', nicht_bestanden:'Nicht bestanden'};
+
+    // Lehrjahr berechnen
+    let lehrjahrInfo = '–';
+    if (s.ausbildungsbeginn) {
+      const d = new Date(s.ausbildungsbeginn);
+      const now = new Date();
+      let lj = now.getFullYear() - d.getFullYear();
+      if (now.getMonth() < d.getMonth() || (now.getMonth()===d.getMonth() && now.getDate() < d.getDate())) lj--;
+      lj = Math.max(1, Math.min(4, lj + 1));
+      lehrjahrInfo = `${lj}. Lehrjahr`;
+    }
 
     App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
       <!-- Quick-Info Bar -->
@@ -607,70 +624,113 @@ const ImportHandler = {
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
         ${klasse ? `<span style="padding:3px 8px;background:var(--clr-green-light);border-radius:10px">${esc(klasse.schule)}</span>` : ''}
         ${s.landesfachklasse ? `<span style="padding:3px 8px;background:#e8d5f5;border-radius:10px;color:#7b2fa0">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
-        ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">📧 ${esc(betrieb.email)}</span>` : ''}
+        ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 
-      <div class="form-row">
-        <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
-        <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
-          <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
-          <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Klasse → Schule</label><select class="form-control" id="mSKlasse">
-          <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
-        </select></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
-          <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
-          <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
-        <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>🏫 Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Nur bei abweichender Berufsschule (Gemüse, Obst, Baumschule, Stauden)" style="font-size:11px"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>📞 Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
-        <div class="form-group"><label>📧 E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mSTab1',this)">Persönlich</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab2',this)">Ausbildung</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab3',this)">Prüfungen</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab4',this)">Status</button>
       </div>
 
-      <hr style="margin:12px 0;border-color:var(--clr-sand)">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--clr-forest)">Status & AP-Zulassung</div>
-      <div class="form-row">
-        <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
-          ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
-        </select></div>
-        <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
-          </label>
+      <!-- Tab 1: Persönlich -->
+      <div id="mSTab1" class="modal-tab-content active">
+        <div class="form-row">
+          <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
+          <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
+            ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
+          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
         </div>
       </div>
-      ${(s.status !== 'aktiv' && s.status) ? `<div class="form-row">
-        <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
-        <div class="form-group"><label>Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
-      </div>` : '<input type="hidden" id="mSInaktivDatum" value=""><input type="hidden" id="mSInaktivGrund" value="">'}
+
+      <!-- Tab 2: Ausbildung -->
+      <div id="mSTab2" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
+            <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
+            <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Klasse / Schule</label><select class="form-control" id="mSKlasse">
+            <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
+          </select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
+            <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
+          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
+          <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
+            <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Prüfungen -->
+      <div id="mSTab3" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026"></div>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Status -->
+      <div id="mSTab4" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
+            ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>BAV-Status (IBYKUS)</label><input class="form-control" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
+          <div class="form-group"><label>Inaktiv-Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
+        </div>
+        <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
+      </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
+    _makeModalWide();
   },
   updateSchueler(id) {
     const n = document.getElementById('mSNach').value.trim();
@@ -681,7 +741,9 @@ const ImportHandler = {
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
       betrieb_id=?,jahrgang_id=?,ibykus_id=?,ausbildungsbeginn=?,ausbildungsende=?,
       telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
-      status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=? WHERE id=?`,
+      status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
+      geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
+      bav_status=?,zwischenpruefung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -698,7 +760,15 @@ const ImportHandler = {
        document.getElementById('mSAPZu').checked ? 1 : 0,
        document.getElementById('mSAPBe').checked ? 1 : 0,
        document.getElementById('mSInaktivGrund')?.value || '',
-       document.getElementById('mSInaktivDatum')?.value || '', id]);
+       document.getElementById('mSInaktivDatum')?.value || '',
+       document.getElementById('mSGeschlecht')?.value || '',
+       document.getElementById('mSSchulabschluss')?.value?.trim() || '',
+       document.getElementById('mSPE')?.value || '',
+       document.getElementById('mSPEW1')?.value || '',
+       document.getElementById('mSPEW2')?.value || '',
+       document.getElementById('mSBAV')?.value?.trim() || '',
+       document.getElementById('mSZP')?.value?.trim() || '',
+       id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
     // Also refresh Azubi-Tab if visible under Stammdaten
@@ -883,6 +953,159 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     document.getElementById('lfkImportPreview').innerHTML = '';
+  },
+
+  // ═══════════════════════════════════════════
+  //  AUSBILDER-IMPORT
+  // ═══════════════════════════════════════════
+  handleAusbilderFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    const process = (data, fields) => {
+      if (!data.length) return App.toast('Datei ist leer', 'error');
+      // Auto-map columns
+      const patterns = {
+        betriebsnummer: ['betriebsnummer','betriebsnr','betriebs-nr','bnr'],
+        betriebsname: ['betriebsname','betrieb','firma','ausbildungsstaette','ausbildungsstätte','name betrieb'],
+        betrieb_ort: ['betrieb-ort','betriebsort','ort'],
+        nachname: ['nachname','name','familienname','ausbilder-nachname','ausbilder nachname'],
+        vorname: ['vorname','vname','ausbilder-vorname','ausbilder vorname'],
+        telefon: ['telefon','tel','phone','ausbilder-tel'],
+        email: ['email','e-mail','mail','ausbilder-email'],
+        mobil: ['mobil','handy','mobiltelefon','ausbilder-mobil'],
+        funktion: ['funktion','rolle','position','tätigkeit','taetigkeit','ausbilder-funktion']
+      };
+      const bestMatch = (key) => {
+        const pats = patterns[key] || [];
+        for (const f of fields) {
+          const fl = f.toLowerCase().trim();
+          if (pats.includes(fl)) return f;
+        }
+        for (const f of fields) {
+          const fl = f.toLowerCase().trim();
+          for (const p of pats) { if (fl.includes(p) || p.includes(fl)) return f; }
+        }
+        return '';
+      };
+      const mapFields = ['betriebsnummer','betriebsname','betrieb_ort','nachname','vorname','telefon','email','mobil','funktion'];
+      const autoMap = {};
+      mapFields.forEach(k => autoMap[k] = bestMatch(k));
+
+      const preview = document.getElementById('ausbilderImportPreview');
+      if (!preview) return;
+      preview.innerHTML = `<div class="card" style="margin-top:12px">
+        <div class="card-header">Ausbilder-Import: Spaltenzuordnung</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          ${mapFields.map(k => `<div class="form-group" style="margin:0"><label style="font-size:11px">${k.replace(/_/g,' ')}</label><select class="form-control" id="aumap_${k}" style="font-size:12px"><option value="">– Nicht zuordnen –</option>${fields.map(f=>`<option value="${esc(f)}" ${autoMap[k]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></div>`).join('')}
+        </div>
+        <div style="overflow:auto;max-height:160px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
+          <table class="data-table"><thead><tr>${fields.slice(0,8).map(f=>`<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+          ${data.slice(0,5).map(row=>`<tr>${fields.slice(0,8).map(f=>`<td style="font-size:11px">${esc((row[f]||'').toString().substring(0,30))}</td>`).join('')}</tr>`).join('')}
+          </tbody></table>
+        </div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">${data.length} Zeilen erkannt</div>
+        <button class="btn btn-primary" onclick="ImportHandler.doImportAusbilder(window._ausbilderImportData)">Ausbilder importieren</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('ausbilderImportPreview').innerHTML=''">Abbrechen</button>
+      </div>`;
+      window._ausbilderImportData = data;
+    };
+
+    if (ext === 'csv' || ext === 'txt') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const result = Papa.parse(e.target.result, { header: true, skipEmptyLines: true, encoding: 'UTF-8' });
+        process(result.data, result.meta.fields || []);
+      };
+      reader.readAsText(file, 'UTF-8');
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        const fields = data.length ? Object.keys(data[0]) : [];
+        process(data, fields);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  },
+
+  doImportAusbilder(data) {
+    if (!data) return;
+    const gm = f => document.getElementById('aumap_' + f)?.value || '';
+    const bnrCol = gm('betriebsnummer');
+    const bnameCol = gm('betriebsname');
+    const bortCol = gm('betrieb_ort');
+    const nachCol = gm('nachname');
+    const vorCol = gm('vorname');
+    const telCol = gm('telefon');
+    const emailCol = gm('email');
+    const mobilCol = gm('mobil');
+    const funkCol = gm('funktion');
+
+    if (!nachCol && !vorCol) return App.toast('Mindestens Nachname oder Vorname muss zugeordnet sein', 'error');
+    if (!bnrCol && !bnameCol) return App.toast('Betriebsnummer oder Betriebsname muss zugeordnet sein', 'error');
+
+    App.showLoading('Importiere Ausbilder...');
+    let imported = 0, updated = 0, skipped = 0, noMatch = 0;
+
+    data.forEach(row => {
+      const nachname = (row[nachCol] || '').trim();
+      const vorname = (row[vorCol] || '').trim();
+      if (!nachname && !vorname) { skipped++; return; }
+
+      // Find Betrieb
+      const bnr = (row[bnrCol] || '').toString().trim();
+      const bname = (row[bnameCol] || '').trim();
+      const bort = (row[bortCol] || '').trim();
+
+      let betriebId = null;
+      if (bnr) betriebId = App.scalar('SELECT id FROM betriebe WHERE betriebsnummer=?', [bnr]);
+      if (!betriebId && bname) {
+        if (bort) betriebId = App.scalar('SELECT id FROM betriebe WHERE name=? AND ort=?', [bname, bort]);
+        if (!betriebId) betriebId = App.scalar('SELECT id FROM betriebe WHERE name=?', [bname]);
+      }
+      if (!betriebId) { noMatch++; return; }
+
+      const telefon = (row[telCol] || '').trim();
+      const email = (row[emailCol] || '').trim();
+      const mobil = (row[mobilCol] || '').trim();
+      const funktion = (row[funkCol] || '').trim();
+
+      // Duplikat-Prüfung
+      const existing = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? AND nachname=? AND vorname=?', [betriebId, nachname, vorname])[0];
+      if (existing) {
+        // Update if new data
+        const changes = [];
+        if (telefon && telefon !== existing.telefon) changes.push(['telefon', telefon]);
+        if (email && email !== existing.email) changes.push(['email', email]);
+        if (mobil && mobil !== existing.mobil) changes.push(['mobil', mobil]);
+        if (funktion && funktion !== existing.funktion) changes.push(['funktion', funktion]);
+        if (changes.length) {
+          changes.forEach(([f, v]) => App.run(`UPDATE ausbilder SET ${f}=? WHERE id=?`, [v, existing.id]));
+          updated++;
+        } else { skipped++; }
+        return;
+      }
+
+      App.run('INSERT INTO ausbilder (betrieb_id,nachname,vorname,telefon,email,mobil,funktion) VALUES (?,?,?,?,?,?,?)',
+        [betriebId, nachname, vorname, telefon, email, mobil, funktion]);
+      imported++;
+    });
+
+    App.hideLoading();
+    let parts = [];
+    if (imported) parts.push(`<strong>${imported}</strong> Ausbilder importiert`);
+    if (updated) parts.push(`<strong>${updated}</strong> Ausbilder aktualisiert`);
+    if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
+    if (noMatch) parts.push(`${noMatch} Betriebe nicht gefunden`);
+
+    App.openModal('Ausbilder-Import abgeschlossen', `
+      <div style="font-size:14px;line-height:2">${parts.map(s => `<div>${s}</div>`).join('')}</div>
+    `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+    const preview = document.getElementById('ausbilderImportPreview');
+    if (preview) preview.innerHTML = '';
   },
 
   deleteAllJahrgang() {

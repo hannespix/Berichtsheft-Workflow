@@ -2,6 +2,19 @@
 // ║  HANDLER MODULES                                             ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Modal Sub-Tab Helper ──
+function _switchModalTab(tabId, btn) {
+  document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById(tabId);
+  if (el) el.classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+function _makeModalWide() {
+  const m = document.getElementById('modalContent');
+  if (m) m.classList.add('modal-wide');
+}
+
 // ── Stammdaten Tabs ──
 const StammdatenTab = {
   show(tab, btnEl) {
@@ -323,30 +336,38 @@ const StammdatenTab = {
   },
   addSchule() {
     App.openModal('Neue Berufsschule', `
-      <div class="form-group"><label>Name</label><input class="form-control" id="mSchName"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Ort</label><input class="form-control" id="mSchOrt"></div>
-        <div class="form-group"><label>Telefon</label><input class="form-control" id="mSchTel"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mSchTab1',this)">Stammdaten</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSchTab2',this)">Ansprechpartner</button>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>E-Mail (Hauptadresse)</label><input class="form-control" id="mSchEmail" placeholder="sekretariat@schule.de"></div>
-        <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" placeholder="lehrer@schule.de"></div>
+      <div id="mSchTab1" class="modal-tab-content active">
+        <div class="form-group"><label>Name *</label><input class="form-control" id="mSchName"></div>
+        <div class="form-row">
+          <div class="form-group"><label>Ort</label><input class="form-control" id="mSchOrt"></div>
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSchTel"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>E-Mail (Hauptadresse)</label><input class="form-control" id="mSchEmail" placeholder="sekretariat@schule.de"></div>
+          <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" placeholder="lehrer@schule.de"></div>
+        </div>
+        <div class="form-group"><label>Hauptansprechpartner</label><input class="form-control" id="mSchAP"></div>
       </div>
-      <div class="form-group"><label>Hauptansprechpartner</label><input class="form-control" id="mSchAP"></div>
-      <div style="margin-top:8px"><label style="font-size:12px;font-weight:600;color:var(--clr-forest)">Ansprechpartner-Verzeichnis</label>
+      <div id="mSchTab2" class="modal-tab-content">
+        <p style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">Beliebig viele Ansprechpartner mit Kontaktdaten hinterlegen:</p>
         <div id="mSchAPList"></div>
         <button class="btn btn-sm btn-secondary" style="margin-top:4px" onclick="StammdatenTab._addAPRow()">+ Ansprechpartner</button>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.saveSchule()">Speichern</button>`);
+    _makeModalWide();
   },
   _addAPRow() {
     const list = document.getElementById('mSchAPList');
     if (!list) return;
     const row = document.createElement('div');
     row.className = 'form-row';
-    row.style = 'margin-bottom:4px;align-items:center';
-    row.innerHTML = '<input class="form-control mSchAPName" placeholder="Name" style="flex:1;font-size:12px"><input class="form-control mSchAPRole" placeholder="Rolle" style="flex:1;font-size:12px"><input class="form-control mSchAPEmail" placeholder="E-Mail" style="flex:1;font-size:12px"><button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.parentElement.remove()">✕</button>';
+    row.style = 'margin-bottom:4px;align-items:center;flex-wrap:wrap';
+    row.innerHTML = '<input class="form-control mSchAPName" placeholder="Name" style="flex:1;min-width:100px;font-size:12px"><input class="form-control mSchAPRole" placeholder="Beschreibung/Rolle" style="flex:1;min-width:100px;font-size:12px"><input class="form-control mSchAPEmail" placeholder="E-Mail" style="flex:1;min-width:100px;font-size:12px"><input class="form-control mSchAPTel" placeholder="Telefon" style="flex:1;min-width:90px;font-size:12px"><input class="form-control mSchAPMobil" placeholder="Mobil" style="flex:1;min-width:90px;font-size:12px"><button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.closest(\'.form-row\').remove()">&#10005;</button>';
     list.appendChild(row);
   },
   saveSchule(id) {
@@ -361,10 +382,12 @@ const StammdatenTab = {
     const apNames = document.querySelectorAll('.mSchAPName');
     const apRoles = document.querySelectorAll('.mSchAPRole');
     const apEmails = document.querySelectorAll('.mSchAPEmail');
+    const apTels = document.querySelectorAll('.mSchAPTel');
+    const apMobils = document.querySelectorAll('.mSchAPMobil');
     const apJson = [];
     apNames.forEach((el, i) => {
       const name = el.value.trim();
-      if (name) apJson.push({ name, rolle: apRoles[i]?.value?.trim()||'', email: apEmails[i]?.value?.trim()||'' });
+      if (name) apJson.push({ name, rolle: apRoles[i]?.value?.trim()||'', email: apEmails[i]?.value?.trim()||'', telefon: apTels[i]?.value?.trim()||'', mobil: apMobils[i]?.value?.trim()||'' });
     });
     const apJsonStr = JSON.stringify(apJson);
     if (id) {
@@ -380,31 +403,39 @@ const StammdatenTab = {
     const r = App.query('SELECT * FROM berufsschulen WHERE id=?', [id])[0];
     const apList = (() => { try { return JSON.parse(r.ansprechpartner_json || '[]'); } catch(e) { return []; } })();
     App.openModal('Berufsschule bearbeiten', `
-      <div class="form-group"><label>Name</label><input class="form-control" id="mSchName" value="${esc(r.name)}"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Ort</label><input class="form-control" id="mSchOrt" value="${esc(r.ort)}"></div>
-        <div class="form-group"><label>Telefon</label><input class="form-control" id="mSchTel" value="${esc(r.telefon)}"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mSchTab1',this)">Stammdaten</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSchTab2',this)">Ansprechpartner <span style="font-size:10px;color:var(--clr-text-light)">(${apList.length})</span></button>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>E-Mail (Hauptadresse)</label><input class="form-control" id="mSchEmail" value="${esc(r.email)}" placeholder="sekretariat@schule.de"></div>
-        <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" value="${esc(r.email_cc || '')}" placeholder="lehrer@schule.de, fachbereich@schule.de"></div>
+      <div id="mSchTab1" class="modal-tab-content active">
+        <div class="form-group"><label>Name *</label><input class="form-control" id="mSchName" value="${esc(r.name)}"></div>
+        <div class="form-row">
+          <div class="form-group"><label>Ort</label><input class="form-control" id="mSchOrt" value="${esc(r.ort)}"></div>
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSchTel" value="${esc(r.telefon)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>E-Mail (Hauptadresse)</label><input class="form-control" id="mSchEmail" value="${esc(r.email)}" placeholder="sekretariat@schule.de"></div>
+          <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" value="${esc(r.email_cc || '')}" placeholder="lehrer@schule.de, fachbereich@schule.de"></div>
+        </div>
+        <div class="form-group"><label>Hauptansprechpartner (Kurzform)</label><input class="form-control" id="mSchAP" value="${esc(r.ansprechpartner)}"></div>
       </div>
-      <div class="form-group"><label>Hauptansprechpartner (Kurzform)</label><input class="form-control" id="mSchAP" value="${esc(r.ansprechpartner)}"></div>
-
-      <div style="margin-top:12px;border-top:1px solid var(--clr-sand);padding-top:12px">
-        <label style="font-size:13px;font-weight:600;color:var(--clr-forest)">Ansprechpartner-Verzeichnis</label>
+      <div id="mSchTab2" class="modal-tab-content">
+        <p style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">Beliebig viele Ansprechpartner mit Kontaktdaten hinterlegen:</p>
         <div id="mSchAPList" style="margin-top:6px">
-          ${apList.map((ap, i) => `<div class="form-row" style="margin-bottom:4px;align-items:center">
-            <input class="form-control mSchAPName" value="${esc(ap.name||'')}" placeholder="Name" style="flex:1;font-size:12px">
-            <input class="form-control mSchAPRole" value="${esc(ap.rolle||'')}" placeholder="Rolle (z.B. Fachbereich GB)" style="flex:1;font-size:12px">
-            <input class="form-control mSchAPEmail" value="${esc(ap.email||'')}" placeholder="E-Mail" style="flex:1;font-size:12px">
-            <button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.closest('.form-row').remove()">✕</button>
+          ${apList.map(ap => `<div class="form-row" style="margin-bottom:4px;align-items:center;flex-wrap:wrap">
+            <input class="form-control mSchAPName" value="${esc(ap.name||'')}" placeholder="Name" style="flex:1;min-width:100px;font-size:12px">
+            <input class="form-control mSchAPRole" value="${esc(ap.rolle||'')}" placeholder="Beschreibung/Rolle" style="flex:1;min-width:100px;font-size:12px">
+            <input class="form-control mSchAPEmail" value="${esc(ap.email||'')}" placeholder="E-Mail" style="flex:1;min-width:100px;font-size:12px">
+            <input class="form-control mSchAPTel" value="${esc(ap.telefon||'')}" placeholder="Telefon" style="flex:1;min-width:90px;font-size:12px">
+            <input class="form-control mSchAPMobil" value="${esc(ap.mobil||'')}" placeholder="Mobil" style="flex:1;min-width:90px;font-size:12px">
+            <button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.closest('.form-row').remove()">&#10005;</button>
           </div>`).join('')}
         </div>
         <button class="btn btn-sm btn-secondary" style="margin-top:4px" onclick="StammdatenTab._addAPRow()">+ Ansprechpartner</button>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.saveSchule(${id})">Speichern</button>`);
+    _makeModalWide();
   },
   deleteSchule(id) {
     if (!confirm('Berufsschule löschen?')) return;
@@ -896,9 +927,10 @@ const StammdatenTab = {
     const gf = App.gf('betriebe');
     const sfr = App.filterFachrichtungen.length ? ` AND fachrichtung_id IN (${App.filterFachrichtungen.join(',')})` : '';
     const sjg = App.filterJahrgang.length ? ` AND jahrgang_id IN (${App.filterJahrgang.join(',')})` : '';
-    const rows = App.query(`SELECT b.*, 
+    const rows = App.query(`SELECT b.*,
       (SELECT COUNT(*) FROM schueler sq WHERE sq.betrieb_id=b.id AND sq.aktiv=1${sfr.replace('fachrichtung_id','sq.fachrichtung_id')}${sjg.replace('jahrgang_id','sq.jahrgang_id')}) as azubi_count,
-      (SELECT COUNT(*) FROM kontrollergebnisse ke JOIN schueler sm ON ke.schueler_id=sm.id WHERE sm.betrieb_id=b.id AND ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung'${sfr.replace('fachrichtung_id','sm.fachrichtung_id')}${sjg.replace('jahrgang_id','sm.jahrgang_id')}) as maengel_count
+      (SELECT COUNT(*) FROM kontrollergebnisse ke JOIN schueler sm ON ke.schueler_id=sm.id WHERE sm.betrieb_id=b.id AND ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung'${sfr.replace('fachrichtung_id','sm.fachrichtung_id')}${sjg.replace('jahrgang_id','sm.jahrgang_id')}) as maengel_count,
+      (SELECT COUNT(*) FROM ausbilder au WHERE au.betrieb_id=b.id) as ausbilder_count
       FROM betriebe b WHERE 1=1${gf} ORDER BY b.name`);
 
     c.innerHTML = `
@@ -910,7 +942,7 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr>
-        <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Mängel</th><th>Aktionen</th>
+        <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th>Aktionen</th>
       </tr></thead><tbody id="betriebeTableBody">
         ${rows.map(b => `<tr data-search="${(b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase()}">
           <td>
@@ -922,6 +954,7 @@ const StammdatenTab = {
           <td>${b.email ? `<a href="mailto:${esc(b.email)}" style="color:var(--clr-blue)">${esc(b.email)}</a>` : '<span style="color:var(--clr-text-light)">–</span>'}</td>
           <td>${b.telefon ? `<a href="tel:${esc(b.telefon)}" style="color:var(--clr-text)">${esc(b.telefon)}</a>` : '<span style="color:var(--clr-text-light)">–</span>'}</td>
           <td>${b.azubi_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${b.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline;cursor:pointer" title="Azubis anzeigen">${b.azubi_count}</a>` : '<span style="color:var(--clr-text-light)">0</span>'}</td>
+          <td>${b.ausbilder_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAusbilder(${b.id});return false" style="color:var(--clr-forest);text-decoration:underline;cursor:pointer">${b.ausbilder_count}</a>` : '<span style="color:var(--clr-text-light)">–</span>'}</td>
           <td data-sort="${b.maengel_count}">${b.maengel_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${b.id},'maengel');return false" class="badge-status badge-overdue" style="cursor:pointer" title="Beanstandete Azubis">${b.maengel_count}</a>` : '–'}</td>
           <td class="btn-group">
             <button class="btn-icon btn-sm" onclick="StammdatenTab.editBetrieb(${b.id})" title="Bearbeiten">
@@ -973,36 +1006,71 @@ const StammdatenTab = {
 
   addBetrieb() {
     App.openModal('Neuer Betrieb', `
-      <div class="form-row">
-        <div class="form-group"><label>Betriebsname (Nachname) *</label><input class="form-control" id="mBeName"></div>
-        <div class="form-group"><label>Betriebsvorname</label><input class="form-control" id="mBeVorname"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mBeTab1',this)">Stammdaten</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mBeTab2',this)">Adresse & Kontakt</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mBeTab3',this)">Ausbilder</button>
       </div>
-      <div class="form-group"><label>Zusatzbezeichnung</label><input class="form-control" id="mBeZusatz" placeholder="z.B. Gartenbau GmbH & Co. KG"></div>
-      <div class="form-group"><label>Betriebsnummer</label><input class="form-control" id="mBeBnr"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Straße</label><input class="form-control" id="mBeStr"></div>
-        <div class="form-group" style="max-width:100px"><label>PLZ</label><input class="form-control" id="mBePlz"></div>
-        <div class="form-group"><label>Ort</label><input class="form-control" id="mBeOrt"></div>
+      <div id="mBeTab1" class="modal-tab-content active">
+        <div class="form-row">
+          <div class="form-group"><label>Betriebsname (Nachname) *</label><input class="form-control" id="mBeName"></div>
+          <div class="form-group"><label>Betriebsvorname</label><input class="form-control" id="mBeVorname"></div>
+        </div>
+        <div class="form-group"><label>Zusatzbezeichnung</label><input class="form-control" id="mBeZusatz" placeholder="z.B. Gartenbau GmbH & Co. KG"></div>
+        <div class="form-group"><label>Betriebsnummer</label><input class="form-control" id="mBeBnr"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>E-Mail</label><input class="form-control" id="mBeEmail" type="email"></div>
-        <div class="form-group"><label>Telefon</label><input class="form-control" id="mBeTel"></div>
+      <div id="mBeTab2" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Straße</label><input class="form-control" id="mBeStr"></div>
+          <div class="form-group" style="max-width:100px"><label>PLZ</label><input class="form-control" id="mBePlz"></div>
+          <div class="form-group"><label>Ort</label><input class="form-control" id="mBeOrt"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mBeEmail" type="email"></div>
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mBeTel"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Fax</label><input class="form-control" id="mBeFax"></div>
+          <div class="form-group"><label>Ansprechpartner</label><input class="form-control" id="mBeAP"></div>
+        </div>
+      </div>
+      <div id="mBeTab3" class="modal-tab-content">
+        <div id="mBeAusbilderList"></div>
+        <button class="btn btn-sm btn-secondary" style="margin-top:4px" onclick="StammdatenTab._addAusbilderRow()">+ Ausbilder</button>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.saveBetrieb()">Speichern</button>`);
+    _makeModalWide();
   },
 
   saveBetrieb() {
     const n = document.getElementById('mBeName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
-    App.run('INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    const zusatz = document.getElementById('mBeZusatz')?.value?.trim()||'';
+    App.run('INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon,fax,ansprechpartner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [n, document.getElementById('mBeVorname')?.value?.trim()||'',
-       document.getElementById('mBeZusatz')?.value?.trim()||'',
-       document.getElementById('mBeZusatz')?.value?.trim()||'',
+       zusatz, zusatz,
        document.getElementById('mBeBnr').value.trim(),
        document.getElementById('mBeStr').value.trim(), document.getElementById('mBePlz').value.trim(),
        document.getElementById('mBeOrt').value.trim(),
-       document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim()]);
+       document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(),
+       document.getElementById('mBeFax')?.value?.trim()||'',
+       document.getElementById('mBeAP')?.value?.trim()||'']);
+    // Save Ausbilder for new Betrieb
+    const newId = App.scalar('SELECT id FROM betriebe WHERE rowid=last_insert_rowid()');
+    if (newId) {
+      document.querySelectorAll('.mAuNach').forEach((el, i) => {
+        const nachname = el.value.trim();
+        const vorname = document.querySelectorAll('.mAuVor')[i]?.value?.trim()||'';
+        if (!nachname && !vorname) return;
+        App.run('INSERT INTO ausbilder (betrieb_id,nachname,vorname,funktion,telefon,email,mobil) VALUES (?,?,?,?,?,?,?)',
+          [newId, nachname, vorname,
+           document.querySelectorAll('.mAuFunk')[i]?.value?.trim()||'',
+           document.querySelectorAll('.mAuTel')[i]?.value?.trim()||'',
+           document.querySelectorAll('.mAuEmail')[i]?.value?.trim()||'',
+           document.querySelectorAll('.mAuMobil')[i]?.value?.trim()||'']);
+      });
+    }
     App.closeModal(); StammdatenTab.show('betriebe');
     App.toast('Betrieb angelegt', 'success');
   },
@@ -1010,43 +1078,115 @@ const StammdatenTab = {
   editBetrieb(id) {
     const b = App.query('SELECT * FROM betriebe WHERE id=?', [id])[0];
     if (!b) return;
+    const ausbilder = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? ORDER BY nachname', [id]);
     App.openModal('Betrieb bearbeiten', `
-      <div class="form-row">
-        <div class="form-group"><label>Betriebsname (Nachname) *</label><input class="form-control" id="mBeName" value="${esc(b.name)}"></div>
-        <div class="form-group"><label>Betriebsvorname</label><input class="form-control" id="mBeVorname" value="${esc(b.vorname||'')}"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mBeTab1',this)">Stammdaten</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mBeTab2',this)">Adresse & Kontakt</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mBeTab3',this)">Ausbilder <span style="font-size:10px;color:var(--clr-text-light)">(${ausbilder.length})</span></button>
       </div>
-      <div class="form-group"><label>Zusatzbezeichnung</label><input class="form-control" id="mBeZusatz" value="${esc(b.zusatzbezeichnung||b.firma||'')}" placeholder="z.B. Gartenbau GmbH & Co. KG"></div>
-      <div class="form-group"><label>Betriebsnummer</label><input class="form-control" id="mBeBnr" value="${esc(b.betriebsnummer)}"></div>
-      <div class="form-row">
-        <div class="form-group"><label>Straße</label><input class="form-control" id="mBeStr" value="${esc(b.strasse)}"></div>
-        <div class="form-group" style="max-width:100px"><label>PLZ</label><input class="form-control" id="mBePlz" value="${esc(b.plz)}"></div>
-        <div class="form-group"><label>Ort</label><input class="form-control" id="mBeOrt" value="${esc(b.ort)}"></div>
+      <div id="mBeTab1" class="modal-tab-content active">
+        <div class="form-row">
+          <div class="form-group"><label>Betriebsname (Nachname) *</label><input class="form-control" id="mBeName" value="${esc(b.name)}"></div>
+          <div class="form-group"><label>Betriebsvorname</label><input class="form-control" id="mBeVorname" value="${esc(b.vorname||'')}"></div>
+        </div>
+        <div class="form-group"><label>Zusatzbezeichnung</label><input class="form-control" id="mBeZusatz" value="${esc(b.zusatzbezeichnung||b.firma||'')}" placeholder="z.B. Gartenbau GmbH & Co. KG"></div>
+        <div class="form-group"><label>Betriebsnummer</label><input class="form-control" id="mBeBnr" value="${esc(b.betriebsnummer)}"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>E-Mail</label><input class="form-control" id="mBeEmail" type="email" value="${esc(b.email)}"></div>
-        <div class="form-group"><label>Telefon</label><input class="form-control" id="mBeTel" value="${esc(b.telefon)}"></div>
+      <div id="mBeTab2" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Straße</label><input class="form-control" id="mBeStr" value="${esc(b.strasse)}"></div>
+          <div class="form-group" style="max-width:100px"><label>PLZ</label><input class="form-control" id="mBePlz" value="${esc(b.plz)}"></div>
+          <div class="form-group"><label>Ort</label><input class="form-control" id="mBeOrt" value="${esc(b.ort)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mBeEmail" type="email" value="${esc(b.email)}"></div>
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mBeTel" value="${esc(b.telefon)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Fax</label><input class="form-control" id="mBeFax" value="${esc(b.fax||'')}"></div>
+          <div class="form-group"><label>Ansprechpartner</label><input class="form-control" id="mBeAP" value="${esc(b.ansprechpartner||'')}"></div>
+        </div>
+      </div>
+      <div id="mBeTab3" class="modal-tab-content">
+        <div id="mBeAusbilderList">
+          ${ausbilder.map(a => `<div class="form-row" style="margin-bottom:6px;align-items:center;flex-wrap:wrap">
+            <input class="form-control mAuNach" value="${esc(a.nachname)}" placeholder="Nachname" style="flex:1;min-width:100px;font-size:12px">
+            <input class="form-control mAuVor" value="${esc(a.vorname)}" placeholder="Vorname" style="flex:1;min-width:80px;font-size:12px">
+            <input class="form-control mAuFunk" value="${esc(a.funktion)}" placeholder="Funktion" style="flex:1;min-width:80px;font-size:12px">
+            <input class="form-control mAuTel" value="${esc(a.telefon)}" placeholder="Telefon" style="flex:1;min-width:90px;font-size:12px">
+            <input class="form-control mAuEmail" value="${esc(a.email)}" placeholder="E-Mail" style="flex:1;min-width:120px;font-size:12px">
+            <input class="form-control mAuMobil" value="${esc(a.mobil)}" placeholder="Mobil" style="flex:1;min-width:90px;font-size:12px">
+            <button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.closest('.form-row').remove()">&#10005;</button>
+          </div>`).join('')}
+        </div>
+        <button class="btn btn-sm btn-secondary" style="margin-top:4px" onclick="StammdatenTab._addAusbilderRow()">+ Ausbilder</button>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.updateBetrieb(${id})">Speichern</button>`);
+    _makeModalWide();
   },
 
+  _addAusbilderRow() {
+    const list = document.getElementById('mBeAusbilderList');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    row.style = 'margin-bottom:6px;align-items:center;flex-wrap:wrap';
+    row.innerHTML = '<input class="form-control mAuNach" placeholder="Nachname" style="flex:1;min-width:100px;font-size:12px"><input class="form-control mAuVor" placeholder="Vorname" style="flex:1;min-width:80px;font-size:12px"><input class="form-control mAuFunk" placeholder="Funktion" style="flex:1;min-width:80px;font-size:12px"><input class="form-control mAuTel" placeholder="Telefon" style="flex:1;min-width:90px;font-size:12px"><input class="form-control mAuEmail" placeholder="E-Mail" style="flex:1;min-width:120px;font-size:12px"><input class="form-control mAuMobil" placeholder="Mobil" style="flex:1;min-width:90px;font-size:12px"><button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px" onclick="this.closest(\'.form-row\').remove()">&#10005;</button>';
+    list.appendChild(row);
+  },
   updateBetrieb(id) {
     const n = document.getElementById('mBeName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
     const zusatz = document.getElementById('mBeZusatz')?.value?.trim()||'';
-    App.run('UPDATE betriebe SET name=?,vorname=?,zusatzbezeichnung=?,firma=?,betriebsnummer=?,strasse=?,plz=?,ort=?,email=?,telefon=? WHERE id=?',
+    App.run('UPDATE betriebe SET name=?,vorname=?,zusatzbezeichnung=?,firma=?,betriebsnummer=?,strasse=?,plz=?,ort=?,email=?,telefon=?,fax=?,ansprechpartner=? WHERE id=?',
       [n, document.getElementById('mBeVorname')?.value?.trim()||'', zusatz, zusatz,
        document.getElementById('mBeBnr').value.trim(),
        document.getElementById('mBeStr').value.trim(), document.getElementById('mBePlz').value.trim(),
        document.getElementById('mBeOrt').value.trim(),
-       document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(), id]);
+       document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(),
+       document.getElementById('mBeFax')?.value?.trim()||'',
+       document.getElementById('mBeAP')?.value?.trim()||'', id]);
+    // Save Ausbilder
+    App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
+    document.querySelectorAll('.mAuNach').forEach((el, i) => {
+      const nachname = el.value.trim();
+      const vorname = document.querySelectorAll('.mAuVor')[i]?.value?.trim()||'';
+      if (!nachname && !vorname) return;
+      App.run('INSERT INTO ausbilder (betrieb_id,nachname,vorname,funktion,telefon,email,mobil) VALUES (?,?,?,?,?,?,?)',
+        [id, nachname, vorname,
+         document.querySelectorAll('.mAuFunk')[i]?.value?.trim()||'',
+         document.querySelectorAll('.mAuTel')[i]?.value?.trim()||'',
+         document.querySelectorAll('.mAuEmail')[i]?.value?.trim()||'',
+         document.querySelectorAll('.mAuMobil')[i]?.value?.trim()||'']);
+    });
     App.closeModal(); StammdatenTab.show('betriebe');
     App.toast('Betrieb aktualisiert', 'success');
   },
 
+  showBetriebAusbilder(betriebId) {
+    const b = App.query('SELECT * FROM betriebe WHERE id=?', [betriebId])[0];
+    if (!b) return;
+    const ausbilder = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? ORDER BY nachname', [betriebId]);
+    App.openModal(`Ausbilder – ${esc(b.name)}`, `
+      ${!ausbilder.length ? '<p style="color:var(--clr-text-light)">Keine Ausbilder hinterlegt.</p>' : `
+      <table class="data-table"><thead><tr><th>Name</th><th>Funktion</th><th>Telefon</th><th>E-Mail</th><th>Mobil</th></tr></thead><tbody>
+        ${ausbilder.map(a => `<tr>
+          <td><strong>${esc(a.nachname)}</strong>${a.vorname ? ', ' + esc(a.vorname) : ''}</td>
+          <td style="font-size:12px">${esc(a.funktion || '–')}</td>
+          <td style="font-size:12px">${a.telefon ? `<a href="tel:${esc(a.telefon)}" style="color:var(--clr-forest)">${esc(a.telefon)}</a>` : '–'}</td>
+          <td style="font-size:12px">${a.email ? `<a href="mailto:${esc(a.email)}" style="color:var(--clr-blue)">${esc(a.email)}</a>` : '–'}</td>
+          <td style="font-size:12px">${a.mobil ? `<a href="tel:${esc(a.mobil)}" style="color:var(--clr-forest)">${esc(a.mobil)}</a>` : '–'}</td>
+        </tr>`).join('')}
+      </tbody></table>`}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-primary" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">Bearbeiten</button>`);
+  },
   deleteBetrieb(id) {
     if (!confirm('Betrieb löschen? (Nur möglich wenn keine Azubis zugeordnet)')) return;
     App.run('UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?', [id]);
+    App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
     App.run('DELETE FROM betriebe WHERE id=?', [id]);
     StammdatenTab.show('betriebe');
   },
