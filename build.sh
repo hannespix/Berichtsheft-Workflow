@@ -65,6 +65,7 @@ APP_MODULES=(
   "src/js/modules/berichte.js"
   "src/js/modules/table-sort.js"
   "src/js/modules/schueler-view.js"
+  "src/js/modules/schueler-akte.js"
   "src/js/utils.js"
 )
 

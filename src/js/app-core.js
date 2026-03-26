@@ -2371,6 +2371,25 @@ const App = {
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
     // kw_status columns
     run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
+    // Schueler-Bemerkungen + Dateien
+    run(`CREATE TABLE IF NOT EXISTS schueler_bemerkungen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      text TEXT DEFAULT '',
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS schueler_dateien (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      dateiname TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      beschreibung TEXT DEFAULT '',
+      dateityp TEXT DEFAULT '',
+      groesse INTEGER DEFAULT 0,
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    )`);
     // Ausbilder table
     run(`CREATE TABLE IF NOT EXISTS ausbilder (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3632,6 +3651,26 @@ const App = {
           FROM kw_maengel km JOIN kontrollergebnisse ke ON km.kontrollergebnis_id=ke.id`);
         console.debug('Migration done');
       }
+      // Schueler-Bemerkungen (notes per student)
+      this.db.run(`CREATE TABLE IF NOT EXISTS schueler_bemerkungen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER REFERENCES schueler(id),
+        text TEXT DEFAULT '',
+        erstellt_von TEXT DEFAULT '',
+        erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+      )`);
+      // Schueler-Dateien (file attachments per student)
+      this.db.run(`CREATE TABLE IF NOT EXISTS schueler_dateien (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER REFERENCES schueler(id),
+        dateiname TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        beschreibung TEXT DEFAULT '',
+        dateityp TEXT DEFAULT '',
+        groesse INTEGER DEFAULT 0,
+        erstellt_von TEXT DEFAULT '',
+        erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+      )`);
       // Ausbilder table for Betriebe
       this.db.run(`CREATE TABLE IF NOT EXISTS ausbilder (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
