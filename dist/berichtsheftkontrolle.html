@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src blob: data:; font-src data:; connect-src blob:">
 <title>Berichtsheftkontrolle – Ausbildungsberater Gärtner</title>
 <!-- ═══ EMBEDDED LIBRARIES (offline-fähig) ═══ -->
 <script>/* sql-wasm.js */
@@ -21903,6 +21904,9 @@ const BerichteHandler = {
   exportStatistik() {
     App.showLoading('Excel-Dashboard wird erstellt...');
     setTimeout(() => {
+    // Helper: column index (0-based) to Excel letter (0=A, 25=Z, 26=AA, 27=AB...)
+    const colLetter = (n) => { let s=''; n++; while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26);}return s; };
+    const autoRef = (cols, rows) => `A1:${colLetter(cols-1)}${rows+1}`;
     try {
       const wb = XLSX.utils.book_new();
       const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
@@ -21938,7 +21942,7 @@ const BerichteHandler = {
       });
       const ws1 = XLSX.utils.aoa_to_sheet([rdHeader, ...rdRows]);
       ws1['!cols'] = rdHeader.map((h,i) => ({wch: i < 2 ? 16 : i === 3 ? 25 : i === 7 || i === 8 ? 22 : 14}));
-      ws1['!autofilter'] = { ref: `A1:${String.fromCharCode(64 + rdHeader.length)}${rdRows.length + 1}` };
+      ws1['!autofilter'] = { ref: autoRef(rdHeader.length, rdRows.length) };
       XLSX.utils.book_append_sheet(wb, ws1, 'Rohdaten');
 
       // ═══ Blatt 2: Schulstatistik ═══
@@ -21962,7 +21966,7 @@ const BerichteHandler = {
       if (sh2Sum[3] > 0) sh2Sum[7] = Math.round(sh2Sum[4] / sh2Sum[3] * 100);
       const ws2 = XLSX.utils.aoa_to_sheet([sh2Header, ...sh2Rows, [], sh2Sum]);
       ws2['!cols'] = [{wch:25},{wch:18},{wch:10},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
-      ws2['!autofilter'] = { ref: `A1:H${sh2Rows.length + 1}` };
+      ws2['!autofilter'] = { ref: autoRef(sh2Header.length, sh2Rows.length) };
       XLSX.utils.book_append_sheet(wb, ws2, 'Schulstatistik');
 
       // ═══ Blatt 3: Betriebsstatistik ═══
@@ -21984,7 +21988,7 @@ const BerichteHandler = {
         r.azubi_count > 0 ? Math.round(r.mangelhaft / r.azubi_count * 100) : 0]);
       const ws3 = XLSX.utils.aoa_to_sheet([sh3Header, ...sh3Rows]);
       ws3['!cols'] = [{wch:28},{wch:15},{wch:25},{wch:16},{wch:8},{wch:12},{wch:12},{wch:14},{wch:14}];
-      ws3['!autofilter'] = { ref: `A1:I${sh3Rows.length + 1}` };
+      ws3['!autofilter'] = { ref: autoRef(sh3Header.length, sh3Rows.length) };
       XLSX.utils.book_append_sheet(wb, ws3, 'Betriebsstatistik');
 
       // ═══ Blatt 4: Fachrichtungsstatistik ═══
@@ -22007,7 +22011,7 @@ const BerichteHandler = {
       if (sh4Sum[2] > 0) sh4Sum[6] = Math.round(sh4Sum[3] / sh4Sum[2] * 100);
       const ws4 = XLSX.utils.aoa_to_sheet([sh4Header, ...sh4Rows, [], sh4Sum]);
       ws4['!cols'] = [{wch:28},{wch:14},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
-      ws4['!autofilter'] = { ref: `A1:G${sh4Rows.length + 1}` };
+      ws4['!autofilter'] = { ref: autoRef(sh4Header.length, sh4Rows.length) };
       XLSX.utils.book_append_sheet(wb, ws4, 'Fachrichtungen');
 
       // ═══ Blatt 5: Amt-Statistik ═══
@@ -22028,7 +22032,7 @@ const BerichteHandler = {
       if (sh5Sum[2] > 0) sh5Sum[6] = Math.round(sh5Sum[3] / sh5Sum[2] * 100);
       const ws5 = XLSX.utils.aoa_to_sheet([sh5Header, ...sh5Rows, [], sh5Sum]);
       ws5['!cols'] = [{wch:12},{wch:28},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
-      ws5['!autofilter'] = { ref: `A1:G${sh5Rows.length + 1}` };
+      ws5['!autofilter'] = { ref: autoRef(sh5Header.length, sh5Rows.length) };
       XLSX.utils.book_append_sheet(wb, ws5, 'Amt-Statistik');
 
       // ═══ Export ═══
