@@ -575,7 +575,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
           saveAs(out, `Anschreiben_${safeName}_${termin.geplant_datum}.docx`);
         } catch(e) {
           console.error('Word-Template Fehler:', e);
-          App.toast(`Fehler bei "${b.b_name}": ${e.message}. Prüfen Sie die Platzhalter in der Vorlage.`, 'error');
+          App.toast('Fehler bei Dokumenterstellung. Bitte Vorlage und Platzhalter prüfen.', 'error');
         }
       });
 
@@ -585,7 +585,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
     } catch(e) {
       App.hideLoading();
       console.error('Seriendruck Word:', e);
-      App.toast('Fehler: ' + e.message, 'error');
+      App.toast('Fehler beim Seriendruck', 'error');
     }
   },
 

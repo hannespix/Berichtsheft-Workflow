@@ -1118,7 +1118,7 @@ const App = {
           App.toast('Keine Datenbank gefunden', 'warning');
         }
       }
-    } catch(e) { App.toast('Verbindung fehlgeschlagen: ' + e.message, 'error'); }
+    } catch(e) { console.warn('Verbindung:', e); App.toast('Verbindung fehlgeschlagen', 'error'); }
   },
 
   async tryRestoreWriteAccess() {
@@ -1167,7 +1167,7 @@ const App = {
       // If we have unsaved changes, save now
       if (this.unsavedChanges) this.scheduleAutoSave();
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -1215,7 +1215,7 @@ const App = {
         this.promptNewDb();
       }
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -1349,7 +1349,7 @@ const App = {
       this.showApp();
       this.toast('Demo-Modus gestartet – Daten werden nicht gespeichert', 'warning');
     } catch(e) {
-      this.toast('Demo-Fehler: ' + e.message, 'error');
+      console.warn('Demo-Fehler:', e); this.toast('Demo konnte nicht geladen werden', 'error');
       console.error(e);
     }
   },
@@ -1589,7 +1589,7 @@ const App = {
         this.showDbSelection(dbFiles);
       }
     } catch (e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -1652,7 +1652,7 @@ const App = {
       this.showApp();
       this.toast('Neue Datenbank erstellt im Ordner', 'success');
     } catch (e) {
-      this.toast('Fehler: ' + e.message, 'error');
+      console.warn('DB-Erstellung:', e); this.toast('Fehler beim Erstellen der Datenbank', 'error');
     }
   },
 
@@ -1684,7 +1684,7 @@ const App = {
       this.showApp();
       this.toast(`Datenbank "${file.name}" geladen – Auto-Save aktiv`, 'success');
     } catch (e) {
-      this.toast('Fehler beim Laden: ' + e.message, 'error');
+      console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }
   },
 
@@ -3534,6 +3534,8 @@ const App = {
       this.db.run("CREATE TABLE IF NOT EXISTS kontrolltermin_schueler (id INTEGER PRIMARY KEY AUTOINCREMENT, kontrolltermin_id INTEGER REFERENCES kontrolltermine(id) ON DELETE CASCADE, schueler_id INTEGER REFERENCES schueler(id), UNIQUE(kontrolltermin_id, schueler_id))");
       // Migrate: copy firma→zusatzbezeichnung if zusatzbezeichnung empty (one-time)
       try { this.db.run("UPDATE betriebe SET zusatzbezeichnung=firma WHERE zusatzbezeichnung='' AND firma!=''"); } catch(e) {}
+      // Remove LLM settings (CSO security requirement)
+      try { this.db.run("DELETE FROM einstellungen WHERE schluessel LIKE 'llm_%'"); } catch(e) {}
       // Relax CHECK constraint on kw_status/kw_maengel to allow AJ 4 (Verlängerer)
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='kw_status'")[0]?.sql || '';
@@ -3847,7 +3849,7 @@ const App = {
     const c = document.getElementById('toastContainer');
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
-    t.innerHTML = msg;
+    t.textContent = msg;
     c.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
   },

@@ -1,3 +1,20 @@
+// File validation helper
+function _validateFile(file, opts = {}) {
+  const maxSize = opts.maxSize || 50 * 1024 * 1024;
+  if (file.size > maxSize) {
+    App.toast(`Datei zu groß (${(file.size/1024/1024).toFixed(1)} MB, max ${(maxSize/1024/1024).toFixed(0)} MB)`, 'error');
+    return false;
+  }
+  if (opts.extensions) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!opts.extensions.includes(ext)) {
+      App.toast(`Dateityp .${ext} nicht unterstützt`, 'error');
+      return false;
+    }
+  }
+  return true;
+}
+
 const ImportHandler = {
   // ── Copy & Paste Import: Tab-separierte Daten aus Zwischenablage ──
   handlePaste(textareaId, mode) {
@@ -39,6 +56,7 @@ const ImportHandler = {
 
   handleFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls') {
@@ -56,7 +74,7 @@ const ImportHandler = {
           App.toast(`${data.length} Zeilen aus "${file.name}" (Blatt: ${sheetName})`, 'success');
           this.showMapping(data, fields);
         } catch (err) {
-          App.toast('Excel-Fehler: ' + err.message, 'error');
+          console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error');
           console.error(err);
         }
       };
@@ -76,7 +94,7 @@ const ImportHandler = {
           App.toast(`${results.data.length} Zeilen erkannt (Trennzeichen: "${results.meta.delimiter}")`, 'success');
           this.showMapping(results.data, results.meta.fields);
         },
-        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
@@ -804,6 +822,7 @@ const ImportHandler = {
   // ═══════════════════════════════════════════
   handleLFKFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     const process = (data, fields) => {
@@ -821,7 +840,7 @@ const ImportHandler = {
           const data = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
           const fields = Object.keys(data[0] || {}).map(f => f.replace(/^\uFEFF/, ''));
           process(data, fields);
-        } catch (err) { App.toast('Excel-Fehler: ' + err.message, 'error'); }
+        } catch (err) { console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error'); }
       };
       reader.readAsArrayBuffer(file);
     } else {
@@ -832,7 +851,7 @@ const ImportHandler = {
           if (results.meta.fields?.length) results.meta.fields[0] = results.meta.fields[0].replace(/^\uFEFF/, '');
           process(results.data, results.meta.fields);
         },
-        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
@@ -961,6 +980,7 @@ const ImportHandler = {
   // ═══════════════════════════════════════════
   handleAusbilderFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     const process = (data, fields) => {

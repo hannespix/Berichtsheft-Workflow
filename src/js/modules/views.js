@@ -800,7 +800,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="csvPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -846,7 +846,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="lfkPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -1303,48 +1303,6 @@ const Views = {
         </div>
       </div>
 
-      <!-- LLM API für Blockplan-Analyse -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header">🤖 KI-Einstellungen (für Blockplan-Analyse)</div>
-        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-          PDF-Seiten werden als Bild an ein Vision-Model gesendet – die KI sieht die Tabelle exakt wie ein Mensch.
-        </p>
-        <details style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--clr-forest);font-weight:600">Modell-Empfehlungen anzeigen</summary>
-          <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-top:4px;line-height:1.8">
-            <strong>⭐ GPT-5.4</strong> (OpenAI) – Beste Tabellen-Erkennung, 10M+ Pixel Vision, ~$0.01/Analyse<br>
-            <strong>Claude Sonnet 4</strong> (Anthropic) – Sehr gute Vision, zuverlässig, ~$0.01/Analyse<br>
-            <strong>Gemini 2.5 Flash</strong> (Google) – Kostenlos mit Rate-Limit, gute Vision<br>
-            <strong>llava</strong> (Ollama) – Komplett lokal/kostenlos, mittlere Qualität<br>
-            <em>Tipp: Das Modell ist frei wählbar – tippen Sie einfach einen neueren Modellnamen ein wenn verfügbar.</em>
-          </div>
-        </details>
-        <div class="form-row">
-          <div class="form-group"><label>Anbieter</label>
-            <select class="form-control" id="setLLMProvider" onchange="document.getElementById('setLLMModel').value={'claude':'claude-sonnet-4-20250514','openai':'gpt-5.4','gemini':'gemini-2.5-flash','ollama':'llava'}[this.value]||''">
-              <option value="claude" ${(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")||'claude')==='claude'?'selected':''}>Anthropic (Claude Sonnet 4)</option>
-              <option value="openai" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='openai'?'selected':''}>OpenAI (GPT-5.4) ⭐ Empfohlen</option>
-              <option value="gemini" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='gemini'?'selected':''}>Google (Gemini 2.5 Flash) – Kostenlos</option>
-              <option value="ollama" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='ollama'?'selected':''}>Ollama (llava) – Lokal</option>
-            </select>
-          </div>
-          <div class="form-group"><label>Modell</label>
-            <input class="form-control" id="setLLMModel" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_model'")||'claude-sonnet-4-20250514')}" placeholder="z.B. claude-sonnet-4-20250514">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>API-Key</label>
-            <input class="form-control" id="setLLMKey" type="password" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'")||'')}" placeholder="sk-... oder eigener Key">
-          </div>
-          <div class="form-group"><label>Ollama URL (nur bei Ollama)</label>
-            <input class="form-control" id="setLLMUrl" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_url'")||'http://localhost:11434')}" placeholder="http://localhost:11434">
-          </div>
-        </div>
-        <button class="btn btn-sm btn-secondary" onclick="Views.testLLM()">🧪 Verbindung testen</button>
-        <button class="btn btn-sm btn-primary" onclick="Views.saveLLMSettings()" style="margin-left:6px">Speichern</button>
-        <span id="llmTestResult" style="margin-left:8px;font-size:12px"></span>
-      </div>
-
       <!-- Word-Vorlage für Serienbriefe -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">📝 Word-Vorlage für Serienbriefe an Betriebe</div>
@@ -1489,28 +1447,9 @@ const Views = {
     App.toast('Textbaustein entfernt', 'success');
   },
 
-  saveLLMSettings() {
-    [['llm_provider', document.getElementById('setLLMProvider').value],
-     ['llm_model', document.getElementById('setLLMModel').value.trim()],
-     ['llm_api_key', document.getElementById('setLLMKey').value.trim()],
-     ['llm_url', document.getElementById('setLLMUrl').value.trim()]
-    ].forEach(([k,v]) => App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]));
-    App.toast('KI-Einstellungen gespeichert', 'success');
-  },
-
-  async testLLM() {
-    const res = document.getElementById('llmTestResult');
-    res.innerHTML = '⏳ Teste…';
-    try {
-      const reply = await LLMHelper.call('Antworte nur mit dem Wort OK.');
-      res.innerHTML = reply.includes('OK') ? '<span style="color:var(--clr-green)">✓ Verbindung OK</span>' : `<span style="color:var(--clr-amber)">⚠ Antwort: ${reply.substring(0,50)}</span>`;
-    } catch(e) {
-      res.innerHTML = `<span style="color:var(--clr-red)">✗ ${e.message}</span>`;
-    }
-  },
-
   uploadWordTemplate(file) {
     if (!file || !file.name.endsWith('.docx')) return App.toast('Bitte eine .docx-Datei auswählen', 'error');
+    if (file.size > 10 * 1024 * 1024) return App.toast('Vorlage zu groß (max 10 MB)', 'error');
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = e.target.result.split(',')[1];

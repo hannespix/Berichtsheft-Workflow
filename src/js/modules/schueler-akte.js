@@ -35,7 +35,7 @@ const SchuelerAkte = {
       <div id="mAkteTab1" class="modal-tab-content active">
         <div class="form-group">
           <label>Neue Bemerkung</label>
-          <textarea class="form-control" id="mAkteNeueNotiz" rows="3" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
+          <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
         </div>
         <button class="btn btn-primary btn-sm" onclick="SchuelerAkte.addBemerkung(${schuelerId})" style="margin-bottom:12px">Bemerkung speichern</button>
 
@@ -114,6 +114,14 @@ const SchuelerAkte = {
     if (!files?.length) return;
     if (!App.bhkDirHandle) return App.toast('Bitte zuerst eine Datenbank öffnen', 'error');
 
+    const maxSize = 100 * 1024 * 1024; // 100 MB
+    for (const file of files) {
+      if (file.size > maxSize) {
+        App.toast(`Datei "${file.name}" zu groß (max 100 MB)`, 'error');
+        return;
+      }
+    }
+
     const dir = await this._getDateienDir(schuelerId);
     if (!dir) return App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error');
 
@@ -140,7 +148,7 @@ const SchuelerAkte = {
         count++;
       } catch (e) {
         console.warn('Datei-Upload fehlgeschlagen:', file.name, e);
-        App.toast(`Fehler bei "${file.name}": ${e.message}`, 'error');
+        console.warn('Datei-Upload:', file.name, e); App.toast('Fehler beim Speichern der Datei', 'error');
       }
     }
 
@@ -169,7 +177,7 @@ const SchuelerAkte = {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      App.toast(`Datei nicht gefunden: ${e.message}`, 'error');
+      console.warn('Download:', e); App.toast('Datei nicht gefunden', 'error');
     }
   },
 

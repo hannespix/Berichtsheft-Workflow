@@ -8303,7 +8303,7 @@ const App = {
           App.toast('Keine Datenbank gefunden', 'warning');
         }
       }
-    } catch(e) { App.toast('Verbindung fehlgeschlagen: ' + e.message, 'error'); }
+    } catch(e) { console.warn('Verbindung:', e); App.toast('Verbindung fehlgeschlagen', 'error'); }
   },
 
   async tryRestoreWriteAccess() {
@@ -8352,7 +8352,7 @@ const App = {
       // If we have unsaved changes, save now
       if (this.unsavedChanges) this.scheduleAutoSave();
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -8400,7 +8400,7 @@ const App = {
         this.promptNewDb();
       }
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -8534,7 +8534,7 @@ const App = {
       this.showApp();
       this.toast('Demo-Modus gestartet – Daten werden nicht gespeichert', 'warning');
     } catch(e) {
-      this.toast('Demo-Fehler: ' + e.message, 'error');
+      console.warn('Demo-Fehler:', e); this.toast('Demo konnte nicht geladen werden', 'error');
       console.error(e);
     }
   },
@@ -8774,7 +8774,7 @@ const App = {
         this.showDbSelection(dbFiles);
       }
     } catch (e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -8837,7 +8837,7 @@ const App = {
       this.showApp();
       this.toast('Neue Datenbank erstellt im Ordner', 'success');
     } catch (e) {
-      this.toast('Fehler: ' + e.message, 'error');
+      console.warn('DB-Erstellung:', e); this.toast('Fehler beim Erstellen der Datenbank', 'error');
     }
   },
 
@@ -8869,7 +8869,7 @@ const App = {
       this.showApp();
       this.toast(`Datenbank "${file.name}" geladen – Auto-Save aktiv`, 'success');
     } catch (e) {
-      this.toast('Fehler beim Laden: ' + e.message, 'error');
+      console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }
   },
 
@@ -10719,6 +10719,8 @@ const App = {
       this.db.run("CREATE TABLE IF NOT EXISTS kontrolltermin_schueler (id INTEGER PRIMARY KEY AUTOINCREMENT, kontrolltermin_id INTEGER REFERENCES kontrolltermine(id) ON DELETE CASCADE, schueler_id INTEGER REFERENCES schueler(id), UNIQUE(kontrolltermin_id, schueler_id))");
       // Migrate: copy firma→zusatzbezeichnung if zusatzbezeichnung empty (one-time)
       try { this.db.run("UPDATE betriebe SET zusatzbezeichnung=firma WHERE zusatzbezeichnung='' AND firma!=''"); } catch(e) {}
+      // Remove LLM settings (CSO security requirement)
+      try { this.db.run("DELETE FROM einstellungen WHERE schluessel LIKE 'llm_%'"); } catch(e) {}
       // Relax CHECK constraint on kw_status/kw_maengel to allow AJ 4 (Verlängerer)
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='kw_status'")[0]?.sql || '';
@@ -11032,7 +11034,7 @@ const App = {
     const c = document.getElementById('toastContainer');
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
-    t.innerHTML = msg;
+    t.textContent = msg;
     c.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
   },
@@ -11876,7 +11878,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="csvPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -11922,7 +11924,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="lfkPasteArea" class="form-control" rows="6" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -12379,48 +12381,6 @@ const Views = {
         </div>
       </div>
 
-      <!-- LLM API für Blockplan-Analyse -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header">🤖 KI-Einstellungen (für Blockplan-Analyse)</div>
-        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-          PDF-Seiten werden als Bild an ein Vision-Model gesendet – die KI sieht die Tabelle exakt wie ein Mensch.
-        </p>
-        <details style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--clr-forest);font-weight:600">Modell-Empfehlungen anzeigen</summary>
-          <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-top:4px;line-height:1.8">
-            <strong>⭐ GPT-5.4</strong> (OpenAI) – Beste Tabellen-Erkennung, 10M+ Pixel Vision, ~$0.01/Analyse<br>
-            <strong>Claude Sonnet 4</strong> (Anthropic) – Sehr gute Vision, zuverlässig, ~$0.01/Analyse<br>
-            <strong>Gemini 2.5 Flash</strong> (Google) – Kostenlos mit Rate-Limit, gute Vision<br>
-            <strong>llava</strong> (Ollama) – Komplett lokal/kostenlos, mittlere Qualität<br>
-            <em>Tipp: Das Modell ist frei wählbar – tippen Sie einfach einen neueren Modellnamen ein wenn verfügbar.</em>
-          </div>
-        </details>
-        <div class="form-row">
-          <div class="form-group"><label>Anbieter</label>
-            <select class="form-control" id="setLLMProvider" onchange="document.getElementById('setLLMModel').value={'claude':'claude-sonnet-4-20250514','openai':'gpt-5.4','gemini':'gemini-2.5-flash','ollama':'llava'}[this.value]||''">
-              <option value="claude" ${(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")||'claude')==='claude'?'selected':''}>Anthropic (Claude Sonnet 4)</option>
-              <option value="openai" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='openai'?'selected':''}>OpenAI (GPT-5.4) ⭐ Empfohlen</option>
-              <option value="gemini" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='gemini'?'selected':''}>Google (Gemini 2.5 Flash) – Kostenlos</option>
-              <option value="ollama" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='ollama'?'selected':''}>Ollama (llava) – Lokal</option>
-            </select>
-          </div>
-          <div class="form-group"><label>Modell</label>
-            <input class="form-control" id="setLLMModel" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_model'")||'claude-sonnet-4-20250514')}" placeholder="z.B. claude-sonnet-4-20250514">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>API-Key</label>
-            <input class="form-control" id="setLLMKey" type="password" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'")||'')}" placeholder="sk-... oder eigener Key">
-          </div>
-          <div class="form-group"><label>Ollama URL (nur bei Ollama)</label>
-            <input class="form-control" id="setLLMUrl" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_url'")||'http://localhost:11434')}" placeholder="http://localhost:11434">
-          </div>
-        </div>
-        <button class="btn btn-sm btn-secondary" onclick="Views.testLLM()">🧪 Verbindung testen</button>
-        <button class="btn btn-sm btn-primary" onclick="Views.saveLLMSettings()" style="margin-left:6px">Speichern</button>
-        <span id="llmTestResult" style="margin-left:8px;font-size:12px"></span>
-      </div>
-
       <!-- Word-Vorlage für Serienbriefe -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">📝 Word-Vorlage für Serienbriefe an Betriebe</div>
@@ -12565,28 +12525,9 @@ const Views = {
     App.toast('Textbaustein entfernt', 'success');
   },
 
-  saveLLMSettings() {
-    [['llm_provider', document.getElementById('setLLMProvider').value],
-     ['llm_model', document.getElementById('setLLMModel').value.trim()],
-     ['llm_api_key', document.getElementById('setLLMKey').value.trim()],
-     ['llm_url', document.getElementById('setLLMUrl').value.trim()]
-    ].forEach(([k,v]) => App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]));
-    App.toast('KI-Einstellungen gespeichert', 'success');
-  },
-
-  async testLLM() {
-    const res = document.getElementById('llmTestResult');
-    res.innerHTML = '⏳ Teste…';
-    try {
-      const reply = await LLMHelper.call('Antworte nur mit dem Wort OK.');
-      res.innerHTML = reply.includes('OK') ? '<span style="color:var(--clr-green)">✓ Verbindung OK</span>' : `<span style="color:var(--clr-amber)">⚠ Antwort: ${reply.substring(0,50)}</span>`;
-    } catch(e) {
-      res.innerHTML = `<span style="color:var(--clr-red)">✗ ${e.message}</span>`;
-    }
-  },
-
   uploadWordTemplate(file) {
     if (!file || !file.name.endsWith('.docx')) return App.toast('Bitte eine .docx-Datei auswählen', 'error');
+    if (file.size > 10 * 1024 * 1024) return App.toast('Vorlage zu groß (max 10 MB)', 'error');
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = e.target.result.split(',')[1];
@@ -13834,9 +13775,11 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.doMergeSchulen([${ids}])">Zusammenführen</button>`);
   },
-  doMergeSchulen(ids) {
+  async doMergeSchulen(ids) {
     const targetId = parseInt(document.getElementById('mMergeTarget').value);
     const others = ids.filter(id => id !== targetId);
+    // Sicherheits-Backup vor Zusammenführung
+    if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
     others.forEach(id => {
       App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
       App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
@@ -14203,9 +14146,7 @@ const StammdatenTab = {
           <option value="${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}">${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}</option>
         </select>
       </div><div class="toolbar-right">
-        <input type="file" id="bpPdfUpload" accept=".pdf" style="display:none" onchange="StammdatenTab._analyzeBpPDF(this.files[0])">
-        <button class="btn btn-sm btn-primary" onclick="document.getElementById('bpPdfUpload').click()" title="Blockplan-PDF hochladen und per KI analysieren">🤖 PDF analysieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">🗑 Zurücksetzen</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">Zurücksetzen</button>
       </div></div>
       <div class="card" style="padding:12px">
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -14301,87 +14242,6 @@ const StammdatenTab = {
     this._updateBlockplanEmpfehlung(bsId, sj);
   },
 
-  async _analyzeBpPDF(file) {
-    if (!file) return;
-    const bsId = parseInt(document.getElementById('bpSchule')?.value);
-    const schuleName = document.getElementById('bpSchule')?.selectedOptions[0]?.textContent || '';
-    const apiKey = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'");
-    const provider = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'") || 'claude';
-
-    if (!apiKey && provider !== 'ollama') {
-      App.toast('Bitte zuerst einen API-Key in Einstellungen → KI hinterlegen', 'error');
-      return;
-    }
-
-    try {
-      const result = await BlockplanAnalyzer.analyze(file, schuleName);
-      const pdfText = window._bpLastPdfText || ''; // stored by analyzer
-
-      // Show preview before importing
-      const ljSummary = Object.entries(result.lehrjahre || {}).map(([lj, kws]) =>
-        `<div style="margin:4px 0"><strong>LJ ${lj}:</strong> ${(kws||[]).length} Wochen – KW ${(kws||[]).sort((a,b)=>a-b).join(', ')}</div>`
-      ).join('');
-
-      const warnings = result._warnings || [];
-      const konfidenz = result._konfidenz || 0;
-      const konfColor = konfidenz >= 8 ? 'var(--clr-green)' : konfidenz >= 5 ? 'var(--clr-amber)' : 'var(--clr-red)';
-      const konfLabel = konfidenz >= 8 ? 'Sicher' : konfidenz >= 5 ? 'Teilweise sicher' : 'Unsicher';
-
-      const warningsHtml = warnings.length ? `<div style="padding:8px 12px;background:var(--clr-amber-light);border-left:3px solid var(--clr-amber);border-radius:var(--radius);font-size:12px;margin-bottom:12px;color:#92400e">
-        <strong>⚠ Hinweise:</strong>
-        ${warnings.map(w => `<div style="margin-top:4px">• ${esc(w)}</div>`).join('')}
-      </div>` : '';
-
-      App.openModal('🤖 Blockplan erkannt', `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="font-size:13px"><strong>${esc(schuleName)}</strong> · ${result.schuljahr || '?'}</div>
-          <div style="display:flex;align-items:center;gap:6px">
-            ${result._corrected ? '<span style="font-size:10px;padding:2px 6px;background:var(--clr-green-light);color:var(--clr-green);border-radius:10px">✓ Selbstkorrigiert</span>' : ''}
-            <span style="font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;background:${konfColor}20;color:${konfColor}">
-              Konfidenz: ${konfidenz}/10 · ${konfLabel}
-            </span>
-          </div>
-        </div>
-        ${warningsHtml}
-        <div style="padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;margin-bottom:12px">
-          ${ljSummary || '<em>Keine Daten erkannt</em>'}
-        </div>
-        ${result._kommentar ? `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px;font-style:italic">KI: „${esc(result._kommentar)}"</div>` : ''}
-        <details style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--clr-forest)">🔍 Analyse-Details (3 Passes)</summary>
-          <div style="margin-top:4px;font-size:10px;max-height:200px;overflow-y:auto;background:var(--clr-warm);padding:8px;border-radius:var(--radius)">
-            <strong>Erkannte Struktur:</strong><pre style="white-space:pre-wrap;font-family:inherit">${esc(result._struktur || '')}</pre>
-          </div>
-        </details>
-        <p style="font-size:12px;color:var(--clr-text-light)">Nach dem Import können einzelne KWs im Grid manuell korrigiert werden.</p>
-      `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-          <button class="btn btn-secondary" onclick="App.closeModal();document.getElementById('bpPdfUpload').click()" title="PDF erneut hochladen und analysieren">🔄 Erneut</button>
-          <button class="btn btn-primary" onclick="">✓ Übernehmen</button>`);
-
-      // Store result temporarily for the modal button
-      window._bpResult = result;
-      // Fix the button to use stored result
-      document.querySelector('#modalOverlay .btn-primary').onclick = () => {
-        StammdatenTab._doImportBpResult(bsId, window._bpResult);
-      };
-    } catch(e) {
-      App.toast('Analyse fehlgeschlagen: ' + e.message, 'error');
-    }
-  },
-
-  _doImportBpResult(bsId, result) {
-    const total = BlockplanAnalyzer.importResult(bsId, result);
-    App.closeModal();
-    // Update schuljahr dropdown to match
-    const sjSel = document.getElementById('bpSJ');
-    if (sjSel && result.schuljahr) {
-      let found = false;
-      [...sjSel.options].forEach(o => { if (o.value === result.schuljahr) { o.selected = true; found = true; } });
-      if (!found) { const opt = document.createElement('option'); opt.value = result.schuljahr; opt.textContent = result.schuljahr; opt.selected = true; sjSel.appendChild(opt); }
-    }
-    this._renderBlockplanGrid();
-    App.toast(`${total} Anwesenheitswochen importiert`, 'success');
-  },
 
   _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
@@ -14863,6 +14723,23 @@ const StammdatenTab = {
 };
 
 // ── import-handler.js ──
+// File validation helper
+function _validateFile(file, opts = {}) {
+  const maxSize = opts.maxSize || 50 * 1024 * 1024;
+  if (file.size > maxSize) {
+    App.toast(`Datei zu groß (${(file.size/1024/1024).toFixed(1)} MB, max ${(maxSize/1024/1024).toFixed(0)} MB)`, 'error');
+    return false;
+  }
+  if (opts.extensions) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!opts.extensions.includes(ext)) {
+      App.toast(`Dateityp .${ext} nicht unterstützt`, 'error');
+      return false;
+    }
+  }
+  return true;
+}
+
 const ImportHandler = {
   // ── Copy & Paste Import: Tab-separierte Daten aus Zwischenablage ──
   handlePaste(textareaId, mode) {
@@ -14904,6 +14781,7 @@ const ImportHandler = {
 
   handleFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls') {
@@ -14921,7 +14799,7 @@ const ImportHandler = {
           App.toast(`${data.length} Zeilen aus "${file.name}" (Blatt: ${sheetName})`, 'success');
           this.showMapping(data, fields);
         } catch (err) {
-          App.toast('Excel-Fehler: ' + err.message, 'error');
+          console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error');
           console.error(err);
         }
       };
@@ -14941,7 +14819,7 @@ const ImportHandler = {
           App.toast(`${results.data.length} Zeilen erkannt (Trennzeichen: "${results.meta.delimiter}")`, 'success');
           this.showMapping(results.data, results.meta.fields);
         },
-        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
@@ -15669,6 +15547,7 @@ const ImportHandler = {
   // ═══════════════════════════════════════════
   handleLFKFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     const process = (data, fields) => {
@@ -15686,7 +15565,7 @@ const ImportHandler = {
           const data = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
           const fields = Object.keys(data[0] || {}).map(f => f.replace(/^\uFEFF/, ''));
           process(data, fields);
-        } catch (err) { App.toast('Excel-Fehler: ' + err.message, 'error'); }
+        } catch (err) { console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error'); }
       };
       reader.readAsArrayBuffer(file);
     } else {
@@ -15697,7 +15576,7 @@ const ImportHandler = {
           if (results.meta.fields?.length) results.meta.fields[0] = results.meta.fields[0].replace(/^\uFEFF/, '');
           process(results.data, results.meta.fields);
         },
-        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
@@ -15826,6 +15705,7 @@ const ImportHandler = {
   // ═══════════════════════════════════════════
   handleAusbilderFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     const process = (data, fields) => {
@@ -20439,278 +20319,12 @@ const UndoManager = {
 };
 
 // ── llm-helper.js ──
-const LLMHelper = {
-  getConfig() {
-    return {
-      provider: App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'") || 'claude',
-      model: App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_model'") || 'gpt-5.4',
-      apiKey: App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'") || '',
-      url: App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_url'") || 'http://localhost:11434',
-    };
-  },
-
-  // call(prompt) – text only (for simple tasks, test)
-  async call(prompt) { return this.callVision(prompt, []); },
-
-  // callVision(prompt, images[]) – text + images
-  // images: [{base64, mediaType}]
-  async callVision(prompt, images) {
-    const cfg = this.getConfig();
-    if (!cfg.apiKey && cfg.provider !== 'ollama') throw new Error('Kein API-Key hinterlegt (Einstellungen → KI)');
-    images = images || [];
-
-    if (cfg.provider === 'claude') {
-      const content = [];
-      images.forEach(img => content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/png', data: img.base64 } }));
-      content.push({ type: 'text', text: prompt });
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: cfg.model, max_tokens: 4000, messages: [{ role: 'user', content }] })
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.content?.map(c => c.text || '').join('') || '';
-    }
-
-    if (cfg.provider === 'openai') {
-      const content = [];
-      images.forEach(img => content.push({ type: 'image_url', image_url: { url: `data:${img.mediaType||'image/png'};base64,${img.base64}` } }));
-      content.push({ type: 'text', text: prompt });
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({ model: cfg.model, max_completion_tokens: 4000, messages: [{ role: 'user', content }] })
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.choices?.[0]?.message?.content || '';
-    }
-
-    if (cfg.provider === 'gemini') {
-      const parts = [];
-      images.forEach(img => parts.push({ inline_data: { mime_type: img.mediaType || 'image/png', data: img.base64 } }));
-      parts.push({ text: prompt });
-      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${cfg.apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }] })
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    }
-
-    if (cfg.provider === 'ollama') {
-      const body = { model: cfg.model, prompt, stream: false };
-      if (images.length) body.images = images.map(img => img.base64);
-      const resp = await fetch(`${cfg.url}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await resp.json();
-      return data.response || '';
-    }
-
-    throw new Error('Unbekannter Anbieter: ' + cfg.provider);
-  }
-};
+// LLM-Integration entfernt (CSO-Sicherheitsanforderung)
+const LLMHelper = {};
 
 // ── blockplan-analyzer.js ──
+// Blockplan-Analyse: Nur manueller Import (KI-Analyse entfernt)
 const BlockplanAnalyzer = {
-  // Render PDF pages to images (base64 PNG)
-  async pdfToImages(file, maxPages) {
-    maxPages = maxPages || 3;
-    const arrayBuf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-    const images = [];
-    for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
-      const page = await pdf.getPage(i);
-      const scale = 2.5; // High resolution for accurate table reading
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext('2d');
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      const base64 = canvas.toDataURL('image/png').split(',')[1];
-      images.push({ base64, mediaType: 'image/png' });
-    }
-    return images;
-  },
-
-  // Also extract text as fallback
-  async extractText(file) {
-    const arrayBuf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-    let text = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      text += content.items.map(item => item.str).join(' ') + '\n';
-    }
-    return text;
-  },
-
-  async analyze(file, schuleName) {
-    App.showLoading('PDF wird gerendert\u2026');
-    try {
-      const images = await this.pdfToImages(file);
-      const pdfText = await this.extractText(file);
-      window._bpLastPdfText = pdfText;
-      const textCtx = pdfText.length > 100 ? '\nExtrahierter Text als Hilfe:\n' + pdfText.substring(0, 5000) : '';
-
-      // === PASS 1: Struktur verstehen ===
-      App.showLoading('Pass 1/3: Tabellenstruktur analysieren\u2026');
-      const structPrompt = `Du siehst den Blockplan einer Berufsschule als Bild. Beantworte folgende Fragen zur STRUKTUR:
-
-1. TABELLENFORMAT: Welches Format?
-   a) Wochenbasiert mit Spalten pro Klasse (Nummern oder "x" in Zellen)
-   b) Blockbasiert (Block 1-5 mit KW-Bereichen)
-   c) Tagesbasiert (Wochentage als Spalten, Klassennamen in Zellen)
-   d) Anderes Format
-
-2. SPALTENSTRUKTUR: Liste ALLE Gärtner/Gartenbau-Spaltenüberschriften auf.
-   - Welche gehören zu Lehrjahr 1 (Grundstufe/L1)?
-   - Welche zu Lehrjahr 2 (Fachstufe 1/L2)?
-   - Welche zu Lehrjahr 3 (Fachstufe 2/L3)?
-
-3. ZELLENINHALTE: Was steht in Zellen bei Unterricht? (Blocknummern 1-12, "x", Klassennamen?)
-
-4. FERIEN: Welche Zeilen sind Ferien/frei?
-
-5. GESCHÄTZTE WOCHENZAHL pro Lehrjahr? (z.B. 12, 24, 38)
-
-Schule: ${schuleName}
-${textCtx}
-
-Antworte strukturiert mit Nummern 1-5.`;
-
-      const structResponse = await LLMHelper.callVision(structPrompt, images);
-
-      // === PASS 2: KWs extrahieren mit Strukturwissen ===
-      App.showLoading('Pass 2/3: Kalenderwochen extrahieren\u2026');
-      const extractPrompt = `Du siehst den Blockplan einer Berufsschule als Bild. Deine Strukturanalyse ergab:
-
-${structResponse}
-
-AUFGABE: Extrahiere ALLE Kalenderwochen (KW) pro Lehrjahr.
-
-ENTSCHEIDENDE ZUORDNUNGSREGEL:
-Eine KW zählt für ein Lehrjahr, wenn MINDESTENS EINE Klasse/Untergruppe dieses Lehrjahrs in dieser KW Unterricht hat.
-
-BEI WOCHENBASIERTEN PLÄNEN (Format a):
-- Jedes Lehrjahr hat oft 4 Untergruppen-Spalten (z.B. GL1, GL2, GL3, GL4)
-- Die Untergruppen wechseln sich typischerweise im 2er-Rhythmus ab:
-  KW 38: GL1+GL2 haben Blocknummer \u2192 KW 38 zählt für dieses LJ
-  KW 39: GL3+GL4 haben Blocknummer \u2192 KW 39 zählt AUCH für dieses LJ
-- BEIDE Wochen zählen! Nicht nur Wochen wo alle 4 Gruppen gleichzeitig da sind!
-- Gehe JEDE Zeile durch und prüfe JEDE Spalte des LJ einzeln.
-
-BEI BLOCKBASIERTEN PLÄNEN (Format b):
-- Alle KWs innerhalb eines Block-Zeitraums zählen.
-
-BEI TAGESBASIERTEN PLÄNEN (Format c):
-- Jede nicht-Ferien-KW zählt für LJs die an diesem Tag Unterricht haben.
-- Wenn z.B. Mo+Di=L1G, dann hat LJ1 in JEDER normalen Schulwoche Unterricht (\u223838 Wochen).
-
-IGNORIERE: Ferien-Zeilen, reine Prüfungswochen ohne regulären Unterricht.
-NUR Gärtner/Gartenbau (GB, GL, GaLaBau) \u2013 NICHT Floristen, Weinbau.
-Schule: ${schuleName}
-
-Gehe JEDE Zeile der Tabelle durch. Für JEDE KW, prüfe JEDE Spalte.
-
-Antworte NUR mit JSON (kein Markdown, kein Text):
-{"schuljahr":"2025/2026","lehrjahre":{"1":[KWs],"2":[KWs],"3":[KWs]}}`;
-
-      const extractResponse = await LLMHelper.callVision(extractPrompt, images);
-      const jsonMatch = extractResponse.match(/\{[\s\S]*"lehrjahre"[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Kein JSON in KI-Antwort.\n\n' + extractResponse.substring(0, 300));
-      const result = JSON.parse(jsonMatch[0]);
-
-      // === PASS 3: Selbstvalidierung ===
-      App.showLoading('Pass 3/3: Ergebnis validieren\u2026');
-      const ljCounts = Object.entries(result.lehrjahre||{}).map(([lj,kws])=>`LJ ${lj}: ${(kws||[]).length} Wochen`).join(', ');
-      const validatePrompt = `Du hast einen Blockplan analysiert. Ergebnis: ${ljCounts}
-
-${JSON.stringify(result)}
-
-Strukturanalyse: ${structResponse.substring(0, 1200)}
-
-VALIDIERUNG \u2013 prüfe kritisch:
-
-1. PLAUSIBILITÄT der Wochenzahlen:
-   - Blockunterricht (12 Blöcke \u00d7 2 Wochen): Erwarte ~24 Wochen/LJ
-   - Tagesunterricht (2 Tage/Woche, ganzjährig): Erwarte ~38 Wochen/LJ
-   - Kompakt-Blöcke (5 Blöcke \u00d7 2-3 Wochen): Erwarte ~10-15 Wochen/LJ
-   Passen die extrahierten Zahlen zum erkannten Format?
-
-2. SYMMETRIE: Alle 3 LJ sollten \u00b120% gleich viele Wochen haben.
-   Abweichung >30% = wahrscheinlich Fehler bei Spaltenzuordnung.
-
-3. FEHLERSUCHE: Schau NOCHMAL auf das Bild.
-   - Hast du KWs vergessen wo nur 1-2 von 4 Untergruppen Unterricht haben?
-   - Hast du Ferien-KWs fälschlich mitgezählt?
-
-4. KONFIDENZ (1-10):
-   9-10 = Tabelle klar lesbar, Ergebnis sicher korrekt
-   6-8 = Komplexes Layout, weitgehend sicher
-   3-5 = Unsicher, manuelle Prüfung nötig
-   1-2 = Tabelle nicht lesbar
-
-5. Falls Korrekturen nötig: Gib korrigiertes VOLLSTÄNDIGES JSON aus.
-
-Antwortformat:
-KONFIDENZ: [Zahl]
-KOMMENTAR: [1 Satz Begründung]
-JSON: [korrigiertes JSON oder UNCHANGED]`;
-
-      const valResponse = await LLMHelper.callVision(validatePrompt, images);
-
-      // Parse validation response
-      const konfMatch = valResponse.match(/KONFIDENZ:\s*(\d+)/i);
-      const konfidenz = konfMatch ? parseInt(konfMatch[1]) : 5;
-      const kommentarMatch = valResponse.match(/KOMMENTAR:\s*([^\n]+)/i);
-
-      // Check for corrected JSON
-      let finalResult = result;
-      const correctedJson = valResponse.match(/\{[\s\S]*"lehrjahre"[\s\S]*\}/);
-      if (correctedJson && !valResponse.includes('UNCHANGED')) {
-        try {
-          const corrected = JSON.parse(correctedJson[0]);
-          if (corrected.lehrjahre) { finalResult = corrected; finalResult._corrected = true; }
-        } catch(e) { /* keep original */ }
-      }
-
-      // Add metadata
-      finalResult._konfidenz = konfidenz;
-      finalResult._kommentar = kommentarMatch?.[1] || '';
-      finalResult._struktur = structResponse.substring(0, 500);
-
-      // Plausibility warnings
-      finalResult._warnings = [];
-      Object.entries(finalResult.lehrjahre || {}).forEach(([lj, kws]) => {
-        if (!Array.isArray(kws)) return;
-        if (kws.length > 42) finalResult._warnings.push(`LJ ${lj}: ${kws.length} Wochen \u2013 verdächtig viel.`);
-        if (kws.length < 8 && kws.length > 0) finalResult._warnings.push(`LJ ${lj}: Nur ${kws.length} Wochen \u2013 zu wenig, Untergruppen möglicherweise nicht erkannt.`);
-      });
-      const ljArr = Object.values(finalResult.lehrjahre || {}).map(kws => (kws||[]).length).filter(n => n > 0);
-      if (ljArr.length >= 2) {
-        const maxL = Math.max(...ljArr), minL = Math.min(...ljArr);
-        if (maxL > 0 && (maxL - minL) / maxL > 0.35)
-          finalResult._warnings.push(`Asymmetrie: ${minL}\u2013${maxL} Wochen. Spaltenzuordnung prüfen.`);
-      }
-      if (konfidenz <= 5) finalResult._warnings.push(`KI-Konfidenz ${konfidenz}/10 \u2013 manuelle Prüfung empfohlen.`);
-
-      App.hideLoading();
-      return finalResult;
-    } catch(e) {
-      App.hideLoading();
-      throw e;
-    }
-  },
-
   async importResult(bsId, result) {
     const sj = result.schuljahr || '2025/2026';
     let total = 0;
@@ -21798,7 +21412,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
           saveAs(out, `Anschreiben_${safeName}_${termin.geplant_datum}.docx`);
         } catch(e) {
           console.error('Word-Template Fehler:', e);
-          App.toast(`Fehler bei "${b.b_name}": ${e.message}. Prüfen Sie die Platzhalter in der Vorlage.`, 'error');
+          App.toast('Fehler bei Dokumenterstellung. Bitte Vorlage und Platzhalter prüfen.', 'error');
         }
       });
 
@@ -21808,7 +21422,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
     } catch(e) {
       App.hideLoading();
       console.error('Seriendruck Word:', e);
-      App.toast('Fehler: ' + e.message, 'error');
+      App.toast('Fehler beim Seriendruck', 'error');
     }
   },
 
@@ -23100,7 +22714,7 @@ const SchuelerAkte = {
       <div id="mAkteTab1" class="modal-tab-content active">
         <div class="form-group">
           <label>Neue Bemerkung</label>
-          <textarea class="form-control" id="mAkteNeueNotiz" rows="3" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
+          <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
         </div>
         <button class="btn btn-primary btn-sm" onclick="SchuelerAkte.addBemerkung(${schuelerId})" style="margin-bottom:12px">Bemerkung speichern</button>
 
@@ -23179,6 +22793,14 @@ const SchuelerAkte = {
     if (!files?.length) return;
     if (!App.bhkDirHandle) return App.toast('Bitte zuerst eine Datenbank öffnen', 'error');
 
+    const maxSize = 100 * 1024 * 1024; // 100 MB
+    for (const file of files) {
+      if (file.size > maxSize) {
+        App.toast(`Datei "${file.name}" zu groß (max 100 MB)`, 'error');
+        return;
+      }
+    }
+
     const dir = await this._getDateienDir(schuelerId);
     if (!dir) return App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error');
 
@@ -23205,7 +22827,7 @@ const SchuelerAkte = {
         count++;
       } catch (e) {
         console.warn('Datei-Upload fehlgeschlagen:', file.name, e);
-        App.toast(`Fehler bei "${file.name}": ${e.message}`, 'error');
+        console.warn('Datei-Upload:', file.name, e); App.toast('Fehler beim Speichern der Datei', 'error');
       }
     }
 
@@ -23234,7 +22856,7 @@ const SchuelerAkte = {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      App.toast(`Datei nicht gefunden: ${e.message}`, 'error');
+      console.warn('Download:', e); App.toast('Datei nicht gefunden', 'error');
     }
   },
 

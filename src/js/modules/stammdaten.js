@@ -323,9 +323,11 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.doMergeSchulen([${ids}])">Zusammenführen</button>`);
   },
-  doMergeSchulen(ids) {
+  async doMergeSchulen(ids) {
     const targetId = parseInt(document.getElementById('mMergeTarget').value);
     const others = ids.filter(id => id !== targetId);
+    // Sicherheits-Backup vor Zusammenführung
+    if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
     others.forEach(id => {
       App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
       App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
@@ -692,9 +694,7 @@ const StammdatenTab = {
           <option value="${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}">${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}</option>
         </select>
       </div><div class="toolbar-right">
-        <input type="file" id="bpPdfUpload" accept=".pdf" style="display:none" onchange="StammdatenTab._analyzeBpPDF(this.files[0])">
-        <button class="btn btn-sm btn-primary" onclick="document.getElementById('bpPdfUpload').click()" title="Blockplan-PDF hochladen und per KI analysieren">🤖 PDF analysieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">🗑 Zurücksetzen</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">Zurücksetzen</button>
       </div></div>
       <div class="card" style="padding:12px">
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -790,87 +790,6 @@ const StammdatenTab = {
     this._updateBlockplanEmpfehlung(bsId, sj);
   },
 
-  async _analyzeBpPDF(file) {
-    if (!file) return;
-    const bsId = parseInt(document.getElementById('bpSchule')?.value);
-    const schuleName = document.getElementById('bpSchule')?.selectedOptions[0]?.textContent || '';
-    const apiKey = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'");
-    const provider = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'") || 'claude';
-
-    if (!apiKey && provider !== 'ollama') {
-      App.toast('Bitte zuerst einen API-Key in Einstellungen → KI hinterlegen', 'error');
-      return;
-    }
-
-    try {
-      const result = await BlockplanAnalyzer.analyze(file, schuleName);
-      const pdfText = window._bpLastPdfText || ''; // stored by analyzer
-
-      // Show preview before importing
-      const ljSummary = Object.entries(result.lehrjahre || {}).map(([lj, kws]) =>
-        `<div style="margin:4px 0"><strong>LJ ${lj}:</strong> ${(kws||[]).length} Wochen – KW ${(kws||[]).sort((a,b)=>a-b).join(', ')}</div>`
-      ).join('');
-
-      const warnings = result._warnings || [];
-      const konfidenz = result._konfidenz || 0;
-      const konfColor = konfidenz >= 8 ? 'var(--clr-green)' : konfidenz >= 5 ? 'var(--clr-amber)' : 'var(--clr-red)';
-      const konfLabel = konfidenz >= 8 ? 'Sicher' : konfidenz >= 5 ? 'Teilweise sicher' : 'Unsicher';
-
-      const warningsHtml = warnings.length ? `<div style="padding:8px 12px;background:var(--clr-amber-light);border-left:3px solid var(--clr-amber);border-radius:var(--radius);font-size:12px;margin-bottom:12px;color:#92400e">
-        <strong>⚠ Hinweise:</strong>
-        ${warnings.map(w => `<div style="margin-top:4px">• ${esc(w)}</div>`).join('')}
-      </div>` : '';
-
-      App.openModal('🤖 Blockplan erkannt', `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="font-size:13px"><strong>${esc(schuleName)}</strong> · ${result.schuljahr || '?'}</div>
-          <div style="display:flex;align-items:center;gap:6px">
-            ${result._corrected ? '<span style="font-size:10px;padding:2px 6px;background:var(--clr-green-light);color:var(--clr-green);border-radius:10px">✓ Selbstkorrigiert</span>' : ''}
-            <span style="font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;background:${konfColor}20;color:${konfColor}">
-              Konfidenz: ${konfidenz}/10 · ${konfLabel}
-            </span>
-          </div>
-        </div>
-        ${warningsHtml}
-        <div style="padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;margin-bottom:12px">
-          ${ljSummary || '<em>Keine Daten erkannt</em>'}
-        </div>
-        ${result._kommentar ? `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px;font-style:italic">KI: „${esc(result._kommentar)}"</div>` : ''}
-        <details style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--clr-forest)">🔍 Analyse-Details (3 Passes)</summary>
-          <div style="margin-top:4px;font-size:10px;max-height:200px;overflow-y:auto;background:var(--clr-warm);padding:8px;border-radius:var(--radius)">
-            <strong>Erkannte Struktur:</strong><pre style="white-space:pre-wrap;font-family:inherit">${esc(result._struktur || '')}</pre>
-          </div>
-        </details>
-        <p style="font-size:12px;color:var(--clr-text-light)">Nach dem Import können einzelne KWs im Grid manuell korrigiert werden.</p>
-      `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-          <button class="btn btn-secondary" onclick="App.closeModal();document.getElementById('bpPdfUpload').click()" title="PDF erneut hochladen und analysieren">🔄 Erneut</button>
-          <button class="btn btn-primary" onclick="">✓ Übernehmen</button>`);
-
-      // Store result temporarily for the modal button
-      window._bpResult = result;
-      // Fix the button to use stored result
-      document.querySelector('#modalOverlay .btn-primary').onclick = () => {
-        StammdatenTab._doImportBpResult(bsId, window._bpResult);
-      };
-    } catch(e) {
-      App.toast('Analyse fehlgeschlagen: ' + e.message, 'error');
-    }
-  },
-
-  _doImportBpResult(bsId, result) {
-    const total = BlockplanAnalyzer.importResult(bsId, result);
-    App.closeModal();
-    // Update schuljahr dropdown to match
-    const sjSel = document.getElementById('bpSJ');
-    if (sjSel && result.schuljahr) {
-      let found = false;
-      [...sjSel.options].forEach(o => { if (o.value === result.schuljahr) { o.selected = true; found = true; } });
-      if (!found) { const opt = document.createElement('option'); opt.value = result.schuljahr; opt.textContent = result.schuljahr; opt.selected = true; sjSel.appendChild(opt); }
-    }
-    this._renderBlockplanGrid();
-    App.toast(`${total} Anwesenheitswochen importiert`, 'success');
-  },
 
   _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
