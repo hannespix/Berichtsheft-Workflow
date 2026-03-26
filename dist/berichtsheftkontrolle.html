@@ -7694,9 +7694,15 @@ const App = {
   // bgWhere('bs.id','schule')     → schools having matching klassen
   // bgWhere('b.id','betrieb')     → betriebe having matching schueler
   // bgWhere('kt.id','termin')     → termine having matching klassen
+  // Sanitize filter arrays to prevent SQL injection
+  _safeIntList(arr) { return arr.map(v => parseInt(v)).filter(v => !isNaN(v) && isFinite(v)); },
+  _safeStrList(arr) { return arr.map(s => String(s).replace(/[^a-zA-Z0-9äöüÄÖÜß\-_.\/]/g, '')).filter(s => s.length > 0 && s.length < 50); },
+  _sqlInStr(arr) { return arr.map(s => "'" + s.replace(/'/g, "''") + "'").join(','); },
+
   bgWhere(col, entity) {
     if (!this.filterFachrichtungen.length) return { where: '', params: [] };
-    const ids = this.filterFachrichtungen.join(',');
+    const ids = this._safeIntList(this.filterFachrichtungen).join(',');
+    if (!ids) return { where: '', params: [] };
     if (entity === 'schule') {
       return { where: ` AND ${col} IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${ids}))`, params: [] };
     }
@@ -7717,37 +7723,42 @@ const App = {
   //        App.gf('termine')   → subqueries via kontrolltermin_klassen
   gf(entity) {
     let w = '';
-    const jg = this.filterJahrgang;
-    const bg = this.filterFachrichtungen;
-    const amt = this.filterAmt;
-    const zp = this.filterZp;
+    // Sanitize all filter values to prevent SQL injection
+    const jg = this._safeIntList(this.filterJahrgang);
+    const bg = this._safeIntList(this.filterFachrichtungen);
+    const amt = this._safeStrList(this.filterAmt);
+    const zp = this._safeStrList(this.filterZp);
+    const jgIn = jg.join(',');
+    const bgIn = bg.join(',');
+    const amtIn = this._sqlInStr(amt);
+    const zpIn = this._sqlInStr(zp);
     if (entity === 'schueler' || entity === 's') {
-      if (jg.length) w += ` AND s.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND s.fachrichtung_id IN (${bg.join(',')})`;
-      if (amt.length) w += ` AND s.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')})`;
-      if (zp.length) w += ` AND s.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')})`;
+      if (jg.length) w += ` AND s.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND s.fachrichtung_id IN (${bgIn})`;
+      if (amt.length) w += ` AND s.zustaendiges_amt IN (${amtIn})`;
+      if (zp.length) w += ` AND s.zwischenpruefung IN (${zpIn})`;
       if (this.filterBavStatus === 'aktiv') w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`;
       else if (this.filterBavStatus === 'ende') w += ` AND s.bav_status LIKE '%Ende%'`;
     } else if (entity === 'klassen' || entity === 'k') {
-      if (jg.length) w += ` AND k.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND k.fachrichtung_id IN (${bg.join(',')})`;
-      if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}) AND s2.klasse_id IS NOT NULL)`;
-      if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}) AND s2.klasse_id IS NOT NULL)`;
+      if (jg.length) w += ` AND k.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND k.fachrichtung_id IN (${bgIn})`;
+      if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.klasse_id IS NOT NULL)`;
+      if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.klasse_id IS NOT NULL)`;
     } else if (entity === 'schulen' || entity === 'bs') {
-      if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jg.join(',')}))`;
-      if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bg.join(',')}))`;
-      if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}))`;
-      if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}))`;
+      if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jgIn}))`;
+      if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bgIn}))`;
+      if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
+      if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
     } else if (entity === 'betriebe' || entity === 'b') {
-      if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jg.join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bg.join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}) AND s2.betrieb_id IS NOT NULL)`;
+      if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jgIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bgIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.betrieb_id IS NOT NULL)`;
     } else if (entity === 'termine' || entity === 'kt') {
-      if (jg.length) w += ` AND kt.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bg.join(',')}))`;
-      if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}))`;
-      if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}))`;
+      if (jg.length) w += ` AND kt.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn}))`;
+      if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
+      if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
     }
     return w;
   },
@@ -8383,7 +8394,7 @@ const App = {
 
   async switchToNewFolder() {
     if (this.unsavedChanges && this.dbFileHandle) {
-      try { await this.doAutoSave(); } catch(e) {}
+      try { await this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Wechsel fehlgeschlagen:', e); }
     }
     try {
       const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -8407,7 +8418,7 @@ const App = {
   disconnectDB() {
     // Save changes first if possible
     if (this.unsavedChanges && this.dbFileHandle) {
-      try { this.doAutoSave(); } catch(e) {}
+      try { this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Trennung fehlgeschlagen:', e); }
     }
     this._cleanupDB();
     // Show connect screen
@@ -9447,7 +9458,8 @@ const App = {
       this._writeSyncMarker();
 
       if (replayErrors > 0) {
-        console.log(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped`);
+        console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped`);
+        this.toast(`${replayErrors} Änderung(en) konnten nicht gespeichert werden. Bitte Daten prüfen.`, 'warning');
       }
     } catch(e) {
       // Track consecutive failures
@@ -9505,7 +9517,7 @@ const App = {
    * on missing columns/tables. Mirrors the ALTERs from migrateDB().
    */
   _migrateDiskDb(diskDb) {
-    const run = (sql) => { try { diskDb.run(sql); } catch(e) {} };
+    const run = (sql) => { try { diskDb.run(sql); } catch(e) { if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) console.warn('DiskDB-Migration:', e.message, sql.substring(0,60)); } };
     // Tables
     run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9851,6 +9863,7 @@ const App = {
 
     } catch(e) {
       console.warn('Import-from-disk error:', e);
+      this.toast('Sync-Fehler beim Laden. Daten ggf. nicht aktuell.', 'warning');
     }
   },
 
