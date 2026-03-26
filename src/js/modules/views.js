@@ -760,8 +760,8 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Schüler & Import</h2>
-        <p>Auszubildende verwalten, filtern und bearbeiten</p>
+        <h2>Import</h2>
+        <p>Auszubildende, Ausbilder und Landesfachklassen importieren und verwalten</p>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -1188,8 +1188,8 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Schüler-Bogen als PDF.</p>
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportStatistik()">
-          <div class="card-header">Statistik (CSV)</div>
-          <p style="font-size:13px;color:var(--clr-text-light)">Zusammenfassung pro Schule/Jahrgang.</p>
+          <div class="card-header">Excel-Dashboard</div>
+          <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
       </div>
       <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">

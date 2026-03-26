@@ -74,28 +74,152 @@ const BerichteHandler = {
   },
 
   exportStatistik() {
-    const data = App.query(`SELECT bs.name as schule, k.klassenbezeichnung, k.lehrjahr,
-      COUNT(s.id) as total_schueler,
-      SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
-      SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
-      SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
-      FROM schueler s
-      JOIN klassen k ON s.klasse_id=k.id
-      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
-      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      GROUP BY bs.name, k.klassenbezeichnung, k.lehrjahr`);
+    App.showLoading('Excel-Dashboard wird erstellt...');
+    setTimeout(() => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
-    let csv = 'Schule;Klasse;Lehrjahr;Gesamt;In Ordnung;Mangelhaft;Unkontrolliert\n';
-    data.forEach(r => {
-      csv += `${r.schule};${r.klassenbezeichnung};${r.lehrjahr};${r.total_schueler};${r.ok};${r.mangelhaft};${r.unkontrolliert}\n`;
-    });
+      // ═══ Blatt 1: Rohdaten (alle aktiven Azubis) ═══
+      const azubis = App.query(`SELECT s.*,
+        COALESCE(b.name, s.ausbildungsstaette) as betrieb_name, b.ort as betrieb_ort, b.email as betrieb_email, b.telefon as betrieb_tel,
+        k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang,
+        fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code,
+        (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis,
+        (SELECT MAX(kt.geplant_datum) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as letzte_kontrolle,
+        (SELECT COUNT(*) FROM kontrollergebnisse ke WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as anzahl_kontrollen,
+        (SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=s.id) as fehltage_gesamt,
+        (SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=s.id AND status IN ('offen','ueberfaellig')) as offene_wv
+        FROM schueler s
+        LEFT JOIN betriebe b ON s.betrieb_id=b.id
+        LEFT JOIN klassen k ON s.klasse_id=k.id
+        LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+        LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+        LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
+        WHERE s.aktiv=1 ORDER BY bs.name, k.klassenbezeichnung, s.nachname`);
 
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `BH-Statistik_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    App.toast('CSV exportiert', 'success');
+      const rdHeader = ['Nachname','Vorname','Geschlecht','Betrieb','Betrieb Ort','Betrieb E-Mail','Betrieb Telefon','Schule','Schule (aktuell)','LFK','Klasse','Jahrgang','Fachrichtung','Fachrichtungstyp','Lehrjahr','AV-Beginn','AV-Ende','Zuständiges Amt','Status','BAV-Status','Letztes Ergebnis','Letzte Kontrolle','Anzahl Kontrollen','Fehltage','Offene WV','iBykus-ID','Telefon','E-Mail'];
+      const rdRows = azubis.map(s => {
+        const ak = App.getAktuelleSchule(s);
+        const lj = s.ausbildungsbeginn ? (() => { const d = new Date(s.ausbildungsbeginn); const now = new Date(); let l = now.getFullYear() - d.getFullYear(); if (now.getMonth() < d.getMonth()) l--; return Math.max(1, Math.min(4, l + 1)); })() : '';
+        return [s.nachname, s.vorname, s.geschlecht||'', s.betrieb_name||'', s.betrieb_ort||'', s.betrieb_email||'', s.betrieb_tel||'',
+          s.schule||'', ak.schule||'', ak.isLandesfachklasse ? 'Ja' : '', s.klassenbezeichnung||'', s.jahrgang||'',
+          s.fachrichtung||'', s.fr_typ||'', lj, s.ausbildungsbeginn||'', s.ausbildungsende||'',
+          s.zustaendiges_amt ? (s.zustaendiges_amt + ' ' + (App.AEMTER[s.zustaendiges_amt]||'')) : '',
+          s.status||'aktiv', s.bav_status||'', eLbl[s.letztes_ergebnis]||s.letztes_ergebnis||'', s.letzte_kontrolle||'',
+          s.anzahl_kontrollen||0, s.fehltage_gesamt||0, s.offene_wv||0, s.ibykus_id||'', s.telefon||'', s.email||''];
+      });
+      const ws1 = XLSX.utils.aoa_to_sheet([rdHeader, ...rdRows]);
+      ws1['!cols'] = rdHeader.map((h,i) => ({wch: i < 2 ? 16 : i === 3 ? 25 : i === 7 || i === 8 ? 22 : 14}));
+      ws1['!autofilter'] = { ref: `A1:${String.fromCharCode(64 + rdHeader.length)}${rdRows.length + 1}` };
+      XLSX.utils.book_append_sheet(wb, ws1, 'Rohdaten');
+
+      // ═══ Blatt 2: Schulstatistik ═══
+      const schulData = App.query(`SELECT bs.name as schule, k.klassenbezeichnung, k.lehrjahr,
+        COUNT(s.id) as gesamt,
+        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
+        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
+        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
+        FROM schueler s
+        JOIN klassen k ON s.klasse_id=k.id
+        JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+        WHERE s.aktiv=1
+        GROUP BY bs.name, k.klassenbezeichnung, k.lehrjahr
+        ORDER BY bs.name, k.klassenbezeichnung`);
+      const sh2Header = ['Schule','Klasse','Lehrjahr','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
+      const sh2Rows = schulData.map(r => [r.schule, r.klassenbezeichnung, r.lehrjahr||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
+        r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
+      // Summenzeile
+      const sh2Sum = ['GESAMT','','', sh2Rows.reduce((s,r)=>s+r[3],0), sh2Rows.reduce((s,r)=>s+r[4],0), sh2Rows.reduce((s,r)=>s+r[5],0), sh2Rows.reduce((s,r)=>s+r[6],0), ''];
+      if (sh2Sum[3] > 0) sh2Sum[7] = Math.round(sh2Sum[4] / sh2Sum[3] * 100);
+      const ws2 = XLSX.utils.aoa_to_sheet([sh2Header, ...sh2Rows, [], sh2Sum]);
+      ws2['!cols'] = [{wch:25},{wch:18},{wch:10},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
+      ws2['!autofilter'] = { ref: `A1:H${sh2Rows.length + 1}` };
+      XLSX.utils.book_append_sheet(wb, ws2, 'Schulstatistik');
+
+      // ═══ Blatt 3: Betriebsstatistik ═══
+      const betriebData = App.query(`SELECT
+        COALESCE(b.name, s.ausbildungsstaette) as betrieb, b.ort, b.email, b.telefon,
+        COUNT(s.id) as azubi_count,
+        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
+        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
+        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
+        FROM schueler s
+        LEFT JOIN betriebe b ON s.betrieb_id=b.id
+        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+        WHERE s.aktiv=1
+        GROUP BY COALESCE(b.name, s.ausbildungsstaette), b.ort
+        ORDER BY mangelhaft DESC, betrieb`);
+      const sh3Header = ['Betrieb','Ort','E-Mail','Telefon','Azubis','In Ordnung','Mangelhaft','Unkontrolliert','Mängelquote %'];
+      const sh3Rows = betriebData.map(r => [r.betrieb||'', r.ort||'', r.email||'', r.telefon||'',
+        r.azubi_count, r.ok, r.mangelhaft, r.unkontrolliert,
+        r.azubi_count > 0 ? Math.round(r.mangelhaft / r.azubi_count * 100) : 0]);
+      const ws3 = XLSX.utils.aoa_to_sheet([sh3Header, ...sh3Rows]);
+      ws3['!cols'] = [{wch:28},{wch:15},{wch:25},{wch:16},{wch:8},{wch:12},{wch:12},{wch:14},{wch:14}];
+      ws3['!autofilter'] = { ref: `A1:I${sh3Rows.length + 1}` };
+      XLSX.utils.book_append_sheet(wb, ws3, 'Betriebsstatistik');
+
+      // ═══ Blatt 4: Fachrichtungsstatistik ═══
+      const frData = App.query(`SELECT
+        CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || fr.bezeichnung as fachrichtung, fr.typ,
+        COUNT(s.id) as gesamt,
+        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
+        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
+        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
+        FROM schueler s
+        JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
+        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+        WHERE s.aktiv=1
+        GROUP BY fr.bezeichnung, fr.typ
+        ORDER BY gesamt DESC`);
+      const sh4Header = ['Fachrichtung','Typ','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
+      const sh4Rows = frData.map(r => [r.fachrichtung, r.typ||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
+        r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
+      const sh4Sum = ['GESAMT','', sh4Rows.reduce((s,r)=>s+r[2],0), sh4Rows.reduce((s,r)=>s+r[3],0), sh4Rows.reduce((s,r)=>s+r[4],0), sh4Rows.reduce((s,r)=>s+r[5],0), ''];
+      if (sh4Sum[2] > 0) sh4Sum[6] = Math.round(sh4Sum[3] / sh4Sum[2] * 100);
+      const ws4 = XLSX.utils.aoa_to_sheet([sh4Header, ...sh4Rows, [], sh4Sum]);
+      ws4['!cols'] = [{wch:28},{wch:14},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
+      ws4['!autofilter'] = { ref: `A1:G${sh4Rows.length + 1}` };
+      XLSX.utils.book_append_sheet(wb, ws4, 'Fachrichtungen');
+
+      // ═══ Blatt 5: Amt-Statistik ═══
+      const amtData = App.query(`SELECT s.zustaendiges_amt as amt,
+        COUNT(s.id) as gesamt,
+        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
+        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
+        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
+        FROM schueler s
+        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+        WHERE s.aktiv=1 AND s.zustaendiges_amt != ''
+        GROUP BY s.zustaendiges_amt
+        ORDER BY gesamt DESC`);
+      const sh5Header = ['Amt (Code)','Amt (Name)','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
+      const sh5Rows = amtData.map(r => [r.amt||'', App.AEMTER[r.amt]||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
+        r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
+      const sh5Sum = ['GESAMT','', sh5Rows.reduce((s,r)=>s+r[2],0), sh5Rows.reduce((s,r)=>s+r[3],0), sh5Rows.reduce((s,r)=>s+r[4],0), sh5Rows.reduce((s,r)=>s+r[5],0), ''];
+      if (sh5Sum[2] > 0) sh5Sum[6] = Math.round(sh5Sum[3] / sh5Sum[2] * 100);
+      const ws5 = XLSX.utils.aoa_to_sheet([sh5Header, ...sh5Rows, [], sh5Sum]);
+      ws5['!cols'] = [{wch:12},{wch:28},{wch:8},{wch:12},{wch:12},{wch:14},{wch:12}];
+      ws5['!autofilter'] = { ref: `A1:G${sh5Rows.length + 1}` };
+      XLSX.utils.book_append_sheet(wb, ws5, 'Amt-Statistik');
+
+      // ═══ Export ═══
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `BH-Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      App.hideLoading();
+      App.toast(`Excel-Dashboard exportiert (${azubis.length} Azubis, 5 Blätter)`, 'success');
+    } catch(e) {
+      App.hideLoading();
+      console.warn('Excel-Export:', e);
+      App.toast('Fehler beim Excel-Export', 'error');
+    }
+    }, 100);
   },
 
   // ── Jahresbericht-Generator ──
@@ -132,7 +256,7 @@ const BerichteHandler = {
         </label>` : ''}
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> 📊 Statistik-CSV
+          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> 📊 Excel-Dashboard
         </label>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
