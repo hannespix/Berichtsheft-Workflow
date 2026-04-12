@@ -16385,6 +16385,12 @@ const PlanungHandler = {
       });
       // Keep legacy klasse_id for backward compat
       if (selectedKlassen.length) App.run('UPDATE kontrolltermine SET klasse_id=? WHERE id=?', [selectedKlassen[0], id]);
+      // Update individual student links (Einsendung + Smart-Standort LFK-Schüler)
+      App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]);
+      const allExtraSchuelerEdit = [...new Set([...selectedSchueler, ...standortSchueler])];
+      allExtraSchuelerEdit.forEach(sid => {
+        App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [id, sid]);
+      });
     } else {
       App.run('INSERT INTO kontrolltermine (klasse_id,jahrgang_id,geplant_datum,pruefer,bemerkung,typ) VALUES (?,?,?,?,?,?)',
         [selectedKlassen[0] || null, jgId, dt, pr, bem, typ]);
@@ -16410,19 +16416,45 @@ const PlanungHandler = {
     this._editTerminId = id;
     const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [id])[0];
     const gfK = App.gf('klassen');
+    const gfS = App.gf('schueler');
     const klassen = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jg_bez,
+      fr.bezeichnung as fr_bez, fr.typ as fr_typ, fr.id as fr_id,
       (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as schueler_count
       FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id
+      LEFT JOIN fachrichtungen fr ON k.fachrichtung_id=fr.id
       WHERE 1=1${gfK}
       ORDER BY bs.name, k.klassenbezeichnung`);
     const pruefer = App.query('SELECT * FROM pruefer WHERE aktiv=1 ORDER BY name');
     const selectedIds = App.getTerminKlassenIds(id);
     // Ensure already-selected classes are visible even if filtered out
     selectedIds.forEach(sid => { if (!klassen.find(k => k.id === sid)) {
-      const extra = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jg_bez, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as schueler_count FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id WHERE k.id=?`, [sid])[0];
+      const extra = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jg_bez, fr.bezeichnung as fr_bez, fr.typ as fr_typ, fr.id as fr_id, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as schueler_count FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON k.fachrichtung_id=fr.id WHERE k.id=?`, [sid])[0];
       if (extra) klassen.push(extra);
     }});
+
+    // Load already-linked individual students
+    const linkedSchuelerIds = App.query('SELECT schueler_id FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]).map(r => r.schueler_id);
+    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
+    const isEinsendung = t.typ === 'einsendung';
+
+    // Filter options – reguläre Schulen + aktuelle LFK-Schulen
+    const lfkSchulen = App.query("SELECT DISTINCT landesfachklasse FROM schueler WHERE aktiv=1 AND landesfachklasse != ''").map(r => r.landesfachklasse);
+    const schulen = [...new Set([...klassen.map(k => k.schule), ...lfkSchulen])].sort();
+    const jahrgaenge = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].sort();
+    const fachrichtungen = [...new Set(klassen.map(k => (k.fr_typ === 'Fachwerker' ? 'FW: ' : '') + (k.fr_bez || '')).filter(Boolean))].sort();
+    const zpValues = App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE aktiv=1 AND zwischenpruefung != '' ORDER BY zwischenpruefung");
+    const amtValues = App.query("SELECT DISTINCT zustaendiges_amt FROM schueler WHERE aktiv=1 AND zustaendiges_amt != '' ORDER BY zustaendiges_amt");
+    // Pre-compute per-class: which ZP values + which Amt values
+    const classZP = {}, classAmt = {};
+    klassen.forEach(k => {
+      const zps = App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE klasse_id=? AND aktiv=1 AND zwischenpruefung != ''", [k.id]);
+      classZP[k.id] = zps.map(r => r.zwischenpruefung);
+      const amts = App.query("SELECT DISTINCT zustaendiges_amt FROM schueler WHERE klasse_id=? AND aktiv=1 AND zustaendiges_amt != ''", [k.id]);
+      classAmt[k.id] = amts.map(r => r.zustaendiges_amt);
+    });
+    this._terminClassZP = classZP;
+    this._terminClassAmt = classAmt;
 
     // Group classes by school for display
     const bySchool = {};
@@ -16432,20 +16464,77 @@ const PlanungHandler = {
     });
 
     App.openModal('Termin bearbeiten', `
+      <!-- Typ-Toggle -->
+      <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);overflow:hidden">
+        <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:${isEinsendung ? 'var(--clr-warm)' : 'var(--clr-forest)'};color:${isEinsendung ? 'var(--clr-text)' : 'white'};font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
+          🏫 Schulkontrolle
+        </button>
+        <button id="btnTypEinsend" class="btn" style="flex:1;border-radius:0;border:none;background:${isEinsendung ? 'var(--clr-forest)' : 'var(--clr-warm)'};color:${isEinsendung ? 'white' : 'var(--clr-text)'};font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypSchule').style.background='var(--clr-warm)';document.getElementById('btnTypSchule').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='einsendung'">
+          📬 Einsendung / Einzelprüfung
+        </button>
+      </div>
+      <input type="hidden" id="mKtTyp" value="${esc(t.typ || 'schulkontrolle')}">
+
       <div class="form-group">
-        <label>Klassen auswählen (Mehrfachauswahl möglich)</label>
-        <div style="max-height:200px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px">
+        <label>Klassen / Gruppen auswählen</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
+          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
+            <option value="">📅 Abschlussprüfung: Alle</option>
+            ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
+          </select>
+          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
+            <option value="">📝 Zwischenprüfung: Alle</option>
+            ${zpValues.map(z => `<option value="${esc(z.zwischenpruefung)}">${App.zpLabel(z.zwischenpruefung)}</option>`).join('')}
+          </select>
+          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
+            <option value="">🏫 Schule: Alle</option>
+            ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+          </select>
+          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
+            <option value="">🏛 Amt: Alle</option>
+            ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
+          </select>
+          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
+            <option value="">🌿 Fachrichtung: Alle</option>
+            ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="terminKlassenList" style="max-height:200px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px">
           ${Object.entries(bySchool).map(([schule, kls]) => `
-            <div style="margin-bottom:8px">
+            <div class="termin-school-group" data-school="${esc(schule)}" style="margin-bottom:8px">
               <div style="font-weight:600;font-size:12px;color:var(--clr-forest);margin-bottom:4px;border-bottom:1px solid var(--clr-sand);padding-bottom:2px">${esc(schule)}</div>
-              ${kls.map(k => `<div class="check-row">
+              ${kls.map(k => {
+                const frLabel = (k.fr_typ === 'Fachwerker' ? 'FW: ' : '') + (k.fr_bez || '');
+                return `<div class="check-row termin-kl-row" data-jg="${esc(k.jg_bez||'')}" data-bs="${esc(k.schule)}" data-fr="${esc(frLabel)}" data-kid="${k.id}">
                 <input type="checkbox" class="chk-termin-kl" value="${k.id}" data-jg="${k.jahrgang_id}" data-bs="${k.berufsschule_id||""}" onchange="PlanungHandler.updateBpHint&&PlanungHandler.updateBpHint()" ${selectedIds.includes(k.id)?'checked':''}>
-                <span style="font-size:13px">${esc(k.klassenbezeichnung)} <small style="color:var(--clr-text-light)">(${k.schueler_count} Schüler)</small></span>
-              </div>`).join('')}
+                <span style="font-size:13px">${esc(k.klassenbezeichnung)} <small style="color:var(--clr-text-light)">(${k.schueler_count} Sch.)</small></span>
+              </div>`}).join('')}
             </div>
           `).join('')}
         </div>
+        <div style="font-size:10px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
       </div>
+
+      <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
+      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <strong style="font-size:13px;color:#7b2fa0">🏫 Aktuelle Schulstandorte</strong>
+          <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
+        </div>
+        <div id="smartStandortContent"></div>
+      </div>
+
+      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Schüler manuell hinzufügen -->
+      <div id="sectionEinsendungExtra" style="display:${isEinsendung ? '' : 'none'};margin-top:12px;padding:12px 16px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius)">
+        <div class="form-group" style="margin-bottom:8px">
+          <label style="font-weight:600;color:var(--clr-forest)">Zusätzlich einzelne Schüler hinzufügen (optional)</label>
+          <input class="form-control" id="mKtEinsendSuche" placeholder="Name eingeben…" style="margin-bottom:6px" oninput="PlanungHandler._searchEinsendSchueler(this.value)">
+          <div id="mKtEinsendResults" style="max-height:150px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);display:none"></div>
+        </div>
+        <div id="mKtEinsendSelected" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+        <div id="einsendCountInfo" style="font-size:11px;color:var(--clr-text-light);margin-top:4px"></div>
+      </div>
+
       <div class="form-row">
         <div class="form-group"><label>Geplantes Datum</label>
           <div style="display:flex;gap:8px;align-items:center">
@@ -16475,6 +16564,12 @@ const PlanungHandler = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="PlanungHandler.saveTermin(${id})">Speichern</button>`);
+    // Initialize state for Einsendung / Smart-Standort
+    this._einsendSchuelerIds = [...linkedSchuelerIds];
+    this._einsendSchuelerData = allSchueler;
+    this._standortSchuelerIds = [];
+    // Pre-render linked students
+    if (linkedSchuelerIds.length) this._renderEinsendSelected();
     setTimeout(() => { PlanungHandler._updateKwHighlight(); PlanungHandler.updateBpHint(); }, 50);
   },
   deleteTermin(id) {
