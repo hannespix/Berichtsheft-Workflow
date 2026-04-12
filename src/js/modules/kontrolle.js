@@ -101,6 +101,12 @@ const KontrolleHandler = {
     const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
     const schueler = this.currentSchuelerList;
 
+    // Fachrichtung-Lookup
+    const frLookup = {};
+    App.query('SELECT id, bezeichnung, typ FROM fachrichtungen').forEach(f => {
+      frLookup[f.id] = (f.typ === 'Fachwerker' ? 'FW: ' : '') + f.bezeichnung;
+    });
+
     // Preload all KE data for this termin
     const alleKE = {};
     App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(ke => { alleKE[ke.schueler_id] = ke; });
@@ -109,6 +115,7 @@ const KontrolleHandler = {
     const linkedKlassenIds = new Set(App.getTerminKlassenIds(terminId));
     let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0;
     const rows = schueler.map((s, i) => {
+      const frName = frLookup[s.fachrichtung_id] || '–';
       const isExtraSchueler = !linkedKlassenIds.has(s.klasse_id);
       let ke = alleKE[s.id];
       if (!ke) {
@@ -179,6 +186,7 @@ const KontrolleHandler = {
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')}</div>
         </td>
+        <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
           <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
         </td>
@@ -206,6 +214,22 @@ const KontrolleHandler = {
       </tr>`;
     });
 
+    // Gruppierung nach Fachrichtung (optional)
+    let tableRows;
+    if (this._groupByFR) {
+      const groups = {};
+      schueler.forEach((s, i) => {
+        const fr = frLookup[s.fachrichtung_id] || 'Ohne Fachrichtung';
+        if (!groups[fr]) groups[fr] = [];
+        groups[fr].push(rows[i]);
+      });
+      tableRows = Object.keys(groups).sort().map(fr =>
+        `<tr><td colspan="12" style="background:var(--clr-sand);font-weight:700;font-size:13px;padding:8px 12px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(fr)} (${groups[fr].length})</td></tr>` + groups[fr].join('')
+      ).join('');
+    } else {
+      tableRows = rows.join('');
+    }
+
     // Toast bei automatischer AP-Zulassung
     if (autoZulCount > 0) {
       App.toast(`${autoZulCount} Auszubildende${autoZulCount > 1 ? '' : 'r'} automatisch zur AP zugelassen (alle Kriterien erfüllt)`, 'success');
@@ -222,6 +246,7 @@ const KontrolleHandler = {
           <div class="btn-group">
             <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">📋 Übersicht</button>
             <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()" style="${this._viewMode==='einzeln'?'border:2px solid var(--clr-forest)':''}">👤 Einzelansicht</button>
+            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()" style="${this._groupByFR ? 'border:2px solid var(--clr-forest);background:var(--clr-green-light)' : ''}" title="Nach Fachrichtung gruppieren">Nach FR gruppieren</button>
           </div>
         </div>
 
@@ -270,6 +295,7 @@ const KontrolleHandler = {
             <thead><tr>
               <th style="width:35px">#</th>
               <th>Name / Betrieb</th>
+              <th title="Fachrichtung">FR</th>
               <th style="width:50px;text-align:center" title="Anwesend bei Durchsicht (Checkbox)">Anw.</th>
               <th style="width:35px;text-align:center" title="Ampel-Status">⚡</th>
               <th>Ergebnis</th>
@@ -280,7 +306,7 @@ const KontrolleHandler = {
               <th style="width:55px;text-align:center" title="AP-Status">AP</th>
               <th style="width:40px"></th>
             </tr></thead>
-            <tbody>${rows.join('')}</tbody>
+            <tbody>${tableRows}</tbody>
           </table>
         </div>
 
