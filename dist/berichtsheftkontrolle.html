@@ -16391,6 +16391,26 @@ const PlanungHandler = {
       allExtraSchuelerEdit.forEach(sid => {
         App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [id, sid]);
       });
+
+      // Verwaiste Kontrollergebnisse aufräumen: Schüler, die nicht mehr zum Termin gehören
+      // (weder über Klassen noch über Einzel-Zuordnung), deren KE-Daten aber noch existieren
+      const validSchuelerIds = new Set();
+      // Schüler aus verknüpften Klassen
+      if (selectedKlassen.length) {
+        const klPh = selectedKlassen.map(() => '?').join(',');
+        App.query(`SELECT id FROM schueler WHERE klasse_id IN (${klPh}) AND aktiv=1`, selectedKlassen)
+          .forEach(s => validSchuelerIds.add(s.id));
+      }
+      // Einzeln verknüpfte Schüler
+      allExtraSchuelerEdit.forEach(sid => validSchuelerIds.add(sid));
+      // Orphan-KE finden und löschen
+      const orphanKE = App.query('SELECT schueler_id FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id])
+        .filter(ke => !validSchuelerIds.has(ke.schueler_id));
+      if (orphanKE.length) {
+        const orphanIds = orphanKE.map(ke => ke.schueler_id);
+        const oPh = orphanIds.map(() => '?').join(',');
+        App.run(`DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id IN (${oPh})`, [id, ...orphanIds]);
+      }
     } else {
       App.run('INSERT INTO kontrolltermine (klasse_id,jahrgang_id,geplant_datum,pruefer,bemerkung,typ) VALUES (?,?,?,?,?,?)',
         [selectedKlassen[0] || null, jgId, dt, pr, bem, typ]);
