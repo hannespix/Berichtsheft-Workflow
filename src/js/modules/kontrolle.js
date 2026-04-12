@@ -210,6 +210,7 @@ const KontrolleHandler = {
         </td>
         <td>
           <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht">→</button>
+          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Schüler aus dieser Kontrolle entfernen">✕</button>
         </td>
       </tr>`;
     });
@@ -640,6 +641,27 @@ const KontrolleHandler = {
     App.closeModal();
     this.renderUebersicht();
     App.toast(`${s.nachname}, ${s.vorname} zur Kontrolle hinzugefügt`, 'success');
+  },
+
+  // Remove a student from this kontrolle
+  removeSchueler(schuelerId) {
+    const s = this.currentSchuelerList.find(s => s.id === schuelerId);
+    if (!s) return;
+    const name = `${s.nachname}, ${s.vorname}`;
+    const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
+    const hasDaten = ke && ke.ergebnis && ke.ergebnis !== '';
+    const msg = hasDaten
+      ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Schüler liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
+      : `${name} aus dieser Kontrolle entfernen?`;
+    if (!confirm(msg)) return;
+    // Delete kontrollergebnis for this termin+student
+    App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
+    // Also remove from kontrolltermin_schueler (if individually linked)
+    App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
+    // Remove from in-memory list
+    this.currentSchuelerList = this.currentSchuelerList.filter(s => s.id !== schuelerId);
+    this.renderUebersicht();
+    App.toast(`${name} aus Kontrolle entfernt`, 'info');
   },
 
   // Create new student and add to this kontrolle
