@@ -41,6 +41,108 @@ const StammdatenTab = {
   _azubiFilter: {},
   _azubiPage: 0,
   _azubiDebounce: null,
+  _azubiExtraFilters: [], // [{field:'plz_bereich', value:'79'}]
+
+  // Available extra filter definitions
+  _extraFilterDefs: {
+    plz_bereich:    { label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sql: (v) => ({ where: "b.plz LIKE ?", params: [v+'%'] }) },
+    betrieb_ort:    { label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sql: (v) => ({ where: "b.ort = ?", params: [v] }) },
+    betrieb:        { label: 'Betrieb', type: 'select', optionsSql: "SELECT DISTINCT id, name FROM betriebe WHERE name != '' ORDER BY name", optionKey: 'name', optionValue: 'id', sql: (v) => ({ where: "s.betrieb_id = ?", params: [parseInt(v)] }) },
+    verkuerzer:     { label: 'Verkürzer', type: 'toggle', options: [{v:'ja',l:'Nur Verkürzer'},{v:'nein',l:'Keine Verkürzer'}], sql: (v) => ({ where: v === 'ja' ? "CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) < 1000" : "CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) >= 1000 OR s.ausbildungsende IS NULL OR s.ausbildungsende = ''", params: [] }) },
+    landesfachklasse: { label: 'Landesfachklasse', type: 'toggle', options: [{v:'ja',l:'Nur LFK'},{v:'nein',l:'Keine LFK'}], sql: (v) => ({ where: v === 'ja' ? "s.landesfachklasse != ''" : "(s.landesfachklasse = '' OR s.landesfachklasse IS NULL)", params: [] }) },
+    geschlecht:     { label: 'Geschlecht', type: 'select', options: [{v:'m',l:'Männlich'},{v:'w',l:'Weiblich'},{v:'d',l:'Divers'}], sql: (v) => ({ where: "s.geschlecht = ?", params: [v] }) },
+    schulabschluss: { label: 'Schulabschluss', type: 'select', optionsSql: "SELECT DISTINCT schulabschluss FROM schueler WHERE schulabschluss != '' AND schulabschluss IS NOT NULL ORDER BY schulabschluss", optionKey: 'schulabschluss', sql: (v) => ({ where: "s.schulabschluss = ?", params: [v] }) },
+    amt:            { label: 'Zuständiges Amt', type: 'select', optionsSql: "SELECT DISTINCT zustaendiges_amt FROM schueler WHERE zustaendiges_amt != '' ORDER BY zustaendiges_amt", optionKey: 'zustaendiges_amt', optionLabel: (r) => r.zustaendiges_amt + ' ' + (App.AEMTER[r.zustaendiges_amt]||''), sql: (v) => ({ where: "s.zustaendiges_amt = ?", params: [v] }) },
+    zwischenpruefung: { label: 'Zwischenprüfung', type: 'select', optionsSql: "SELECT DISTINCT zwischenpruefung FROM schueler WHERE zwischenpruefung != '' AND zwischenpruefung IS NOT NULL ORDER BY zwischenpruefung", optionKey: 'zwischenpruefung', optionLabel: (r) => App.zpLabel ? App.zpLabel(r.zwischenpruefung) : r.zwischenpruefung, sql: (v) => ({ where: "s.zwischenpruefung = ?", params: [v] }) },
+    ap_zugelassen:  { label: 'AP-Zulassung', type: 'toggle', options: [{v:'ja',l:'Zugelassen'},{v:'nein',l:'Nicht zugelassen'}], sql: (v) => ({ where: v === 'ja' ? "s.ap_zugelassen = 1" : "s.ap_zugelassen = 0", params: [] }) },
+    ap_bestanden:   { label: 'AP bestanden', type: 'toggle', options: [{v:'ja',l:'Bestanden'},{v:'nein',l:'Nicht bestanden'}], sql: (v) => ({ where: v === 'ja' ? "s.ap_bestanden = 1" : "s.ap_bestanden = 0", params: [] }) },
+    pruefungserfolg: { label: 'Prüfungserfolg', type: 'select', optionsSql: "SELECT DISTINCT pruefungserfolg FROM schueler WHERE pruefungserfolg != '' AND pruefungserfolg IS NOT NULL ORDER BY pruefungserfolg", optionKey: 'pruefungserfolg', sql: (v) => ({ where: "s.pruefungserfolg = ?", params: [v] }) },
+    bav_status:     { label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sql: (v) => ({ where: "s.bav_status = ?", params: [v] }) },
+    status_inaktiv: { label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sql: (v) => ({ where: v === 'ja' ? "s.aktiv = 0" : "1=1", params: [], overrideAktiv: v === 'ja' ? 0 : -1 }) },
+    ausbildungsbeginn_ab: { label: 'Ausb.beginn ab', type: 'date', sql: (v) => ({ where: "s.ausbildungsbeginn >= ?", params: [v] }) },
+    ausbildungsbeginn_bis: { label: 'Ausb.beginn bis', type: 'date', sql: (v) => ({ where: "s.ausbildungsbeginn <= ?", params: [v] }) },
+    ausbildungsende_ab: { label: 'Ausb.ende ab', type: 'date', sql: (v) => ({ where: "s.ausbildungsende >= ?", params: [v] }) },
+    ausbildungsende_bis: { label: 'Ausb.ende bis', type: 'date', sql: (v) => ({ where: "s.ausbildungsende <= ?", params: [v] }) },
+    ohne_betrieb:   { label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sql: (v) => ({ where: "(s.betrieb_id IS NULL OR s.betrieb_id = 0)", params: [] }) },
+    ohne_klasse:    { label: 'Ohne Klasse', type: 'toggle', options: [{v:'ja',l:'Ohne Klasse'}], sql: (v) => ({ where: "(s.klasse_id IS NULL OR s.klasse_id = 0)", params: [] }) },
+    ohne_email:     { label: 'Ohne E-Mail', type: 'toggle', options: [{v:'ja',l:'Ohne E-Mail'}], sql: (v) => ({ where: "(s.email IS NULL OR s.email = '') AND (b.email IS NULL OR b.email = '')", params: [] }) },
+    offene_maengel: { label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'}], sql: (v) => ({ where: "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')", params: [] }) },
+    offene_wv:      { label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit WV'}], sql: (v) => ({ where: "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))", params: [] }) },
+  },
+
+  _addExtraFilter() {
+    // Show dropdown with available filters (exclude already added ones)
+    const usedFields = this._azubiExtraFilters.map(f => f.field);
+    const available = Object.entries(this._extraFilterDefs).filter(([k]) => !usedFields.includes(k));
+    if (!available.length) return App.toast('Alle Filter bereits hinzugefügt', 'info');
+    const options = available.map(([k, def]) => `<option value="${k}">${esc(def.label)}</option>`).join('');
+    const sel = document.getElementById('addFilterSelect');
+    if (sel) { sel.innerHTML = '<option value="">Filter wählen…</option>' + options; sel.style.display = ''; sel.focus(); }
+  },
+
+  _onFilterSelected(field) {
+    if (!field) return;
+    const def = this._extraFilterDefs[field];
+    if (!def) return;
+    this._azubiExtraFilters.push({ field, value: '' });
+    document.getElementById('addFilterSelect').style.display = 'none';
+    this._renderExtraFilters();
+  },
+
+  _removeExtraFilter(idx) {
+    this._azubiExtraFilters.splice(idx, 1);
+    this._azubiPage = 0;
+    this._renderExtraFilters();
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
+  },
+
+  _onExtraFilterChange(idx, value) {
+    this._azubiExtraFilters[idx].value = value;
+    this._azubiPage = 0;
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
+  },
+
+  _renderExtraFilters() {
+    const box = document.getElementById('extraFiltersBox');
+    if (!box) return;
+    if (!this._azubiExtraFilters.length) { box.innerHTML = ''; return; }
+    box.innerHTML = this._azubiExtraFilters.map((f, idx) => {
+      const def = this._extraFilterDefs[f.field];
+      if (!def) return '';
+      let input = '';
+      if (def.type === 'text') {
+        input = `<input class="form-control" style="width:120px;font-size:11px;padding:2px 6px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="StammdatenTab._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'date') {
+        input = `<input type="date" class="form-control" style="width:140px;font-size:11px;padding:2px 6px" value="${esc(f.value)}" onchange="StammdatenTab._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'toggle') {
+        const opts = def.options || [{v:'ja',l:'Ja'},{v:'nein',l:'Nein'}];
+        input = `<select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="StammdatenTab._onExtraFilterChange(${idx},this.value)">
+          <option value="">–</option>${opts.map(o => `<option value="${esc(o.v)}" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+      } else if (def.type === 'select') {
+        let opts = [];
+        if (def.optionsSql) {
+          const rows = App.query(def.optionsSql);
+          opts = rows.map(r => ({ v: def.optionValue ? r[def.optionValue] : r[def.optionKey], l: def.optionLabel ? def.optionLabel(r) : r[def.optionKey] }));
+        } else if (def.options) {
+          opts = def.options;
+        }
+        input = `<select class="form-control" style="width:auto;max-width:200px;font-size:11px;padding:2px 6px" onchange="StammdatenTab._onExtraFilterChange(${idx},this.value)">
+          <option value="">Alle</option>${opts.map(o => `<option value="${esc(String(o.v))}" ${String(f.value)===String(o.v)?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+      }
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 6px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:6px;font-size:11px">
+        <strong style="color:var(--clr-forest)">${esc(def.label)}:</strong> ${input}
+        <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;padding:0 2px" onclick="StammdatenTab._removeExtraFilter(${idx})" title="Filter entfernen">✕</span>
+      </span>`;
+    }).join(' ');
+  },
+
+  _clearAllExtraFilters() {
+    this._azubiExtraFilters = [];
+    this._azubiPage = 0;
+    const box = document.getElementById('extraFiltersBox');
+    if (box) box.innerHTML = '';
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
+  },
 
   _azubiDoSearch(val) {
     this._azubiSearch = val;
@@ -78,7 +180,8 @@ const StammdatenTab = {
     }
     const globalBadge = globalInfo.length ? `<span style="font-size:10px;color:var(--clr-sage);padding:2px 6px;background:var(--clr-warm);border-radius:6px">${globalInfo.join(' · ')}</span>` : '';
 
-    c.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    const extraCount = this._azubiExtraFilters.filter(f => f.value).length;
+    c.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
       <input class="form-control" id="azubiSearchInput" placeholder="Name, Betrieb, Ort, Schule, Tel, E-Mail..." value="${esc(q)}" style="flex:1;min-width:200px"
         oninput="StammdatenTab._azubiDoSearch(this.value)">
       <select class="form-control" style="width:auto" onchange="StammdatenTab._azubiFilter.jahrgang=this.value?parseInt(this.value):null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">
@@ -89,11 +192,23 @@ const StammdatenTab = {
         <option value="">Alle Schulen</option>
         ${schulen.map(s2 => `<option value="${s2.id}" ${fil.schule==s2.id?'selected':''}>${esc(s2.name)}</option>`).join('')}
       </select>
+      <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._addExtraFilter()" title="Weiteren Filter hinzufügen" style="font-size:11px;padding:4px 10px">+ Filter</button>
+      <select class="form-control" id="addFilterSelect" style="display:none;width:auto;font-size:11px;padding:2px 6px" onchange="StammdatenTab._onFilterSelected(this.value)">
+        <option value="">Filter wählen…</option>
+      </select>
+      ${extraCount ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light)" onclick="StammdatenTab._clearAllExtraFilters()" title="Alle Zusatzfilter entfernen">Filter zurücksetzen</button>` : ''}
       ${globalBadge}
       ${fil.drillDown ? `<span style="font-size:11px;padding:3px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:6px;display:flex;align-items:center;gap:4px">🔍 ${esc(fil.drillDown.label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="StammdatenTab._azubiFilter.drillDown=null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">✕</span></span>` : ''}
       <span id="azubiCount" style="font-size:12px;color:var(--clr-text-light)"></span>
+      <div style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._exportAzubiExcel()" title="Gefilterte Liste als Excel exportieren" style="font-size:11px;padding:4px 8px">📊 Excel</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._copyAzubiTable()" title="Tabelle in Zwischenablage kopieren" style="font-size:11px;padding:4px 8px">📋 Kopieren</button>
+      </div>
     </div>
+    <div id="extraFiltersBox" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${this._azubiExtraFilters.length ? '10' : '0'}px">${(() => { this._renderExtraFiltersHTML = true; return ''; })()}</div>
     <div id="azubiTableContainer"></div>`;
+    // Render extra filter chips after DOM is ready
+    setTimeout(() => this._renderExtraFilters(), 0);
   },
 
   _renderAzubiTable(c) {
@@ -120,6 +235,22 @@ const StammdatenTab = {
     if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
     // Drill-down filter (from dashboard clicks)
     if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
+    // Extra dynamic filters
+    let overrideAktiv = false;
+    (this._azubiExtraFilters || []).forEach(f => {
+      if (!f.value) return;
+      const def = this._extraFilterDefs[f.field];
+      if (!def) return;
+      const result = def.sql(f.value);
+      if (result.where) { where += ' AND (' + result.where + ')'; params.push(...result.params); }
+      if (result.overrideAktiv === 0) overrideAktiv = true;
+      if (result.overrideAktiv === -1) overrideAktiv = true; // show all
+    });
+    // If "Inaktive" or "Alle" filter is active, remove the s.aktiv=1 constraint
+    if (overrideAktiv) { where = where.replace('s.aktiv=1', '1=1'); }
+    // Store for export
+    this._lastAzubiWhere = where;
+    this._lastAzubiParams = [...params];
     // Count total results first
     const totalCount = App.scalar(`SELECT COUNT(*) FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where}`, params) || 0;
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -176,6 +307,82 @@ const StammdatenTab = {
       <button class="btn btn-sm btn-secondary" ${safePage>=totalPages-1?'disabled':''} onclick="StammdatenTab._azubiPage=${safePage+1};StammdatenTab._renderAzubiTable()" title="Nächste Seite">▶</button>
       <button class="btn btn-sm btn-secondary" ${safePage>=totalPages-1?'disabled':''} onclick="StammdatenTab._azubiPage=${totalPages-1};StammdatenTab._renderAzubiTable()" title="Letzte Seite">⏭</button>
     </div>` : ''}`;
+  },
+
+  _getFilteredAzubis() {
+    const where = this._lastAzubiWhere || 's.aktiv=1';
+    const params = this._lastAzubiParams || [];
+    return App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, b.plz as b_plz,
+      k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang,
+      fr.bezeichnung as fachrichtung, fr.typ as fr_typ
+      FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+      LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
+  },
+
+  _exportAzubiExcel() {
+    const azubis = this._getFilteredAzubis();
+    if (!azubis.length) return App.toast('Keine Daten zum Exportieren', 'warning');
+    const headers = ['Nachname','Vorname','Betrieb','Ort','PLZ','Schule','Klasse','Jahrgang','Fachrichtung',
+      'Ausb.beginn','Ausb.ende','Amt','Geschlecht','Schulabschluss','Telefon (Azubi)','E-Mail (Azubi)',
+      'Tel (Betrieb)','E-Mail (Betrieb)','BAV-Status','Zwischenprüfung','Landesfachklasse','iBykus-ID','Status'];
+    const rows = azubis.map(s => [
+      s.nachname, s.vorname, s.b_name || s.ausbildungsstaette || '', s.b_ort || '', s.b_plz || '',
+      s.schule || '', s.klassenbezeichnung || '', s.jahrgang || '',
+      (s.fr_typ === 'Fachwerker' ? 'FW: ' : '') + (s.fachrichtung || ''),
+      s.ausbildungsbeginn || '', s.ausbildungsende || '',
+      s.zustaendiges_amt ? (s.zustaendiges_amt + ' ' + (App.AEMTER[s.zustaendiges_amt]||'')) : '',
+      s.geschlecht || '', s.schulabschluss || '', s.telefon || '', s.email || '',
+      s.b_tel || '', s.b_email || '', s.bav_status || '', s.zwischenpruefung || '',
+      s.landesfachklasse || '', s.ibykus_id || '', s.aktiv ? 'Aktiv' : 'Inaktiv'
+    ]);
+    // Build Excel
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    // Column widths
+    ws['!cols'] = headers.map((h, i) => ({ wch: Math.max(h.length, ...rows.slice(0, 20).map(r => String(r[i] || '').length), 8) }));
+    XLSX.utils.book_append_sheet(wb, ws, 'Azubis');
+    const filterLabels = this._getActiveFilterLabels();
+    if (filterLabels.length) {
+      const infoWs = XLSX.utils.aoa_to_sheet([['Aktive Filter'], ...filterLabels.map(l => [l]), [], ['Anzahl Ergebnisse', azubis.length], ['Exportiert am', new Date().toLocaleString('de-DE')]]);
+      XLSX.utils.book_append_sheet(wb, infoWs, 'Filter-Info');
+    }
+    XLSX.writeFile(wb, `Azubi-Liste_${new Date().toISOString().split('T')[0]}.xlsx`);
+    App.toast(`${azubis.length} Azubis als Excel exportiert`, 'success');
+  },
+
+  _copyAzubiTable() {
+    const azubis = this._getFilteredAzubis();
+    if (!azubis.length) return App.toast('Keine Daten zum Kopieren', 'warning');
+    const headers = ['Nachname','Vorname','Betrieb','Ort','Schule','Klasse','Jahrgang','Fachrichtung','Amt','Telefon','E-Mail'];
+    const rows = azubis.map(s => [
+      s.nachname, s.vorname, s.b_name || s.ausbildungsstaette || '', s.b_ort || '',
+      s.schule || '', s.klassenbezeichnung || '', s.jahrgang || '',
+      (s.fr_typ === 'Fachwerker' ? 'FW: ' : '') + (s.fachrichtung || ''),
+      s.zustaendiges_amt || '', s.telefon || s.b_tel || '', s.email || s.b_email || ''
+    ].join('\t')).join('\n');
+    const text = headers.join('\t') + '\n' + rows;
+    navigator.clipboard.writeText(text).then(() => {
+      App.toast(`${azubis.length} Azubis in Zwischenablage kopiert (Tab-getrennt, z.B. für Excel)`, 'success');
+    }).catch(() => App.toast('Kopieren fehlgeschlagen', 'error'));
+  },
+
+  _getActiveFilterLabels() {
+    const labels = [];
+    const fil = this._azubiFilter || {};
+    if (this._azubiSearch) labels.push('Suche: ' + this._azubiSearch);
+    if (fil.jahrgang) { const j = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [fil.jahrgang]); if (j) labels.push('Jahrgang: ' + j); }
+    if (fil.schule) { const s = App.scalar('SELECT name FROM berufsschulen WHERE id=?', [fil.schule]); if (s) labels.push('Schule: ' + s); }
+    if (fil.drillDown) labels.push('Drill-Down: ' + fil.drillDown.label);
+    (this._azubiExtraFilters || []).forEach(f => {
+      if (!f.value) return;
+      const def = this._extraFilterDefs[f.field];
+      if (def) labels.push(def.label + ': ' + f.value);
+    });
+    if (App.filterAmt.length) labels.push('Amt (global): ' + App.filterAmt.join(', '));
+    if (App.filterFachrichtungen.length) labels.push('Berufe (global): ' + App.filterFachrichtungen.length + ' ausgewählt');
+    if (App.filterJahrgang.length) labels.push('Jahrgang (global): ' + App.filterJahrgang.length + ' ausgewählt');
+    return labels;
   },
 
   showAzubiSnapshots(sid) {
