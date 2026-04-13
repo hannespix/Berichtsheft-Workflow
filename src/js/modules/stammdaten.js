@@ -105,8 +105,6 @@ const StammdatenTab = {
     const container = document.getElementById('azubiTableContainer') || c;
     const q = this._azubiSearch || '';
     const fil = this._azubiFilter || {};
-    const pageSize = 50;
-    const page = this._azubiPage || 0;
     // Apply ALL global filters (Berufsgruppe + Jahrgang + Amt)
     let where = 's.aktiv=1' + App.gf('schueler');
     const params = [];
@@ -131,17 +129,11 @@ const StammdatenTab = {
     // Store for export
     this._lastAzubiWhere = where;
     this._lastAzubiParams = [...params];
-    // Count total results first
-    const totalCount = App.scalar(`SELECT COUNT(*) FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where}`, params) || 0;
-    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-    const safePage = Math.min(page, totalPages - 1);
-    if (safePage !== page) this._azubiPage = safePage;
-    const offset = safePage * pageSize;
-    const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname LIMIT ${pageSize} OFFSET ${offset}`, params);
+    const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
 
     // Update count label
     const countEl = document.getElementById('azubiCount');
-    if (countEl) countEl.textContent = totalCount <= pageSize ? `${totalCount} Treffer` : `${offset+1}–${Math.min(offset+pageSize, totalCount)} von ${totalCount}`;
+    if (countEl) countEl.textContent = `${azubis.length} Treffer`;
 
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
@@ -179,14 +171,7 @@ const StammdatenTab = {
           <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
         </tr>`;
       }).join('')}
-    </tbody></table></div>
-    ${totalPages > 1 ? `<div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:10px;padding:8px">
-      <button class="btn btn-sm btn-secondary" ${safePage===0?'disabled':''} onclick="StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable()" title="Erste Seite">⏮</button>
-      <button class="btn btn-sm btn-secondary" ${safePage===0?'disabled':''} onclick="StammdatenTab._azubiPage=${safePage-1};StammdatenTab._renderAzubiTable()" title="Vorherige Seite">◀</button>
-      <span style="font-size:12px;color:var(--clr-text-light);min-width:100px;text-align:center">Seite <strong>${safePage+1}</strong> / <strong>${totalPages}</strong></span>
-      <button class="btn btn-sm btn-secondary" ${safePage>=totalPages-1?'disabled':''} onclick="StammdatenTab._azubiPage=${safePage+1};StammdatenTab._renderAzubiTable()" title="Nächste Seite">▶</button>
-      <button class="btn btn-sm btn-secondary" ${safePage>=totalPages-1?'disabled':''} onclick="StammdatenTab._azubiPage=${totalPages-1};StammdatenTab._renderAzubiTable()" title="Letzte Seite">⏭</button>
-    </div>` : ''}`;
+    </tbody></table></div>`;
   },
 
   _getFilteredAzubis() {
