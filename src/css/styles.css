@@ -540,6 +540,18 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   transition: transform 0.2s;
 }
 .modal-overlay.active .modal { transform: translateY(0); }
+.modal-wide { max-width: 780px; }
+/* Sub-Tabs inside modals */
+.modal-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--clr-sand); margin-bottom: 16px; }
+.modal-tab-btn {
+  padding: 7px 14px; border: none; background: none; cursor: pointer;
+  color: var(--clr-text-light); font-size: 12px; font-weight: 500;
+  margin-bottom: -2px; border-bottom: 2px solid transparent; transition: all var(--transition);
+}
+.modal-tab-btn:hover { color: var(--clr-forest); }
+.modal-tab-btn.active { color: var(--clr-forest); border-bottom-color: var(--clr-forest); }
+.modal-tab-content { display: none; }
+.modal-tab-content.active { display: block; }
 .modal-header {
   padding: 20px 24px 0;
   display: flex;

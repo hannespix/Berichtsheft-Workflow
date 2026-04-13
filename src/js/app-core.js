@@ -21,7 +21,149 @@ const App = {
   filterAmt: [],     // Empty = all, otherwise array of amt codes (strings like '93')
   filterBavStatus: 'aktiv', // 'aktiv' = not Ende (default), 'alle' = all, 'ende' = only Ende
   filterZp: [], // Empty = all, otherwise array of ZP codes (e.g. ['H2026','F2027'])
+  extraFilters: [], // Dynamic extra filters: [{field:'verkuerzer', value:'ja'}, ...]
   currentUser: '', // Active Sachbearbeiter name
+
+  // ── Dynamic extra filter definitions (categorized) ──
+  extraFilterDefs: {
+    // Kategorie: Ausbildung
+    verkuerzer:       { cat: 'Ausbildung', label: 'Verkürzer', type: 'toggle', options: [{v:'ja',l:'Nur Verkürzer'},{v:'nein',l:'Keine Verkürzer'}], sqlS: (v) => v === 'ja' ? "CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) < 1000" : "(CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) >= 1000 OR s.ausbildungsende IS NULL OR s.ausbildungsende = '')" },
+    landesfachklasse: { cat: 'Ausbildung', label: 'Landesfachklasse', type: 'toggle', options: [{v:'ja',l:'Nur LFK'},{v:'nein',l:'Keine LFK'}], sqlS: (v) => v === 'ja' ? "s.landesfachklasse != ''" : "(s.landesfachklasse = '' OR s.landesfachklasse IS NULL)" },
+    geschlecht:       { cat: 'Ausbildung', label: 'Geschlecht', type: 'select', optionsSql: "SELECT DISTINCT geschlecht FROM schueler WHERE geschlecht != '' AND geschlecht IS NOT NULL ORDER BY geschlecht", optionKey: 'geschlecht', sqlS: (v) => `s.geschlecht = '${v.replace(/'/g,"''")}'` },
+    schulabschluss:   { cat: 'Ausbildung', label: 'Schulabschluss', type: 'select', optionsSql: "SELECT DISTINCT schulabschluss FROM schueler WHERE schulabschluss != '' AND schulabschluss IS NOT NULL ORDER BY schulabschluss", optionKey: 'schulabschluss', sqlS: (v) => `s.schulabschluss = '${v.replace(/'/g,"''")}'` },
+    lehrjahr:         { cat: 'Ausbildung', label: 'Lehrjahr', type: 'select', options: [{v:'1',l:'1. Lehrjahr'},{v:'2',l:'2. Lehrjahr'},{v:'3',l:'3. Lehrjahr'},{v:'4',l:'4. Lehrjahr (Verkürzer/Verlängerer)'}], sqlS: (v) => `s.klasse_id IN (SELECT id FROM klassen WHERE lehrjahr = ${parseInt(v)||0})` },
+    ausb_beginn_ab:   { cat: 'Ausbildung', label: 'Ausb.beginn ab', type: 'date', sqlS: (v) => `s.ausbildungsbeginn >= '${v.replace(/'/g,"''")}'` },
+    ausb_beginn_bis:  { cat: 'Ausbildung', label: 'Ausb.beginn bis', type: 'date', sqlS: (v) => `s.ausbildungsbeginn <= '${v.replace(/'/g,"''")}'` },
+    ausb_ende_ab:     { cat: 'Ausbildung', label: 'Ausb.ende ab', type: 'date', sqlS: (v) => `s.ausbildungsende >= '${v.replace(/'/g,"''")}'` },
+    ausb_ende_bis:    { cat: 'Ausbildung', label: 'Ausb.ende bis', type: 'date', sqlS: (v) => `s.ausbildungsende <= '${v.replace(/'/g,"''")}'` },
+    // Kategorie: Prüfungen
+    ap_zugelassen:    { cat: 'Prüfungen', label: 'AP-Zulassung', type: 'toggle', options: [{v:'ja',l:'Zugelassen'},{v:'nein',l:'Nicht zugelassen'}], sqlS: (v) => v === 'ja' ? "s.ap_zugelassen = 1" : "s.ap_zugelassen = 0" },
+    ap_bestanden:     { cat: 'Prüfungen', label: 'AP bestanden', type: 'toggle', options: [{v:'ja',l:'Bestanden'},{v:'nein',l:'Nicht bestanden'}], sqlS: (v) => v === 'ja' ? "s.ap_bestanden = 1" : "s.ap_bestanden = 0" },
+    pruefungserfolg:  { cat: 'Prüfungen', label: 'Prüfungserfolg', type: 'select', optionsSql: "SELECT DISTINCT pruefungserfolg FROM schueler WHERE pruefungserfolg != '' AND pruefungserfolg IS NOT NULL ORDER BY pruefungserfolg", optionKey: 'pruefungserfolg', sqlS: (v) => `s.pruefungserfolg = '${v.replace(/'/g,"''")}'` },
+    zwischenpruefung: { cat: 'Prüfungen', label: 'Zwischenprüfung', type: 'select', optionsSql: "SELECT DISTINCT zwischenpruefung FROM schueler WHERE zwischenpruefung != '' AND zwischenpruefung IS NOT NULL ORDER BY zwischenpruefung", optionKey: 'zwischenpruefung', optionLabel: (r) => App.zpLabel ? App.zpLabel(r.zwischenpruefung) : r.zwischenpruefung, sqlS: (v) => `s.zwischenpruefung = '${v.replace(/'/g,"''")}'` },
+    // Kategorie: Standort
+    berufsschule:     { cat: 'Standort', label: 'Berufsschule', type: 'select', optionsSql: "SELECT DISTINCT bs.id, bs.name FROM berufsschulen bs JOIN klassen k ON k.berufsschule_id=bs.id JOIN schueler s ON s.klasse_id=k.id WHERE s.aktiv=1 ORDER BY bs.name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id = ${parseInt(v)||0})` },
+    klasse:           { cat: 'Standort', label: 'Klasse', type: 'select', optionsSql: "SELECT k.id, k.klassenbezeichnung || ' (' || bs.name || ')' as label FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name, k.klassenbezeichnung", optionKey: 'label', optionValue: 'id', sqlS: (v) => `s.klasse_id = ${parseInt(v)||0}` },
+    plz_bereich:      { cat: 'Standort', label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE plz LIKE '${v.replace(/'/g,"''")}%')` },
+    betrieb_ort:      { cat: 'Standort', label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE ort = '${v.replace(/'/g,"''")}')` },
+    betrieb:          { cat: 'Standort', label: 'Betrieb', type: 'select', optionsSql: "SELECT DISTINCT id, name FROM betriebe WHERE name != '' ORDER BY name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.betrieb_id = ${parseInt(v)||0}` },
+    // Kategorie: Status & Kontrolle
+    offene_maengel:   { cat: 'Kontrolle', label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'},{v:'nein',l:'Ohne Mängel'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" : "s.id NOT IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" },
+    offene_wv:        { cat: 'Kontrolle', label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit offener WV'},{v:'nein',l:'Ohne offene WV'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" : "s.id NOT IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" },
+    bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => `s.bav_status = '${v.replace(/'/g,"''")}'` },
+    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
+    inaktiv_grund:    { cat: 'Kontrolle', label: 'Inaktiv-Grund', type: 'select', optionsSql: "SELECT DISTINCT inaktiv_grund FROM schueler WHERE inaktiv_grund != '' AND inaktiv_grund IS NOT NULL ORDER BY inaktiv_grund", optionKey: 'inaktiv_grund', sqlS: (v) => `s.inaktiv_grund = '${v.replace(/'/g,"''")}'` },
+    // Kategorie: Datenqualität
+    ohne_betrieb:     { cat: 'Datenqualität', label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sqlS: () => "(s.betrieb_id IS NULL OR s.betrieb_id = 0)" },
+    ohne_klasse:      { cat: 'Datenqualität', label: 'Ohne Klasse', type: 'toggle', options: [{v:'ja',l:'Ohne Klasse'}], sqlS: () => "(s.klasse_id IS NULL OR s.klasse_id = 0)" },
+    ohne_email:       { cat: 'Datenqualität', label: 'Ohne E-Mail', type: 'toggle', options: [{v:'ja',l:'Ohne E-Mail'}], sqlS: () => "(s.email IS NULL OR s.email = '') AND s.betrieb_id NOT IN (SELECT id FROM betriebe WHERE email != '')" },
+  },
+
+  // ── Extra Filter UI Methods ──
+  toggleExtraFilterDropdown() {
+    const dd = document.getElementById('extraFilterDropdown');
+    if (!dd) return;
+    if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
+    // Close other dropdowns
+    document.querySelectorAll('.fp-dropdown').forEach(d => { if (d.id !== 'extraFilterDropdown') d.style.display = 'none'; });
+    // Build categorized dropdown
+    const usedFields = this.extraFilters.map(f => f.field);
+    const available = Object.entries(this.extraFilterDefs).filter(([k]) => !usedFields.includes(k));
+    if (!available.length) { App.toast('Alle Filter bereits hinzugefügt', 'info'); return; }
+    const byCat = {};
+    available.forEach(([k, def]) => { if (!byCat[def.cat]) byCat[def.cat] = []; byCat[def.cat].push([k, def]); });
+    const catOrder = ['Ausbildung', 'Prüfungen', 'Standort', 'Kontrolle', 'Datenqualität'];
+    dd.innerHTML = catOrder.filter(c => byCat[c]).map(cat => `
+      <div style="padding:4px 12px 2px;font-size:10px;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">${esc(cat)}</div>
+      ${byCat[cat].map(([k, def]) => `<div class="fp-dd-item" style="padding:4px 12px;cursor:pointer;font-size:12px" onclick="App._addExtraFilter('${k}')">${esc(def.label)}</div>`).join('')}
+    `).join('');
+    dd.style.display = '';
+    // Close on outside click
+    setTimeout(() => {
+      const close = (e) => { if (!dd.contains(e.target) && e.target.id !== 'extraFilterBtn') { dd.style.display = 'none'; document.removeEventListener('click', close); } };
+      document.addEventListener('click', close);
+    }, 10);
+  },
+
+  _addExtraFilter(field) {
+    const def = this.extraFilterDefs[field];
+    if (!def) return;
+    // For toggles with single option, auto-set value
+    const autoVal = (def.type === 'toggle' && def.options.length === 1) ? def.options[0].v : '';
+    this.extraFilters.push({ field, value: autoVal });
+    document.getElementById('extraFilterDropdown').style.display = 'none';
+    this._renderExtraFilterChips();
+    if (autoVal) { this._updateFilterCount(); this.renderCurrentView(); }
+  },
+
+  _removeExtraFilter(idx) {
+    this.extraFilters.splice(idx, 1);
+    this._renderExtraFilterChips();
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _onExtraFilterChange(idx, value) {
+    this.extraFilters[idx].value = value;
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _clearAllExtraFilters() {
+    this.extraFilters = [];
+    this._renderExtraFilterChips();
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _renderExtraFilterChips() {
+    const box = document.getElementById('extraFilterChips');
+    if (!box) return;
+    if (!this.extraFilters.length) { box.innerHTML = ''; return; }
+    box.innerHTML = this.extraFilters.map((f, idx) => {
+      const def = this.extraFilterDefs[f.field];
+      if (!def) return '';
+      let input = '';
+      if (def.type === 'text') {
+        input = `<input class="form-control" style="width:100px;font-size:11px;padding:1px 6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'date') {
+        input = `<input type="date" class="form-control" style="width:130px;font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'toggle') {
+        const opts = def.options;
+        if (opts.length === 1) {
+          input = `<span style="font-size:11px">${esc(opts[0].l)}</span>`;
+        } else {
+          input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
+            <option value="" style="color:#333">–</option>${opts.map(o => `<option value="${esc(o.v)}" style="color:#333" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+        }
+      } else if (def.type === 'select') {
+        let opts = [];
+        if (def.optionsSql) {
+          try { const rows = App.query(def.optionsSql); opts = rows.map(r => ({ v: def.optionValue ? String(r[def.optionValue]) : r[def.optionKey], l: def.optionLabel ? def.optionLabel(r) : r[def.optionKey] })); } catch(e) {}
+        } else if (def.options) { opts = def.options; }
+        input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px;max-width:160px" onchange="App._onExtraFilterChange(${idx},this.value)">
+          <option value="" style="color:#333">Alle</option>${opts.map(o => `<option value="${esc(String(o.v))}" style="color:#333" ${String(f.value)===String(o.v)?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+      }
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(255,200,50,0.2);border:1px solid rgba(255,200,50,0.5);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.9)">
+        <strong>${esc(def.label)}:</strong> ${input}
+        <span style="cursor:pointer;color:rgba(255,100,100,0.9);font-weight:bold;padding:0 2px" onclick="App._removeExtraFilter(${idx})" title="Filter entfernen">✕</span>
+      </span>`;
+    }).join(' ');
+  },
+
+  // Generate SQL for extra filters (schueler-level, used by gf())
+  _extraFilterSql() {
+    let w = '';
+    let overrideAktiv = false;
+    this.extraFilters.forEach(f => {
+      if (!f.value) return;
+      const def = this.extraFilterDefs[f.field];
+      if (!def || !def.sqlS) return;
+      w += ` AND (${def.sqlS(f.value)})`;
+      if (def.overrideAktiv) overrideAktiv = true;
+    });
+    return { sql: w, overrideAktiv };
+  },
 
   // ── Per-User localStorage ──
   uKey(key) { return this.currentUser ? `bhk_${this.currentUser.replace(/\s+/g,'_')}_${key}` : `bhk_${key}`; },
@@ -509,9 +651,15 @@ const App = {
   // bgWhere('bs.id','schule')     → schools having matching klassen
   // bgWhere('b.id','betrieb')     → betriebe having matching schueler
   // bgWhere('kt.id','termin')     → termine having matching klassen
+  // Sanitize filter arrays to prevent SQL injection
+  _safeIntList(arr) { return arr.map(v => parseInt(v)).filter(v => !isNaN(v) && isFinite(v)); },
+  _safeStrList(arr) { return arr.map(s => String(s).replace(/[^a-zA-Z0-9äöüÄÖÜß\-_.\/]/g, '')).filter(s => s.length > 0 && s.length < 50); },
+  _sqlInStr(arr) { return arr.map(s => "'" + s.replace(/'/g, "''") + "'").join(','); },
+
   bgWhere(col, entity) {
     if (!this.filterFachrichtungen.length) return { where: '', params: [] };
-    const ids = this.filterFachrichtungen.join(',');
+    const ids = this._safeIntList(this.filterFachrichtungen).join(',');
+    if (!ids) return { where: '', params: [] };
     if (entity === 'schule') {
       return { where: ` AND ${col} IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${ids}))`, params: [] };
     }
@@ -532,37 +680,53 @@ const App = {
   //        App.gf('termine')   → subqueries via kontrolltermin_klassen
   gf(entity) {
     let w = '';
-    const jg = this.filterJahrgang;
-    const bg = this.filterFachrichtungen;
-    const amt = this.filterAmt;
-    const zp = this.filterZp;
+    // Sanitize all filter values to prevent SQL injection
+    const jg = this._safeIntList(this.filterJahrgang);
+    const bg = this._safeIntList(this.filterFachrichtungen);
+    const amt = this._safeStrList(this.filterAmt);
+    const zp = this._safeStrList(this.filterZp);
+    const jgIn = jg.join(',');
+    const bgIn = bg.join(',');
+    const amtIn = this._sqlInStr(amt);
+    const zpIn = this._sqlInStr(zp);
+    // Extra dynamic filters (schueler-level SQL)
+    const ef = this._extraFilterSql();
+    const extraSql = ef.sql; // Always schueler-level WHERE clauses (using alias s/s2)
+
     if (entity === 'schueler' || entity === 's') {
-      if (jg.length) w += ` AND s.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND s.fachrichtung_id IN (${bg.join(',')})`;
-      if (amt.length) w += ` AND s.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')})`;
-      if (zp.length) w += ` AND s.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')})`;
+      if (jg.length) w += ` AND s.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND s.fachrichtung_id IN (${bgIn})`;
+      if (amt.length) w += ` AND s.zustaendiges_amt IN (${amtIn})`;
+      if (zp.length) w += ` AND s.zwischenpruefung IN (${zpIn})`;
       if (this.filterBavStatus === 'aktiv') w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`;
       else if (this.filterBavStatus === 'ende') w += ` AND s.bav_status LIKE '%Ende%'`;
+      // Extra filters apply directly (already use alias 's')
+      if (extraSql) w += extraSql;
     } else if (entity === 'klassen' || entity === 'k') {
-      if (jg.length) w += ` AND k.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND k.fachrichtung_id IN (${bg.join(',')})`;
-      if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}) AND s2.klasse_id IS NOT NULL)`;
-      if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}) AND s2.klasse_id IS NOT NULL)`;
+      if (jg.length) w += ` AND k.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND k.fachrichtung_id IN (${bgIn})`;
+      if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.klasse_id IS NOT NULL)`;
+      if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.klasse_id IS NOT NULL)`;
+      // Extra filters cascade via subquery
+      if (extraSql) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.klasse_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'schulen' || entity === 'bs') {
-      if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jg.join(',')}))`;
-      if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bg.join(',')}))`;
-      if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}))`;
-      if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}))`;
+      if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jgIn}))`;
+      if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bgIn}))`;
+      if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
+      if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
+      if (extraSql) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'betriebe' || entity === 'b') {
-      if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jg.join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bg.join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}) AND s2.betrieb_id IS NOT NULL)`;
-      if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}) AND s2.betrieb_id IS NOT NULL)`;
+      if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jgIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bgIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
-      if (jg.length) w += ` AND kt.jahrgang_id IN (${jg.join(',')})`;
-      if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bg.join(',')}))`;
-      if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amt.map(a => "'"+a+"'").join(',')}))`;
-      if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zp.map(z => "'"+z+"'").join(',')}))`;
+      if (jg.length) w += ` AND kt.jahrgang_id IN (${jgIn})`;
+      if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn}))`;
+      if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
+      if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
+      if (extraSql) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     }
     return w;
   },
@@ -609,11 +773,21 @@ const App = {
       const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
       parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">📋 ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV';bb.style.background='rgba(255,255,255,0.15)';bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
     }
+    // Extra filter badges
+    this.extraFilters.forEach((f, idx) => {
+      if (!f.value) return;
+      const def = this.extraFilterDefs[f.field];
+      if (!def) return;
+      let label = def.label + ': ' + f.value;
+      if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
+      parts.push(`<span style="padding:3px 8px;background:rgba(232,213,245,0.6);border:1px solid #d4b8e8;border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
+    });
     if (!parts.length) return '';
+    const hasMultiple = parts.length > 1;
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
       ${parts.join('')}
-      ${parts.length > 1 ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
+      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
     </div>`;
   },
 
@@ -636,10 +810,11 @@ const App = {
   },
   _updateFilterCount() {
     let cnt = 0;
-    if (this.filterJahrgang.length || this.filterZp.length) cnt++; // combined JG+ZP = 1 filter
+    if (this.filterJahrgang.length || this.filterZp.length) cnt++;
     if (this.filterFachrichtungen.length) cnt++;
     if (this.filterAmt.length) cnt++;
     if (this.filterBavStatus !== 'aktiv') cnt++;
+    cnt += this.extraFilters.filter(f => f.value).length;
     const el = document.getElementById('filterActiveCount');
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const btn = document.getElementById('filterPanelToggle');
@@ -832,6 +1007,7 @@ const App = {
       pruefungserfolg_wdh2 TEXT DEFAULT '',
       bav_status TEXT DEFAULT '',
       zwischenpruefung TEXT DEFAULT '',
+      landesfachklasse TEXT DEFAULT '',
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -1117,7 +1293,7 @@ const App = {
           App.toast('Keine Datenbank gefunden', 'warning');
         }
       }
-    } catch(e) { App.toast('Verbindung fehlgeschlagen: ' + e.message, 'error'); }
+    } catch(e) { console.warn('Verbindung:', e); App.toast('Verbindung fehlgeschlagen', 'error'); }
   },
 
   async tryRestoreWriteAccess() {
@@ -1166,7 +1342,7 @@ const App = {
       // If we have unsaved changes, save now
       if (this.unsavedChanges) this.scheduleAutoSave();
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -1197,7 +1373,7 @@ const App = {
 
   async switchToNewFolder() {
     if (this.unsavedChanges && this.dbFileHandle) {
-      try { await this.doAutoSave(); } catch(e) {}
+      try { await this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Wechsel fehlgeschlagen:', e); }
     }
     try {
       const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -1214,14 +1390,14 @@ const App = {
         this.promptNewDb();
       }
     } catch(e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
   disconnectDB() {
     // Save changes first if possible
     if (this.unsavedChanges && this.dbFileHandle) {
-      try { this.doAutoSave(); } catch(e) {}
+      try { this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Trennung fehlgeschlagen:', e); }
     }
     this._cleanupDB();
     // Show connect screen
@@ -1348,7 +1524,7 @@ const App = {
       this.showApp();
       this.toast('Demo-Modus gestartet – Daten werden nicht gespeichert', 'warning');
     } catch(e) {
-      this.toast('Demo-Fehler: ' + e.message, 'error');
+      console.warn('Demo-Fehler:', e); this.toast('Demo konnte nicht geladen werden', 'error');
       console.error(e);
     }
   },
@@ -1588,7 +1764,7 @@ const App = {
         this.showDbSelection(dbFiles);
       }
     } catch (e) {
-      if (e.name !== 'AbortError') this.toast('Fehler: ' + e.message, 'error');
+      if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
@@ -1651,7 +1827,7 @@ const App = {
       this.showApp();
       this.toast('Neue Datenbank erstellt im Ordner', 'success');
     } catch (e) {
-      this.toast('Fehler: ' + e.message, 'error');
+      console.warn('DB-Erstellung:', e); this.toast('Fehler beim Erstellen der Datenbank', 'error');
     }
   },
 
@@ -1683,7 +1859,7 @@ const App = {
       this.showApp();
       this.toast(`Datenbank "${file.name}" geladen – Auto-Save aktiv`, 'success');
     } catch (e) {
-      this.toast('Fehler beim Laden: ' + e.message, 'error');
+      console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }
   },
 
@@ -2214,7 +2390,11 @@ const App = {
       const SQL = await App._getSqlJs();
       const diskDb = new SQL.Database(new Uint8Array(buf));
 
-      // 2) Replay our dirty ops onto diskDb
+      // 2) Ensure diskDb has the same schema as our in-memory DB
+      //    (migrations run on in-memory DB at startup but not on disk)
+      this._migrateDiskDb(diskDb);
+
+      // 3) Replay our dirty ops onto diskDb
       const ops = [...this._dirtyOps]; // snapshot
       let replayErrors = 0;
       ops.forEach(op => {
@@ -2227,16 +2407,16 @@ const App = {
         }
       });
 
-      // 3) Write merged diskDb back to file
+      // 4) Write merged diskDb back to file
       const data = diskDb.export();
       const writable = await this.dbFileHandle.createWritable();
       await writable.write(data);
       await writable.close();
 
-      // 4) Import other prüfer's changes into our in-memory DB
+      // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
 
-      // 5) Update timestamp + clear tracking
+      // 6) Update timestamp + clear tracking
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size;
       this._dirtyOps = [];
@@ -2257,7 +2437,8 @@ const App = {
       this._writeSyncMarker();
 
       if (replayErrors > 0) {
-        console.log(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped`);
+        console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped`);
+        this.toast(`${replayErrors} Änderung(en) konnten nicht gespeichert werden. Bitte Daten prüfen.`, 'warning');
       }
     } catch(e) {
       // Track consecutive failures
@@ -2309,6 +2490,94 @@ const App = {
    * Uses timestamp + geaendert_von for intelligent conflict resolution
    */
   _conflicts: [], // [{schueler_id, schueler_name, local_pruefer, disk_pruefer, field, resolved}]
+
+  /**
+   * Apply schema migrations to diskDb so dirty-op replay doesn't fail
+   * on missing columns/tables. Mirrors the ALTERs from migrateDB().
+   */
+  _migrateDiskDb(diskDb) {
+    const run = (sql) => { try { diskDb.run(sql); } catch(e) { if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) console.warn('DiskDB-Migration:', e.message, sql.substring(0,60)); } };
+    // Tables
+    run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrolltermin_id INTEGER, schueler_id INTEGER,
+      pruefer TEXT DEFAULT '', seit TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(kontrolltermin_id, pruefer)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS betriebe (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, betriebsnummer TEXT DEFAULT '',
+      name TEXT NOT NULL, firma TEXT DEFAULT '', ansprechpartner TEXT DEFAULT '',
+      strasse TEXT DEFAULT '', plz TEXT DEFAULT '', ort TEXT DEFAULT '',
+      telefon TEXT DEFAULT '', fax TEXT DEFAULT '', email TEXT DEFAULT '',
+      UNIQUE(betriebsnummer)
+    )`);
+    // kontrollergebnisse columns
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN geprueft_kws TEXT DEFAULT '{}'");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN durchsicht_nr INTEGER DEFAULT 1");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN bescheinigungen_anzahl INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN anwesend INTEGER DEFAULT 1");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
+    // schueler columns
+    run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
+    run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
+    run("ALTER TABLE schueler ADD COLUMN ap_zugelassen INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN ap_bestanden INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN inaktiv_grund TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN inaktiv_datum TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN zustaendiges_amt TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN telefon TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN schulabschluss TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh1 TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh2 TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN bav_status TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN zwischenpruefung TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN landesfachklasse TEXT DEFAULT ''");
+    // berufsschulen columns
+    run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''");
+    run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'");
+    // betriebe columns
+    run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''");
+    run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
+    // kontrolltermine columns
+    run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
+    // kw_status columns
+    run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
+    // Schueler-Bemerkungen + Dateien
+    run(`CREATE TABLE IF NOT EXISTS schueler_bemerkungen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      text TEXT DEFAULT '',
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS schueler_dateien (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      dateiname TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      beschreibung TEXT DEFAULT '',
+      dateityp TEXT DEFAULT '',
+      groesse INTEGER DEFAULT 0,
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    // Ausbilder table
+    run(`CREATE TABLE IF NOT EXISTS ausbilder (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      betrieb_id INTEGER REFERENCES betriebe(id),
+      nachname TEXT DEFAULT '',
+      vorname TEXT DEFAULT '',
+      telefon TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      mobil TEXT DEFAULT '',
+      funktion TEXT DEFAULT ''
+    )`);
+  },
 
   _importFromDisk(diskDb) {
     const myPruefer = (KontrolleHandler?.activePruefer || '').toLowerCase();
@@ -2573,6 +2842,7 @@ const App = {
 
     } catch(e) {
       console.warn('Import-from-disk error:', e);
+      this.toast('Sync-Fehler beim Laden. Daten ggf. nicht aktuell.', 'warning');
     }
   },
 
@@ -2730,6 +3000,27 @@ const App = {
     return klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
   },
 
+  // Aussagekräftiges Label für einen Kontrolltermin (z.B. für Dropdowns)
+  formatTerminLabel(t) {
+    const klassen = this.getTerminKlassen(t.id);
+    const schule = klassen.length ? klassen[0].schule : '';
+    const frAj = this.formatTerminFrAj(t.id);
+    const count = this.getTerminSchuelerCount(t.id);
+    const isEins = t.typ === 'einsendung';
+    const kw = 'KW' + this._isoKW(new Date(t.geplant_datum + 'T00:00:00'));
+    const datum = (t.geplant_datum || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1');
+    const parts = [`${kw} ${datum}`];
+    if (isEins) {
+      parts.push('📬 Einsendung');
+    } else if (schule) {
+      parts.push(schule);
+    }
+    if (frAj && frAj !== '–') parts.push(frAj);
+    parts.push(`${count} Sch.`);
+    if (t.pruefer) parts.push(t.pruefer);
+    return parts.join(' – ') + ` (${t.status || 'geplant'})`;
+  },
+
   // Format FR + AJ for display (e.g. "GaLaBau 2. AJ, Zierpfl. 2. AJ")
   formatTerminFrAj(terminId, refDate) {
     const klassen = this.getTerminKlassen(terminId);
@@ -2865,6 +3156,82 @@ const App = {
     if (!aj) return '';
     const jg = this.query('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jahrgang_id])[0];
     return `${aj}. AJ` + (jg ? ` (${jg.bezeichnung})` : '');
+  },
+
+  // ── Aktuelle Schule: Landesfachklasse-Regeln nach Fachrichtung + AJ ──
+  // Bestimmte Fachrichtungen besuchen in höheren AJs eine andere Berufsschule (Landesfachklasse).
+  // Regeln: Gemüsebau: 3. AJ, Obstbau: 2.+3. AJ, Baumschule: 3. AJ, Stauden: 3. AJ
+  // Gibt {schule, isLandesfachklasse} zurück.
+  getAktuelleSchule(schueler, refDate) {
+    const regulaereSchule = schueler.schule || '';
+    const lfk = (schueler.landesfachklasse || '').trim();
+    if (!lfk) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Fachrichtung-Code ermitteln
+    const frCode = schueler.fr_code || (schueler.fachrichtung_id
+      ? (this.query('SELECT code FROM fachrichtungen WHERE id=?', [schueler.fachrichtung_id])[0]?.code || '')
+      : '');
+    if (!frCode) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Aktuelles Ausbildungsjahr
+    const aj = this.getAJFromJahrgang(schueler.jahrgang_id, refDate);
+    if (!aj) return { schule: regulaereSchule, isLandesfachklasse: false };
+
+    // Regeln: Code → ab welchem AJ gilt die Landesfachklasse
+    // Gemüsebau (032/172): 3. AJ | Obstbau (034/174): 2.+3. AJ | Baumschule (033/173): 3. AJ | Stauden (035/175): 3. AJ
+    const lfkRegeln = {
+      '032': 3, '172': 3,   // Gemüsebau
+      '034': 2, '174': 2,   // Obstbau (ab 2. AJ)
+      '033': 3, '173': 3,   // Baumschule
+      '035': 3, '175': 3,   // Staudengärtnerei
+    };
+    const abAJ = lfkRegeln[frCode];
+    if (abAJ && aj >= abAJ) {
+      return { schule: lfk, isLandesfachklasse: true };
+    }
+    return { schule: regulaereSchule, isLandesfachklasse: false };
+  },
+
+  // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
+  // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
+  // opts: { jahrgangId, fachrichtungId, amt, zwischenpruefung, refDate }
+  // Gibt Array von { schule, isLFK, schueler: [...], klasse_ids: Set } zurück.
+  getStandortgruppen(opts) {
+    if (!opts) opts = {};
+    let sql = `SELECT s.*,
+      f.code as fr_code, f.bezeichnung as fr_bez, f.typ as fr_typ,
+      k.klassenbezeichnung, k.lehrjahr, k.berufsschule_id,
+      bs.name as schule,
+      j.bezeichnung as jahrgang
+      FROM schueler s
+      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
+      LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+      WHERE s.aktiv=1`;
+    const params = [];
+    if (opts.jahrgangId) { sql += ' AND s.jahrgang_id=?'; params.push(opts.jahrgangId); }
+    if (opts.fachrichtungId) { sql += ' AND s.fachrichtung_id=?'; params.push(opts.fachrichtungId); }
+    if (opts.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(opts.amt); }
+    if (opts.zwischenpruefung) { sql += ' AND s.zwischenpruefung=?'; params.push(opts.zwischenpruefung); }
+    sql += ' ORDER BY s.nachname, s.vorname';
+
+    const schuelerList = this.query(sql, params);
+    const gruppen = {}; // key = schulName → { schule, isLFK, schueler, klasse_ids }
+
+    schuelerList.forEach(s => {
+      const ak = this.getAktuelleSchule(s, opts.refDate);
+      const key = ak.schule || '(ohne Schule)';
+      if (!gruppen[key]) {
+        gruppen[key] = { schule: key, isLFK: ak.isLandesfachklasse, schueler: [], klasse_ids: new Set(), hasLFK: false, hasRegulaer: false };
+      }
+      gruppen[key].schueler.push(s);
+      if (s.klasse_id) gruppen[key].klasse_ids.add(s.klasse_id);
+      if (ak.isLandesfachklasse) gruppen[key].hasLFK = true;
+      else gruppen[key].hasRegulaer = true;
+    });
+
+    return Object.values(gruppen).sort((a, b) => b.schueler.length - a.schueler.length);
   },
 
   // ── Prüfbereich: erste/letzte KW aus Ausbildungsbeginn + heute ──
@@ -3271,6 +3638,7 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN pruefungserfolg_wdh2 TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN bav_status TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zwischenpruefung TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN landesfachklasse TEXT DEFAULT ''"); } catch(e) {}
       // berufsschulen: email_cc + ansprechpartner_json
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'"); } catch(e) {}
@@ -3343,6 +3711,8 @@ const App = {
       this.db.run("CREATE TABLE IF NOT EXISTS kontrolltermin_schueler (id INTEGER PRIMARY KEY AUTOINCREMENT, kontrolltermin_id INTEGER REFERENCES kontrolltermine(id) ON DELETE CASCADE, schueler_id INTEGER REFERENCES schueler(id), UNIQUE(kontrolltermin_id, schueler_id))");
       // Migrate: copy firma→zusatzbezeichnung if zusatzbezeichnung empty (one-time)
       try { this.db.run("UPDATE betriebe SET zusatzbezeichnung=firma WHERE zusatzbezeichnung='' AND firma!=''"); } catch(e) {}
+      // Remove LLM settings (CSO security requirement)
+      try { this.db.run("DELETE FROM einstellungen WHERE schluessel LIKE 'llm_%'"); } catch(e) {}
       // Relax CHECK constraint on kw_status/kw_maengel to allow AJ 4 (Verlängerer)
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='kw_status'")[0]?.sql || '';
@@ -3460,6 +3830,37 @@ const App = {
           FROM kw_maengel km JOIN kontrollergebnisse ke ON km.kontrollergebnis_id=ke.id`);
         console.debug('Migration done');
       }
+      // Schueler-Bemerkungen (notes per student)
+      this.db.run(`CREATE TABLE IF NOT EXISTS schueler_bemerkungen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER REFERENCES schueler(id),
+        text TEXT DEFAULT '',
+        erstellt_von TEXT DEFAULT '',
+        erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+      )`);
+      // Schueler-Dateien (file attachments per student)
+      this.db.run(`CREATE TABLE IF NOT EXISTS schueler_dateien (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER REFERENCES schueler(id),
+        dateiname TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        beschreibung TEXT DEFAULT '',
+        dateityp TEXT DEFAULT '',
+        groesse INTEGER DEFAULT 0,
+        erstellt_von TEXT DEFAULT '',
+        erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+      )`);
+      // Ausbilder table for Betriebe
+      this.db.run(`CREATE TABLE IF NOT EXISTS ausbilder (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        betrieb_id INTEGER REFERENCES betriebe(id),
+        nachname TEXT DEFAULT '',
+        vorname TEXT DEFAULT '',
+        telefon TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        mobil TEXT DEFAULT '',
+        funktion TEXT DEFAULT ''
+      )`);
     } catch(e) { console.warn('Migration:', e); }
 
     // ── Multi-Klassen Migration ──
@@ -3625,7 +4026,7 @@ const App = {
     const c = document.getElementById('toastContainer');
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
-    t.innerHTML = msg;
+    t.textContent = msg;
     c.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
   },

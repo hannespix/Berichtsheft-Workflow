@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' blob:">
 <title>Berichtsheftkontrolle – Ausbildungsberater Gärtner</title>
 
 <!-- ═══ EXTERNAL LIBRARIES (offline-fähig via libs/) ═══ -->
@@ -201,6 +202,13 @@
         </div>
       </div>
     </div>
+    <div style="position:relative;display:inline-block">
+      <button id="extraFilterBtn" class="fp-btn" onclick="App.toggleExtraFilterDropdown()" title="Weitere Filter hinzufügen">
+        + Filter ▾
+      </button>
+      <div id="extraFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px;max-height:400px;overflow-y:auto"></div>
+    </div>
+    <div id="extraFilterChips" style="display:contents"></div>
     <span id="dbLastSaved" style="margin-left:auto;font-size:10px;color:rgba(255,255,255,0.5)">–</span>
   </div>
 
@@ -223,7 +231,7 @@
       </button>
       <button class="sidebar-item sidebar-optional" data-view="import" data-feature="import" onclick="App.navigate('import')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Schüler-Import
+        Import
       </button>
 
       <div class="sidebar-section">Kontrolle</div>
@@ -326,6 +334,7 @@
 <script src="src/js/modules/berichte.js"></script>
 <script src="src/js/modules/table-sort.js"></script>
 <script src="src/js/modules/schueler-view.js"></script>
+<script src="src/js/modules/schueler-akte.js"></script>
 <script src="src/js/utils.js"></script>
 
 </body>

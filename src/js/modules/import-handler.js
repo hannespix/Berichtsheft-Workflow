@@ -1,6 +1,62 @@
+// File validation helper
+function _validateFile(file, opts = {}) {
+  const maxSize = opts.maxSize || 50 * 1024 * 1024;
+  if (file.size > maxSize) {
+    App.toast(`Datei zu groß (${(file.size/1024/1024).toFixed(1)} MB, max ${(maxSize/1024/1024).toFixed(0)} MB)`, 'error');
+    return false;
+  }
+  if (opts.extensions) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!opts.extensions.includes(ext)) {
+      App.toast(`Dateityp .${ext} nicht unterstützt`, 'error');
+      return false;
+    }
+  }
+  return true;
+}
+
 const ImportHandler = {
+  // ── Copy & Paste Import: Tab-separierte Daten aus Zwischenablage ──
+  handlePaste(textareaId, mode) {
+    const ta = document.getElementById(textareaId);
+    if (!ta) return;
+    const raw = ta.value.trim();
+    if (!raw) return App.toast('Bitte zuerst Daten einfügen (Ctrl+V)', 'warning');
+
+    // Parse: Zeilen splitten, dann Tab oder Semikolon als Trennzeichen erkennen
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return App.toast('Mindestens 2 Zeilen nötig (Kopfzeile + Daten)', 'error');
+
+    // Trennzeichen erkennen: Tab > Semikolon > Komma
+    const firstLine = lines[0];
+    let sep = '\t';
+    if (firstLine.split('\t').length < 2) {
+      sep = firstLine.split(';').length >= firstLine.split(',').length ? ';' : ',';
+    }
+
+    const headers = lines[0].split(sep).map(h => h.trim().replace(/^["']|["']$/g, '').replace(/^\uFEFF/, ''));
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(sep).map(v => v.trim().replace(/^["']|["']$/g, ''));
+      if (vals.every(v => !v)) continue; // Leere Zeile
+      const row = {};
+      headers.forEach((h, j) => { row[h] = vals[j] || ''; });
+      data.push(row);
+    }
+
+    if (!data.length) return App.toast('Keine Daten erkannt', 'error');
+    App.toast(`${data.length} Zeilen aus Zwischenablage erkannt (${headers.length} Spalten)`, 'success');
+
+    if (mode === 'lfk') {
+      this.showLFKMapping(data, headers);
+    } else {
+      this.showMapping(data, headers);
+    }
+  },
+
   handleFile(file) {
     if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
     const ext = file.name.split('.').pop().toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls') {
@@ -18,7 +74,7 @@ const ImportHandler = {
           App.toast(`${data.length} Zeilen aus "${file.name}" (Blatt: ${sheetName})`, 'success');
           this.showMapping(data, fields);
         } catch (err) {
-          App.toast('Excel-Fehler: ' + err.message, 'error');
+          console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error');
           console.error(err);
         }
       };
@@ -38,7 +94,7 @@ const ImportHandler = {
           App.toast(`${results.data.length} Zeilen erkannt (Trennzeichen: "${results.meta.delimiter}")`, 'success');
           this.showMapping(results.data, results.meta.fields);
         },
-        error: (err) => App.toast('CSV-Fehler: ' + err.message, 'error')
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
@@ -299,11 +355,15 @@ const ImportHandler = {
       let b = bnr ? App.query('SELECT * FROM betriebe WHERE betriebsnummer=?', [bnr])[0] : null;
       if (!b) b = App.query('SELECT * FROM betriebe WHERE name=? AND ort=?', [name, ort])[0];
       if (b) {
-        // Update contact data if we have more info now
-        if (email && !b.email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
-        if (tel && !b.telefon) App.run('UPDATE betriebe SET telefon=? WHERE id=?', [tel, b.id]);
-        if (bVorname && !b.vorname) App.run('UPDATE betriebe SET vorname=? WHERE id=?', [bVorname, b.id]);
-        if (zusatz && !b.zusatzbezeichnung) App.run('UPDATE betriebe SET zusatzbezeichnung=? WHERE id=?', [zusatz, b.id]);
+        // Always overwrite with newest import data (unless import field is empty)
+        if (email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
+        if (tel) App.run('UPDATE betriebe SET telefon=? WHERE id=?', [tel, b.id]);
+        if (bVorname) App.run('UPDATE betriebe SET vorname=? WHERE id=?', [bVorname, b.id]);
+        if (zusatz) App.run('UPDATE betriebe SET zusatzbezeichnung=?,firma=? WHERE id=?', [zusatz, zusatz, b.id]);
+        if (strasse) App.run('UPDATE betriebe SET strasse=? WHERE id=?', [strasse, b.id]);
+        if (plz) App.run('UPDATE betriebe SET plz=? WHERE id=?', [plz, b.id]);
+        if (ort) App.run('UPDATE betriebe SET ort=? WHERE id=?', [ort, b.id]);
+        if (fax) App.run('UPDATE betriebe SET fax=? WHERE id=?', [fax, b.id]);
         return b.id;
       }
       // Create new
@@ -560,6 +620,19 @@ const ImportHandler = {
     const ampel = App.getSchuelerAmpel(id);
 
     const statusLabels = {aktiv:'Aktiv',ap_zugelassen:'AP zugelassen',ap_bestanden:'AP bestanden',abgebrochen:'Abgebrochen',verlaengert:'Verlängert'};
+    const geschlechtLabels = {'':'– Nicht angegeben –', m:'Männlich', w:'Weiblich', d:'Divers'};
+    const peLabels = {'':'– Keine Angabe –', bestanden:'Bestanden', nicht_bestanden:'Nicht bestanden'};
+
+    // Lehrjahr berechnen
+    let lehrjahrInfo = '–';
+    if (s.ausbildungsbeginn) {
+      const d = new Date(s.ausbildungsbeginn);
+      const now = new Date();
+      let lj = now.getFullYear() - d.getFullYear();
+      if (now.getMonth() < d.getMonth() || (now.getMonth()===d.getMonth() && now.getDate() < d.getDate())) lj--;
+      lj = Math.max(1, Math.min(4, lj + 1));
+      lehrjahrInfo = `${lj}. Lehrjahr`;
+    }
 
     App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
       <!-- Quick-Info Bar -->
@@ -568,67 +641,115 @@ const ImportHandler = {
         ${wvCount ? `<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">${wvCount} offene WV</span>` : ''}
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
         ${klasse ? `<span style="padding:3px 8px;background:var(--clr-green-light);border-radius:10px">${esc(klasse.schule)}</span>` : ''}
-        ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">📧 ${esc(betrieb.email)}</span>` : ''}
+        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:#e8d5f5;border-radius:10px;color:#7b2fa0">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
+        ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 
-      <div class="form-row">
-        <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
-        <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
-          <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
-          <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Klasse → Schule</label><select class="form-control" id="mSKlasse">
-          <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
-        </select></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
-          <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
-          <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
-        </select></div>
-        <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
-        <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>📞 Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
-        <div class="form-group"><label>📧 E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" onclick="_switchModalTab('mSTab1',this)">Persönlich</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab2',this)">Ausbildung</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab3',this)">Prüfungen</button>
+        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab4',this)">Status</button>
       </div>
 
-      <hr style="margin:12px 0;border-color:var(--clr-sand)">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--clr-forest)">Status & AP-Zulassung</div>
-      <div class="form-row">
-        <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
-          ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
-        </select></div>
-        <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
-          </label>
+      <!-- Tab 1: Persönlich -->
+      <div id="mSTab1" class="modal-tab-content active">
+        <div class="form-row">
+          <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
+          <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
+            ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
+          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
         </div>
       </div>
-      ${(s.status !== 'aktiv' && s.status) ? `<div class="form-row">
-        <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
-        <div class="form-group"><label>Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
-      </div>` : '<input type="hidden" id="mSInaktivDatum" value=""><input type="hidden" id="mSInaktivGrund" value="">'}
+
+      <!-- Tab 2: Ausbildung -->
+      <div id="mSTab2" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
+            <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
+            <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Klasse / Schule</label><select class="form-control" id="mSKlasse">
+            <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
+          </select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
+            <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
+          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
+          <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
+            <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Prüfungen -->
+      <div id="mSTab3" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026"></div>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
+            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Status -->
+      <div id="mSTab4" class="modal-tab-content">
+        <div class="form-row">
+          <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
+            ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>BAV-Status (IBYKUS)</label><input class="form-control" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
+          <div class="form-group"><label>Inaktiv-Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
+        </div>
+        <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
+      </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">&#128209; Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
+    _makeModalWide();
   },
   updateSchueler(id) {
     const n = document.getElementById('mSNach').value.trim();
@@ -638,8 +759,10 @@ const ImportHandler = {
     const aktiv = (status === 'aktiv' || status === 'ap_zugelassen') ? 1 : 0;
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
       betrieb_id=?,jahrgang_id=?,ibykus_id=?,ausbildungsbeginn=?,ausbildungsende=?,
-      telefon=?,email=?,zustaendiges_amt=?,
-      status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=? WHERE id=?`,
+      telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
+      status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
+      geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
+      bav_status=?,zwischenpruefung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -651,11 +774,20 @@ const ImportHandler = {
        document.getElementById('mSTelefon')?.value?.trim() || '',
        document.getElementById('mSEmail')?.value?.trim() || '',
        document.getElementById('mSAmt')?.value || '',
+       document.getElementById('mSLFK')?.value?.trim() || '',
        status, aktiv,
        document.getElementById('mSAPZu').checked ? 1 : 0,
        document.getElementById('mSAPBe').checked ? 1 : 0,
        document.getElementById('mSInaktivGrund')?.value || '',
-       document.getElementById('mSInaktivDatum')?.value || '', id]);
+       document.getElementById('mSInaktivDatum')?.value || '',
+       document.getElementById('mSGeschlecht')?.value || '',
+       document.getElementById('mSSchulabschluss')?.value?.trim() || '',
+       document.getElementById('mSPE')?.value || '',
+       document.getElementById('mSPEW1')?.value || '',
+       document.getElementById('mSPEW2')?.value || '',
+       document.getElementById('mSBAV')?.value?.trim() || '',
+       document.getElementById('mSZP')?.value?.trim() || '',
+       id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
     // Also refresh Azubi-Tab if visible under Stammdaten
@@ -685,6 +817,318 @@ const ImportHandler = {
     App.run('DELETE FROM schueler WHERE id=?', [id]);
     try { SchuelerView.render(); } catch(e) {}
   },
+  // ═══════════════════════════════════════════
+  //  LANDESFACHKLASSE-IMPORT
+  // ═══════════════════════════════════════════
+  handleLFKFile(file) {
+    if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    const process = (data, fields) => {
+      if (!data.length) return App.toast('Datei ist leer', 'error');
+      App.toast(`${data.length} Zeilen aus "${file.name}" erkannt`, 'success');
+      this.showLFKMapping(data, fields);
+    };
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+          const fields = Object.keys(data[0] || {}).map(f => f.replace(/^\uFEFF/, ''));
+          process(data, fields);
+        } catch (err) { console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error'); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse(file, {
+        header: true, skipEmptyLines: true, dynamicTyping: false,
+        delimitersToGuess: [';', ',', '\t', '|'],
+        complete: (results) => {
+          if (results.meta.fields?.length) results.meta.fields[0] = results.meta.fields[0].replace(/^\uFEFF/, '');
+          process(results.data, results.meta.fields);
+        },
+        error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
+      });
+    }
+  },
+
+  showLFKMapping(data, fields) {
+    // Column patterns for auto-matching
+    const lfkFieldDefs = {
+      nr:               ['Nr. / BAV-Ident *',  ['nr','nr.','bav-ident','bavident','ident','ibykus','identnr','bav_ident','besch-person']],
+      beschreibung:     ['Beschreibung Klasse', ['beschreibung klasse','beschreibung','klassebeschreibung','klasse']],
+      landesfachklasse: ['Landesfachklasse *',  ['landesfachklasse','lfk','landesfachkl']],
+    };
+    const lfkKeys = Object.keys(lfkFieldDefs);
+
+    function bestMatch(key, columns) {
+      const patterns = lfkFieldDefs[key]?.[1] || [];
+      for (const col of columns) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) return col; }
+      for (const col of columns) { const cl = col.toLowerCase().trim(); for (const p of patterns) { if (cl.includes(p) || p.includes(cl)) return col; } }
+      return '';
+    }
+
+    const matchCount = lfkKeys.filter(f => bestMatch(f, fields)).length;
+    const preview = document.getElementById('lfkImportPreview');
+    preview.innerHTML = `
+      <div style="margin-top:16px">
+        <h4 style="font-family:var(--font-display);margin-bottom:4px">${data.length} Datensätze – Spalten zuordnen:</h4>
+        <p style="font-size:12px;margin-bottom:12px;color:${matchCount >= 2 ? 'var(--clr-green)' : 'var(--clr-amber)'}">
+          <strong>${matchCount} von ${lfkKeys.length}</strong> Spalten automatisch erkannt
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          ${lfkKeys.map(f => {
+            const matched = bestMatch(f, fields);
+            const label = lfkFieldDefs[f][0];
+            return `<div class="form-group" style="margin:0">
+              <label>${label} ${matched ? '✓' : ''}</label>
+              <select class="form-control" id="lfkmap_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
+                <option value="">– nicht zuordnen –</option>
+                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+              </select>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">So funktioniert der LFK-Import:</strong>
+          <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
+            <li>Schüler werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
+            <li>Wenn <strong>Landesfachklasse ≠ Beschreibung Klasse</strong> → wird als LFK gespeichert</li>
+            <li>Betroffene Fachrichtungen: Gemüse (3. AJ), Obst (2.+3. AJ), Baumschule (3. AJ), Stauden (3. AJ)</li>
+            <li>Die <strong>aktuelle Schule</strong> wird dann je nach Ausbildungsjahr automatisch angezeigt</li>
+          </ul>
+        </div>
+        <div style="overflow:auto;max-height:180px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
+          <table class="data-table"><thead><tr>${fields.slice(0,6).map(f => `<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+            ${data.slice(0,5).map(row => `<tr>${fields.slice(0,6).map(f => `<td style="font-size:11px">${esc((row[f]||'').substring(0,35))}</td>`).join('')}</tr>`).join('')}
+          </tbody></table>
+        </div>
+        <button class="btn btn-primary" onclick="ImportHandler.doImportLFK(window._lfkImportData)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Landesfachklassen importieren
+        </button>
+        <button class="btn btn-secondary" onclick="document.getElementById('lfkImportPreview').innerHTML=''">Abbrechen</button>
+      </div>`;
+    window._lfkImportData = data;
+  },
+
+  doImportLFK(data) {
+    if (!data) return;
+    const gm = f => document.getElementById('lfkmap_' + f)?.value || '';
+    const nrCol = gm('nr');
+    const beschCol = gm('beschreibung');
+    const lfkCol = gm('landesfachklasse');
+    if (!nrCol && !lfkCol) return App.toast('Bitte mindestens Nr./BAV-Ident und Landesfachklasse zuordnen', 'error');
+
+    App.showLoading('Importiere Landesfachklassen…');
+    let updated = 0, skipped = 0, notFound = 0, cleared = 0;
+
+    data.forEach(row => {
+      const nr = (row[nrCol] || '').toString().trim();
+      const beschreibung = (row[beschCol] || '').trim();
+      const lfk = (row[lfkCol] || '').trim();
+
+      if (!nr) { skipped++; return; }
+
+      // Landesfachklasse immer speichern wenn befüllt – das Feld in IBYKUS
+      // bedeutet: Schüler ist einer Landesfachklasse zugeordnet (auch wenn
+      // die Schule zufällig dieselbe ist wie die reguläre Berufsschulklasse)
+      const lfkValue = lfk ? lfk.replace(/^Berufsschule\s+/i, '').trim() : '';
+
+      // Finde Schüler: erst per ibykus_id, dann per Nr als allg. Match
+      let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
+      if (!schuelerId) {
+        // Versuche numerischen Teil als BAV-Ident zu matchen
+        schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1', ['%' + nr + '%']);
+      }
+
+      if (!schuelerId) { notFound++; return; }
+
+      const current = App.scalar('SELECT landesfachklasse FROM schueler WHERE id=?', [schuelerId]) || '';
+      if (lfkValue && current !== lfkValue) {
+        App.run('UPDATE schueler SET landesfachklasse=? WHERE id=?', [lfkValue, schuelerId]);
+        updated++;
+      } else if (!lfkValue && current) {
+        // LFK wurde entfernt (Beschreibung = LFK → normal)
+        App.run("UPDATE schueler SET landesfachklasse='' WHERE id=?", [schuelerId]);
+        cleared++;
+      } else {
+        skipped++;
+      }
+    });
+
+    App.hideLoading();
+
+    let parts = [];
+    if (updated) parts.push(`<strong>${updated}</strong> Schüler mit Landesfachklasse aktualisiert`);
+    if (cleared) parts.push(`${cleared} Landesfachklassen entfernt (wieder normale Klasse)`);
+    if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
+    if (notFound) parts.push(`⚠️ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
+
+    App.openModal('LFK-Import abgeschlossen', `
+      <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
+    `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+    document.getElementById('lfkImportPreview').innerHTML = '';
+  },
+
+  // ═══════════════════════════════════════════
+  //  AUSBILDER-IMPORT
+  // ═══════════════════════════════════════════
+  handleAusbilderFile(file) {
+    if (!file) return;
+    if (!_validateFile(file, { extensions: ['csv','txt','xlsx','xls'], maxSize: 50*1024*1024 })) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    const process = (data, fields) => {
+      if (!data.length) return App.toast('Datei ist leer', 'error');
+      // Auto-map columns
+      const patterns = {
+        betriebsnummer: ['betriebsnummer','betriebsnr','betriebs-nr','bnr'],
+        betriebsname: ['betriebsname','betrieb','firma','ausbildungsstaette','ausbildungsstätte','name betrieb'],
+        betrieb_ort: ['betrieb-ort','betriebsort','ort'],
+        nachname: ['nachname','name','familienname','ausbilder-nachname','ausbilder nachname'],
+        vorname: ['vorname','vname','ausbilder-vorname','ausbilder vorname'],
+        telefon: ['telefon','tel','phone','ausbilder-tel'],
+        email: ['email','e-mail','mail','ausbilder-email'],
+        mobil: ['mobil','handy','mobiltelefon','ausbilder-mobil'],
+        funktion: ['funktion','rolle','position','tätigkeit','taetigkeit','ausbilder-funktion']
+      };
+      const bestMatch = (key) => {
+        const pats = patterns[key] || [];
+        for (const f of fields) {
+          const fl = f.toLowerCase().trim();
+          if (pats.includes(fl)) return f;
+        }
+        for (const f of fields) {
+          const fl = f.toLowerCase().trim();
+          for (const p of pats) { if (fl.includes(p) || p.includes(fl)) return f; }
+        }
+        return '';
+      };
+      const mapFields = ['betriebsnummer','betriebsname','betrieb_ort','nachname','vorname','telefon','email','mobil','funktion'];
+      const autoMap = {};
+      mapFields.forEach(k => autoMap[k] = bestMatch(k));
+
+      const preview = document.getElementById('ausbilderImportPreview');
+      if (!preview) return;
+      preview.innerHTML = `<div class="card" style="margin-top:12px">
+        <div class="card-header">Ausbilder-Import: Spaltenzuordnung</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          ${mapFields.map(k => `<div class="form-group" style="margin:0"><label style="font-size:11px">${k.replace(/_/g,' ')}</label><select class="form-control" id="aumap_${k}" style="font-size:12px"><option value="">– Nicht zuordnen –</option>${fields.map(f=>`<option value="${esc(f)}" ${autoMap[k]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></div>`).join('')}
+        </div>
+        <div style="overflow:auto;max-height:160px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
+          <table class="data-table"><thead><tr>${fields.slice(0,8).map(f=>`<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+          ${data.slice(0,5).map(row=>`<tr>${fields.slice(0,8).map(f=>`<td style="font-size:11px">${esc((row[f]||'').toString().substring(0,30))}</td>`).join('')}</tr>`).join('')}
+          </tbody></table>
+        </div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">${data.length} Zeilen erkannt</div>
+        <button class="btn btn-primary" onclick="ImportHandler.doImportAusbilder(window._ausbilderImportData)">Ausbilder importieren</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('ausbilderImportPreview').innerHTML=''">Abbrechen</button>
+      </div>`;
+      window._ausbilderImportData = data;
+    };
+
+    if (ext === 'csv' || ext === 'txt') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const result = Papa.parse(e.target.result, { header: true, skipEmptyLines: true, encoding: 'UTF-8' });
+        process(result.data, result.meta.fields || []);
+      };
+      reader.readAsText(file, 'UTF-8');
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        const fields = data.length ? Object.keys(data[0]) : [];
+        process(data, fields);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  },
+
+  doImportAusbilder(data) {
+    if (!data) return;
+    const gm = f => document.getElementById('aumap_' + f)?.value || '';
+    const bnrCol = gm('betriebsnummer');
+    const bnameCol = gm('betriebsname');
+    const bortCol = gm('betrieb_ort');
+    const nachCol = gm('nachname');
+    const vorCol = gm('vorname');
+    const telCol = gm('telefon');
+    const emailCol = gm('email');
+    const mobilCol = gm('mobil');
+    const funkCol = gm('funktion');
+
+    if (!nachCol && !vorCol) return App.toast('Mindestens Nachname oder Vorname muss zugeordnet sein', 'error');
+    if (!bnrCol && !bnameCol) return App.toast('Betriebsnummer oder Betriebsname muss zugeordnet sein', 'error');
+
+    App.showLoading('Importiere Ausbilder...');
+    let imported = 0, updated = 0, skipped = 0, noMatch = 0;
+
+    data.forEach(row => {
+      const nachname = (row[nachCol] || '').trim();
+      const vorname = (row[vorCol] || '').trim();
+      if (!nachname && !vorname) { skipped++; return; }
+
+      // Find Betrieb
+      const bnr = (row[bnrCol] || '').toString().trim();
+      const bname = (row[bnameCol] || '').trim();
+      const bort = (row[bortCol] || '').trim();
+
+      let betriebId = null;
+      if (bnr) betriebId = App.scalar('SELECT id FROM betriebe WHERE betriebsnummer=?', [bnr]);
+      if (!betriebId && bname) {
+        if (bort) betriebId = App.scalar('SELECT id FROM betriebe WHERE name=? AND ort=?', [bname, bort]);
+        if (!betriebId) betriebId = App.scalar('SELECT id FROM betriebe WHERE name=?', [bname]);
+      }
+      if (!betriebId) { noMatch++; return; }
+
+      const telefon = (row[telCol] || '').trim();
+      const email = (row[emailCol] || '').trim();
+      const mobil = (row[mobilCol] || '').trim();
+      const funktion = (row[funkCol] || '').trim();
+
+      // Duplikat-Prüfung
+      const existing = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? AND nachname=? AND vorname=?', [betriebId, nachname, vorname])[0];
+      if (existing) {
+        // Update if new data
+        const changes = [];
+        if (telefon && telefon !== existing.telefon) changes.push(['telefon', telefon]);
+        if (email && email !== existing.email) changes.push(['email', email]);
+        if (mobil && mobil !== existing.mobil) changes.push(['mobil', mobil]);
+        if (funktion && funktion !== existing.funktion) changes.push(['funktion', funktion]);
+        if (changes.length) {
+          changes.forEach(([f, v]) => App.run(`UPDATE ausbilder SET ${f}=? WHERE id=?`, [v, existing.id]));
+          updated++;
+        } else { skipped++; }
+        return;
+      }
+
+      App.run('INSERT INTO ausbilder (betrieb_id,nachname,vorname,telefon,email,mobil,funktion) VALUES (?,?,?,?,?,?,?)',
+        [betriebId, nachname, vorname, telefon, email, mobil, funktion]);
+      imported++;
+    });
+
+    App.hideLoading();
+    let parts = [];
+    if (imported) parts.push(`<strong>${imported}</strong> Ausbilder importiert`);
+    if (updated) parts.push(`<strong>${updated}</strong> Ausbilder aktualisiert`);
+    if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
+    if (noMatch) parts.push(`${noMatch} Betriebe nicht gefunden`);
+
+    App.openModal('Ausbilder-Import abgeschlossen', `
+      <div style="font-size:14px;line-height:2">${parts.map(s => `<div>${s}</div>`).join('')}</div>
+    `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+    const preview = document.getElementById('ausbilderImportPreview');
+    if (preview) preview.innerHTML = '';
+  },
+
   deleteAllJahrgang() {
     const jg = SchuelerView.filters.jahrgang;
     if (!jg) return App.toast('Bitte zuerst einen Jahrgang im Filter wählen', 'warning');

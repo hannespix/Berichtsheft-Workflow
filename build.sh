@@ -65,6 +65,7 @@ APP_MODULES=(
   "src/js/modules/berichte.js"
   "src/js/modules/table-sort.js"
   "src/js/modules/schueler-view.js"
+  "src/js/modules/schueler-akte.js"
   "src/js/utils.js"
 )
 
@@ -96,6 +97,7 @@ echo ""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src blob: data:; font-src data:; connect-src blob:">
 <title>Berichtsheftkontrolle – Ausbildungsberater Gärtner</title>
 <!-- ═══ EMBEDDED LIBRARIES (offline-fähig) ═══ -->
 HTMLHEAD

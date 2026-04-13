@@ -15,15 +15,16 @@ const SchuelerView = {
   },
 
   getFilteredData() {
-    let sql = `SELECT s.*, 
+    let sql = `SELECT s.*,
       CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung,
       f.code as fr_code,
       k.klassenbezeichnung, k.lehrjahr,
       bs.name as schule,
-      j.bezeichnung as jahrgang
-      FROM schueler s 
-      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id 
-      LEFT JOIN klassen k ON s.klasse_id=k.id 
+      j.bezeichnung as jahrgang,
+      s.landesfachklasse
+      FROM schueler s
+      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
+      LEFT JOIN klassen k ON s.klasse_id=k.id
       LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       WHERE 1=1`;
@@ -235,7 +236,7 @@ const SchuelerView = {
             <td title="${esc(s.ausbildungsstaette)}">${esc((s.ausbildungsstaette||'').substring(0,30))}</td>
             <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)">${esc(s.email)}</a>` : ''}${s.email && s.telefon ? '<br>' : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-text-light)">${esc(s.telefon)}</a>` : ''}${!s.email && !s.telefon ? '<span style="color:var(--clr-sand)">–</span>' : ''}</td>
             <td><small>${esc(s.fachrichtung||'–')}</small></td>
-            <td><small>${esc(s.schule||'–')}</small></td>
+            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
             <td><small>${esc(s.klassenbezeichnung||'–')}</small></td>
             <td>${s.lehrjahr||'–'}</td>
             <td><small>${esc(s.jahrgang||'–')}</small></td>
@@ -244,6 +245,7 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
+              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">&#128209;</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               </button>

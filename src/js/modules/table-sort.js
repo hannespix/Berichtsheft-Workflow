@@ -26,10 +26,8 @@ const TableSort = {
         // Prefer data-sort attribute over textContent
         let va = (cellA.dataset.sort || cellA.textContent || '').trim();
         let vb = (cellB.dataset.sort || cellB.textContent || '').trim();
-        // Try numeric
-        const na = parseFloat(va.replace(/[^\d,.-]/g, '').replace(',', '.'));
-        const nb = parseFloat(vb.replace(/[^\d,.-]/g, '').replace(',', '.'));
-        if (!isNaN(na) && !isNaN(nb)) return dir === 'asc' ? na - nb : nb - na;
+        // Try ISO date first (YYYY-MM-DD) – must come before numeric to avoid parseFloat eating the year
+        if (va.match(/^\d{4}-\d{2}/) && vb.match(/^\d{4}-\d{2}/)) return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
         // Try date (DD.MM.YYYY)
         const da = va.match(/(\d{2})\.(\d{2})\.(\d{4})/);
         const db = vb.match(/(\d{2})\.(\d{2})\.(\d{4})/);
@@ -38,8 +36,10 @@ const TableSort = {
           const tb = new Date(db[3], db[2]-1, db[1]).getTime();
           return dir === 'asc' ? ta - tb : tb - ta;
         }
-        // Try ISO date (YYYY-MM-DD)
-        if (va.match(/^\d{4}-\d{2}/) && vb.match(/^\d{4}-\d{2}/)) return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+        // Try numeric
+        const na = parseFloat(va.replace(/[^\d,.-]/g, '').replace(',', '.'));
+        const nb = parseFloat(vb.replace(/[^\d,.-]/g, '').replace(',', '.'));
+        if (!isNaN(na) && !isNaN(nb)) return dir === 'asc' ? na - nb : nb - na;
         // String (locale-aware)
         return dir === 'asc' ? va.localeCompare(vb, 'de') : vb.localeCompare(va, 'de');
       });

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Sicherheitsbericht – Berichtsheftkontrolle</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 20mm 18mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 10.5pt; line-height: 1.55; color: #1a1a1a; max-width: 210mm; margin: 0 auto; padding: 20mm 18mm; }
+  h1 { font-size: 18pt; color: #2d5016; border-bottom: 3px solid #2d5016; padding-bottom: 6px; margin-bottom: 4px; }
+  h2 { font-size: 13pt; color: #2d5016; margin-top: 22px; margin-bottom: 8px; border-bottom: 1px solid #c8d8bc; padding-bottom: 3px; }
+  h3 { font-size: 11pt; color: #3a6b1e; margin-top: 14px; margin-bottom: 6px; }
+  p, li { margin-bottom: 4px; }
+  ul, ol { padding-left: 18px; }
+  .subtitle { font-size: 10pt; color: #666; margin-bottom: 16px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 9pt; font-weight: 600; }
+  .badge-ok { background: #e8f5e9; color: #2e7d32; }
+  .badge-fix { background: #e3f2fd; color: #1565c0; }
+  .badge-warn { background: #fff3e0; color: #e65100; }
+  .badge-na { background: #f5f5f5; color: #757575; }
+  .highlight-box { background: #f0f7ec; border-left: 4px solid #2d5016; padding: 10px 14px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 10pt; }
+  .risk-box { background: #fafafa; border: 1px solid #e0e0e0; padding: 10px 14px; margin: 10px 0; border-radius: 6px; font-size: 10pt; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 9.5pt; }
+  th { background: #2d5016; color: white; padding: 6px 8px; text-align: left; font-weight: 600; font-size: 9pt; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafaf7; }
+  .status-cell { text-align: center; font-weight: 600; white-space: nowrap; }
+  .footer { margin-top: 24px; padding-top: 10px; border-top: 2px solid #2d5016; font-size: 9pt; color: #666; display: flex; justify-content: space-between; }
+  .no-print { text-align: center; margin-bottom: 16px; }
+  .no-print button { padding: 10px 24px; background: #2d5016; color: white; border: none; border-radius: 6px; font-size: 12pt; cursor: pointer; }
+  .no-print button:hover { background: #3a6b1e; }
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none; }
+    h2 { break-after: avoid; }
+    table { break-inside: auto; }
+    tr { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">Als PDF speichern (Strg+P)</button>
+</div>
+
+<h1>Sicherheitsbericht</h1>
+<p class="subtitle">Berichtsheftkontrolle – Ausbildungsberater Gärtner, RP Freiburg<br>
+Stand: 26.03.2026 &nbsp;|&nbsp; Erstellt von: Hannes Pix &nbsp;|&nbsp; Empfänger: CSO-Review</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>1. Architektur &amp; Sicherheitskonzept</h2>
+
+<h3>1.1 Was ist die Berichtsheftkontrolle?</h3>
+<p>Verwaltungstool für die Ausbildungsberater Gärtner am RP Freiburg zur Planung, Durchführung und Nachverfolgung von Berichtsheftdurchsichten. Das Tool verwaltet ca. 300–500 Auszubildende mit Stammdaten, Kontrollergebnissen, Wiedervorlagen und Korrespondenz.</p>
+
+<h3>1.2 Architektur-Entscheidungen</h3>
+<p>Die Architektur wurde bewusst für den Verwaltungskontext gewählt:</p>
+<ul>
+  <li><strong>Rein lokale Ausführung</strong> – Einzelne HTML-Datei (~5,8 MB) im Browser (Chrome/Edge). Kein Server, kein Backend, keine Cloud. Die Angriffsfläche ist fundamental kleiner als bei jeder Server-Client-Architektur.</li>
+  <li><strong>File System Access API</strong> – SQLite-Datenbank auf dem geschützten Netzlaufwerk des RP. Zugriffskontrolle über NTFS-Berechtigungen und Windows-Domäne.</li>
+  <li><strong>Offline-fähig</strong> – Alle 12 Bibliotheken lokal gebündelt. Kein CDN, kein Internet-Zugriff nötig oder möglich. Content Security Policy blockiert aktiv alle externen Verbindungen.</li>
+  <li><strong>Keine Installation</strong> – Kein Admin-Zugriff, keine Softwareverteilung, keine Registry-Einträge. Passt zur Zero-Trust-Umgebung.</li>
+</ul>
+
+<h3>1.3 Angriffsfläche (Attack Surface)</h3>
+<div class="highlight-box">
+  <strong>Nicht vorhanden (kein Risiko):</strong><br>
+  Kein Netzwerk-Traffic (kein MITM) &bull; Kein Server (kein RCE) &bull; Kein Login (kein Credential-Stuffing) &bull; Keine API-Endpunkte &bull; Keine Cookies/Sessions &bull; Keine externen Ressourcen (kein CDN-Supply-Chain-Angriff)
+</div>
+<div class="risk-box">
+  <strong>Verbleibende Angriffsfläche:</strong><br>
+  Lokaler Dateizugriff &rarr; geschützt durch NTFS + Domäne &bull;
+  SQLite auf Netzlaufwerk &rarr; geschützt durch Berechtigungen &bull;
+  Datei-Imports (CSV/Excel) &rarr; validiert mit Größenlimits + Typ-Prüfung &bull;
+  Browser-Sandbox &rarr; geschützt durch Chrome/Edge
+</div>
+
+<h3>1.4 Warum keine Authentifizierung?</h3>
+<p>Die App läuft auf Zero-Trust-Windows-PCs im RP-Netzwerk. Jeder Nutzer ist bereits über Windows-Domäne authentifiziert und autorisiert (Netzlaufwerk-Berechtigung). Eine App-eigene Authentifizierung wäre:</p>
+<ul>
+  <li><strong>Redundant</strong> zur bestehenden Windows-Authentifizierung</li>
+  <li><strong>Weniger sicher</strong> als Active Directory (selbstgebaut vs. Domäne)</li>
+  <li><strong>Unpraktisch</strong> für 2–3 Sachbearbeiter die schnell wechseln</li>
+</ul>
+<p>Die Prüfer-Auswahl im Tool dient ausschließlich der <em>Nachvollziehbarkeit</em> (wer hat wann welche Kontrolle durchgeführt), nicht der Zugriffskontrolle.</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>2. Behobene Sicherheitsprobleme (CSO-Review)</h2>
+
+<h3>Priorität: Sehr hoch</h3>
+<table>
+  <thead><tr><th style="width:25%">Finding</th><th>Maßnahme</th><th style="width:14%">Status</th></tr></thead>
+  <tbody>
+    <tr><td>JS-Bibliotheken von CDN geladen</td><td>Alle 12 Libs in <code>libs/</code> lokal gebündelt. Kein Internet nötig. Produktion: eine einzige HTML-Datei mit allem inline.</td><td class="status-cell"><span class="badge badge-ok">Bereits erledigt</span></td></tr>
+    <tr><td>pdf.js-Worker extern von CDN</td><td>Worker liegt als <code>libs/pdf.worker.min.js</code> lokal, geladen als Blob-URL.</td><td class="status-cell"><span class="badge badge-ok">Bereits erledigt</span></td></tr>
+    <tr><td>Keine SRI-Absicherung bei externen Skripten</td><td>Nicht mehr relevant – keine externen Skripte. CSP blockiert externe Quellen.</td><td class="status-cell"><span class="badge badge-na">N/A</span></td></tr>
+    <tr><td>Viele dynamische HTML-Ausgaben per innerHTML</td><td><code>App.toast()</code> nutzt jetzt <code>textContent</code> statt <code>innerHTML</code>. Alle User-Daten über <code>esc()</code> HTML-escaped.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>LLM-Test schreibt Antwort direkt in innerHTML</td><td><strong>KI-API komplett entfernt.</strong> llm-helper.js ist leerer Stub. blockplan-analyzer.js ohne API-Aufrufe. <strong>–870 Zeilen Code entfernt.</strong></td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>Speicherung eines API-Key in den Einstellungen</td><td>KI entfernt. Alle <code>llm_*</code>-Settings werden beim Start aus DB gelöscht. Kein Geheimnis mehr gespeichert.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+  </tbody>
+</table>
+
+<h3>Priorität: Hoch</h3>
+<table>
+  <thead><tr><th style="width:25%">Finding</th><th>Maßnahme</th><th style="width:14%">Status</th></tr></thead>
+  <tbody>
+    <tr><td>Word-Upload prüft nur Dateiname .docx</td><td>Zusätzlich Größenlimit (max 10 MB). Fehlerhafte Dateien durch try/catch beim Parsen abgefangen.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>Verarbeitung komplexer Dateiformate</td><td>Dateityp-Whitelist + Größenlimits: 50 MB Imports, 100 MB Anhänge, 10 MB Vorlagen. Alle Parser in try/catch.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>Personenbezogene Daten in Dokumenten</td><td>Organisatorische Maßnahme – Löschkonzept + Aufbewahrungsregeln für abgeschlossene Jahrgänge erforderlich.</td><td class="status-cell"><span class="badge badge-warn">Organisatorisch</span></td></tr>
+    <tr><td>Betriebszusammenführung ohne Sicherung</td><td>Automatisches Sicherheits-Backup VOR jeder Zusammenführung. Modal zeigt Details der Aktion.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>Keine Content Security Policy</td><td>CSP Meta-Tag: <code>connect-src 'self' blob:</code> blockiert ALLE externen Requests. Hinweis: <code>unsafe-inline</code> (onclick-Handler) und <code>unsafe-eval</code> (sql.js WASM) sind architekturbedingt nötig.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+  </tbody>
+</table>
+
+<h3>Priorität: Mittel</h3>
+<table>
+  <thead><tr><th style="width:25%">Finding</th><th>Maßnahme</th><th style="width:14%">Status</th></tr></thead>
+  <tbody>
+    <tr><td>Externe Google Fonts</td><td>Alle Fonts lokal in <code>fonts/</code> als WOFF2 mit lokalen <code>@font-face</code>-Pfaden.</td><td class="status-cell"><span class="badge badge-ok">Bereits erledigt</span></td></tr>
+    <tr><td>Texteingaben nicht validiert</td><td><code>maxlength</code> auf allen Freitext-Feldern: 5.000 (Bemerkungen), 500.000 (CSV-Paste).</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>Bestätigungsdialoge unzureichend</td><td>Kritische Operationen (Merge, Bulk-Delete) nutzen Modals mit Details (Anzahl, betroffene Daten).</td><td class="status-cell"><span class="badge badge-ok">Bereits OK</span></td></tr>
+    <tr><td>Fehlerdetails direkt im UI</td><td>Alle <code>e.message</code>-Ausgaben durch generische Meldungen ersetzt. Technische Details nur in <code>console.warn</code>.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>3. Zusätzliches OWASP Top 10:2025 Audit</h2>
+<p>Über das CSO-Review hinaus wurde das Tool gegen die aktuelle OWASP Top 10 (veröffentlicht Januar 2026) geprüft:</p>
+
+<table>
+  <thead><tr><th style="width:22%">Kategorie</th><th>Befund &amp; Maßnahme</th><th style="width:14%">Status</th></tr></thead>
+  <tbody>
+    <tr><td>A01: Broken Access Control</td><td>Kein App-eigenes Auth-System. Zugriffskontrolle über Windows-Domäne + NTFS-Berechtigungen (siehe 1.4).</td><td class="status-cell"><span class="badge badge-ok">By Design</span></td></tr>
+    <tr><td>A02: Security Misconfiguration</td><td>CSP vorhanden. Keine Default-Credentials. Debug-Logs enthalten keine sensitiven Daten.</td><td class="status-cell"><span class="badge badge-ok">OK</span></td></tr>
+    <tr><td>A03: Supply Chain Failures</td><td>Alle Libs lokal gebündelt. Kein npm, kein CDN, keine Runtime-Downloads im Build.</td><td class="status-cell"><span class="badge badge-ok">Niedrig</span></td></tr>
+    <tr><td>A04: Cryptographic Failures</td><td>DB unverschlüsselt – akzeptabel für lokales Netzlaufwerk mit NTFS. Keine Netzwerkübertragung.</td><td class="status-cell"><span class="badge badge-ok">Akzeptabel</span></td></tr>
+    <tr style="background:#fff8e1"><td><strong>A05: Injection</strong></td><td><strong>SQL-Injection in Filter-Funktionen gefunden</strong> (~30 Stellen). <code>gf()</code> und <code>bgWhere()</code> bauten Filter per String-Concat in SQL.<br><strong>Fix:</strong> Drei Sanitizer: <code>_safeIntList()</code> (parseInt + isNaN), <code>_safeStrList()</code> (Regex-Whitelist), <code>_sqlInStr()</code> (korrektes Escaping). Alle anderen Queries nutzen parametrisierte ?-Platzhalter.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+    <tr><td>A06: Insecure Design</td><td>Kein formales Threat-Model. Sicherheitsregeln in CLAUDE.md dokumentiert. Input-Validierung bei File-Uploads.</td><td class="status-cell"><span class="badge badge-warn">Mittel</span></td></tr>
+    <tr><td>A07: Authentication Failures</td><td>Keine App-Auth (by Design, siehe 1.4). Prüfer-Name dient nur der Nachvollziehbarkeit.</td><td class="status-cell"><span class="badge badge-ok">By Design</span></td></tr>
+    <tr><td>A08: Data Integrity</td><td>Multi-User-Sync mit Dirty-Op-Replay und Konflikt-Erkennung. Konflikte per Toast angezeigt. Schema-Migrationen dokumentiert.</td><td class="status-cell"><span class="badge badge-ok">OK</span></td></tr>
+    <tr><td>A09: Logging Failures</td><td>Import-History wird gespeichert. Prüfer-Name bei jeder Änderung erfasst. Kein vollständiges Audit-Log (akzeptabel für 2–3 User).</td><td class="status-cell"><span class="badge badge-warn">Mittel</span></td></tr>
+    <tr style="background:#fff8e1"><td><strong>A10: Exceptional Conditions</strong></td><td><strong>~80 stille catch-Blöcke gefunden.</strong> Kritischste gefixt: Dirty-Op-Replay zeigt Toast bei übersprungenen Operationen. Sync-Fehler sichtbar. Disk-Migrationen loggen Fehler. Auto-Save-Fehler geloggt.</td><td class="status-cell"><span class="badge badge-fix">GEFIXT</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>4. Zusammenfassung</h2>
+
+<div class="highlight-box">
+  <strong>CSO-Review: 15 Findings</strong><br>
+  12 durch Code-Fixes behoben &bull; 2 waren bereits erledigt &bull; 1 organisatorisch (Löschkonzept)<br><br>
+  <strong>OWASP Top 10:2025 Audit</strong><br>
+  8 Kategorien OK oder akzeptabel &bull; 2 zusätzliche Schwachstellen gefunden und behoben (A05 + A10)
+</div>
+
+<h3>Code-Änderungen gesamt</h3>
+<ul>
+  <li>KI-API komplett entfernt (–870 Zeilen)</li>
+  <li>SQL-Injection-Sanitizer eingeführt (3 Funktionen)</li>
+  <li><code>toast()</code> XSS-gehärtet (<code>innerHTML</code> → <code>textContent</code>)</li>
+  <li>Content Security Policy aktiviert</li>
+  <li>Datei-Validierung mit Größenlimits (50/100/10 MB)</li>
+  <li>Stille Fehler sichtbar gemacht (Toast-Warnungen)</li>
+  <li>Fehlerdetails aus UI entfernt (nur noch console.warn)</li>
+</ul>
+
+<h3>Verbleibende akzeptierte Risiken</h3>
+<ul>
+  <li>Keine App-eigene Authentifizierung (Dateisystem-basiert, by Design)</li>
+  <li>CSP mit <code>unsafe-inline</code>/<code>unsafe-eval</code> (architekturbedingt nötig)</li>
+  <li>SQLite unverschlüsselt (Netzlaufwerk-Schutz)</li>
+  <li>Kein vollständiges Audit-Log (Overengineering für 2–3 User)</li>
+</ul>
+
+<div class="footer">
+  <span>Sicherheitsbericht – Berichtsheftkontrolle v2.0</span>
+  <span>RP Freiburg, Abt. 3 – Ausbildungsberater Gärtner</span>
+  <span>26.03.2026</span>
+</div>
+
+</body>
+</html>

@@ -760,8 +760,8 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Schüler & Import</h2>
-        <p>Auszubildende verwalten, filtern und bearbeiten</p>
+        <h2>Import</h2>
+        <p>Auszubildende, Ausbilder und Landesfachklassen importieren und verwalten</p>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -797,7 +797,92 @@ const Views = {
             <p>CSV- oder Excel-Datei hierher ziehen oder klicken (.csv, .xlsx, .xls)</p>
             <input type="file" id="csvFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleFile(this.files[0])">
           </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
           <div id="importPreview"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="cursor:pointer" onclick="document.getElementById('lfkSection').style.display=document.getElementById('lfkSection').style.display==='none'?'':'none'">
+          Landesfachklasse-Import ▾
+        </div>
+        <div id="lfkSection" style="display:none">
+          <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
+            <div style="display:flex;align-items:start;gap:10px">
+              <span style="font-size:20px;line-height:1">🏫</span>
+              <div style="font-size:13px;color:var(--clr-text)">
+                <strong style="color:var(--clr-forest-dark)">Landesfachklassen aus IBYKUS importieren</strong>
+                <p style="margin:8px 0 0;line-height:1.7">
+                  Bestimmte Fachrichtungen besuchen in höheren Ausbildungsjahren eine andere Berufsschule (Landesfachklasse).
+                  Dieser Import ordnet die Landesfachklassen den Schülern zu.
+                </p>
+                <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px">
+                  <span><strong>Gemüsebau:</strong> 3. AJ → Heidelberg</span>
+                  <span><strong>Obstbau:</strong> 2.+3. AJ → Heilbronn</span>
+                  <span><strong>Baumschule:</strong> 3. AJ → OG / Freiburg</span>
+                  <span><strong>Stauden:</strong> 3. AJ → Freiburg</span>
+                </div>
+                <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
+                  💡 <strong>IBYKUS-Export:</strong> Unter <em>Berichtsheftkontrolle-Export</em> die Spalten
+                  <code>Nr.</code>, <code>Besch-Person</code>, <code>Nummer der Klasse</code>, <code>Beschreibung Klasse</code>, <code>Landesfachklasse</code> exportieren.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="drop-zone" id="lfkDropZone" onclick="document.getElementById('lfkFileInput').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="event.preventDefault();this.classList.remove('dragover');ImportHandler.handleLFKFile(event.dataTransfer.files[0])">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Landesfachklasse-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
+            <input type="file" id="lfkFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleLFKFile(this.files[0])">
+          </div>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <div style="margin-top:6px">
+              <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
+            </div>
+          </details>
+          <div id="lfkImportPreview"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="cursor:pointer" onclick="document.getElementById('ausbilderSection').style.display=document.getElementById('ausbilderSection').style.display==='none'?'':'none'">
+          Ausbilder-Import ▾
+        </div>
+        <div id="ausbilderSection" style="display:none">
+          <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
+            <div style="display:flex;align-items:start;gap:10px">
+              <span style="font-size:20px;line-height:1">👨‍🏫</span>
+              <div style="font-size:13px;color:var(--clr-text)">
+                <strong style="color:var(--clr-forest-dark)">Ausbilder aus IBYKUS importieren</strong>
+                <p style="margin:8px 0 0;line-height:1.7">
+                  Importiert Ausbilder-Daten und ordnet sie automatisch den bestehenden Betrieben zu
+                  (über Betriebsnummer oder Betriebsname).
+                </p>
+                <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
+                  💡 <strong>Spalten:</strong> Betriebsnummer, Betriebsname, Nachname, Vorname, Telefon, E-Mail, Mobil, Funktion
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="drop-zone" id="ausbilderDropZone" onclick="document.getElementById('ausbilderFileInput').click()"
+               ondragover="event.preventDefault();this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="event.preventDefault();this.classList.remove('dragover');ImportHandler.handleAusbilderFile(event.dataTransfer.files[0])">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Ausbilder-Export hierher ziehen oder klicken (.csv, .xlsx)</p>
+            <input type="file" id="ausbilderFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleAusbilderFile(this.files[0])">
+          </div>
+          <div id="ausbilderImportPreview"></div>
         </div>
       </div>
 
@@ -868,7 +953,10 @@ const Views = {
             mTermine.forEach(t => {
               const day = parseInt(t.geplant_datum.split('-')[2]);
               const kl = App.getTerminKlassen(t.id);
-              terminDays[day] = { t, label: kl.map(k => k.klassenbezeichnung).join('+'), status: t.status, pruefer: t.pruefer };
+              const frAj = App.formatTerminFrAj(t.id);
+              const schule = kl.length ? kl[0].schule : '';
+              const calLabel = t.typ === 'einsendung' ? '📬 Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+'));
+              terminDays[day] = { t, label: calLabel, detail: frAj, status: t.status, pruefer: t.pruefer };
             });
 
             let cells = '';
@@ -878,9 +966,9 @@ const Views = {
               const isToday = d === now.getDate() && m === now.getMonth() && year === now.getFullYear();
               const bg = td ? (td.status === 'durchgefuehrt' ? 'var(--clr-green-light)' : 'var(--clr-blue-light)') : '';
               const border = isToday ? '2px solid var(--clr-forest)' : td ? '1px solid var(--clr-sage-light)' : '';
-              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="PlanungHandler.editTermin(${td.t.id})" title="${esc(td.label)} – ${esc(td.pruefer)}"` : ''}>
+              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="PlanungHandler.editTermin(${td.t.id})" title="${esc(td.label)} – ${esc(td.detail)} – ${esc(td.pruefer)}"` : ''}>
                 <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}</div>
-                ${td ? `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.label)}</div>` : ''}
+                ${td ? `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.label)}</div><div style="font-size:8px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.detail)}</div>` : ''}
               </div>`;
             }
             return `<div class="card" style="margin-bottom:8px">
@@ -963,16 +1051,7 @@ const Views = {
         <div class="form-group">
           <select class="form-control" id="selKontrolltermin" onchange="KontrolleHandler.loadTermin(this.value)">
             <option value="">– Bitte wählen –</option>
-            ${termine.map(t => {
-              const klassenStr = App.formatTerminKlassen(t.id);
-              const klassen = App.getTerminKlassen(t.id);
-              const schule = klassen.length ? klassen[0].schule : '?';
-              const frAj = App.formatTerminFrAj(t.id);
-              const isEins = t.typ === 'einsendung';
-              const schuelerCount = isEins ? App.getTerminSchueler(t.id).length : 0;
-              const label = isEins ? `📬 Einsendung (${schuelerCount} Schüler)` : `${esc(schule)} – ${esc(frAj)}`;
-              return `<option value="${t.id}">KW${getKW(t.geplant_datum)} ${formatDate(t.geplant_datum)} – ${label} (${t.status})</option>`;
-            }).join('')}
+            ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -1109,8 +1188,8 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Schüler-Bogen als PDF.</p>
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportStatistik()">
-          <div class="card-header">Statistik (CSV)</div>
-          <p style="font-size:13px;color:var(--clr-text-light)">Zusammenfassung pro Schule/Jahrgang.</p>
+          <div class="card-header">Excel-Dashboard</div>
+          <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
       </div>
       <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
@@ -1222,48 +1301,6 @@ const Views = {
             onkeydown="if(event.key==='Enter'){Views.addTextbaustein();event.preventDefault()}">
           <button class="btn btn-sm btn-primary" onclick="Views.addTextbaustein()">+ Hinzufügen</button>
         </div>
-      </div>
-
-      <!-- LLM API für Blockplan-Analyse -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header">🤖 KI-Einstellungen (für Blockplan-Analyse)</div>
-        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-          PDF-Seiten werden als Bild an ein Vision-Model gesendet – die KI sieht die Tabelle exakt wie ein Mensch.
-        </p>
-        <details style="margin-bottom:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--clr-forest);font-weight:600">Modell-Empfehlungen anzeigen</summary>
-          <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-top:4px;line-height:1.8">
-            <strong>⭐ GPT-5.4</strong> (OpenAI) – Beste Tabellen-Erkennung, 10M+ Pixel Vision, ~$0.01/Analyse<br>
-            <strong>Claude Sonnet 4</strong> (Anthropic) – Sehr gute Vision, zuverlässig, ~$0.01/Analyse<br>
-            <strong>Gemini 2.5 Flash</strong> (Google) – Kostenlos mit Rate-Limit, gute Vision<br>
-            <strong>llava</strong> (Ollama) – Komplett lokal/kostenlos, mittlere Qualität<br>
-            <em>Tipp: Das Modell ist frei wählbar – tippen Sie einfach einen neueren Modellnamen ein wenn verfügbar.</em>
-          </div>
-        </details>
-        <div class="form-row">
-          <div class="form-group"><label>Anbieter</label>
-            <select class="form-control" id="setLLMProvider" onchange="document.getElementById('setLLMModel').value={'claude':'claude-sonnet-4-20250514','openai':'gpt-5.4','gemini':'gemini-2.5-flash','ollama':'llava'}[this.value]||''">
-              <option value="claude" ${(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")||'claude')==='claude'?'selected':''}>Anthropic (Claude Sonnet 4)</option>
-              <option value="openai" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='openai'?'selected':''}>OpenAI (GPT-5.4) ⭐ Empfohlen</option>
-              <option value="gemini" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='gemini'?'selected':''}>Google (Gemini 2.5 Flash) – Kostenlos</option>
-              <option value="ollama" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_provider'")==='ollama'?'selected':''}>Ollama (llava) – Lokal</option>
-            </select>
-          </div>
-          <div class="form-group"><label>Modell</label>
-            <input class="form-control" id="setLLMModel" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_model'")||'claude-sonnet-4-20250514')}" placeholder="z.B. claude-sonnet-4-20250514">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>API-Key</label>
-            <input class="form-control" id="setLLMKey" type="password" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_api_key'")||'')}" placeholder="sk-... oder eigener Key">
-          </div>
-          <div class="form-group"><label>Ollama URL (nur bei Ollama)</label>
-            <input class="form-control" id="setLLMUrl" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='llm_url'")||'http://localhost:11434')}" placeholder="http://localhost:11434">
-          </div>
-        </div>
-        <button class="btn btn-sm btn-secondary" onclick="Views.testLLM()">🧪 Verbindung testen</button>
-        <button class="btn btn-sm btn-primary" onclick="Views.saveLLMSettings()" style="margin-left:6px">Speichern</button>
-        <span id="llmTestResult" style="margin-left:8px;font-size:12px"></span>
       </div>
 
       <!-- Word-Vorlage für Serienbriefe -->
@@ -1410,28 +1447,9 @@ const Views = {
     App.toast('Textbaustein entfernt', 'success');
   },
 
-  saveLLMSettings() {
-    [['llm_provider', document.getElementById('setLLMProvider').value],
-     ['llm_model', document.getElementById('setLLMModel').value.trim()],
-     ['llm_api_key', document.getElementById('setLLMKey').value.trim()],
-     ['llm_url', document.getElementById('setLLMUrl').value.trim()]
-    ].forEach(([k,v]) => App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]));
-    App.toast('KI-Einstellungen gespeichert', 'success');
-  },
-
-  async testLLM() {
-    const res = document.getElementById('llmTestResult');
-    res.innerHTML = '⏳ Teste…';
-    try {
-      const reply = await LLMHelper.call('Antworte nur mit dem Wort OK.');
-      res.innerHTML = reply.includes('OK') ? '<span style="color:var(--clr-green)">✓ Verbindung OK</span>' : `<span style="color:var(--clr-amber)">⚠ Antwort: ${reply.substring(0,50)}</span>`;
-    } catch(e) {
-      res.innerHTML = `<span style="color:var(--clr-red)">✗ ${e.message}</span>`;
-    }
-  },
-
   uploadWordTemplate(file) {
     if (!file || !file.name.endsWith('.docx')) return App.toast('Bitte eine .docx-Datei auswählen', 'error');
+    if (file.size > 10 * 1024 * 1024) return App.toast('Vorlage zu groß (max 10 MB)', 'error');
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = e.target.result.split(',')[1];
