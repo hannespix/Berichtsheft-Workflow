@@ -28,7 +28,7 @@ const PlanungHandler = {
       WHERE 1=1${gfK}
       ORDER BY bs.name, k.klassenbezeichnung`);
     const pruefer = App.query('SELECT * FROM pruefer WHERE aktiv=1 ORDER BY name');
-    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
+    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE ${App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1'}${gfS} ORDER BY s.nachname, s.vorname`);
 
     // Filter options – reguläre Schulen + aktuelle LFK-Schulen
     const lfkSchulen = App.query("SELECT DISTINCT landesfachklasse FROM schueler WHERE aktiv=1 AND landesfachklasse != ''").map(r => r.landesfachklasse);
@@ -563,7 +563,7 @@ const PlanungHandler = {
 
     // Load already-linked individual students
     const linkedSchuelerIds = App.query('SELECT schueler_id FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]).map(r => r.schueler_id);
-    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
+    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE ${App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1'}${gfS} ORDER BY s.nachname, s.vorname`);
     const isEinsendung = t.typ === 'einsendung';
 
     // Filter options – reguläre Schulen + aktuelle LFK-Schulen

@@ -27,7 +27,7 @@ const NacherfassungHandler = {
       return;
     }
 
-    let where = "s.aktiv=1" + App.gf('schueler');
+    let where = (App._extraFilterSql().overrideAktiv ? "1=1" : "s.aktiv=1") + App.gf('schueler');
     const params = [];
     where += " AND k.berufsschule_id=?"; params.push(bsId);
     if (klId) { where += " AND s.klasse_id=?"; params.push(klId); }

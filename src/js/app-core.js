@@ -44,7 +44,7 @@ const App = {
     // Kategorie: Standort
     berufsschule:     { cat: 'Standort', label: 'Berufsschule', type: 'select', optionsSql: "SELECT DISTINCT bs.id, bs.name FROM berufsschulen bs JOIN klassen k ON k.berufsschule_id=bs.id JOIN schueler s ON s.klasse_id=k.id WHERE s.aktiv=1 ORDER BY bs.name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id = ${parseInt(v)||0})` },
     klasse:           { cat: 'Standort', label: 'Klasse', type: 'select', optionsSql: "SELECT k.id, k.klassenbezeichnung || ' (' || bs.name || ')' as label FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name, k.klassenbezeichnung", optionKey: 'label', optionValue: 'id', sqlS: (v) => `s.klasse_id = ${parseInt(v)||0}` },
-    plz_bereich:      { cat: 'Standort', label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE plz LIKE '${v.replace(/'/g,"''")}%')` },
+    plz_bereich:      { cat: 'Standort', label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sqlS: (v) => { const safe = v.replace(/[^0-9]/g, ''); return safe ? `s.betrieb_id IN (SELECT id FROM betriebe WHERE plz LIKE '${safe}%')` : '1=1'; } },
     betrieb_ort:      { cat: 'Standort', label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE ort = '${v.replace(/'/g,"''")}')` },
     betrieb:          { cat: 'Standort', label: 'Betrieb', type: 'select', optionsSql: "SELECT DISTINCT id, name FROM betriebe WHERE name != '' ORDER BY name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.betrieb_id = ${parseInt(v)||0}` },
     // Kategorie: Status & Kontrolle
@@ -2416,11 +2416,12 @@ const App = {
       // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
 
-      // 6) Update timestamp + clear tracking
+      // 6) Update timestamp + clear tracking (only the ops we replayed, keep any new ones)
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size;
-      this._dirtyOps = [];
-      this.unsavedChanges = false;
+      // Only remove the ops we already replayed - keep any added during async write
+      this._dirtyOps = this._dirtyOps.slice(ops.length);
+      this.unsavedChanges = this._dirtyOps.length > 0;
       this.saveCount++;
       this._saveRetryCount = 0;
       this._saveCooldownUntil = null;
@@ -2577,6 +2578,41 @@ const App = {
       mobil TEXT DEFAULT '',
       funktion TEXT DEFAULT ''
     )`);
+    // Junction tables for multi-class termine + einsendungen
+    run(`CREATE TABLE IF NOT EXISTS kontrolltermin_klassen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrolltermin_id INTEGER REFERENCES kontrolltermine(id) ON DELETE CASCADE,
+      klasse_id INTEGER REFERENCES klassen(id),
+      UNIQUE(kontrolltermin_id, klasse_id)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS kontrolltermin_schueler (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrolltermin_id INTEGER REFERENCES kontrolltermine(id) ON DELETE CASCADE,
+      schueler_id INTEGER REFERENCES schueler(id),
+      UNIQUE(kontrolltermin_id, schueler_id)
+    )`);
+    // Durchsichtsbögen-Archiv
+    run(`CREATE TABLE IF NOT EXISTS durchsicht_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      kontrolltermin_id INTEGER,
+      snapshot_datum TEXT DEFAULT (datetime('now','localtime')),
+      pruefer TEXT DEFAULT '',
+      ergebnis TEXT DEFAULT '',
+      bemerkung TEXT DEFAULT '',
+      kw_daten_json TEXT DEFAULT '{}',
+      geprueft_kws_json TEXT DEFAULT '{}',
+      pflichtteile_json TEXT DEFAULT '{}'
+    )`);
+    // Blockplan table
+    run(`CREATE TABLE IF NOT EXISTS blockplan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      berufsschule_id INTEGER REFERENCES berufsschulen(id),
+      schuljahr TEXT DEFAULT '',
+      lehrjahr INTEGER DEFAULT 1,
+      kalenderwoche INTEGER,
+      UNIQUE(berufsschule_id, schuljahr, lehrjahr, kalenderwoche)
+    )`);
   },
 
   _importFromDisk(diskDb) {
@@ -2602,7 +2638,8 @@ const App = {
 
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
-        'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws'];
+        'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
+        'zulassung_ap','pruefungsausschuss','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
         const local = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?',

@@ -658,8 +658,9 @@ const KontrolleHandler = {
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
     App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
-    // Remove from in-memory list
+    // Remove from in-memory list + adjust index
     this.currentSchuelerList = this.currentSchuelerList.filter(s => s.id !== schuelerId);
+    if (this.currentIndex >= this.currentSchuelerList.length && this.currentIndex > 0) this.currentIndex--;
     this.renderUebersicht();
     App.toast(`${name} aus Kontrolle entfernt`, 'info');
   },
