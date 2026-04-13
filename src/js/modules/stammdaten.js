@@ -137,8 +137,19 @@ const StammdatenTab = {
 
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
-    <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
-      ${azubis.length===0?'<tr><td colspan="8" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
+    <!-- Bulk Action Bar -->
+    <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+      <strong><span id="bulkCountAzubi">0</span> ausgewählt</strong>
+      <span style="opacity:0.4">│</span>
+      <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab._bulkDeleteAzubis()">🗑 Löschen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸ Inaktiv setzen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">📚 Klasse zuordnen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">📅 Jahrgang ändern</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">🌿 Fachrichtung ändern</button>
+      <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
+    </div>
+    <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
+      ${azubis.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
       ${azubis.map(s => {
         const ktrls = App.query('SELECT ke.*, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != "" ORDER BY kt.geplant_datum DESC', [s.id]);
         const snpCnt = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE schueler_id=?', [s.id])||0;
@@ -147,6 +158,7 @@ const StammdatenTab = {
         const amp = App.getSchuelerAmpel(s.id);
         const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende);
         return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
+          <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
             ${vk?'<span style="font-size:9px;padding:1px 4px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
             ${oMgl>0?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:8px" title="'+oMgl+' Kalenderwoche(n) mit offenen Mängeln (ohne Fehltage)">'+oMgl+'M</span>':''}
@@ -172,6 +184,95 @@ const StammdatenTab = {
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
+  },
+
+  // ── Bulk operations for Azubi table ──
+  _bulkGetSelected() { return [...document.querySelectorAll('.chk-azubi:checked')].map(c => parseInt(c.value)); },
+  _bulkToggleAll(checked) { document.querySelectorAll('.chk-azubi').forEach(c => c.checked = checked); this._bulkUpdateBar(); },
+  _bulkDeselectAll() { document.querySelectorAll('.chk-azubi').forEach(c => c.checked = false); const ca = document.getElementById('chkAllAzubi'); if (ca) ca.checked = false; this._bulkUpdateBar(); },
+  _bulkUpdateBar() {
+    const ids = this._bulkGetSelected();
+    const bar = document.getElementById('bulkBarAzubi');
+    const cnt = document.getElementById('bulkCountAzubi');
+    if (cnt) cnt.textContent = ids.length;
+    if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
+    // Sync BulkSchueler so its methods work with our checkboxes
+    BulkSchueler.getSelected = () => this._bulkGetSelected();
+  },
+
+  _bulkDeleteAzubis() {
+    const ids = this._bulkGetSelected();
+    if (!ids.length) return;
+    const names = ids.slice(0, 5).map(id => {
+      const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
+      return s ? `${s.nachname}, ${s.vorname}` : '?';
+    });
+    // Check for linked data
+    const ph = ids.join(',');
+    const withKE = App.scalar(`SELECT COUNT(DISTINCT schueler_id) FROM kontrollergebnisse WHERE schueler_id IN (${ph})`) || 0;
+    const withWV = App.scalar(`SELECT COUNT(DISTINCT schueler_id) FROM wiedervorlagen WHERE schueler_id IN (${ph})`) || 0;
+    const withKW = App.scalar(`SELECT COUNT(DISTINCT schueler_id) FROM kw_status WHERE schueler_id IN (${ph})`) || 0;
+
+    let warnText = '';
+    if (withKE || withWV || withKW) {
+      const parts = [];
+      if (withKE) parts.push(`${withKE} mit Kontrollergebnissen`);
+      if (withWV) parts.push(`${withWV} mit Wiedervorlagen`);
+      if (withKW) parts.push(`${withKW} mit KW-Daten`);
+      warnText = parts.join(', ') + ' — alle verknüpften Daten werden mitgelöscht!';
+    }
+
+    // Two-step confirmation: modal with number-typing safety
+    App.openModal(`${ids.length} Azubis löschen`, `
+      <div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+        <strong style="color:var(--clr-red)">Achtung: Diese Aktion kann nicht rückgängig gemacht werden!</strong>
+        ${warnText ? `<div style="margin-top:6px;font-size:12px;color:var(--clr-red)">${esc(warnText)}</div>` : ''}
+      </div>
+      <div style="font-size:13px;margin-bottom:12px">
+        <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:120px;overflow-y:auto">
+          ${names.map(n => `<div>• ${esc(n)}</div>`).join('')}
+          ${ids.length > 5 ? `<div style="color:var(--clr-text-light)">… und ${ids.length - 5} weitere</div>` : ''}
+        </div>
+      </div>
+      <div class="form-group">
+        <label style="color:var(--clr-red);font-weight:700">Zur Bestätigung bitte die Anzahl eingeben: <code style="font-size:16px">${ids.length}</code></label>
+        <input class="form-control" id="bulkDeleteConfirmInput" placeholder="Anzahl eingeben…" autocomplete="off" style="border-color:var(--clr-red)">
+      </div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn" style="background:var(--clr-red);color:white" id="bulkDeleteBtn" onclick="StammdatenTab._doDeleteAzubis()" disabled>Endgültig löschen</button>`);
+    setTimeout(() => {
+      const inp = document.getElementById('bulkDeleteConfirmInput');
+      const btn = document.getElementById('bulkDeleteBtn');
+      if (inp && btn) inp.addEventListener('input', () => { btn.disabled = inp.value.trim() !== String(ids.length); });
+    }, 50);
+  },
+
+  _doDeleteAzubis() {
+    const ids = this._bulkGetSelected();
+    const inp = document.getElementById('bulkDeleteConfirmInput');
+    if (!inp || inp.value.trim() !== String(ids.length)) return;
+    const ph = ids.join(',');
+    App.run(`DELETE FROM kontrollergebnisse WHERE schueler_id IN (${ph})`);
+    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (${ph})`);
+    App.run(`DELETE FROM kw_status WHERE schueler_id IN (${ph})`);
+    App.run(`DELETE FROM kontrolltermin_schueler WHERE schueler_id IN (${ph})`);
+    try { App.run(`DELETE FROM schueler_bemerkungen WHERE schueler_id IN (${ph})`); } catch(e) {}
+    try { App.run(`DELETE FROM schueler_dateien WHERE schueler_id IN (${ph})`); } catch(e) {}
+    App.run(`DELETE FROM schueler WHERE id IN (${ph})`);
+    App.closeModal();
+    App.toast(`${ids.length} Azubis und alle verknüpften Daten gelöscht`, 'success');
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
+  },
+
+  _bulkSetInaktiv() {
+    const ids = this._bulkGetSelected();
+    if (!ids.length) return;
+    if (!confirm(`${ids.length} Azubis auf inaktiv setzen?`)) return;
+    const today = new Date().toISOString().split('T')[0];
+    ids.forEach(id => App.run("UPDATE schueler SET aktiv=0, status='inaktiv', inaktiv_datum=? WHERE id=?", [today, id]));
+    App.toast(`${ids.length} Azubis auf inaktiv gesetzt`, 'success');
+    this._bulkDeselectAll();
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
 
   _getFilteredAzubis() {

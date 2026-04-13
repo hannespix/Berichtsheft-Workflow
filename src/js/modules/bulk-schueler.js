@@ -26,7 +26,8 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET klasse_id=? WHERE id=?', [klId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler zugeordnet`, 'success');
-    try { SchuelerView.render(); } catch(e) {}
+    StammdatenTab._bulkDeselectAll();
+    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
   assignJahrgang() {
     const ids = this.getSelected();
@@ -45,7 +46,8 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET jahrgang_id=? WHERE id=?', [jgId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler verschoben`, 'success');
-    try { SchuelerView.render(); } catch(e) {}
+    StammdatenTab._bulkDeselectAll();
+    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
   assignFachrichtung() {
     const ids = this.getSelected();
@@ -65,14 +67,7 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET fachrichtung_id=? WHERE id=?', [frId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler aktualisiert`, 'success');
-    try { SchuelerView.render(); } catch(e) {}
-  },
-  deleteSelected() {
-    const ids = this.getSelected();
-    if (!ids.length) return;
-    if (!confirm(`Wirklich ${ids.length} Schüler löschen?`)) return;
-    ids.forEach(id => App.run('DELETE FROM schueler WHERE id=?', [id]));
-    App.toast(`${ids.length} Schüler gelöscht`, 'success');
-    try { SchuelerView.render(); } catch(e) {}
+    StammdatenTab._bulkDeselectAll();
+    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
 };
