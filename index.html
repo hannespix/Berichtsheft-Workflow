@@ -202,6 +202,13 @@
         </div>
       </div>
     </div>
+    <div style="position:relative;display:inline-block">
+      <button id="extraFilterBtn" class="fp-btn" onclick="App.toggleExtraFilterDropdown()" title="Weitere Filter hinzufügen">
+        + Filter ▾
+      </button>
+      <div id="extraFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px;max-height:400px;overflow-y:auto"></div>
+    </div>
+    <div id="extraFilterChips" style="display:contents"></div>
     <span id="dbLastSaved" style="margin-left:auto;font-size:10px;color:rgba(255,255,255,0.5)">–</span>
   </div>
 

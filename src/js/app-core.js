@@ -21,7 +21,145 @@ const App = {
   filterAmt: [],     // Empty = all, otherwise array of amt codes (strings like '93')
   filterBavStatus: 'aktiv', // 'aktiv' = not Ende (default), 'alle' = all, 'ende' = only Ende
   filterZp: [], // Empty = all, otherwise array of ZP codes (e.g. ['H2026','F2027'])
+  extraFilters: [], // Dynamic extra filters: [{field:'verkuerzer', value:'ja'}, ...]
   currentUser: '', // Active Sachbearbeiter name
+
+  // ── Dynamic extra filter definitions (categorized) ──
+  extraFilterDefs: {
+    // Kategorie: Ausbildung
+    verkuerzer:       { cat: 'Ausbildung', label: 'Verkürzer', type: 'toggle', options: [{v:'ja',l:'Nur Verkürzer'},{v:'nein',l:'Keine Verkürzer'}], sqlS: (v) => v === 'ja' ? "CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) < 1000" : "(CAST(julianday(s.ausbildungsende)-julianday(s.ausbildungsbeginn) AS INTEGER) >= 1000 OR s.ausbildungsende IS NULL OR s.ausbildungsende = '')" },
+    landesfachklasse: { cat: 'Ausbildung', label: 'Landesfachklasse', type: 'toggle', options: [{v:'ja',l:'Nur LFK'},{v:'nein',l:'Keine LFK'}], sqlS: (v) => v === 'ja' ? "s.landesfachklasse != ''" : "(s.landesfachklasse = '' OR s.landesfachklasse IS NULL)" },
+    geschlecht:       { cat: 'Ausbildung', label: 'Geschlecht', type: 'select', optionsSql: "SELECT DISTINCT geschlecht FROM schueler WHERE geschlecht != '' AND geschlecht IS NOT NULL ORDER BY geschlecht", optionKey: 'geschlecht', sqlS: (v) => `s.geschlecht = '${v.replace(/'/g,"''")}'` },
+    schulabschluss:   { cat: 'Ausbildung', label: 'Schulabschluss', type: 'select', optionsSql: "SELECT DISTINCT schulabschluss FROM schueler WHERE schulabschluss != '' AND schulabschluss IS NOT NULL ORDER BY schulabschluss", optionKey: 'schulabschluss', sqlS: (v) => `s.schulabschluss = '${v.replace(/'/g,"''")}'` },
+    ausb_beginn_ab:   { cat: 'Ausbildung', label: 'Ausb.beginn ab', type: 'date', sqlS: (v) => `s.ausbildungsbeginn >= '${v.replace(/'/g,"''")}'` },
+    ausb_beginn_bis:  { cat: 'Ausbildung', label: 'Ausb.beginn bis', type: 'date', sqlS: (v) => `s.ausbildungsbeginn <= '${v.replace(/'/g,"''")}'` },
+    ausb_ende_ab:     { cat: 'Ausbildung', label: 'Ausb.ende ab', type: 'date', sqlS: (v) => `s.ausbildungsende >= '${v.replace(/'/g,"''")}'` },
+    ausb_ende_bis:    { cat: 'Ausbildung', label: 'Ausb.ende bis', type: 'date', sqlS: (v) => `s.ausbildungsende <= '${v.replace(/'/g,"''")}'` },
+    // Kategorie: Prüfungen
+    ap_zugelassen:    { cat: 'Prüfungen', label: 'AP-Zulassung', type: 'toggle', options: [{v:'ja',l:'Zugelassen'},{v:'nein',l:'Nicht zugelassen'}], sqlS: (v) => v === 'ja' ? "s.ap_zugelassen = 1" : "s.ap_zugelassen = 0" },
+    ap_bestanden:     { cat: 'Prüfungen', label: 'AP bestanden', type: 'toggle', options: [{v:'ja',l:'Bestanden'},{v:'nein',l:'Nicht bestanden'}], sqlS: (v) => v === 'ja' ? "s.ap_bestanden = 1" : "s.ap_bestanden = 0" },
+    pruefungserfolg:  { cat: 'Prüfungen', label: 'Prüfungserfolg', type: 'select', optionsSql: "SELECT DISTINCT pruefungserfolg FROM schueler WHERE pruefungserfolg != '' AND pruefungserfolg IS NOT NULL ORDER BY pruefungserfolg", optionKey: 'pruefungserfolg', sqlS: (v) => `s.pruefungserfolg = '${v.replace(/'/g,"''")}'` },
+    zwischenpruefung: { cat: 'Prüfungen', label: 'Zwischenprüfung', type: 'select', optionsSql: "SELECT DISTINCT zwischenpruefung FROM schueler WHERE zwischenpruefung != '' AND zwischenpruefung IS NOT NULL ORDER BY zwischenpruefung", optionKey: 'zwischenpruefung', optionLabel: (r) => App.zpLabel ? App.zpLabel(r.zwischenpruefung) : r.zwischenpruefung, sqlS: (v) => `s.zwischenpruefung = '${v.replace(/'/g,"''")}'` },
+    // Kategorie: Standort
+    plz_bereich:      { cat: 'Standort', label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE plz LIKE '${v.replace(/'/g,"''")}%')` },
+    betrieb_ort:      { cat: 'Standort', label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE ort = '${v.replace(/'/g,"''")}')` },
+    betrieb:          { cat: 'Standort', label: 'Betrieb', type: 'select', optionsSql: "SELECT DISTINCT id, name FROM betriebe WHERE name != '' ORDER BY name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.betrieb_id = ${parseInt(v)||0}` },
+    // Kategorie: Status & Kontrolle
+    offene_maengel:   { cat: 'Kontrolle', label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'},{v:'nein',l:'Ohne Mängel'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" : "s.id NOT IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" },
+    offene_wv:        { cat: 'Kontrolle', label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit offener WV'},{v:'nein',l:'Ohne offene WV'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" : "s.id NOT IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" },
+    bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => `s.bav_status = '${v.replace(/'/g,"''")}'` },
+    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
+    // Kategorie: Datenqualität
+    ohne_betrieb:     { cat: 'Datenqualität', label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sqlS: () => "(s.betrieb_id IS NULL OR s.betrieb_id = 0)" },
+    ohne_klasse:      { cat: 'Datenqualität', label: 'Ohne Klasse', type: 'toggle', options: [{v:'ja',l:'Ohne Klasse'}], sqlS: () => "(s.klasse_id IS NULL OR s.klasse_id = 0)" },
+    ohne_email:       { cat: 'Datenqualität', label: 'Ohne E-Mail', type: 'toggle', options: [{v:'ja',l:'Ohne E-Mail'}], sqlS: () => "(s.email IS NULL OR s.email = '') AND s.betrieb_id NOT IN (SELECT id FROM betriebe WHERE email != '')" },
+  },
+
+  // ── Extra Filter UI Methods ──
+  toggleExtraFilterDropdown() {
+    const dd = document.getElementById('extraFilterDropdown');
+    if (!dd) return;
+    if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
+    // Close other dropdowns
+    document.querySelectorAll('.fp-dropdown').forEach(d => { if (d.id !== 'extraFilterDropdown') d.style.display = 'none'; });
+    // Build categorized dropdown
+    const usedFields = this.extraFilters.map(f => f.field);
+    const available = Object.entries(this.extraFilterDefs).filter(([k]) => !usedFields.includes(k));
+    if (!available.length) { App.toast('Alle Filter bereits hinzugefügt', 'info'); return; }
+    const byCat = {};
+    available.forEach(([k, def]) => { if (!byCat[def.cat]) byCat[def.cat] = []; byCat[def.cat].push([k, def]); });
+    const catOrder = ['Ausbildung', 'Prüfungen', 'Standort', 'Kontrolle', 'Datenqualität'];
+    dd.innerHTML = catOrder.filter(c => byCat[c]).map(cat => `
+      <div style="padding:4px 12px 2px;font-size:10px;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">${esc(cat)}</div>
+      ${byCat[cat].map(([k, def]) => `<div class="fp-dd-item" style="padding:4px 12px;cursor:pointer;font-size:12px" onclick="App._addExtraFilter('${k}')">${esc(def.label)}</div>`).join('')}
+    `).join('');
+    dd.style.display = '';
+    // Close on outside click
+    setTimeout(() => {
+      const close = (e) => { if (!dd.contains(e.target) && e.target.id !== 'extraFilterBtn') { dd.style.display = 'none'; document.removeEventListener('click', close); } };
+      document.addEventListener('click', close);
+    }, 10);
+  },
+
+  _addExtraFilter(field) {
+    const def = this.extraFilterDefs[field];
+    if (!def) return;
+    // For toggles with single option, auto-set value
+    const autoVal = (def.type === 'toggle' && def.options.length === 1) ? def.options[0].v : '';
+    this.extraFilters.push({ field, value: autoVal });
+    document.getElementById('extraFilterDropdown').style.display = 'none';
+    this._renderExtraFilterChips();
+    if (autoVal) { this._updateFilterCount(); this.renderCurrentView(); }
+  },
+
+  _removeExtraFilter(idx) {
+    this.extraFilters.splice(idx, 1);
+    this._renderExtraFilterChips();
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _onExtraFilterChange(idx, value) {
+    this.extraFilters[idx].value = value;
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _clearAllExtraFilters() {
+    this.extraFilters = [];
+    this._renderExtraFilterChips();
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
+  _renderExtraFilterChips() {
+    const box = document.getElementById('extraFilterChips');
+    if (!box) return;
+    if (!this.extraFilters.length) { box.innerHTML = ''; return; }
+    box.innerHTML = this.extraFilters.map((f, idx) => {
+      const def = this.extraFilterDefs[f.field];
+      if (!def) return '';
+      let input = '';
+      if (def.type === 'text') {
+        input = `<input class="form-control" style="width:100px;font-size:11px;padding:1px 6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'date') {
+        input = `<input type="date" class="form-control" style="width:130px;font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
+      } else if (def.type === 'toggle') {
+        const opts = def.options;
+        if (opts.length === 1) {
+          input = `<span style="font-size:11px">${esc(opts[0].l)}</span>`;
+        } else {
+          input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
+            <option value="" style="color:#333">–</option>${opts.map(o => `<option value="${esc(o.v)}" style="color:#333" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+        }
+      } else if (def.type === 'select') {
+        let opts = [];
+        if (def.optionsSql) {
+          try { const rows = App.query(def.optionsSql); opts = rows.map(r => ({ v: def.optionValue ? String(r[def.optionValue]) : r[def.optionKey], l: def.optionLabel ? def.optionLabel(r) : r[def.optionKey] })); } catch(e) {}
+        } else if (def.options) { opts = def.options; }
+        input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px;max-width:160px" onchange="App._onExtraFilterChange(${idx},this.value)">
+          <option value="" style="color:#333">Alle</option>${opts.map(o => `<option value="${esc(String(o.v))}" style="color:#333" ${String(f.value)===String(o.v)?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+      }
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(255,200,50,0.2);border:1px solid rgba(255,200,50,0.5);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.9)">
+        <strong>${esc(def.label)}:</strong> ${input}
+        <span style="cursor:pointer;color:rgba(255,100,100,0.9);font-weight:bold;padding:0 2px" onclick="App._removeExtraFilter(${idx})" title="Filter entfernen">✕</span>
+      </span>`;
+    }).join(' ');
+  },
+
+  // Generate SQL for extra filters (schueler-level, used by gf())
+  _extraFilterSql() {
+    let w = '';
+    let overrideAktiv = false;
+    this.extraFilters.forEach(f => {
+      if (!f.value) return;
+      const def = this.extraFilterDefs[f.field];
+      if (!def || !def.sqlS) return;
+      w += ` AND (${def.sqlS(f.value)})`;
+      if (def.overrideAktiv) overrideAktiv = true;
+    });
+    return { sql: w, overrideAktiv };
+  },
 
   // ── Per-User localStorage ──
   uKey(key) { return this.currentUser ? `bhk_${this.currentUser.replace(/\s+/g,'_')}_${key}` : `bhk_${key}`; },
@@ -547,6 +685,10 @@ const App = {
     const bgIn = bg.join(',');
     const amtIn = this._sqlInStr(amt);
     const zpIn = this._sqlInStr(zp);
+    // Extra dynamic filters (schueler-level SQL)
+    const ef = this._extraFilterSql();
+    const extraSql = ef.sql; // Always schueler-level WHERE clauses (using alias s/s2)
+
     if (entity === 'schueler' || entity === 's') {
       if (jg.length) w += ` AND s.jahrgang_id IN (${jgIn})`;
       if (bg.length) w += ` AND s.fachrichtung_id IN (${bgIn})`;
@@ -554,26 +696,33 @@ const App = {
       if (zp.length) w += ` AND s.zwischenpruefung IN (${zpIn})`;
       if (this.filterBavStatus === 'aktiv') w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`;
       else if (this.filterBavStatus === 'ende') w += ` AND s.bav_status LIKE '%Ende%'`;
+      // Extra filters apply directly (already use alias 's')
+      if (extraSql) w += extraSql;
     } else if (entity === 'klassen' || entity === 'k') {
       if (jg.length) w += ` AND k.jahrgang_id IN (${jgIn})`;
       if (bg.length) w += ` AND k.fachrichtung_id IN (${bgIn})`;
       if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.klasse_id IS NOT NULL)`;
       if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.klasse_id IS NOT NULL)`;
+      // Extra filters cascade via subquery
+      if (extraSql) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.klasse_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'schulen' || entity === 'bs') {
       if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jgIn}))`;
       if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bgIn}))`;
       if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
       if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
+      if (extraSql) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'betriebe' || entity === 'b') {
       if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jgIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bgIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.betrieb_id IS NOT NULL)`;
+      if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
       if (jg.length) w += ` AND kt.jahrgang_id IN (${jgIn})`;
       if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn}))`;
       if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
       if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
+      if (extraSql) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     }
     return w;
   },
@@ -620,11 +769,21 @@ const App = {
       const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
       parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">📋 ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV';bb.style.background='rgba(255,255,255,0.15)';bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
     }
+    // Extra filter badges
+    this.extraFilters.forEach((f, idx) => {
+      if (!f.value) return;
+      const def = this.extraFilterDefs[f.field];
+      if (!def) return;
+      let label = def.label + ': ' + f.value;
+      if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
+      parts.push(`<span style="padding:3px 8px;background:rgba(232,213,245,0.6);border:1px solid #d4b8e8;border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
+    });
     if (!parts.length) return '';
+    const hasMultiple = parts.length > 1;
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
       ${parts.join('')}
-      ${parts.length > 1 ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
+      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
     </div>`;
   },
 
@@ -647,10 +806,11 @@ const App = {
   },
   _updateFilterCount() {
     let cnt = 0;
-    if (this.filterJahrgang.length || this.filterZp.length) cnt++; // combined JG+ZP = 1 filter
+    if (this.filterJahrgang.length || this.filterZp.length) cnt++;
     if (this.filterFachrichtungen.length) cnt++;
     if (this.filterAmt.length) cnt++;
     if (this.filterBavStatus !== 'aktiv') cnt++;
+    cnt += this.extraFilters.filter(f => f.value).length;
     const el = document.getElementById('filterActiveCount');
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const btn = document.getElementById('filterPanelToggle');
