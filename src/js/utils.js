@@ -82,12 +82,17 @@ window.addEventListener('DOMContentLoaded', () => { TableSort.init(); App.init()
 
 // ── Warn before closing with unsaved changes ──
 window.addEventListener('beforeunload', (e) => {
-  // Delete position file (non-blocking, no DB write needed)
   try {
     if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) {
       App._deletePositionFile(KontrolleHandler.activePruefer);
     }
   } catch(ex) {}
+  // Persist dirty ops to IndexedDB so they survive tab close
+  if (App._dirtyOps && App._dirtyOps.length > 0) {
+    try { App._persistDirtyOps(); } catch(ex) {}
+  }
+  // Release lock file
+  try { App._releaseLock(); } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';

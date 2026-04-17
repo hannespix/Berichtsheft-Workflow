@@ -1744,10 +1744,14 @@ const App = {
   dbLastModified: null,
   _lastFileSize: 0,
   autoSaveTimer: null,
-  autoSaveDelay: 1500,   // 1.5 seconds debounce
+  autoSaveDelay: 1500,   // 1.5 seconds debounce (minimum)
   saveCount: 0,
   lastBackupTime: 0,
   backupIntervalMs: 5 * 60 * 1000, // Backup every 5 minutes max
+  _lastSaveDurationMs: 0,
+  _networkQuality: 'good', // 'good' | 'slow' | 'very-slow'
+  _pollIntervalMs: 3000,
+  _idbHandle: null,
 
   async start() {
     try {
@@ -1866,22 +1870,23 @@ const App = {
   // ── Auto-Save (debounced 2s after last change) ──
   scheduleAutoSave() {
     if (this.demoMode || !this.dbFileHandle) return;
-    // Show "saving..." indicator
     document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Geändert…';
-    // Clear previous timer, set new one
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
-    this.autoSaveTimer = setTimeout(() => this.doAutoSave(), this.autoSaveDelay);
+    // Adaptive delay: on slow connections, debounce longer to batch changes and reduce traffic
+    const delay = Math.max(this.autoSaveDelay, Math.min(this._lastSaveDurationMs * 2, 30000));
+    this.autoSaveTimer = setTimeout(() => this.doAutoSave(), delay);
   },
 
   async doAutoSave() {
     if (!this.db || !this.dbFileHandle) return;
-    // Cooldown after repeated failures: wait 30s before trying again
     if (this._saveCooldownUntil && Date.now() < this._saveCooldownUntil) return;
     try {
       await this.mergeAndSave();
-      // Periodic backup (every 5 min)
+      // Backup frequency adapts to connection speed: 5 min (good), 15 min (slow), 30 min (very-slow)
+      const backupMs = this._networkQuality === 'good' ? this.backupIntervalMs
+        : this._networkQuality === 'slow' ? 15 * 60 * 1000 : 30 * 60 * 1000;
       const now = Date.now();
-      if (now - this.lastBackupTime > this.backupIntervalMs) {
+      if (now - this.lastBackupTime > backupMs) {
         await this.createBackup();
         this.lastBackupTime = now;
       }
@@ -2011,17 +2016,26 @@ const App = {
       };
     } catch(e) {}
 
-    // ── Sync marker polling: read tiny _bhk/sync_{dbname} file instead of full DB ──
-    // Only imports full DB when marker version changes
+    // ── Sync marker polling: adaptive interval based on connection speed ──
     this._syncMarkerHandle = null;
     this._lastSyncVersion = this.saveCount || 0;
 
-    this.pollInterval = setInterval(() => {
-      // Pause when tab is hidden (save resources)
-      if (document.hidden) return;
-      if (!this.dirHandle || this._mergeInProgress) return;
-      this._pollSyncMarker();
-    }, 3000);
+    this._schedulePoll = () => {
+      // Adapt polling interval: 3s (good), 10s (slow), 30s (very-slow)
+      const interval = this._networkQuality === 'good' ? 3000
+        : this._networkQuality === 'slow' ? 10000 : 30000;
+      this._pollIntervalMs = interval;
+      this.pollInterval = setTimeout(async () => {
+        if (!document.hidden && this.dirHandle && !this._mergeInProgress) {
+          await this._pollSyncMarker();
+        }
+        this._schedulePoll();
+      }, interval);
+    };
+    this._schedulePoll();
+
+    // Restore any dirty ops from IndexedDB (surviving tab close/crash)
+    this._restoreDirtyOps();
   },
 
   async _pollSyncMarker() {
@@ -2074,6 +2088,122 @@ const App = {
       await writable.close();
       this._lastSyncVersion = this.saveCount;
     } catch(e) { /* non-critical – polling still works via DB file */ }
+  },
+
+  // ── Lock file: prevents concurrent writes on slow connections ──
+  _lockFileName: null,
+  async _acquireLock() {
+    try {
+      const syncDir = this.bhkDirHandle || this.dirHandle;
+      if (!syncDir) return true;
+      const lockName = 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
+      try {
+        const existing = await syncDir.getFileHandle(lockName, { create: false });
+        const file = await existing.getFile();
+        const text = await file.text();
+        const lock = JSON.parse(text);
+        if (Date.now() - new Date(lock.t).getTime() < 45000) {
+          return false;
+        }
+      } catch(e) { /* no lock file or unreadable → proceed */ }
+      const handle = await syncDir.getFileHandle(lockName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString() }));
+      await writable.close();
+      this._lockFileName = lockName;
+      return true;
+    } catch(e) {
+      return true; // lock mechanism failure → proceed without lock
+    }
+  },
+  async _releaseLock() {
+    if (!this._lockFileName) return;
+    try {
+      const syncDir = this.bhkDirHandle || this.dirHandle;
+      if (syncDir) await syncDir.removeEntry(this._lockFileName);
+    } catch(e) { /* ignore */ }
+    this._lockFileName = null;
+  },
+
+  // ── Pre-write version check (closes TOCTOU window) ──
+  async _checkMarkerChanged() {
+    try {
+      const syncDir = this.bhkDirHandle || this.dirHandle;
+      if (!syncDir) return false;
+      const syncName = 'sync' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
+      const handle = await syncDir.getFileHandle(syncName, { create: false });
+      const file = await handle.getFile();
+      const marker = JSON.parse(await file.text());
+      return marker.v && marker.v !== this._lastSyncVersion;
+    } catch(e) { return false; }
+  },
+
+  // ── Network quality tracking ──
+  _updateNetworkQuality() {
+    const dur = this._lastSaveDurationMs;
+    const prev = this._networkQuality;
+    if (dur < 5000) this._networkQuality = 'good';
+    else if (dur < 15000) this._networkQuality = 'slow';
+    else this._networkQuality = 'very-slow';
+    if (this._networkQuality !== prev) {
+      console.log(`[Network] Quality: ${prev} → ${this._networkQuality} (${(dur/1000).toFixed(1)}s)`);
+    }
+    this._updateNetworkUI();
+  },
+  _updateNetworkUI() {
+    const el = document.getElementById('networkQuality');
+    if (!el) return;
+    if (this._networkQuality === 'good') {
+      el.style.display = 'none';
+    } else {
+      el.style.display = '';
+      const dur = (this._lastSaveDurationMs / 1000).toFixed(0);
+      const poll = (this._pollIntervalMs / 1000).toFixed(0);
+      if (this._networkQuality === 'slow') {
+        el.innerHTML = `<span style="color:var(--clr-amber)">🐢 Langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 15 Min</span>`;
+      } else {
+        el.innerHTML = `<span style="color:var(--clr-red)">🐌 Sehr langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 30 Min</span>`;
+      }
+    }
+  },
+
+  // ── IndexedDB: persist dirty ops across tab close / crash ──
+  _getIDB() {
+    return new Promise((resolve, reject) => {
+      if (this._idbHandle) { resolve(this._idbHandle); return; }
+      const req = indexedDB.open('bhk_sync', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('dirtyOps', { keyPath: 'id' });
+      req.onsuccess = () => { this._idbHandle = req.result; resolve(req.result); };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async _persistDirtyOps() {
+    try {
+      const db = await this._getIDB();
+      const tx = db.transaction('dirtyOps', 'readwrite');
+      const store = tx.objectStore('dirtyOps');
+      store.clear();
+      if (this._dirtyOps.length > 0) {
+        store.put({ id: 'ops', ops: this._dirtyOps.map(o => ({sql: o.sql, params: o.params})), ts: Date.now() });
+      }
+    } catch(e) { /* IndexedDB not available – non-critical */ }
+  },
+  async _restoreDirtyOps() {
+    try {
+      const db = await this._getIDB();
+      const tx = db.transaction('dirtyOps', 'readonly');
+      const store = tx.objectStore('dirtyOps');
+      const req = store.get('ops');
+      req.onsuccess = () => {
+        const record = req.result;
+        if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 3600000) {
+          this._dirtyOps = record.ops;
+          this.unsavedChanges = true;
+          this.toast(`🔄 ${record.ops.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
+          this.scheduleAutoSave();
+        }
+      };
+    } catch(e) { /* IndexedDB not available */ }
   },
 
   // ── Position file system (no DB lock needed!) ──
@@ -2131,11 +2261,18 @@ const App = {
   // Actual import: reads full DB, merges, refreshes UI
   async _doSyncImport(source) {
     if (!this.dbFileHandle || !this.dirHandle || this._mergeInProgress) return;
+    const t0 = Date.now();
     try {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Sync…';
       const handle = await this.dirHandle.getFileHandle(this.dbFileHandle.name, { create: false });
       const file = await handle.getFile();
       const buf = await file.arrayBuffer();
+      const readMs = Date.now() - t0;
+      // Use sync-import read time to also gauge network speed
+      if (readMs > 5000) {
+        this._lastSaveDurationMs = Math.max(this._lastSaveDurationMs, readMs);
+        this._updateNetworkQuality();
+      }
       const SQL = await App._getSqlJs();
       const diskDb = new SQL.Database(new Uint8Array(buf));
       this._importChangeCount = 0;
@@ -2271,7 +2408,6 @@ const App = {
   markDirty() {
     this.unsavedChanges = true;
     if (!this.dbFileHandle && !this.demoMode) {
-      // No write access yet – prompt user
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-amber"></span>Nur-Lesen';
       if (!this._writeAccessPrompted) {
         this._writeAccessPrompted = true;
@@ -2280,6 +2416,13 @@ const App = {
       return;
     }
     this.scheduleAutoSave();
+    // Debounced IDB persist: ensures dirty ops survive unexpected tab close
+    if (!this._idbPersistTimer) {
+      this._idbPersistTimer = setTimeout(() => {
+        this._idbPersistTimer = null;
+        if (this._dirtyOps.length > 0) this._persistDirtyOps();
+      }, 5000);
+    }
   },
 
   // ── Query helpers ──
@@ -2379,23 +2522,31 @@ const App = {
   async mergeAndSave(force = false) {
     if (!this.dbFileHandle || !this.db || this._mergeInProgress) return;
     if (this._dirtyOps.length === 0 && !force) return;
-    // Respect cooldown after repeated failures
     if (this._saveCooldownUntil && Date.now() < this._saveCooldownUntil) return;
 
     this._mergeInProgress = true;
+    const t0 = Date.now();
     try {
+      // 0) Acquire lock file to prevent concurrent writes
+      const lockAcquired = await this._acquireLock();
+      if (!lockAcquired) {
+        this._mergeInProgress = false;
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte (anderer User speichert)…';
+        setTimeout(() => this.scheduleAutoSave(), 3000);
+        return;
+      }
+
       // 1) Read disk version
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
       const SQL = await App._getSqlJs();
       const diskDb = new SQL.Database(new Uint8Array(buf));
 
-      // 2) Ensure diskDb has the same schema as our in-memory DB
-      //    (migrations run on in-memory DB at startup but not on disk)
+      // 2) Ensure diskDb has the same schema
       this._migrateDiskDb(diskDb);
 
       // 3) Replay our dirty ops onto diskDb
-      const ops = [...this._dirtyOps]; // snapshot
+      const ops = [...this._dirtyOps];
       let replayErrors = 0;
       const failedIndices = [];
       ops.forEach((op, idx) => {
@@ -2416,8 +2567,20 @@ const App = {
         console.error(`Permanently dropped ${removed} ops after 3 failed replays`);
       }
 
-      // 4) Write merged diskDb back to file (with timeout for network drives)
+      // 3b) Pre-write version check: detect if another user saved between our read and now
+      const markerChanged = await this._checkMarkerChanged();
+      if (markerChanged) {
+        diskDb.close();
+        await this._releaseLock();
+        this._mergeInProgress = false;
+        console.log('[Save] Marker changed during save → retry with fresh disk data');
+        return this.mergeAndSave(force);
+      }
+
+      // 4) Write merged diskDb back to file (adaptive timeout based on connection speed)
       const data = diskDb.export();
+      const timeoutMs = this._networkQuality === 'good' ? 30000
+        : this._networkQuality === 'slow' ? 60000 : 120000;
       const writeOp = async () => {
         const writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
@@ -2425,16 +2588,15 @@ const App = {
       };
       await Promise.race([
         writeOp(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Schreibvorgang Timeout (30s) – Netzlaufwerk reagiert nicht')), 30000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Schreibvorgang Timeout (${timeoutMs/1000}s) – Netzlaufwerk reagiert nicht`)), timeoutMs))
       ]);
 
       // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
 
-      // 6) Update timestamp + clear tracking (only the ops we replayed, keep any new ones)
+      // 6) Update timestamp + clear tracking
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size;
-      // Only remove the ops we already replayed - keep any added during async write
       this._dirtyOps = this._dirtyOps.slice(ops.length);
       this.unsavedChanges = this._dirtyOps.length > 0;
       this.saveCount++;
@@ -2443,14 +2605,19 @@ const App = {
 
       diskDb.close();
 
+      // 7) Track timing for adaptive scheduling + update network quality
+      this._lastSaveDurationMs = Date.now() - t0;
+      this._updateNetworkQuality();
+
       // Update UI
       const timeStr = new Date().toLocaleTimeString('de-DE');
-      document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+      const durSec = (this._lastSaveDurationMs / 1000).toFixed(1);
+      document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount}, ${durSec}s)`;
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
 
-      // Notify other tabs in same browser immediately
       this._broadcastChange();
       this._writeSyncMarker();
+      this._persistDirtyOps();
 
       if (failedIndices.length) {
         this.toast(`⚠️ ${failedIndices.length} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
@@ -2458,32 +2625,33 @@ const App = {
         console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped (will retry)`);
       }
     } catch(e) {
-      // Track consecutive failures
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
+      this._lastSaveDurationMs = Date.now() - t0;
+      this._updateNetworkQuality();
 
       const isStale = e.name === 'InvalidStateError' || e.message?.includes('state');
       const isPermission = e.name === 'NotAllowedError' || e.name === 'NotFoundError' || e.message?.includes('not allowed');
+      const isTimeout = e.message?.includes('Timeout');
 
-      // Retry up to 3 times with fresh handle (only for stale errors)
       if (isStale && this.dirHandle && this._saveRetryCount <= 3) {
         try {
           const oldName = this.dbFileHandle?.name || 'berichtsheftkontrolle.sqlite';
           this.dbFileHandle = await this.dirHandle.getFileHandle(oldName, { create: false });
           console.log('[Save] retry ' + this._saveRetryCount + '/3');
           this._mergeInProgress = false;
+          await this._releaseLock();
           return this.mergeAndSave(force);
-        } catch(reacquireErr) {
-          // Fall through
-        }
+        } catch(reacquireErr) {}
       }
 
-      // After 3 retries or permission error: enter cooldown (30s)
+      // Adaptive cooldown: 30s (good), 45s (slow), 60s (very-slow)
+      const cooldownMs = this._networkQuality === 'good' ? 30000
+        : this._networkQuality === 'slow' ? 45000 : 60000;
       if (this._saveRetryCount >= 3 || isPermission) {
-        this._saveCooldownUntil = Date.now() + 30000;
+        this._saveCooldownUntil = Date.now() + cooldownMs;
         this._saveRetryCount = 0;
-        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte 30s…';
-        console.warn('[Save] Cooldown 30s nach ' + (isPermission ? 'Permission-Error' : '3 Fehlversuchen'));
-        // Try reconnect max once per minute
+        document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-yellow"></span>Warte ${cooldownMs/1000}s…`;
+        console.warn('[Save] Cooldown ' + cooldownMs/1000 + 's nach ' + (isPermission ? 'Permission-Error' : isTimeout ? 'Timeout' : '3 Fehlversuchen'));
         const now = Date.now();
         if (!this._lastReconnectAttempt || (now - this._lastReconnectAttempt > 60000)) {
           this._lastReconnectAttempt = now;
@@ -2492,12 +2660,12 @@ const App = {
         return;
       }
 
-      // Other errors
       if (this._saveRetryCount <= 2) {
         console.error('Merge-save error:', e);
       }
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
     } finally {
+      await this._releaseLock();
       this._mergeInProgress = false;
     }
   },
