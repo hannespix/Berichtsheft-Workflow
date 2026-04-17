@@ -45,14 +45,14 @@ const App = {
     berufsschule:     { cat: 'Standort', label: 'Berufsschule', type: 'select', optionsSql: "SELECT DISTINCT bs.id, bs.name FROM berufsschulen bs JOIN klassen k ON k.berufsschule_id=bs.id JOIN schueler s ON s.klasse_id=k.id WHERE s.aktiv=1 ORDER BY bs.name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id = ${parseInt(v)||0})` },
     klasse:           { cat: 'Standort', label: 'Klasse', type: 'select', optionsSql: "SELECT k.id, k.klassenbezeichnung || ' (' || bs.name || ')' as label FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name, k.klassenbezeichnung", optionKey: 'label', optionValue: 'id', sqlS: (v) => `s.klasse_id = ${parseInt(v)||0}` },
     plz_bereich:      { cat: 'Standort', label: 'PLZ-Bereich', type: 'text', placeholder: 'z.B. 79, 78...', sqlS: (v) => { const safe = v.replace(/[^0-9]/g, ''); return safe ? `s.betrieb_id IN (SELECT id FROM betriebe WHERE plz LIKE '${safe}%')` : '1=1'; } },
-    betrieb_ort:      { cat: 'Standort', label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sqlS: (v) => `s.betrieb_id IN (SELECT id FROM betriebe WHERE ort = '${v.replace(/'/g,"''")}')` },
+    betrieb_ort:      { cat: 'Standort', label: 'Betrieb Ort', type: 'select', optionsSql: "SELECT DISTINCT ort FROM betriebe WHERE ort != '' ORDER BY ort", optionKey: 'ort', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.betrieb_id IN (SELECT id FROM betriebe WHERE ort = '${safe}')`; } },
     betrieb:          { cat: 'Standort', label: 'Betrieb', type: 'select', optionsSql: "SELECT DISTINCT id, name FROM betriebe WHERE name != '' ORDER BY name", optionKey: 'name', optionValue: 'id', sqlS: (v) => `s.betrieb_id = ${parseInt(v)||0}` },
     // Kategorie: Status & Kontrolle
     offene_maengel:   { cat: 'Kontrolle', label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'},{v:'nein',l:'Ohne Mängel'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" : "s.id NOT IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" },
     offene_wv:        { cat: 'Kontrolle', label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit offener WV'},{v:'nein',l:'Ohne offene WV'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" : "s.id NOT IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" },
-    bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => `s.bav_status = '${v.replace(/'/g,"''")}'` },
+    bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.bav_status = '${safe}'`; } },
     status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
-    inaktiv_grund:    { cat: 'Kontrolle', label: 'Inaktiv-Grund', type: 'select', optionsSql: "SELECT DISTINCT inaktiv_grund FROM schueler WHERE inaktiv_grund != '' AND inaktiv_grund IS NOT NULL ORDER BY inaktiv_grund", optionKey: 'inaktiv_grund', sqlS: (v) => `s.inaktiv_grund = '${v.replace(/'/g,"''")}'` },
+    inaktiv_grund:    { cat: 'Kontrolle', label: 'Inaktiv-Grund', type: 'select', optionsSql: "SELECT DISTINCT inaktiv_grund FROM schueler WHERE inaktiv_grund != '' AND inaktiv_grund IS NOT NULL ORDER BY inaktiv_grund", optionKey: 'inaktiv_grund', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.inaktiv_grund = '${safe}'`; } },
     // Kategorie: Datenqualität
     ohne_betrieb:     { cat: 'Datenqualität', label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sqlS: () => "(s.betrieb_id IS NULL OR s.betrieb_id = 0)" },
     ohne_klasse:      { cat: 'Datenqualität', label: 'Ohne Klasse', type: 'toggle', options: [{v:'ja',l:'Ohne Klasse'}], sqlS: () => "(s.klasse_id IS NULL OR s.klasse_id = 0)" },
@@ -2397,21 +2397,36 @@ const App = {
       // 3) Replay our dirty ops onto diskDb
       const ops = [...this._dirtyOps]; // snapshot
       let replayErrors = 0;
-      ops.forEach(op => {
+      const failedIndices = [];
+      ops.forEach((op, idx) => {
         try {
           diskDb.run(op.sql, op.params);
         } catch(e) {
-          // Ignore constraint violations (e.g. INSERT OR REPLACE already handled)
+          op._retries = (op._retries || 0) + 1;
           replayErrors++;
           console.warn('Merge-replay skip:', e.message, op.sql.substring(0, 60));
+          if (op._retries >= 3) failedIndices.push(idx);
         }
       });
+      if (failedIndices.length) {
+        const removed = failedIndices.length;
+        for (let i = failedIndices.length - 1; i >= 0; i--) {
+          this._dirtyOps.splice(failedIndices[i], 1);
+        }
+        console.error(`Permanently dropped ${removed} ops after 3 failed replays`);
+      }
 
-      // 4) Write merged diskDb back to file
+      // 4) Write merged diskDb back to file (with timeout for network drives)
       const data = diskDb.export();
-      const writable = await this.dbFileHandle.createWritable();
-      await writable.write(data);
-      await writable.close();
+      const writeOp = async () => {
+        const writable = await this.dbFileHandle.createWritable();
+        await writable.write(data);
+        await writable.close();
+      };
+      await Promise.race([
+        writeOp(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Schreibvorgang Timeout (30s) – Netzlaufwerk reagiert nicht')), 30000))
+      ]);
 
       // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
@@ -2437,9 +2452,10 @@ const App = {
       this._broadcastChange();
       this._writeSyncMarker();
 
-      if (replayErrors > 0) {
-        console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped`);
-        this.toast(`${replayErrors} Änderung(en) konnten nicht gespeichert werden. Bitte Daten prüfen.`, 'warning');
+      if (failedIndices.length) {
+        this.toast(`⚠️ ${failedIndices.length} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
+      } else if (replayErrors > 0) {
+        console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped (will retry)`);
       }
     } catch(e) {
       // Track consecutive failures
@@ -2998,7 +3014,7 @@ const App = {
     let schueler = [];
     if (klassenIds.length) {
       const placeholders = klassenIds.map(() => '?').join(',');
-      schueler = this.query(`SELECT * FROM schueler WHERE klasse_id IN (${placeholders}) AND aktiv=1`, klassenIds);
+      schueler = this.query(`SELECT * FROM schueler WHERE klasse_id IN (${placeholders})`, klassenIds);
     }
     // Students directly linked (Einsendungen / manuell hinzugefügt)
     const direkt = this.query(`SELECT s.* FROM schueler s JOIN kontrolltermin_schueler kts ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);

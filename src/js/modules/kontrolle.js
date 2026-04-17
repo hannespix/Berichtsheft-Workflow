@@ -55,7 +55,7 @@ const KontrolleHandler = {
     const missingIds = extraIds.filter(id => !currentIds.has(id));
     if (missingIds.length) {
       const placeholders = missingIds.map(() => '?').join(',');
-      const extras = App.query(`SELECT * FROM schueler WHERE id IN (${placeholders}) AND aktiv=1 ORDER BY nachname`, missingIds);
+      const extras = App.query(`SELECT * FROM schueler WHERE id IN (${placeholders}) ORDER BY nachname`, missingIds);
       this.currentSchuelerList.push(...extras);
     }
 

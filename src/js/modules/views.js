@@ -15,6 +15,7 @@ const Views = {
     if (!slider || !tableEl) return;
     const monate = parseInt(slider.value);
     const gf = App.gf('schueler');
+    const _ak = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
 
     if (monate === 0) {
       // Noch NIE kontrolliert
@@ -24,9 +25,9 @@ const Views = {
         j.bezeichnung as jahrgang
         FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
         LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
-        WHERE s.aktiv=1 AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}
+        WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}
         ORDER BY s.nachname LIMIT 30`);
-      const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}`) || 0;
+      const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}`) || 0;
       countEl.textContent = total + ' Schüler noch nie kontrolliert';
       this._renderKontrollstatusTable(tableEl, rows, total);
     } else {
@@ -41,7 +42,7 @@ const Views = {
         (SELECT MAX(kt.geplant_datum) FROM kontrollergebnisse ke2 JOIN kontrolltermine kt ON ke2.kontrolltermin_id=kt.id WHERE ke2.schueler_id=s.id AND ke2.ergebnis != '') as letzte_kontrolle
         FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
         LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
-        WHERE s.aktiv=1 ${gf}
+        WHERE ${_ak} ${gf}
         AND (s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '')
           OR s.id IN (SELECT ke3.schueler_id FROM kontrollergebnisse ke3 JOIN kontrolltermine kt3 ON ke3.kontrolltermin_id=kt3.id
             WHERE ke3.ergebnis != '' GROUP BY ke3.schueler_id HAVING MAX(kt3.geplant_datum) < ?))
@@ -75,8 +76,9 @@ const Views = {
     const today = new Date().toISOString().split('T')[0];
     const jf = App.jgWhere('s.jahrgang_id');
     const jfkt = App.jgWhere('kt.jahrgang_id');
+    const aktivClause = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
 
-    const totalSchueler = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1${jf.where}`, jf.params) || 0;
+    const totalSchueler = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${aktivClause}${jf.where}`, jf.params) || 0;
     const kontrolliertIds = App.query(`SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke JOIN schueler s ON ke.schueler_id=s.id WHERE ke.ergebnis != ''${jf.where}`, jf.params);
     const kontrolliert = kontrolliertIds.length;
     const offeneWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen'${jf.where}`, jf.params) || 0;
@@ -104,7 +106,7 @@ const Views = {
       LEFT JOIN betriebe b ON s.betrieb_id=b.id
       LEFT JOIN kontrollergebnisse ke ON ke.schueler_id=s.id
       LEFT JOIN wiedervorlagen w ON w.schueler_id=s.id
-      WHERE s.aktiv=1${jf.where}
+      WHERE ${aktivClause}${jf.where}
       GROUP BY COALESCE(b.id, s.ausbildungsstaette)
       HAVING maengel_count > 0
       ORDER BY maengel_count DESC, offene_wv DESC
@@ -114,11 +116,11 @@ const Views = {
     const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, new Date(Date.now()+7*86400000).toISOString().split('T')[0], ...jfkt.params])[0]?.c || 0;
     const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, new Date(Date.now()+3*86400000).toISOString().split('T')[0], ...jf.params])[0]?.c || 0;
     // Datenpflege
-    const ohneBetrieb = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.betrieb_id IS NULL AND s.ausbildungsstaette != '' AND s.aktiv=1${jf.where}`, jf.params) || 0;
+    const ohneBetrieb = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.betrieb_id IS NULL AND s.ausbildungsstaette != '' AND ${aktivClause}${jf.where}`, jf.params) || 0;
     const gfSch = App.gf('schulen');
     const ohneEmail = App.scalar(`SELECT COUNT(*) FROM berufsschulen bs WHERE (bs.email = '' OR bs.email IS NULL)${gfSch}`) || 0;
     const gfBet = App.gf('betriebe');
-    const betriebOhneEmail = App.scalar(`SELECT COUNT(*) FROM betriebe b WHERE b.email = '' AND (SELECT COUNT(*) FROM schueler sq WHERE sq.betrieb_id=b.id AND sq.aktiv=1) > 0${gfBet}`) || 0;
+    const betriebOhneEmail = App.scalar(`SELECT COUNT(*) FROM betriebe b WHERE b.email = '' AND (SELECT COUNT(*) FROM schueler sq WHERE sq.betrieb_id=b.id AND ${aktivClause.replace(/\bs\./g,'sq.')}) > 0${gfBet}`) || 0;
 
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
@@ -247,7 +249,8 @@ const Views = {
       <!-- ═══════ STATISTIKEN ═══════ -->
       ${(() => {
         const gf = App.gf('schueler');
-        const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1${gf}`) || 0;
+        const _ak = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
+        const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${_ak}${gf}`) || 0;
         if (!total) return '';
 
         // ── Helper: CSS bar ──
@@ -267,18 +270,18 @@ const Views = {
         // ── 1) Azubis je Schule ──
         const schulen = App.query(`SELECT bs.id, bs.name, bs.ort, COUNT(s.id) as cnt
           FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id
-          WHERE s.aktiv=1${gf} GROUP BY bs.id ORDER BY cnt DESC`);
+          WHERE ${_ak}${gf} GROUP BY bs.id ORDER BY cnt DESC`);
         const maxSchule = schulen.length ? schulen[0].cnt : 0;
 
         // ── 2) Azubis je Fachrichtung + Geschlecht ──
         const frs = App.query(`SELECT fr.id, fr.bezeichnung, fr.typ, COUNT(s.id) as cnt
           FROM schueler s JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
-          WHERE s.aktiv=1${gf} GROUP BY fr.id ORDER BY cnt DESC`);
+          WHERE ${_ak}${gf} GROUP BY fr.id ORDER BY cnt DESC`);
         const maxFR = frs.length ? frs[0].cnt : 0;
 
         // ── 3) Azubis je Amt ──
         const aemter = App.query(`SELECT s.zustaendiges_amt as code, COUNT(s.id) as cnt
-          FROM schueler s WHERE s.aktiv=1 AND s.zustaendiges_amt != ''${gf}
+          FROM schueler s WHERE ${_ak} AND s.zustaendiges_amt != ''${gf}
           GROUP BY s.zustaendiges_amt ORDER BY cnt DESC`);
         const maxAmt = aemter.length ? aemter[0].cnt : 0;
 
@@ -289,17 +292,17 @@ const Views = {
           COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as issue_cnt
           FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
           LEFT JOIN kontrollergebnisse ke ON ke.schueler_id=s.id AND ke.ergebnis != ''
-          WHERE s.aktiv=1${gf} GROUP BY j.id ORDER BY j.jahr DESC, j.typ`);
+          WHERE ${_ak}${gf} GROUP BY j.id ORDER BY j.jahr DESC, j.typ`);
         const maxJG = jgs.length ? Math.max(...jgs.map(j=>j.cnt)) : 0;
 
         // ── 5) Verkürzer ──
-        const verkuerzer = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1${gf}
+        const verkuerzer = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${_ak}${gf}
           AND (julianday(s.ausbildungsende) - julianday(s.ausbildungsbeginn)) < 365*2.8
           AND s.ausbildungsbeginn != '' AND s.ausbildungsende != ''`) || 0;
 
         // ── 6) Mängel-Codes ──
         const codeLabels = {A:'Unterschr. Azubi',B:'Unterschr. Ausb.',C:'BS-Themen',D:'Wetter',E:'Inhaltl. lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
-        const maengelCodes = App.query(`SELECT maengel_codes FROM kw_status ks JOIN schueler s ON ks.schueler_id=s.id WHERE ks.maengel_codes != '' AND ks.maengel_codes != 'H' AND s.aktiv=1${gf}`);
+        const maengelCodes = App.query(`SELECT maengel_codes FROM kw_status ks JOIN schueler s ON ks.schueler_id=s.id WHERE ks.maengel_codes != '' AND ks.maengel_codes != 'H' AND ${_ak}${gf}`);
         const codeCounts = {};
         maengelCodes.forEach(r => r.maengel_codes.split(',').forEach(c => { c = c.trim(); if (c && c !== 'H') codeCounts[c] = (codeCounts[c]||0) + 1; }));
         const codeEntries = Object.entries(codeCounts).sort((a,b) => b[1]-a[1]);
@@ -309,14 +312,14 @@ const Views = {
         // ── 7) Top Betriebe (meiste Azubis) ──
         const topBetriebe = App.query(`SELECT COALESCE(b.name, s.ausbildungsstaette) as name, b.ort, b.id as bid, COUNT(s.id) as cnt
           FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id
-          WHERE s.aktiv=1${gf} GROUP BY COALESCE(b.id, s.ausbildungsstaette) ORDER BY cnt DESC LIMIT 10`);
+          WHERE ${_ak}${gf} GROUP BY COALESCE(b.id, s.ausbildungsstaette) ORDER BY cnt DESC LIMIT 10`);
         const maxBetrieb = topBetriebe.length ? topBetriebe[0].cnt : 0;
-        const totalBetriebe = App.scalar(`SELECT COUNT(DISTINCT COALESCE(betrieb_id, ausbildungsstaette)) FROM schueler s WHERE s.aktiv=1${gf}`) || 0;
+        const totalBetriebe = App.scalar(`SELECT COUNT(DISTINCT COALESCE(betrieb_id, ausbildungsstaette)) FROM schueler s WHERE ${_ak}${gf}`) || 0;
 
         // ── 8) Nächste Prüfungstermine ──
         const pruefTermine = App.query(`SELECT j.bezeichnung, j.pruefungstermin, j.typ, COUNT(s.id) as cnt
           FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
-          WHERE s.aktiv=1 AND j.pruefungstermin >= ?${gf}
+          WHERE ${_ak} AND j.pruefungstermin >= ?${gf}
           GROUP BY j.id ORDER BY j.pruefungstermin`, [today]);
 
         return `
@@ -500,7 +503,8 @@ const Views = {
     this._destroyCharts();
 
     const gf = App.gf('schueler');
-    const total = App.scalar('SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1' + gf) || 0;
+    const _ak = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
+    const total = App.scalar('SELECT COUNT(*) FROM schueler s WHERE ' + _ak + gf) || 0;
     if (!total) return;
 
     // Color palette
@@ -522,8 +526,8 @@ const Views = {
 
     // ── 1) Kontrollfortschritt Donut ──
     try {
-      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND s.aktiv=1' + gf) || 0;
-      const issueCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis != "" AND ke.ergebnis != "in_ordnung" AND s.aktiv=1' + gf) || 0;
+      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND ' + _ak + gf) || 0;
+      const issueCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis != "" AND ke.ergebnis != "in_ordnung" AND ' + _ak + gf) || 0;
       const openCnt = total - okCnt - issueCnt;
       const ctx1 = document.getElementById('chartKontrollfortschritt');
       if (ctx1) {
@@ -549,9 +553,9 @@ const Views = {
 
     // ── 2) Geschlechterquote Donut ──
     try {
-      const mCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.geschlecht='m'" + gf) || 0;
-      const wCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.geschlecht='w'" + gf) || 0;
-      const dCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.geschlecht='d'" + gf) || 0;
+      const mCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.geschlecht='m'" + gf) || 0;
+      const wCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.geschlecht='w'" + gf) || 0;
+      const dCnt = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.geschlecht='d'" + gf) || 0;
       const unkn = total - mCnt - wCnt - dCnt;
       const ctx2 = document.getElementById('chartGeschlecht');
       if (ctx2) {
@@ -578,7 +582,7 @@ const Views = {
 
     // ── 3) Regionale Verteilung Donut ──
     try {
-      const aemter = App.query("SELECT s.zustaendiges_amt as code, COUNT(s.id) as cnt FROM schueler s WHERE s.aktiv=1 AND s.zustaendiges_amt != ''" + gf + " GROUP BY s.zustaendiges_amt ORDER BY cnt DESC");
+      const aemter = App.query("SELECT s.zustaendiges_amt as code, COUNT(s.id) as cnt FROM schueler s WHERE " + _ak + " AND s.zustaendiges_amt != ''" + gf + " GROUP BY s.zustaendiges_amt ORDER BY cnt DESC");
       const ctx3 = document.getElementById('chartRegionen');
       if (ctx3 && aemter.length) {
         const top6 = aemter.slice(0, 6);
@@ -605,7 +609,7 @@ const Views = {
     // ── 4) Mängel-Radar (Polar Area) ──
     try {
       const codeLabels = {A:'Unterschr. Azubi',B:'Unterschr. Ausb.',C:'BS-Themen',D:'Wetter',E:'Inhaltl. lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
-      const mRows = App.query("SELECT maengel_codes FROM kw_status ks JOIN schueler s ON ks.schueler_id=s.id WHERE ks.maengel_codes != '' AND ks.maengel_codes != 'H' AND s.aktiv=1" + gf);
+      const mRows = App.query("SELECT maengel_codes FROM kw_status ks JOIN schueler s ON ks.schueler_id=s.id WHERE ks.maengel_codes != '' AND ks.maengel_codes != 'H' AND " + _ak + gf);
       const counts = {};
       mRows.forEach(r => r.maengel_codes.split(',').forEach(c => { c = c.trim(); if (c && c !== 'H') counts[c] = (counts[c]||0) + 1; }));
       const codes = 'ABCDEFGI'.split(''); // H excluded (Fehltage = kein Mangel)
@@ -629,7 +633,7 @@ const Views = {
     try {
       const saLabels = {'1':'ohne Hauptschulabschluss','2':'Hauptschulabschluss','3':'Realschulabschluss','4':'Hochschul-/Fachhochschulreife','5':'Ausland (nicht zuordenbar)'};
       const saColors = {'1':C.red,'2':C.amber,'3':C.blue,'4':C.forest,'5':C.purple};
-      const saData = App.query("SELECT s.schulabschluss as sa, COUNT(*) as cnt FROM schueler s WHERE s.aktiv=1 AND s.schulabschluss != ''" + gf + " GROUP BY s.schulabschluss ORDER BY s.schulabschluss");
+      const saData = App.query("SELECT s.schulabschluss as sa, COUNT(*) as cnt FROM schueler s WHERE " + _ak + " AND s.schulabschluss != ''" + gf + " GROUP BY s.schulabschluss ORDER BY s.schulabschluss");
       const ctxSA = document.getElementById('chartSchulabschluss');
       if (ctxSA && saData.length) {
         const labels = [], data = [], colors = [];
@@ -653,11 +657,11 @@ const Views = {
 
     // ── 5b) Prüfungserfolg Donut ──
     try {
-      const bestanden = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.pruefungserfolg='bestanden'" + gf) || 0;
-      const nichtBest = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.pruefungserfolg='nicht_bestanden'" + gf) || 0;
-      const wdh1Best = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.pruefungserfolg_wdh1='bestanden'" + gf) || 0;
-      const wdh1Fail = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.pruefungserfolg_wdh1='nicht_bestanden'" + gf) || 0;
-      const wdh2Best = App.scalar("SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND s.pruefungserfolg_wdh2='bestanden'" + gf) || 0;
+      const bestanden = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.pruefungserfolg='bestanden'" + gf) || 0;
+      const nichtBest = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.pruefungserfolg='nicht_bestanden'" + gf) || 0;
+      const wdh1Best = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.pruefungserfolg_wdh1='bestanden'" + gf) || 0;
+      const wdh1Fail = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.pruefungserfolg_wdh1='nicht_bestanden'" + gf) || 0;
+      const wdh2Best = App.scalar("SELECT COUNT(*) FROM schueler s WHERE " + _ak + " AND s.pruefungserfolg_wdh2='bestanden'" + gf) || 0;
       const nochOffen = total - bestanden - nichtBest - wdh1Best - wdh1Fail - wdh2Best;
       const ctxPE = document.getElementById('chartPruefungserfolg');
       if (ctxPE && (bestanden + nichtBest + wdh1Best + wdh1Fail + wdh2Best > 0)) {
@@ -691,7 +695,7 @@ const Views = {
 
     // ── 6) Fachrichtungen Horizontal Bar ──
     try {
-      const frs = App.query("SELECT fr.id, fr.bezeichnung, fr.typ, COUNT(s.id) as cnt FROM schueler s JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE s.aktiv=1" + gf + " GROUP BY fr.id ORDER BY cnt DESC");
+      const frs = App.query("SELECT fr.id, fr.bezeichnung, fr.typ, COUNT(s.id) as cnt FROM schueler s JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE " + _ak + gf + " GROUP BY fr.id ORDER BY cnt DESC");
       const ctx6 = document.getElementById('chartFachrichtungen');
       if (ctx6 && frs.length) {
         this._chartInstances.fachrichtungen = new Chart(ctx6, {
@@ -1725,7 +1729,7 @@ const Views = {
           <div id="help_4" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">📋 Stammdaten</div>
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
-            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller aktiven Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb, Kontrollenhistorie und seitenweiser Anzeige (50 Datensätze pro Seite). Filterbar nach Abschlussjahrgang und Berufsschule.</p>
+            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
             <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern.</p>
             <p><strong>Ausbildungsbetriebe</strong> – Betriebe mit Anschrift, Kontaktdaten und zugeordneten Auszubildenden.</p>
@@ -1778,6 +1782,10 @@ const Views = {
             <p>6. Weiter zum nächsten Auszubildenden (◀ ▶ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
+            <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
+            <p>Über den Button <em>Nach FR gruppieren</em> können die Schüler in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
+            <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
+            <p>Über Checkboxen können mehrere Schüler gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Schüler können per ✕-Button aus dem Termin entfernt werden.</p>
           </div>
 
           <div id="help_8" class="card" style="margin-bottom:12px">
@@ -1854,6 +1862,16 @@ const Views = {
               <p style="margin-left:12px"><strong>F</strong> = <strong>F</strong>rühjahr (z.B. <strong>F2027</strong> = Frühjahrsprüfung 2027, ca. März/April)</p>
               <p style="margin-top:6px;color:var(--clr-text-light)">AP und ZP nutzen unterschiedliche Bezeichner (S/W vs. H/F), weil die Prüfungszeiträume verschieden sind. Die Werte stammen aus dem IBYKUS-Export.</p>
             </div>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Erweiterte Filter (+ Filter):</p>
+            <p>Über den <strong>+ Filter</strong>-Button können zusätzliche dynamische Filter hinzugefügt werden. Diese sind in 5 Kategorien organisiert:</p>
+            <div style="margin-top:6px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
+              <p><strong>Ausbildung</strong> – Verkürzer, Landesfachklasse, Geschlecht, Schulabschluss, Lehrjahr, Ausbildungsbeginn/-ende</p>
+              <p><strong>Prüfungen</strong> – AP-Zulassung, AP bestanden, Prüfungserfolg, Zwischenprüfung</p>
+              <p><strong>Standort</strong> – Berufsschule, Klasse, PLZ-Bereich, Betrieb Ort, Betrieb</p>
+              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Schüler, Inaktiv-Grund</p>
+              <p><strong>Datenqualität</strong> – Ohne Betrieb, Ohne Klasse, Ohne E-Mail</p>
+            </div>
+            <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
           </div>
 
           <div id="help_13" class="card" style="margin-bottom:12px">
