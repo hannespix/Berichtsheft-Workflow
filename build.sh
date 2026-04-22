@@ -45,6 +45,7 @@ FONT_FILES=(
 )
 APP_MODULES=(
   "src/js/app-core.js"
+  "src/js/utils.js"
   "src/js/modules/views.js"
   "src/js/modules/stammdaten.js"
   "src/js/modules/import-handler.js"
@@ -68,7 +69,6 @@ APP_MODULES=(
   "src/js/modules/azubi-dashboard.js"
   "src/js/modules/schueler-view.js"
   "src/js/modules/schueler-akte.js"
-  "src/js/utils.js"
 )
 
 # Prüfe ob alle Dateien existieren

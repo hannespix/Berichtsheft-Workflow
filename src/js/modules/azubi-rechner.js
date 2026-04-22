@@ -75,9 +75,19 @@ const AzubiRechner = {
   // ── Helfer ──
   parseISO(s) { return new Date(s + "T00:00:00"); },
   fmtISO(d) { return d.toISOString().slice(0, 10); },
-  addMonths(d, n) { const r = new Date(d); r.setMonth(r.getMonth() + n); return r; },
+  addMonths(d, n) {
+    const r = new Date(d);
+    const targetMonth = r.getMonth() + n;
+    r.setDate(1);
+    r.setMonth(targetMonth);
+    const maxDay = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+    r.setDate(Math.min(d.getDate(), maxDay));
+    return r;
+  },
   diffMonths(from, to) {
-    return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + (to.getDate() - from.getDate()) / 30;
+    const wholeMonths = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+    const daysInMonth = new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate();
+    return wholeMonths + (to.getDate() - from.getDate()) / daysInMonth;
   },
   daysBetween(a, b) {
     return Math.round((this.parseISO(this.fmtISO(b)) - this.parseISO(this.fmtISO(a))) / 86400000);
@@ -101,6 +111,7 @@ const AzubiRechner = {
     const sorted = this.phasenSortiert(phasen);
     const sollMonate = Math.max(6, regulaerDauer - verkuerzung);
     let erbrachtVZ = 0;
+    let hatOffenePhase = false;
     const ergebnis = [];
     for (let i = 0; i < sorted.length; i++) {
       const p = { ...sorted[i] };
@@ -116,6 +127,14 @@ const AzubiRechner = {
           p._vzAequivalent = 0;
         }
       } else {
+        if (hatOffenePhase) {
+          p._berechnetesEnde = null;
+          p._dauerMonate = null;
+          p._vzAequivalent = 0;
+          ergebnis.push(p);
+          continue;
+        }
+        hatOffenePhase = true;
         if (p.typ === "ausbildung") {
           const tz = (p.teilzeit_prozent || 100) / 100;
           const restVZ = Math.max(0, sollMonate - erbrachtVZ);

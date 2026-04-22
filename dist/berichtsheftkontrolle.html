@@ -11536,6 +11536,108 @@ const App = {
   },
 };
 
+// ── utils.js ──
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  UTILITY FUNCTIONS                                           ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  const d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+function formatDate(d) {
+  if (!d) return '–';
+  try {
+    return new Date(d + 'T00:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch { return d; }
+}
+function getKW(d) {
+  if (!d) return '';
+  const dt = new Date(d + 'T00:00:00');
+  const tmp = new Date(dt.getTime()); tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+  return Math.ceil(((tmp - new Date(tmp.getFullYear(), 0, 4)) / 86400000 + ((new Date(tmp.getFullYear(), 0, 4).getDay() + 6) % 7) + 1) / 7);
+}
+function formatDateKW(d) {
+  if (!d) return '–';
+  const kw = getKW(d);
+  return `${formatDate(d)} <span style="font-size:10px;color:var(--clr-sage);font-weight:600">KW${kw}</span>`;
+}
+
+function formatDateTime(dt) {
+  if (!dt) return '–';
+  try {
+    return new Date(dt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return dt; }
+}
+
+function statusBadge(status) {
+  const map = {
+    'geplant': '<span class="badge-status badge-planned">Geplant</span>',
+    'durchgefuehrt': '<span class="badge-status badge-done">Durchgeführt</span>',
+    'abgesagt': '<span class="badge-status badge-overdue">Abgesagt</span>',
+  };
+  return map[status] || status;
+}
+
+function wvStatusBadge(status) {
+  const map = {
+    'offen': '<span class="badge-status badge-open">Offen</span>',
+    'erledigt': '<span class="badge-status badge-done">Erledigt</span>',
+    'ueberfaellig': '<span class="badge-status badge-overdue">Überfällig</span>',
+  };
+  return map[status] || status;
+}
+
+function wvArtLabel(art) {
+  const map = {
+    'nachholung_naechste_durchsicht': 'Nachholung bis nächste Durchsicht',
+    'sachberichte_wetter_email': 'Sachberichte (Wetter) per E-Mail',
+    'berichte_bis_termin_email': 'Berichte per E-Mail bis Termin',
+    'persoenliche_vorlage_rp': 'Persönliche Vorlage im RP',
+    'post_an_rp': 'Per Post ans RP',
+  };
+  return map[art] || art || '–';
+}
+
+function ergebnisLabel(e) {
+  const map = {
+    'in_ordnung': 'In Ordnung',
+    'nachholung_naechste_durchsicht': 'Nachholung',
+    'sachberichte_wetter_email': 'Sachberichte (E-Mail)',
+    'berichte_bis_termin_email': 'Berichte (E-Mail)',
+    'persoenliche_vorlage_rp': 'Vorlage RP',
+    'post_an_rp': 'Post RP',
+  };
+  return map[e] || e || 'Nicht kontrolliert';
+}
+
+// ── Auto-init ──
+// Restore dark mode preference
+try { if (App.uGet('dark') === '1') document.body.classList.add('dark-mode'); } catch(e) {}
+window.addEventListener('DOMContentLoaded', () => { TableSort.init(); App.init(); });
+
+// ── Warn before closing with unsaved changes ──
+window.addEventListener('beforeunload', (e) => {
+  try {
+    if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) {
+      App._deletePositionFile(KontrolleHandler.activePruefer);
+    }
+  } catch(ex) {}
+  // Persist dirty ops to IndexedDB so they survive tab close
+  if (App._dirtyOps && App._dirtyOps.length > 0) {
+    try { App._persistDirtyOps(); } catch(ex) {}
+  }
+  // Release lock file
+  try { App._releaseLock(); } catch(ex) {}
+  if (App.unsavedChanges && !App.demoMode) {
+    e.preventDefault();
+    e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';
+  }
+});
+
 // ── views.js ──
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  VIEWS                                                       ║
@@ -23441,9 +23543,19 @@ const AzubiRechner = {
   // ── Helfer ──
   parseISO(s) { return new Date(s + "T00:00:00"); },
   fmtISO(d) { return d.toISOString().slice(0, 10); },
-  addMonths(d, n) { const r = new Date(d); r.setMonth(r.getMonth() + n); return r; },
+  addMonths(d, n) {
+    const r = new Date(d);
+    const targetMonth = r.getMonth() + n;
+    r.setDate(1);
+    r.setMonth(targetMonth);
+    const maxDay = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+    r.setDate(Math.min(d.getDate(), maxDay));
+    return r;
+  },
   diffMonths(from, to) {
-    return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + (to.getDate() - from.getDate()) / 30;
+    const wholeMonths = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+    const daysInMonth = new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate();
+    return wholeMonths + (to.getDate() - from.getDate()) / daysInMonth;
   },
   daysBetween(a, b) {
     return Math.round((this.parseISO(this.fmtISO(b)) - this.parseISO(this.fmtISO(a))) / 86400000);
@@ -23467,6 +23579,7 @@ const AzubiRechner = {
     const sorted = this.phasenSortiert(phasen);
     const sollMonate = Math.max(6, regulaerDauer - verkuerzung);
     let erbrachtVZ = 0;
+    let hatOffenePhase = false;
     const ergebnis = [];
     for (let i = 0; i < sorted.length; i++) {
       const p = { ...sorted[i] };
@@ -23482,6 +23595,14 @@ const AzubiRechner = {
           p._vzAequivalent = 0;
         }
       } else {
+        if (hatOffenePhase) {
+          p._berechnetesEnde = null;
+          p._dauerMonate = null;
+          p._vzAequivalent = 0;
+          ergebnis.push(p);
+          continue;
+        }
+        hatOffenePhase = true;
         if (p.typ === "ausbildung") {
           const tz = (p.teilzeit_prozent || 100) / 100;
           const restVZ = Math.max(0, sollMonate - erbrachtVZ);
@@ -24963,108 +25084,6 @@ const SchuelerAkte = {
     return b + d;
   }
 };
-
-// ── utils.js ──
-// ╔══════════════════════════════════════════════════════════════╗
-// ║  UTILITY FUNCTIONS                                           ║
-// ╚══════════════════════════════════════════════════════════════╝
-
-function esc(str) {
-  if (str === null || str === undefined) return '';
-  const d = document.createElement('div');
-  d.textContent = String(str);
-  return d.innerHTML;
-}
-
-function formatDate(d) {
-  if (!d) return '–';
-  try {
-    return new Date(d + 'T00:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch { return d; }
-}
-function getKW(d) {
-  if (!d) return '';
-  const dt = new Date(d + 'T00:00:00');
-  const tmp = new Date(dt.getTime()); tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
-  return Math.ceil(((tmp - new Date(tmp.getFullYear(), 0, 4)) / 86400000 + ((new Date(tmp.getFullYear(), 0, 4).getDay() + 6) % 7) + 1) / 7);
-}
-function formatDateKW(d) {
-  if (!d) return '–';
-  const kw = getKW(d);
-  return `${formatDate(d)} <span style="font-size:10px;color:var(--clr-sage);font-weight:600">KW${kw}</span>`;
-}
-
-function formatDateTime(dt) {
-  if (!dt) return '–';
-  try {
-    return new Date(dt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch { return dt; }
-}
-
-function statusBadge(status) {
-  const map = {
-    'geplant': '<span class="badge-status badge-planned">Geplant</span>',
-    'durchgefuehrt': '<span class="badge-status badge-done">Durchgeführt</span>',
-    'abgesagt': '<span class="badge-status badge-overdue">Abgesagt</span>',
-  };
-  return map[status] || status;
-}
-
-function wvStatusBadge(status) {
-  const map = {
-    'offen': '<span class="badge-status badge-open">Offen</span>',
-    'erledigt': '<span class="badge-status badge-done">Erledigt</span>',
-    'ueberfaellig': '<span class="badge-status badge-overdue">Überfällig</span>',
-  };
-  return map[status] || status;
-}
-
-function wvArtLabel(art) {
-  const map = {
-    'nachholung_naechste_durchsicht': 'Nachholung bis nächste Durchsicht',
-    'sachberichte_wetter_email': 'Sachberichte (Wetter) per E-Mail',
-    'berichte_bis_termin_email': 'Berichte per E-Mail bis Termin',
-    'persoenliche_vorlage_rp': 'Persönliche Vorlage im RP',
-    'post_an_rp': 'Per Post ans RP',
-  };
-  return map[art] || art || '–';
-}
-
-function ergebnisLabel(e) {
-  const map = {
-    'in_ordnung': 'In Ordnung',
-    'nachholung_naechste_durchsicht': 'Nachholung',
-    'sachberichte_wetter_email': 'Sachberichte (E-Mail)',
-    'berichte_bis_termin_email': 'Berichte (E-Mail)',
-    'persoenliche_vorlage_rp': 'Vorlage RP',
-    'post_an_rp': 'Post RP',
-  };
-  return map[e] || e || 'Nicht kontrolliert';
-}
-
-// ── Auto-init ──
-// Restore dark mode preference
-try { if (App.uGet('dark') === '1') document.body.classList.add('dark-mode'); } catch(e) {}
-window.addEventListener('DOMContentLoaded', () => { TableSort.init(); App.init(); });
-
-// ── Warn before closing with unsaved changes ──
-window.addEventListener('beforeunload', (e) => {
-  try {
-    if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) {
-      App._deletePositionFile(KontrolleHandler.activePruefer);
-    }
-  } catch(ex) {}
-  // Persist dirty ops to IndexedDB so they survive tab close
-  if (App._dirtyOps && App._dirtyOps.length > 0) {
-    try { App._persistDirtyOps(); } catch(ex) {}
-  }
-  // Release lock file
-  try { App._releaseLock(); } catch(ex) {}
-  if (App.unsavedChanges && !App.demoMode) {
-    e.preventDefault();
-    e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';
-  }
-});
 
 </script>
 </body>
