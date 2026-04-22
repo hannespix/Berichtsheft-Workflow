@@ -1008,6 +1008,12 @@ const App = {
       bav_status TEXT DEFAULT '',
       zwischenpruefung TEXT DEFAULT '',
       landesfachklasse TEXT DEFAULT '',
+      regulaer_dauer_monate INTEGER DEFAULT 36,
+      verkuerzung_monate INTEGER DEFAULT 0,
+      vorzeitige_zulassung INTEGER DEFAULT 0,
+      vollzeit_wochenstunden REAL DEFAULT 39,
+      beruf_id TEXT DEFAULT '',
+      geburtsdatum TEXT DEFAULT '',
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -1118,6 +1124,19 @@ const App = {
     CREATE TABLE IF NOT EXISTS einstellungen (
       schluessel TEXT PRIMARY KEY,
       wert TEXT DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      von TEXT NOT NULL,
+      bis TEXT,
+      typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+      betrieb TEXT,
+      teilzeit_prozent INTEGER DEFAULT 100,
+      grund TEXT,
+      pauschal_fehltage_e INTEGER DEFAULT 0,
+      pauschal_fehltage_u INTEGER DEFAULT 0,
+      anmerkung TEXT
     );
   `,
 
@@ -2797,6 +2816,22 @@ const App = {
       kalenderwoche INTEGER,
       UNIQUE(berufsschule_id, schuljahr, lehrjahr, kalenderwoche)
     )`);
+    // Ausbildungsphasen + erweiterte Schüler-Felder
+    run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      von TEXT NOT NULL, bis TEXT,
+      typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+      betrieb TEXT, teilzeit_prozent INTEGER DEFAULT 100,
+      grund TEXT, pauschal_fehltage_e INTEGER DEFAULT 0,
+      pauschal_fehltage_u INTEGER DEFAULT 0, anmerkung TEXT
+    )`);
+    run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36");
+    run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39");
+    run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
   },
 
   _importFromDisk(diskDb) {
@@ -4105,6 +4140,25 @@ const App = {
         }
       }
     } catch(e) { console.warn('Multi-Klassen-Migration:', e); }
+
+    // ── Ausbildungsphasen + erweiterte Schüler-Felder ──
+    try {
+      this.db.run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+        von TEXT NOT NULL, bis TEXT,
+        typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+        betrieb TEXT, teilzeit_prozent INTEGER DEFAULT 100,
+        grund TEXT, pauschal_fehltage_e INTEGER DEFAULT 0,
+        pauschal_fehltage_u INTEGER DEFAULT 0, anmerkung TEXT
+      )`);
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
+    } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──
     try {

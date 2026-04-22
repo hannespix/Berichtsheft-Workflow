@@ -703,6 +703,20 @@ const ImportHandler = {
           </select></div>
           <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
         </div>
+        <div class="form-row">
+          <div class="form-group"><label>Beruf (Tarif)</label><select class="form-control" id="mSBerufId">
+            <option value="">–</option>${(typeof AzubiRechner!=='undefined'?AzubiRechner.BERUFE:[]).map(b=>`<option value="${b.id}" ${(s.beruf_id||'')===b.id?'selected':''}>${esc(b.label)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
+          <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
+          <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+          </label></div>
+        </div>
+        <div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>
       </div>
 
       <!-- Tab 3: Prüfungen -->
@@ -762,7 +776,8 @@ const ImportHandler = {
       telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
       status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
       geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
-      bav_status=?,zwischenpruefung=? WHERE id=?`,
+      bav_status=?,zwischenpruefung=?,
+      beruf_id=?,geburtsdatum=?,regulaer_dauer_monate=?,verkuerzung_monate=?,vorzeitige_zulassung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -787,6 +802,11 @@ const ImportHandler = {
        document.getElementById('mSPEW2')?.value || '',
        document.getElementById('mSBAV')?.value?.trim() || '',
        document.getElementById('mSZP')?.value?.trim() || '',
+       document.getElementById('mSBerufId')?.value || '',
+       document.getElementById('mSGeburt')?.value || '',
+       parseInt(document.getElementById('mSDauer')?.value) || 36,
+       parseInt(document.getElementById('mSVerk')?.value) || 0,
+       document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}

@@ -8202,6 +8202,12 @@ const App = {
       bav_status TEXT DEFAULT '',
       zwischenpruefung TEXT DEFAULT '',
       landesfachklasse TEXT DEFAULT '',
+      regulaer_dauer_monate INTEGER DEFAULT 36,
+      verkuerzung_monate INTEGER DEFAULT 0,
+      vorzeitige_zulassung INTEGER DEFAULT 0,
+      vollzeit_wochenstunden REAL DEFAULT 39,
+      beruf_id TEXT DEFAULT '',
+      geburtsdatum TEXT DEFAULT '',
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -8312,6 +8318,19 @@ const App = {
     CREATE TABLE IF NOT EXISTS einstellungen (
       schluessel TEXT PRIMARY KEY,
       wert TEXT DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      von TEXT NOT NULL,
+      bis TEXT,
+      typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+      betrieb TEXT,
+      teilzeit_prozent INTEGER DEFAULT 100,
+      grund TEXT,
+      pauschal_fehltage_e INTEGER DEFAULT 0,
+      pauschal_fehltage_u INTEGER DEFAULT 0,
+      anmerkung TEXT
     );
   `,
 
@@ -9991,6 +10010,22 @@ const App = {
       kalenderwoche INTEGER,
       UNIQUE(berufsschule_id, schuljahr, lehrjahr, kalenderwoche)
     )`);
+    // Ausbildungsphasen + erweiterte Schüler-Felder
+    run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      von TEXT NOT NULL, bis TEXT,
+      typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+      betrieb TEXT, teilzeit_prozent INTEGER DEFAULT 100,
+      grund TEXT, pauschal_fehltage_e INTEGER DEFAULT 0,
+      pauschal_fehltage_u INTEGER DEFAULT 0, anmerkung TEXT
+    )`);
+    run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36");
+    run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0");
+    run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39");
+    run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
   },
 
   _importFromDisk(diskDb) {
@@ -11299,6 +11334,25 @@ const App = {
         }
       }
     } catch(e) { console.warn('Multi-Klassen-Migration:', e); }
+
+    // ── Ausbildungsphasen + erweiterte Schüler-Felder ──
+    try {
+      this.db.run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+        von TEXT NOT NULL, bis TEXT,
+        typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+        betrieb TEXT, teilzeit_prozent INTEGER DEFAULT 100,
+        grund TEXT, pauschal_fehltage_e INTEGER DEFAULT 0,
+        pauschal_fehltage_u INTEGER DEFAULT 0, anmerkung TEXT
+      )`);
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
+    } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──
     try {
@@ -16026,6 +16080,20 @@ const ImportHandler = {
           </select></div>
           <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
         </div>
+        <div class="form-row">
+          <div class="form-group"><label>Beruf (Tarif)</label><select class="form-control" id="mSBerufId">
+            <option value="">–</option>${(typeof AzubiRechner!=='undefined'?AzubiRechner.BERUFE:[]).map(b=>`<option value="${b.id}" ${(s.beruf_id||'')===b.id?'selected':''}>${esc(b.label)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
+          <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
+          <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+          </label></div>
+        </div>
+        <div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>
       </div>
 
       <!-- Tab 3: Prüfungen -->
@@ -16085,7 +16153,8 @@ const ImportHandler = {
       telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
       status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
       geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
-      bav_status=?,zwischenpruefung=? WHERE id=?`,
+      bav_status=?,zwischenpruefung=?,
+      beruf_id=?,geburtsdatum=?,regulaer_dauer_monate=?,verkuerzung_monate=?,vorzeitige_zulassung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -16110,6 +16179,11 @@ const ImportHandler = {
        document.getElementById('mSPEW2')?.value || '',
        document.getElementById('mSBAV')?.value?.trim() || '',
        document.getElementById('mSZP')?.value?.trim() || '',
+       document.getElementById('mSBerufId')?.value || '',
+       document.getElementById('mSGeburt')?.value || '',
+       parseInt(document.getElementById('mSDauer')?.value) || 36,
+       parseInt(document.getElementById('mSVerk')?.value) || 0,
+       document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
@@ -18228,7 +18302,7 @@ const KontrolleHandler = {
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">&#128202;</a></div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -23289,6 +23363,898 @@ const TableSort = {
   initAll() {}
 };
 
+// ── azubi-rechner.js ──
+// ══════════════════════════════════════════════════════════════
+//  AZUBI-RECHNER: Phasen-Mathematik, Tarif-Daten, Kennzahlen
+//  Extrahiert aus Ausbildungsrechner + Dashboard V6
+// ══════════════════════════════════════════════════════════════
+
+const AzubiRechner = {
+
+  // ── Tarif-Daten ──
+  BERUFE: [
+    {
+      id: "galabau", label: "Gärtner/in – Garten- und Landschaftsbau",
+      group: "Gartenbau (GaLaBau)", urlaub: 26,
+      tarife: [
+        { ab: "2024-07-01", lj: [1060, 1180, 1290] },
+        { ab: "2025-07-01", lj: [1100, 1220, 1340] },
+        { ab: "2026-07-01", lj: [1140, 1270, 1390] },
+      ],
+    },
+    {
+      id: "baumschule", label: "Gärtner/in – Baumschule",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+    {
+      id: "friedhof", label: "Gärtner/in – Friedhofsgärtnerei",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+    {
+      id: "gemuese", label: "Gärtner/in – Gemüsebau",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+    {
+      id: "obstbau", label: "Gärtner/in – Obstbau",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+    {
+      id: "stauden", label: "Gärtner/in – Staudengärtnerei",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+    {
+      id: "zierpflanzen", label: "Gärtner/in – Zierpflanzenbau",
+      group: "Erwerbsgartenbau BaWü", urlaub: 26,
+      tarife: [
+        { ab: "2024-03-01", lj: [900, 1000, 1100] },
+        { ab: "2025-05-01", lj: [980, 1080, 1240] },
+      ],
+    },
+  ],
+
+  MINDESTVERGUETUNG: [
+    { ab: "2024-01-01", lj: [649, 766, 876] },
+    { ab: "2025-01-01", lj: [682, 805, 921] },
+    { ab: "2026-01-01", lj: [724, 854, 977] },
+  ],
+
+  // ── Helfer ──
+  parseISO(s) { return new Date(s + "T00:00:00"); },
+  fmtISO(d) { return d.toISOString().slice(0, 10); },
+  addMonths(d, n) { const r = new Date(d); r.setMonth(r.getMonth() + n); return r; },
+  diffMonths(from, to) {
+    return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + (to.getDate() - from.getDate()) / 30;
+  },
+  daysBetween(a, b) {
+    return Math.round((this.parseISO(this.fmtISO(b)) - this.parseISO(this.fmtISO(a))) / 86400000);
+  },
+  fmtDE(d) { return d.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" }); },
+  alterZuStichtag(geburtsdatum, stichtag) {
+    const geb = new Date(geburtsdatum), st = new Date(stichtag);
+    let alter = st.getFullYear() - geb.getFullYear();
+    const hatteGeb = st.getMonth() > geb.getMonth() || (st.getMonth() === geb.getMonth() && st.getDate() >= geb.getDate());
+    if (!hatteGeb) alter--;
+    return alter;
+  },
+
+  // ── Phasen-Mathematik ──
+  phasenSortiert(phasen) {
+    return [...phasen].sort((a, b) => a.von.localeCompare(b.von) || a.id - b.id);
+  },
+
+  phasenMitEnden(phasen, regulaerDauer, verkuerzung) {
+    verkuerzung = verkuerzung || 0;
+    const sorted = this.phasenSortiert(phasen);
+    const sollMonate = Math.max(6, regulaerDauer - verkuerzung);
+    let erbrachtVZ = 0;
+    const ergebnis = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const p = { ...sorted[i] };
+      if (p.bis) {
+        const von = this.parseISO(p.von), bis = this.parseISO(p.bis);
+        const monate = this.diffMonths(von, bis);
+        p._dauerMonate = monate;
+        if (p.typ === "ausbildung") {
+          const tz = (p.teilzeit_prozent || 100) / 100;
+          p._vzAequivalent = monate * tz;
+          erbrachtVZ += p._vzAequivalent;
+        } else {
+          p._vzAequivalent = 0;
+        }
+      } else {
+        if (p.typ === "ausbildung") {
+          const tz = (p.teilzeit_prozent || 100) / 100;
+          const restVZ = Math.max(0, sollMonate - erbrachtVZ);
+          const restRealMonate = restVZ / tz;
+          const von = this.parseISO(p.von);
+          const bis = this.addMonths(von, Math.round(restRealMonate));
+          p._berechnetesEnde = this.fmtISO(bis);
+          p._dauerMonate = restRealMonate;
+          p._vzAequivalent = restVZ;
+          erbrachtVZ += restVZ;
+        } else {
+          p._berechnetesEnde = null;
+          p._dauerMonate = null;
+          p._vzAequivalent = 0;
+        }
+      }
+      ergebnis.push(p);
+    }
+    return ergebnis;
+  },
+
+  vertragsendeAusPhasen(phasenMit) {
+    for (let i = phasenMit.length - 1; i >= 0; i--) {
+      const p = phasenMit[i];
+      if (p.typ !== "ausbildung") continue;
+      const ende = p.bis || p._berechnetesEnde;
+      if (ende) return this.parseISO(ende);
+    }
+    return null;
+  },
+
+  aktivePhaseAm(phasenMit, datum) {
+    const dStr = this.fmtISO(datum);
+    for (const p of phasenMit) {
+      const ende = p.bis || p._berechnetesEnde;
+      if (p.von <= dStr && (!ende || ende >= dStr)) return p;
+    }
+    return null;
+  },
+
+  tatsaechlicheAusbildungsTage(phasenMit, bisHeute) {
+    let tage = 0;
+    const heute = new Date();
+    for (const p of phasenMit) {
+      if (p.typ !== "ausbildung") continue;
+      const von = this.parseISO(p.von);
+      let bis = p.bis ? this.parseISO(p.bis) : (p._berechnetesEnde ? this.parseISO(p._berechnetesEnde) : null);
+      if (!bis) continue;
+      if (bisHeute && bis > heute) bis = heute;
+      if (bis < von) continue;
+      tage += this.daysBetween(von, bis);
+    }
+    return tage;
+  },
+
+  pauschaleFehltage(phasen) {
+    let entsch = 0, unentsch = 0;
+    for (const p of phasen) {
+      entsch += p.pauschal_fehltage_e || 0;
+      unentsch += p.pauschal_fehltage_u || 0;
+    }
+    return { entschuldigt: entsch, unentschuldigt: unentsch, summe: entsch + unentsch };
+  },
+
+  phasenValidieren(phasen) {
+    const sorted = this.phasenSortiert(phasen);
+    const probleme = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i], b = sorted[i + 1];
+      if (!a.bis) {
+        probleme.push({ typ: "offen_mitte", phasen: [a.id], text: "Eine offene Phase liegt vor weiteren Phasen — bitte 'bis' eintragen." });
+        continue;
+      }
+      if (a.bis > b.von) {
+        probleme.push({ typ: "ueberlappung", phasen: [a.id, b.id], text: `Phasen überlappen: ${a.bis} > ${b.von}` });
+      } else if (a.bis < b.von) {
+        const tage = this.daysBetween(this.parseISO(a.bis), this.parseISO(b.von));
+        if (tage > 1) probleme.push({ typ: "luecke", phasen: [a.id, b.id], text: `Lücke von ${tage} Tagen zwischen ${a.bis} und ${b.von}` });
+      }
+    }
+    return probleme;
+  },
+
+  beschreibPhase(p) {
+    if (p.typ === "unterbrechung") return `Unterbrechung${p.grund ? `: ${p.grund}` : ""}`;
+    const tz = p.teilzeit_prozent || 100;
+    return tz < 100 ? `Teilzeit ${tz}%` : "Vollzeit";
+  },
+
+  phasenKonflikt(alle, neu) {
+    if (!neu.von) return null;
+    const eigeneId = neu.id ?? null;
+    const neuVon = neu.von;
+    const betroffen = alle.filter(p => {
+      if (p.id === eigeneId) return false;
+      return p.von <= neuVon && (!p.bis || p.bis >= neuVon);
+    });
+    if (!betroffen.length) return null;
+    const konflikt = betroffen.sort((a, b) => b.von.localeCompare(a.von))[0];
+    const konfliktEndeNachNeuBis = konflikt.bis && neu.bis && konflikt.bis > neu.bis;
+    const optionen = [];
+    if (konflikt.von < neuVon) {
+      optionen.push({ id: "kuerzen", label: `„${this.beschreibPhase(konflikt)}" am ${this.fmtDE(this.parseISO(neuVon))} beenden (empfohlen)`, empfohlen: true });
+    }
+    if (konfliktEndeNachNeuBis) {
+      optionen.push({ id: "splitten", label: `„${this.beschreibPhase(konflikt)}" in zwei Teile teilen (vor & nach neuer Phase)` });
+    }
+    optionen.push({ id: "ueberlappen", label: "Nichts ändern — Überlappung akzeptieren (wird als Warnung markiert)" });
+    return { konflikt, optionen };
+  },
+
+  // ── Tarif & Vergütung ──
+  getTarifVerguetung(berufId, datum, lehrjahr, ausbildungsBeginn) {
+    const beruf = this.BERUFE.find(b => b.id === berufId);
+    if (!beruf) return 0;
+    const lj = Math.max(1, Math.min(3, lehrjahr)) - 1;
+    let betrag = beruf.tarife[0].lj[lj];
+    for (let i = beruf.tarife.length - 1; i >= 0; i--) {
+      if (datum >= new Date(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
+    }
+    const miavStichtag = ausbildungsBeginn || datum;
+    for (let i = this.MINDESTVERGUETUNG.length - 1; i >= 0; i--) {
+      if (miavStichtag >= new Date(this.MINDESTVERGUETUNG[i].ab)) {
+        betrag = Math.max(betrag, this.MINDESTVERGUETUNG[i].lj[lj]); break;
+      }
+    }
+    return betrag;
+  },
+
+  getJahresurlaub(berufId, geburtsdatum, jahr) {
+    const beruf = this.BERUFE.find(b => b.id === berufId);
+    const tarifTage = beruf ? beruf.urlaub : 26;
+    if (!geburtsdatum) return { tage: tarifTage, grund: "tarif" };
+    const alter = this.alterZuStichtag(geburtsdatum, new Date(jahr, 0, 1));
+    if (alter >= 18) return { tage: tarifTage, grund: "tarif" };
+    if (alter >= 17) return { tage: Math.max(tarifTage, 21), grund: "u18" };
+    if (alter >= 16) return { tage: Math.max(tarifTage, 23), grund: "u17" };
+    return { tage: Math.max(tarifTage, 25), grund: "u16" };
+  },
+
+  fruehesterPruefungstermin(endDate, vorzeitig) {
+    if (!endDate) return null;
+    const fiktivesEnde = vorzeitig ? this.addMonths(endDate, -6) : endDate;
+    return this.addMonths(fiktivesEnde, -2);
+  },
+
+  pruefungstermine(umDatum, jahreRange) {
+    jahreRange = jahreRange || 2;
+    if (!umDatum) return [];
+    const jahr = umDatum.getFullYear();
+    const AP_MONATE = [1, 6];
+    const arr = [];
+    for (let y = jahr - jahreRange; y <= jahr + jahreRange; y++) {
+      AP_MONATE.forEach(m => arr.push(new Date(y, m, 15)));
+    }
+    return arr.sort((a, b) => a - b);
+  },
+
+  apTerminAuto(vertragsende, vorzeitig) {
+    if (!vertragsende) return null;
+    const termine = this.pruefungstermine(vertragsende, 2);
+    const cutoff = new Date(vertragsende);
+    cutoff.setDate(cutoff.getDate() + 14);
+    let idx = -1;
+    for (let i = termine.length - 1; i >= 0; i--) {
+      if (termine[i] <= cutoff) { idx = i; break; }
+    }
+    if (idx < 0) return null;
+    if (!vorzeitig) return termine[idx];
+    return idx > 0 ? termine[idx - 1] : null;
+  },
+
+  zpTerminAuto(start, effektiveDauerMonate) {
+    if (!start) return null;
+    const zielMonate = Math.round(effektiveDauerMonate * 14 / 36);
+    const ziel = this.addMonths(start, zielMonate);
+    const termine = this.pruefungstermine(ziel, 1);
+    termine.sort((a, b) => Math.abs(ziel - a) - Math.abs(ziel - b));
+    return termine[0];
+  },
+
+  // ── Vergütungsübersicht (phasen-bewusst) ──
+  berechneVerguetungsUebersicht(cfg, phasenMit) {
+    const { beruf_id, geburtsdatum, start_datum, verkuerzung_monate } = cfg;
+    const startDate = this.parseISO(start_datum);
+    if (isNaN(startDate)) return [];
+    const verk = verkuerzung_monate || 0;
+    const beruf = this.BERUFE.find(b => b.id === beruf_id);
+    const ausbPhasen = phasenMit.filter(p => p.typ === "ausbildung");
+    if (!ausbPhasen.length) return [];
+
+    const perioden = [];
+    let erbrachtVZ = 0;
+
+    for (const phase of phasenMit) {
+      const phVon = this.parseISO(phase.von);
+      const phBis = this.parseISO(phase.bis || phase._berechnetesEnde);
+      if (!phBis || phBis <= phVon) continue;
+
+      if (phase.typ === "unterbrechung") {
+        perioden.push({
+          von: phVon, bis: phBis, unterbrechung: true, grund: phase.grund || "Unterbrechung",
+          lehrjahr: 0, quote: 0, vergVZ: 0, vergEff: 0,
+          monateDauer: Math.round(this.diffMonths(phVon, phBis) * 10) / 10,
+          urlaubTageJahr: 0, urlaubGrund: "Unterbrechung", urlaubAnteilig: 0,
+        });
+        continue;
+      }
+
+      const quote = phase.teilzeit_prozent || 100;
+      const tz = quote / 100;
+      const breakpoints = new Set();
+
+      for (let m = 1; m < this.diffMonths(phVon, phBis) + 1; m++) {
+        const dat = this.addMonths(phVon, m);
+        if (dat > phBis) break;
+        const erbrPunkt = erbrachtVZ + m * tz + verk;
+        const erbrPrev = erbrachtVZ + (m - 1) * tz + verk;
+        if (Math.floor(erbrPunkt / 12) !== Math.floor(erbrPrev / 12)) breakpoints.add(this.fmtISO(dat));
+      }
+      if (beruf) beruf.tarife.forEach(t => {
+        const d = new Date(t.ab);
+        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
+      });
+      this.MINDESTVERGUETUNG.forEach(m => {
+        const d = new Date(m.ab);
+        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
+      });
+      for (let yr = phVon.getFullYear(); yr <= phBis.getFullYear() + 1; yr++) {
+        const jan1 = new Date(yr, 0, 1);
+        if (jan1 > phVon && jan1 < phBis) breakpoints.add(this.fmtISO(jan1));
+      }
+
+      const sorted = [...breakpoints].sort().map(s => this.parseISO(s));
+      sorted.push(new Date(phBis));
+      let periodStart = new Date(phVon);
+
+      for (const bp of sorted) {
+        if (bp <= periodStart) continue;
+        const periodEnd = new Date(bp);
+        const monateInPhase = this.diffMonths(phVon, periodStart);
+        const erbrachtBisHier = erbrachtVZ + monateInPhase * tz + verk;
+        const lehrjahr = Math.min(3, Math.floor(erbrachtBisHier / 12) + 1);
+        const vergVZ = this.getTarifVerguetung(beruf_id, periodStart, lehrjahr, startDate);
+        const vergEff = Math.round(vergVZ * tz);
+        const monateDauer = Math.max(0, this.diffMonths(periodStart, periodEnd));
+        const urlaubInfo = this.getJahresurlaub(beruf_id, geburtsdatum || null, periodStart.getFullYear());
+        const urlaubAnteilig = Math.round((monateDauer / 12) * urlaubInfo.tage * tz * 2) / 2;
+        perioden.push({
+          von: new Date(periodStart), bis: new Date(periodEnd),
+          unterbrechung: false, grund: null,
+          lehrjahr, quote, vergVZ, vergEff,
+          monateDauer: Math.round(monateDauer * 10) / 10,
+          urlaubTageJahr: urlaubInfo.tage, urlaubGrund: urlaubInfo.grund, urlaubAnteilig,
+          betrieb: phase.betrieb || null, phaseId: phase.id,
+        });
+        periodStart = new Date(bp);
+      }
+      erbrachtVZ += this.diffMonths(phVon, phBis) * tz;
+    }
+
+    const merged = [];
+    for (const p of perioden) {
+      const last = merged[merged.length - 1];
+      if (last && !last.unterbrechung && !p.unterbrechung
+          && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr
+          && last.urlaubTageJahr === p.urlaubTageJahr && last.quote === p.quote
+          && last.betrieb === p.betrieb) {
+        last.bis = p.bis;
+        last.monateDauer = Math.round(this.diffMonths(last.von, last.bis) * 10) / 10;
+        last.urlaubAnteilig = Math.round((last.monateDauer / 12) * last.urlaubTageJahr * (last.quote / 100) * 2) / 2;
+      } else merged.push({ ...p });
+    }
+    return merged;
+  },
+
+  // ── Kennzahlen (alle KPIs auf einen Schlag) ──
+  computeKennzahlen(schuelerId) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s || !s.ausbildungsbeginn) return null;
+
+    const phasenRaw = App.query('SELECT * FROM ausbildungsphasen WHERE schueler_id=? ORDER BY von', [schuelerId]);
+    const cfg = {
+      beruf_id: s.beruf_id || 'galabau',
+      geburtsdatum: s.geburtsdatum || '',
+      start_datum: s.ausbildungsbeginn,
+      regulaer_dauer_monate: s.regulaer_dauer_monate || 36,
+      verkuerzung_monate: s.verkuerzung_monate || 0,
+      vorzeitige_zulassung: s.vorzeitige_zulassung || 0,
+      teilzeit_prozent: 100,
+      vollzeit_wochenstunden: s.vollzeit_wochenstunden || 39,
+    };
+
+    const phasen = phasenRaw.length ? phasenRaw : [
+      { id: -1, von: cfg.start_datum, bis: s.ausbildungsende || null, typ: "ausbildung", teilzeit_prozent: 100, betrieb: s.ausbildungsstaette || '' }
+    ];
+
+    const phasenMit = this.phasenMitEnden(phasen, cfg.regulaer_dauer_monate, cfg.verkuerzung_monate);
+    const start = this.parseISO(cfg.start_datum);
+    const ende = this.vertragsendeAusPhasen(phasenMit) || this.addMonths(start, cfg.regulaer_dauer_monate);
+    const heute = new Date();
+
+    const aktPhase = this.aktivePhaseAm(phasenMit, heute);
+    const tz = (aktPhase?.teilzeit_prozent ?? 100) / 100;
+    const effektiveDauer = Math.max(6, cfg.regulaer_dauer_monate - (cfg.verkuerzung_monate || 0));
+    const dauer = Math.round(this.diffMonths(start, ende));
+
+    const kTageGes = Math.max(1, this.daysBetween(start, ende));
+    const kTageVorbei = Math.max(0, Math.min(kTageGes, this.daysBetween(start, heute)));
+    const progress = Math.round((kTageVorbei / kTageGes) * 100);
+
+    const ausbildungsTageGes = this.tatsaechlicheAusbildungsTage(phasenMit, false);
+    const atVollzeit = Math.round((ausbildungsTageGes / 7) * 5);
+    const phasenAusb = phasenMit.filter(p => p.typ === "ausbildung");
+    const tzMittel = phasenAusb.length
+      ? phasenAusb.reduce((sum, p) => sum + ((p.teilzeit_prozent || 100) / 100) * (p._dauerMonate || 0), 0)
+        / Math.max(0.001, phasenAusb.reduce((sum, p) => sum + (p._dauerMonate || 0), 0))
+      : tz;
+    const atGes = Math.round(atVollzeit * tzMittel);
+    const fehltageSoft = Math.round(atGes * 0.10);
+    const fehltageHart = Math.round(atGes * 0.15);
+
+    const pf = this.pauschaleFehltage(phasen);
+
+    // Aktuelles Lehrjahr
+    const erbrachtVZ = phasenMit
+      .filter(p => p.typ === "ausbildung" && (p.bis ? this.parseISO(p.bis) <= heute : true))
+      .reduce((sum, p) => {
+        const von = this.parseISO(p.von);
+        const bis = p.bis ? this.parseISO(p.bis) : heute;
+        const eff = bis < heute ? bis : heute;
+        if (eff < von) return sum;
+        return sum + this.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
+      }, 0);
+    const aktLehrjahr = Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (cfg.verkuerzung_monate || 0)) / 12) + 1));
+
+    const wochenstunden = +(cfg.vollzeit_wochenstunden * tz).toFixed(1);
+
+    const perioden = this.berechneVerguetungsUebersicht(cfg, phasenMit);
+    const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
+    const aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+
+    const fruehPruef = this.fruehesterPruefungstermin(ende, false);
+    const fruehPruefVorzeitig = this.fruehesterPruefungstermin(ende, true);
+    const zpDate = this.zpTerminAuto(start, dauer);
+    const apDate = this.apTerminAuto(ende, cfg.vorzeitige_zulassung);
+
+    let naechsterMeilenstein = null;
+    if (zpDate && zpDate > heute) naechsterMeilenstein = { titel: "Zwischenprüfung", datum: zpDate, tage: this.daysBetween(heute, zpDate) };
+    else if (apDate && apDate > heute) naechsterMeilenstein = { titel: "Abschlussprüfung", datum: apDate, tage: this.daysBetween(heute, apDate) };
+    else if (ende > heute) naechsterMeilenstein = { titel: "Ende der Ausbildung", datum: ende, tage: this.daysBetween(heute, ende) };
+
+    const probleme = this.phasenValidieren(phasen);
+
+    return {
+      schueler: s, cfg, phasen, phasenMit,
+      tz, tzMittel, dauer, effektiveDauer, wochenstunden,
+      start, ende, heute, kTageGes, kTageVorbei, progress,
+      atVollzeit, atGes, fehltageSoft, fehltageHart, ausbildungsTageGes,
+      pauschalFehltage: pf, aktLehrjahr, naechsterMeilenstein,
+      perioden, aktVerg, aktPeriode, aktPhase,
+      fruehPruef, fruehPruefVorzeitig, zpDate, apDate,
+      probleme, erbrachtVZ,
+    };
+  },
+
+  // ── Phasen aus DB laden ──
+  getPhasen(schuelerId) {
+    return App.query('SELECT * FROM ausbildungsphasen WHERE schueler_id=? ORDER BY von', [schuelerId]);
+  },
+
+  addPhase(schuelerId, phase) {
+    App.run(`INSERT INTO ausbildungsphasen (schueler_id, von, bis, typ, betrieb, teilzeit_prozent, grund, pauschal_fehltage_e, pauschal_fehltage_u, anmerkung)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [schuelerId, phase.von, phase.bis || null, phase.typ, phase.betrieb || null,
+       phase.teilzeit_prozent || 100, phase.grund || null,
+       phase.pauschal_fehltage_e || 0, phase.pauschal_fehltage_u || 0, phase.anmerkung || null]);
+  },
+
+  updatePhase(phaseId, phase) {
+    App.run(`UPDATE ausbildungsphasen SET von=?, bis=?, typ=?, betrieb=?, teilzeit_prozent=?, grund=?, pauschal_fehltage_e=?, pauschal_fehltage_u=?, anmerkung=? WHERE id=?`,
+      [phase.von, phase.bis || null, phase.typ, phase.betrieb || null,
+       phase.teilzeit_prozent || 100, phase.grund || null,
+       phase.pauschal_fehltage_e || 0, phase.pauschal_fehltage_u || 0, phase.anmerkung || null, phaseId]);
+  },
+
+  deletePhase(phaseId) {
+    App.run('DELETE FROM ausbildungsphasen WHERE id=?', [phaseId]);
+  },
+};
+
+// ── azubi-dashboard.js ──
+// ══════════════════════════════════════════════════════════════
+//  AZUBI-DASHBOARD: Per-Schüler Ausbildungsverlauf-Dashboard
+//  Hero-Card, Phasen-Timeline, Vergütung, Prüfungstermine
+// ══════════════════════════════════════════════════════════════
+
+const AzubiDashboard = {
+
+  open(schuelerId) {
+    const kz = AzubiRechner.computeKennzahlen(schuelerId);
+    if (!kz) {
+      App.toast('Kein Ausbildungsbeginn hinterlegt — bitte erst in Stammdaten eintragen.', 'warning');
+      return;
+    }
+    const s = kz.schueler;
+    const R = AzubiRechner;
+
+    const fmtD = (d) => d ? R.fmtDE(d instanceof Date ? d : R.parseISO(d)) : '–';
+    const fmtM = (v) => v ? v.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '–';
+
+    // Risiko-Indikatoren
+    const risiken = this._berechneRisiken(kz);
+
+    const html = `
+      <div class="azubi-dash" style="max-width:900px">
+
+        <!-- Hero Status Card -->
+        <div style="display:grid;grid-template-columns:1fr auto;gap:16px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand);margin-bottom:16px">
+          <div>
+            <div style="font-size:20px;font-weight:700;color:var(--clr-forest)">${esc(s.nachname)}, ${esc(s.vorname)}</div>
+            <div style="font-size:13px;color:var(--clr-text-light);margin-top:2px">
+              ${kz.aktPhase ? (kz.aktPhase.typ === 'ausbildung' ? (kz.aktPhase.betrieb ? esc(kz.aktPhase.betrieb) : esc(s.ausbildungsstaette || '')) + (kz.tz < 1 ? ' · Teilzeit ' + Math.round(kz.tz * 100) + '%' : '') : '<span style="color:var(--clr-amber)">Unterbrechung' + (kz.aktPhase.grund ? ': ' + esc(kz.aktPhase.grund) : '') + '</span>') : esc(s.ausbildungsstaette || '')}
+            </div>
+            <div style="margin-top:10px;display:flex;gap:20px;flex-wrap:wrap;font-size:13px">
+              <span><strong>${kz.aktLehrjahr}. Lehrjahr</strong></span>
+              <span>${fmtD(kz.start)} – ${fmtD(kz.ende)}</span>
+              <span>${kz.dauer} Monate${kz.cfg.verkuerzung_monate ? ' (verkürzt um ' + kz.cfg.verkuerzung_monate + ' Mon.)' : ''}</span>
+            </div>
+            <!-- Fortschrittsbalken -->
+            <div style="margin-top:10px;background:var(--clr-sand);border-radius:8px;height:10px;overflow:hidden">
+              <div style="width:${Math.min(100, kz.progress)}%;height:100%;background:linear-gradient(90deg,var(--clr-forest),var(--clr-green));border-radius:8px;transition:width 0.5s"></div>
+            </div>
+            <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">${kz.progress}% der Ausbildung absolviert</div>
+          </div>
+          <div style="text-align:right;font-size:13px">
+            ${kz.naechsterMeilenstein ? `
+              <div style="background:var(--clr-forest);color:#fff;padding:8px 14px;border-radius:var(--radius);font-size:12px">
+                <div style="font-weight:600">${kz.naechsterMeilenstein.titel}</div>
+                <div>${fmtD(kz.naechsterMeilenstein.datum)}</div>
+                <div style="opacity:0.8;font-size:11px">in ${kz.naechsterMeilenstein.tage} Tagen</div>
+              </div>
+            ` : ''}
+            <div style="margin-top:8px">
+              <button class="btn btn-sm btn-secondary" onclick="AzubiDashboard.openPhasenEditor(${s.id})">Phasen bearbeiten</button>
+            </div>
+          </div>
+        </div>
+
+        ${risiken.length ? `
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:13px">
+          <strong>Risiko-Hinweise:</strong>
+          <ul style="margin:4px 0 0 16px;padding:0">${risiken.map(r => `<li>${r}</li>`).join('')}</ul>
+        </div>` : ''}
+
+        <!-- Phasen-Timeline -->
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Ausbildungsverlauf</div>
+          ${this._renderPhasenStreifen(kz)}
+        </div>
+
+        <!-- Kennzahlen-Cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+          ${this._renderKennzahlCard('Fehltagsbudget', kz.pauschalFehltage.summe + ' / ' + kz.fehltageSoft + ' (10%) / ' + kz.fehltageHart + ' (15%)', kz.pauschalFehltage.summe > kz.fehltageHart ? 'red' : kz.pauschalFehltage.summe > kz.fehltageSoft ? 'amber' : 'green')}
+          ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
+          ${this._renderKennzahlCard('Wochenstunden', kz.wochenstunden + ' h', 'forest')}
+          ${this._renderKennzahlCard('Fortschritt', kz.progress + '%', kz.progress > 90 ? 'green' : 'forest')}
+        </div>
+
+        <!-- Prüfungstermine -->
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Prüfungstermine</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+            <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Zwischenprüfung</div>
+              <div style="font-weight:600;font-size:14px">${fmtD(kz.zpDate)}</div>
+            </div>
+            <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Abschlussprüfung${kz.cfg.vorzeitige_zulassung ? ' (§45 vorzeitig)' : ''}</div>
+              <div style="font-weight:600;font-size:14px">${fmtD(kz.apDate)}</div>
+            </div>
+            <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Vertragsende (berechnet)</div>
+              <div style="font-weight:600;font-size:14px">${fmtD(kz.ende)}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vergütungsperioden -->
+        ${kz.perioden.length ? `
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Vergütungsperioden</div>
+          <div style="overflow-x:auto">
+            <table class="data-table" style="font-size:12px;width:100%">
+              <thead><tr>
+                <th>Zeitraum</th><th>Betrieb</th><th>LJ</th><th>TZ-%</th><th>Brutto (VZ)</th><th>Brutto (eff.)</th><th>Urlaub</th>
+              </tr></thead>
+              <tbody>
+                ${kz.perioden.map(p => p.unterbrechung
+                  ? `<tr style="background:#f5f5f5;color:#999"><td>${fmtD(p.von)} – ${fmtD(p.bis)}</td><td colspan="6" style="font-style:italic">${esc(p.grund)}</td></tr>`
+                  : `<tr>
+                      <td>${fmtD(p.von)} – ${fmtD(p.bis)}</td>
+                      <td>${esc(p.betrieb || '–')}</td>
+                      <td style="text-align:center">${p.lehrjahr}.</td>
+                      <td style="text-align:center">${p.quote}%</td>
+                      <td style="text-align:right">${fmtM(p.vergVZ)}</td>
+                      <td style="text-align:right;font-weight:600">${fmtM(p.vergEff)}</td>
+                      <td style="text-align:right">${p.urlaubAnteilig} T</td>
+                    </tr>`
+                ).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
+
+        <!-- Phasen-Probleme -->
+        ${kz.probleme.length ? `
+        <div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:10px 14px;font-size:13px">
+          <strong>Phasen-Probleme:</strong>
+          <ul style="margin:4px 0 0 16px;padding:0">${kz.probleme.map(p => `<li>${esc(p.text)}</li>`).join('')}</ul>
+        </div>` : ''}
+
+      </div>
+    `;
+
+    App.openModal(`Azubi-Dashboard: ${s.nachname}, ${s.vorname}`, html,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-primary" onclick="App.closeModal();AzubiDashboard.openPhasenEditor(${s.id})">Phasen bearbeiten</button>`);
+    _makeModalWide();
+  },
+
+  _berechneRisiken(kz) {
+    const risiken = [];
+    if (kz.pauschalFehltage.summe > kz.fehltageHart) risiken.push('Fehltage über 15%-Schwelle — Zulassung gefährdet');
+    else if (kz.pauschalFehltage.summe > kz.fehltageSoft) risiken.push('Fehltage über 10%-Schwelle — Beobachtung empfohlen');
+    if (kz.probleme.some(p => p.typ === 'luecke')) risiken.push('Lücken im Ausbildungsverlauf');
+    if (kz.probleme.some(p => p.typ === 'ueberlappung')) risiken.push('Phasen-Überlappungen vorhanden');
+    if (kz.aktPhase && kz.aktPhase.typ === 'unterbrechung') risiken.push('Ausbildung aktuell unterbrochen');
+    if (kz.aktVerg > 0) {
+      const miav = AzubiRechner.MINDESTVERGUETUNG;
+      const letztes = miav[miav.length - 1];
+      const ljIdx = Math.max(0, Math.min(2, kz.aktLehrjahr - 1));
+      if (kz.aktVerg < letztes.lj[ljIdx]) risiken.push('Vergütung unter Mindestvergütung (§17 BBiG)');
+    }
+    return risiken;
+  },
+
+  _renderKennzahlCard(titel, wert, farbe) {
+    const colorMap = { red: 'var(--clr-red)', amber: '#d4a017', green: 'var(--clr-green)', forest: 'var(--clr-forest)' };
+    const c = colorMap[farbe] || 'var(--clr-forest)';
+    return `<div style="padding:12px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand);border-left:4px solid ${c}">
+      <div style="font-size:11px;color:var(--clr-text-light)">${titel}</div>
+      <div style="font-weight:700;font-size:15px;color:${c}">${wert}</div>
+    </div>`;
+  },
+
+  _renderPhasenStreifen(kz) {
+    const R = AzubiRechner;
+    const phasenMit = kz.phasenMit;
+    if (!phasenMit.length) return '<div style="color:var(--clr-text-light);font-size:13px">Keine Phasen definiert</div>';
+
+    const startDate = kz.start;
+    const endDate = kz.ende;
+    const totalDays = Math.max(1, R.daysBetween(startDate, endDate));
+    const heute = new Date();
+    const heutePos = Math.max(0, Math.min(100, (R.daysBetween(startDate, heute) / totalDays) * 100));
+
+    let bars = '';
+    let lastBetrieb = null;
+    for (const p of phasenMit) {
+      const von = R.parseISO(p.von);
+      const bis = p.bis ? R.parseISO(p.bis) : (p._berechnetesEnde ? R.parseISO(p._berechnetesEnde) : endDate);
+      const left = Math.max(0, (R.daysBetween(startDate, von) / totalDays) * 100);
+      const width = Math.max(0.5, (R.daysBetween(von, bis) / totalDays) * 100);
+
+      let bg, title;
+      if (p.typ === 'unterbrechung') {
+        bg = 'repeating-linear-gradient(45deg,#ccc,#ccc 4px,#eee 4px,#eee 8px)';
+        title = 'Unterbrechung' + (p.grund ? ': ' + p.grund : '');
+      } else if ((p.teilzeit_prozent || 100) < 100) {
+        bg = 'var(--clr-green)';
+        title = 'Teilzeit ' + p.teilzeit_prozent + '%' + (p.betrieb ? ' – ' + p.betrieb : '');
+      } else {
+        bg = 'var(--clr-forest)';
+        title = 'Vollzeit' + (p.betrieb ? ' – ' + p.betrieb : '');
+      }
+
+      const betriebWechsel = p.typ === 'ausbildung' && lastBetrieb !== null && p.betrieb && p.betrieb !== lastBetrieb;
+      if (betriebWechsel) {
+        bars += `<div style="position:absolute;left:${left}%;top:0;bottom:0;width:2px;background:#d4a017;z-index:2" title="Betriebswechsel"></div>`;
+      }
+      if (p.typ === 'ausbildung') lastBetrieb = p.betrieb;
+
+      bars += `<div style="position:absolute;left:${left}%;width:${width}%;height:100%;background:${bg};border-radius:3px;cursor:pointer" title="${esc(title)}" onclick="AzubiDashboard.openPhasenEditor(${kz.schueler.id})"></div>`;
+    }
+
+    // Heute-Linie
+    bars += `<div style="position:absolute;left:${heutePos}%;top:-3px;bottom:-3px;width:2px;background:var(--clr-red);z-index:3" title="Heute: ${R.fmtDE(heute)}"></div>`;
+
+    return `<div style="position:relative;height:22px;background:var(--clr-sand);border-radius:6px;overflow:visible;margin:8px 0">
+      ${bars}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--clr-text-light)">
+      <span>${R.fmtDE(startDate)}</span><span>${R.fmtDE(endDate)}</span>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--clr-text-light)">
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-forest);border-radius:2px;vertical-align:middle"></span> Vollzeit</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> Teilzeit</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:repeating-linear-gradient(45deg,#ccc,#ccc 2px,#eee 2px,#eee 4px);border-radius:2px;vertical-align:middle"></span> Unterbrechung</span>
+      <span><span style="display:inline-block;width:10px;height:2px;background:#d4a017;vertical-align:middle"></span> Betriebswechsel</span>
+      <span><span style="display:inline-block;width:10px;height:2px;background:var(--clr-red);vertical-align:middle"></span> Heute</span>
+    </div>`;
+  },
+
+  // ── Phasen-Editor ──
+  openPhasenEditor(schuelerId) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s) return;
+    const phasen = AzubiRechner.getPhasen(schuelerId);
+
+    let rows = '';
+    if (phasen.length) {
+      rows = phasen.map(p => `
+        <tr>
+          <td>${p.typ === 'ausbildung' ? '<span style="color:var(--clr-forest)">Ausbildung</span>' : '<span style="color:var(--clr-amber)">Unterbrechung</span>'}</td>
+          <td>${p.von}</td>
+          <td>${p.bis || '<em style="color:var(--clr-text-light)">offen</em>'}</td>
+          <td>${p.typ === 'ausbildung' ? esc(p.betrieb || '–') : esc(p.grund || '–')}</td>
+          <td style="text-align:center">${p.teilzeit_prozent || 100}%</td>
+          <td style="text-align:center">${(p.pauschal_fehltage_e || 0) + (p.pauschal_fehltage_u || 0)}</td>
+          <td>
+            <button class="btn-icon btn-sm" onclick="AzubiDashboard.editPhase(${schuelerId},${p.id})" title="Bearbeiten">&#9998;</button>
+            <button class="btn-icon btn-sm" onclick="AzubiDashboard.confirmDeletePhase(${schuelerId},${p.id})" title="Löschen" style="color:var(--clr-red)">&#10005;</button>
+          </td>
+        </tr>`).join('');
+    } else {
+      rows = `<tr><td colspan="7" style="text-align:center;color:var(--clr-text-light);padding:20px">
+        Keine Phasen angelegt. Es wird der Standard-Verlauf aus Ausbildungsbeginn/-ende verwendet.
+        <br><button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="AzubiDashboard.autoCreateInitialPhase(${schuelerId})">Standard-Phase aus Stammdaten erzeugen</button>
+      </td></tr>`;
+    }
+
+    const probleme = AzubiRechner.phasenValidieren(phasen);
+
+    App.openModal(`Phasen-Editor: ${s.nachname}, ${s.vorname}`, `
+      ${probleme.length ? `<div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
+        <strong>Validierung:</strong> ${probleme.map(p => esc(p.text)).join('; ')}
+      </div>` : ''}
+      <div style="overflow-x:auto">
+        <table class="data-table" style="font-size:12px;width:100%">
+          <thead><tr><th>Typ</th><th>Von</th><th>Bis</th><th>Betrieb/Grund</th><th>TZ-%</th><th>Fehlt.</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${schuelerId})">Zurück zum Dashboard</button>
+        <button class="btn btn-primary" onclick="AzubiDashboard.addPhaseForm(${schuelerId})">+ Phase hinzufügen</button>`);
+    _makeModalWide();
+  },
+
+  autoCreateInitialPhase(schuelerId) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s || !s.ausbildungsbeginn) {
+      App.toast('Kein Ausbildungsbeginn hinterlegt', 'warning');
+      return;
+    }
+    AzubiRechner.addPhase(schuelerId, {
+      von: s.ausbildungsbeginn,
+      bis: s.ausbildungsende || null,
+      typ: 'ausbildung',
+      betrieb: s.ausbildungsstaette || '',
+      teilzeit_prozent: 100,
+    });
+    App.toast('Standard-Phase angelegt', 'success');
+    this.openPhasenEditor(schuelerId);
+  },
+
+  addPhaseForm(schuelerId) {
+    this._phaseFormModal(schuelerId, null);
+  },
+
+  editPhase(schuelerId, phaseId) {
+    this._phaseFormModal(schuelerId, phaseId);
+  },
+
+  _phaseFormModal(schuelerId, phaseId) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    const existing = phaseId ? App.query('SELECT * FROM ausbildungsphasen WHERE id=?', [phaseId])[0] : null;
+    const p = existing || { typ: 'ausbildung', von: '', bis: '', betrieb: s?.ausbildungsstaette || '', teilzeit_prozent: 100, grund: '', pauschal_fehltage_e: 0, pauschal_fehltage_u: 0, anmerkung: '' };
+
+    const isAusb = p.typ === 'ausbildung';
+    App.openModal(phaseId ? 'Phase bearbeiten' : 'Neue Phase', `
+      <div class="form-row">
+        <div class="form-group"><label>Typ</label>
+          <select class="form-control" id="mPhTyp" onchange="document.getElementById('mPhAusb').style.display=this.value==='ausbildung'?'':'none';document.getElementById('mPhUnterb').style.display=this.value==='unterbrechung'?'':'none'">
+            <option value="ausbildung" ${isAusb ? 'selected' : ''}>Ausbildung</option>
+            <option value="unterbrechung" ${!isAusb ? 'selected' : ''}>Unterbrechung</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Von</label><input type="date" class="form-control" id="mPhVon" value="${p.von || ''}"></div>
+        <div class="form-group"><label>Bis</label><input type="date" class="form-control" id="mPhBis" value="${p.bis || ''}"><div style="font-size:10px;color:var(--clr-text-light)">Leer = läuft noch</div></div>
+      </div>
+      <div id="mPhAusb" style="${isAusb ? '' : 'display:none'}">
+        <div class="form-row">
+          <div class="form-group"><label>Betrieb</label><input class="form-control" id="mPhBetrieb" value="${esc(p.betrieb || '')}"></div>
+          <div class="form-group"><label>Teilzeit %</label><input type="number" class="form-control" id="mPhTZ" value="${p.teilzeit_prozent || 100}" min="25" max="100" step="5"></div>
+        </div>
+      </div>
+      <div id="mPhUnterb" style="${!isAusb ? '' : 'display:none'}">
+        <div class="form-group"><label>Grund</label>
+          <select class="form-control" id="mPhGrund">
+            <option value="">–</option>
+            ${['Mutterschutz', 'Elternzeit', 'Krankheit (lang)', 'Wehrdienst/Freiwilligendienst', 'Sonstiges'].map(g => `<option value="${g}" ${p.grund === g ? 'selected' : ''}>${g}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Pauschal-Fehltage (entsch.)</label><input type="number" class="form-control" id="mPhFE" value="${p.pauschal_fehltage_e || 0}" min="0"></div>
+        <div class="form-group"><label>Pauschal-Fehltage (unentsch.)</label><input type="number" class="form-control" id="mPhFU" value="${p.pauschal_fehltage_u || 0}" min="0"></div>
+      </div>
+      <div class="form-group"><label>Anmerkung</label><input class="form-control" id="mPhAnm" value="${esc(p.anmerkung || '')}"></div>
+      <div id="mPhKonflikt" style="margin-top:8px"></div>
+    `, `<button class="btn btn-secondary" onclick="AzubiDashboard.openPhasenEditor(${schuelerId})">Abbrechen</button>
+        <button class="btn btn-primary" onclick="AzubiDashboard.savePhase(${schuelerId},${phaseId || 'null'})">${phaseId ? 'Speichern' : 'Hinzufügen'}</button>`);
+  },
+
+  savePhase(schuelerId, phaseId) {
+    const typ = document.getElementById('mPhTyp').value;
+    const von = document.getElementById('mPhVon').value;
+    const bis = document.getElementById('mPhBis').value;
+    if (!von) { App.toast('Beginn ist Pflichtfeld', 'error'); return; }
+    if (bis && bis < von) { App.toast('Ende liegt vor dem Beginn', 'error'); return; }
+
+    const phase = {
+      typ,
+      von, bis: bis || null,
+      betrieb: typ === 'ausbildung' ? document.getElementById('mPhBetrieb').value.trim() : null,
+      teilzeit_prozent: typ === 'ausbildung' ? parseInt(document.getElementById('mPhTZ').value) || 100 : 100,
+      grund: typ === 'unterbrechung' ? document.getElementById('mPhGrund').value : null,
+      pauschal_fehltage_e: parseInt(document.getElementById('mPhFE').value) || 0,
+      pauschal_fehltage_u: parseInt(document.getElementById('mPhFU').value) || 0,
+      anmerkung: document.getElementById('mPhAnm').value.trim(),
+    };
+
+    // Konflikt-Check
+    const allePhasen = AzubiRechner.getPhasen(schuelerId);
+    const konflikt = AzubiRechner.phasenKonflikt(allePhasen, { ...phase, id: phaseId });
+    if (konflikt) {
+      const empf = konflikt.optionen.find(o => o.empfohlen);
+      if (empf && empf.id === 'kuerzen') {
+        const vorTag = AzubiRechner.parseISO(von);
+        vorTag.setDate(vorTag.getDate() - 1);
+        AzubiRechner.updatePhase(konflikt.konflikt.id, { ...konflikt.konflikt, bis: AzubiRechner.fmtISO(vorTag) });
+      }
+    }
+
+    if (phaseId) {
+      AzubiRechner.updatePhase(phaseId, phase);
+      App.toast('Phase aktualisiert', 'success');
+    } else {
+      AzubiRechner.addPhase(schuelerId, phase);
+      App.toast('Phase hinzugefügt', 'success');
+    }
+    this.openPhasenEditor(schuelerId);
+  },
+
+  confirmDeletePhase(schuelerId, phaseId) {
+    if (!confirm('Phase wirklich löschen?')) return;
+    AzubiRechner.deletePhase(phaseId);
+    App.toast('Phase gelöscht', 'success');
+    this.openPhasenEditor(schuelerId);
+  },
+};
+
 // ── schueler-view.js ──
 const SchuelerView = {
   _initialized: false,
@@ -23537,6 +24503,7 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
+              <button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">&#128202;</button>
               <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">&#128209;</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
