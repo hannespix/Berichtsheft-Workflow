@@ -157,7 +157,7 @@ const StammdatenTab = {
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id])||0;
         const wvO = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id])||0;
         const amp = App.getSchuelerAmpel(s.id);
-        const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende);
+        const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id);
         return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
           <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>

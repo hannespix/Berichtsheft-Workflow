@@ -476,10 +476,26 @@ const ImportHandler = {
           }
         }
 
-        if (changes.length) {
+        // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
+        const hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0;
+        const datumsAenderung = changes.some(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+        if (hatPhasen && datumsAenderung) {
+          const konfliktChanges = changes.filter(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+          if (!stats.phasenKonflikte) stats.phasenKonflikte = [];
+          stats.phasenKonflikte.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, changes: konfliktChanges, allChanges: changes });
+          // Datums-Felder NICHT überschreiben, Rest schon
+          const safeChanges = changes.filter(([f]) => f !== 'ausbildungsbeginn' && f !== 'ausbildungsende');
+          if (safeChanges.length) {
+            safeChanges.forEach(([field, newVal]) => {
+              App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
+            });
+          }
+        } else if (changes.length) {
           changes.forEach(([field, newVal]) => {
             App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
           });
+        }
+        if (changes.length) {
           if (!stats.updated) stats.updated = 0;
           stats.updated++;
         }
@@ -537,11 +553,44 @@ const ImportHandler = {
     if (history.length > 20) history.length = 20;
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('import_history',?)", [JSON.stringify(history)]);
 
+    const pKonf = stats.phasenKonflikte || [];
     App.openModal('Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
+        <strong>⚠️ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
+        <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
+          ${pKonf.map(k => `<div style="padding:4px 0;border-bottom:1px solid #eee">
+            <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${f}: ${alt||'–'} → ${neu}`).join(', ')}
+            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',${JSON.stringify(k.changes).replace(/"/g,'&quot;')});this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+  },
+
+  _resolveKonflikt(schuelerId, action, changes) {
+    if (action === 'accept') {
+      changes.forEach(([field, newVal]) => {
+        App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, schuelerId]);
+      });
+      const phasen = typeof AzubiRechner !== 'undefined' ? AzubiRechner.getPhasen(schuelerId) : [];
+      if (phasen.length) {
+        const s = App.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+        const first = phasen[0];
+        const last = phasen[phasen.length - 1];
+        if (s.ausbildungsbeginn && first.von !== s.ausbildungsbeginn) {
+          App.run('UPDATE ausbildungsphasen SET von=? WHERE id=?', [s.ausbildungsbeginn, first.id]);
+        }
+        if (s.ausbildungsende && last.typ === 'ausbildung' && !last.bis) {
+          // offene letzte Phase: nothing to adjust
+        } else if (s.ausbildungsende && last.bis && last.bis !== s.ausbildungsende) {
+          App.run('UPDATE ausbildungsphasen SET bis=? WHERE id=?', [s.ausbildungsende, last.id]);
+        }
+      }
+      App.toast('Daten übernommen, Phasen angepasst', 'success');
+    }
   },
 
   addManually() {

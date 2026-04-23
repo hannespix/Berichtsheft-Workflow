@@ -182,7 +182,7 @@ const KontrolleHandler = {
         <td>
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">&#128202;</a></div>
         </td>
@@ -923,8 +923,8 @@ const KontrolleHandler = {
             <strong style="font-size:18px;font-family:var(--font-display)">${esc(s.nachname)}, ${esc(s.vorname)}</strong>
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
-              ${App.getCurrentAJ(s.ausbildungsbeginn) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn)}</span>` : ''}
-              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
+              ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
+              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
               · <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#128202; Dashboard</a>
             </div>

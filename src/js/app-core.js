@@ -3312,7 +3312,11 @@ const App = {
   },
 
   // ── Verkürzer-Erkennung: < 30 Monate Ausbildungszeit ──
-  isVerkuerzer(beginn, ende) {
+  isVerkuerzer(beginn, ende, schuelerId) {
+    if (schuelerId) {
+      const s = this.query('SELECT verkuerzung_monate, regulaer_dauer_monate FROM schueler WHERE id=?', [schuelerId])[0];
+      if (s && s.verkuerzung_monate > 0) return true;
+    }
     if (!beginn || !ende) return false;
     const d1 = this._parseDate(beginn), d2 = this._parseDate(ende);
     if (!d1 || !d2) return false;
@@ -3358,9 +3362,28 @@ const App = {
     return Array.from({length: numSY}, (_, i) => i + 1); // [1,2,3,4] etc.
   },
 
-  // ── Aktuelles Ausbildungsjahr berechnen (aus Ausbildungsbeginn) ──
-  getCurrentAJ(beginn) {
+  // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
+  getCurrentAJ(beginn, schuelerId) {
     if (!beginn) return null;
+    if (schuelerId && typeof AzubiRechner !== 'undefined') {
+      const phasen = AzubiRechner.getPhasen(schuelerId);
+      if (phasen.length) {
+        const s = this.query('SELECT regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
+        const R = AzubiRechner;
+        const phasenMit = R.phasenMitEnden(phasen, s?.regulaer_dauer_monate || 36, s?.verkuerzung_monate || 0);
+        const heute = new Date();
+        const erbrachtVZ = phasenMit
+          .filter(p => p.typ === 'ausbildung')
+          .reduce((sum, p) => {
+            const von = R.parseISO(p.von);
+            const bis = p.bis ? R.parseISO(p.bis) : heute;
+            const eff = bis < heute ? bis : heute;
+            if (eff < von) return sum;
+            return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
+          }, 0);
+        return Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+      }
+    }
     const d = this._parseDate(beginn);
     if (!d) return null;
     const now = new Date();
@@ -3582,6 +3605,29 @@ const App = {
           for (let i = endIdx + 1; i < allKWOrder.length; i++) inactive.push(allKWOrder[i]);
         }
         // endIdx 0-2 (KW 36-38) or >= 49 (KW 33-35) → treat as full year
+      }
+
+      // Unterbrechungs-Phasen als inaktive KWs markieren
+      if (typeof AzubiRechner !== 'undefined') {
+        const phasen = AzubiRechner.getPhasen(schuelerId);
+        const unterbrechungen = phasen.filter(p => p.typ === 'unterbrechung' && p.von && p.bis);
+        const sy = firstSY !== null ? firstSY + idx : null;
+        const syStart = sy ? new Date(sy, 8, 1) : null; // Sep 1
+        const syEnd = sy ? new Date(sy + 1, 7, 31) : null; // Aug 31
+        unterbrechungen.forEach(u => {
+          const uVon = AzubiRechner.parseISO(u.von);
+          const uBis = AzubiRechner.parseISO(u.bis);
+          if (!syStart || !syEnd) return;
+          if (uBis < syStart || uVon > syEnd) return;
+          const effVon = uVon < syStart ? syStart : uVon;
+          const effBis = uBis > syEnd ? syEnd : uBis;
+          let cur = new Date(effVon);
+          while (cur <= effBis) {
+            const kw = this._isoKW(cur);
+            if (!inactive.includes(kw)) inactive.push(kw);
+            cur.setDate(cur.getDate() + 7);
+          }
+        });
       }
 
       const sy = firstSY !== null ? firstSY + idx : null;

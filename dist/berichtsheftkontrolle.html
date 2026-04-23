@@ -10506,7 +10506,11 @@ const App = {
   },
 
   // ── Verkürzer-Erkennung: < 30 Monate Ausbildungszeit ──
-  isVerkuerzer(beginn, ende) {
+  isVerkuerzer(beginn, ende, schuelerId) {
+    if (schuelerId) {
+      const s = this.query('SELECT verkuerzung_monate, regulaer_dauer_monate FROM schueler WHERE id=?', [schuelerId])[0];
+      if (s && s.verkuerzung_monate > 0) return true;
+    }
     if (!beginn || !ende) return false;
     const d1 = this._parseDate(beginn), d2 = this._parseDate(ende);
     if (!d1 || !d2) return false;
@@ -10552,9 +10556,28 @@ const App = {
     return Array.from({length: numSY}, (_, i) => i + 1); // [1,2,3,4] etc.
   },
 
-  // ── Aktuelles Ausbildungsjahr berechnen (aus Ausbildungsbeginn) ──
-  getCurrentAJ(beginn) {
+  // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
+  getCurrentAJ(beginn, schuelerId) {
     if (!beginn) return null;
+    if (schuelerId && typeof AzubiRechner !== 'undefined') {
+      const phasen = AzubiRechner.getPhasen(schuelerId);
+      if (phasen.length) {
+        const s = this.query('SELECT regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
+        const R = AzubiRechner;
+        const phasenMit = R.phasenMitEnden(phasen, s?.regulaer_dauer_monate || 36, s?.verkuerzung_monate || 0);
+        const heute = new Date();
+        const erbrachtVZ = phasenMit
+          .filter(p => p.typ === 'ausbildung')
+          .reduce((sum, p) => {
+            const von = R.parseISO(p.von);
+            const bis = p.bis ? R.parseISO(p.bis) : heute;
+            const eff = bis < heute ? bis : heute;
+            if (eff < von) return sum;
+            return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
+          }, 0);
+        return Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+      }
+    }
     const d = this._parseDate(beginn);
     if (!d) return null;
     const now = new Date();
@@ -10776,6 +10799,29 @@ const App = {
           for (let i = endIdx + 1; i < allKWOrder.length; i++) inactive.push(allKWOrder[i]);
         }
         // endIdx 0-2 (KW 36-38) or >= 49 (KW 33-35) → treat as full year
+      }
+
+      // Unterbrechungs-Phasen als inaktive KWs markieren
+      if (typeof AzubiRechner !== 'undefined') {
+        const phasen = AzubiRechner.getPhasen(schuelerId);
+        const unterbrechungen = phasen.filter(p => p.typ === 'unterbrechung' && p.von && p.bis);
+        const sy = firstSY !== null ? firstSY + idx : null;
+        const syStart = sy ? new Date(sy, 8, 1) : null; // Sep 1
+        const syEnd = sy ? new Date(sy + 1, 7, 31) : null; // Aug 31
+        unterbrechungen.forEach(u => {
+          const uVon = AzubiRechner.parseISO(u.von);
+          const uBis = AzubiRechner.parseISO(u.bis);
+          if (!syStart || !syEnd) return;
+          if (uBis < syStart || uVon > syEnd) return;
+          const effVon = uVon < syStart ? syStart : uVon;
+          const effBis = uBis > syEnd ? syEnd : uBis;
+          let cur = new Date(effVon);
+          while (cur <= effBis) {
+            const kw = this._isoKW(cur);
+            if (!inactive.includes(kw)) inactive.push(kw);
+            cur.setDate(cur.getDate() + 7);
+          }
+        });
       }
 
       const sy = firstSY !== null ? firstSY + idx : null;
@@ -14210,7 +14256,7 @@ const StammdatenTab = {
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id])||0;
         const wvO = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id])||0;
         const amp = App.getSchuelerAmpel(s.id);
-        const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende);
+        const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id);
         return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
           <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
@@ -15999,10 +16045,26 @@ const ImportHandler = {
           }
         }
 
-        if (changes.length) {
+        // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
+        const hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0;
+        const datumsAenderung = changes.some(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+        if (hatPhasen && datumsAenderung) {
+          const konfliktChanges = changes.filter(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+          if (!stats.phasenKonflikte) stats.phasenKonflikte = [];
+          stats.phasenKonflikte.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, changes: konfliktChanges, allChanges: changes });
+          // Datums-Felder NICHT überschreiben, Rest schon
+          const safeChanges = changes.filter(([f]) => f !== 'ausbildungsbeginn' && f !== 'ausbildungsende');
+          if (safeChanges.length) {
+            safeChanges.forEach(([field, newVal]) => {
+              App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
+            });
+          }
+        } else if (changes.length) {
           changes.forEach(([field, newVal]) => {
             App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
           });
+        }
+        if (changes.length) {
           if (!stats.updated) stats.updated = 0;
           stats.updated++;
         }
@@ -16060,11 +16122,44 @@ const ImportHandler = {
     if (history.length > 20) history.length = 20;
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('import_history',?)", [JSON.stringify(history)]);
 
+    const pKonf = stats.phasenKonflikte || [];
     App.openModal('Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
+        <strong>⚠️ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
+        <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
+          ${pKonf.map(k => `<div style="padding:4px 0;border-bottom:1px solid #eee">
+            <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${f}: ${alt||'–'} → ${neu}`).join(', ')}
+            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',${JSON.stringify(k.changes).replace(/"/g,'&quot;')});this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+  },
+
+  _resolveKonflikt(schuelerId, action, changes) {
+    if (action === 'accept') {
+      changes.forEach(([field, newVal]) => {
+        App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, schuelerId]);
+      });
+      const phasen = typeof AzubiRechner !== 'undefined' ? AzubiRechner.getPhasen(schuelerId) : [];
+      if (phasen.length) {
+        const s = App.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+        const first = phasen[0];
+        const last = phasen[phasen.length - 1];
+        if (s.ausbildungsbeginn && first.von !== s.ausbildungsbeginn) {
+          App.run('UPDATE ausbildungsphasen SET von=? WHERE id=?', [s.ausbildungsbeginn, first.id]);
+        }
+        if (s.ausbildungsende && last.typ === 'ausbildung' && !last.bis) {
+          // offene letzte Phase: nothing to adjust
+        } else if (s.ausbildungsende && last.bis && last.bis !== s.ausbildungsende) {
+          App.run('UPDATE ausbildungsphasen SET bis=? WHERE id=?', [s.ausbildungsende, last.id]);
+        }
+      }
+      App.toast('Daten übernommen, Phasen angepasst', 'success');
+    }
   },
 
   addManually() {
@@ -18450,7 +18545,7 @@ const KontrolleHandler = {
         <td>
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">&#128202;</a></div>
         </td>
@@ -19191,8 +19286,8 @@ const KontrolleHandler = {
             <strong style="font-size:18px;font-family:var(--font-display)">${esc(s.nachname)}, ${esc(s.vorname)}</strong>
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
-              ${App.getCurrentAJ(s.ausbildungsbeginn) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn)}</span>` : ''}
-              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
+              ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
+              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
               · <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#128202; Dashboard</a>
             </div>
