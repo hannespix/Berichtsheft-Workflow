@@ -24525,7 +24525,7 @@ const AzubiDashboard = {
             </div>
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
               <div style="font-size:11px;color:var(--clr-text-light)">Individueller Bruttolohn ${kz.isFachwerker ? '<span style="color:var(--clr-amber)">(Fachwerker: Ausbildungsgeld)</span>' : ''}</div>
-              <input type="number" class="form-control" id="adBrutto" value="${s.brutto_lohn || ''}" min="0" max="3000" step="10" placeholder="${kz.isFachwerker ? '501 (Ausbg.)' : 'Tarif'}" onchange="AzubiDashboard._saveField(${s.id},'brutto_lohn',parseFloat(this.value)||0)" style="font-size:13px;padding:4px 6px">
+              <input type="number" class="form-control" id="adBrutto" value="${s.brutto_lohn || ''}" min="0" max="3000" step="10" placeholder="${kz.isFachwerker ? '501 (Ausbg.)' : 'Tarif'}" oninput="AzubiDashboard._liveUpdateLohn(${s.id},this.value)" style="font-size:13px;padding:4px 6px">
               <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">0 oder leer = Tarif${kz.isFachwerker ? ' · FW: 501€ (Eltern) / 822€ (eigen)' : ''}</div>
             </div>
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
@@ -24604,6 +24604,22 @@ const AzubiDashboard = {
     if (field === 'ausbildungsende' && value) {
       this._checkJahrgangAnpassung(schuelerId, value);
     }
+  },
+
+  _lohnTimer: null,
+  _liveUpdateLohn(schuelerId, rawValue) {
+    const val = parseFloat(rawValue) || 0;
+    App.run("UPDATE schueler SET brutto_lohn=? WHERE id=?", [val, schuelerId]);
+    clearTimeout(this._lohnTimer);
+    this._lohnTimer = setTimeout(() => {
+      const inputEl = document.getElementById('adBrutto');
+      const cursorPos = inputEl?.selectionStart;
+      this.open(schuelerId);
+      requestAnimationFrame(() => {
+        const restored = document.getElementById('adBrutto');
+        if (restored) { restored.focus(); restored.setSelectionRange(cursorPos, cursorPos); }
+      });
+    }, 400);
   },
 
   _checkJahrgangAnpassung(schuelerId, neuesEnde) {
