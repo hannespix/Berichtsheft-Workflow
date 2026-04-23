@@ -479,8 +479,12 @@ const AzubiRechner = {
 
     const fruehPruef = this.fruehesterPruefungstermin(ende, false);
     const fruehPruefVorzeitig = this.fruehesterPruefungstermin(ende, true);
-    const zpDate = this.zpTerminAuto(start, dauer);
-    const apDate = this.apTerminAuto(ende, cfg.vorzeitige_zulassung);
+    const zpAuto = this.zpTerminAuto(start, dauer);
+    const apAuto = this.apTerminAuto(ende, cfg.vorzeitige_zulassung);
+    const zpManuell = s.zp_termin ? true : false;
+    const apManuell = s.ap_termin ? true : false;
+    const zpDate = zpManuell ? this.parseISO(s.zp_termin) : zpAuto;
+    const apDate = apManuell ? this.parseISO(s.ap_termin) : apAuto;
 
     let naechsterMeilenstein = null;
     if (zpDate && zpDate > heute) naechsterMeilenstein = { titel: "Zwischenprüfung", datum: zpDate, tage: this.daysBetween(heute, zpDate) };
@@ -496,7 +500,7 @@ const AzubiRechner = {
       atVollzeit, atGes, fehltageSoft, fehltageHart, ausbildungsTageGes,
       pauschalFehltage: pf, aktLehrjahr, naechsterMeilenstein,
       perioden, aktVerg, aktPeriode, aktPhase,
-      fruehPruef, fruehPruefVorzeitig, zpDate, apDate,
+      fruehPruef, fruehPruefVorzeitig, zpDate, apDate, zpAuto, apAuto, zpManuell, apManuell,
       probleme, erbrachtVZ,
     };
   },

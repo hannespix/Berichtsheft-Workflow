@@ -1014,6 +1014,8 @@ const App = {
       vollzeit_wochenstunden REAL DEFAULT 39,
       beruf_id TEXT DEFAULT '',
       geburtsdatum TEXT DEFAULT '',
+      zp_termin TEXT DEFAULT '',
+      ap_termin TEXT DEFAULT '',
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -2832,6 +2834,8 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39");
     run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''");
   },
 
   _importFromDisk(diskDb) {
@@ -4223,6 +4227,8 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''"); } catch(e) {}
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──

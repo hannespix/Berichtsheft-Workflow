@@ -75,21 +75,55 @@ const AzubiDashboard = {
           ${this._renderKennzahlCard('Fortschritt', kz.progress + '%', kz.progress > 90 ? 'green' : 'forest')}
         </div>
 
-        <!-- Prüfungstermine -->
+        <!-- Prüfungstermine (editierbar) -->
         <div style="margin-bottom:16px">
-          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Prüfungstermine</div>
+          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Prüfungstermine & Vertragsdaten</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
             <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
-              <div style="font-size:11px;color:var(--clr-text-light)">Zwischenprüfung</div>
-              <div style="font-weight:600;font-size:14px">${fmtD(kz.zpDate)}</div>
+              <div style="font-size:11px;color:var(--clr-text-light)">Zwischenprüfung ${kz.zpManuell ? '<span style="color:var(--clr-forest)">(manuell)</span>' : '<span>(auto)</span>'}</div>
+              <input type="date" class="form-control" id="adZP" value="${s.zp_termin || ''}" placeholder="${fmtD(kz.zpAuto)}" onchange="AzubiDashboard._saveField(${s.id},'zp_termin',this.value)" style="font-weight:600;font-size:13px;padding:4px 6px">
+              <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">Auto: ${fmtD(kz.zpAuto)} · Leer = auto</div>
             </div>
             <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
-              <div style="font-size:11px;color:var(--clr-text-light)">Abschlussprüfung${kz.cfg.vorzeitige_zulassung ? ' (§45 vorzeitig)' : ''}</div>
-              <div style="font-weight:600;font-size:14px">${fmtD(kz.apDate)}</div>
+              <div style="font-size:11px;color:var(--clr-text-light)">Abschlussprüfung ${kz.apManuell ? '<span style="color:var(--clr-forest)">(manuell)</span>' : '<span>(auto)</span>'}${kz.cfg.vorzeitige_zulassung ? ' §45' : ''}</div>
+              <input type="date" class="form-control" id="adAP" value="${s.ap_termin || ''}" onchange="AzubiDashboard._saveField(${s.id},'ap_termin',this.value)" style="font-weight:600;font-size:13px;padding:4px 6px">
+              <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">Auto: ${fmtD(kz.apAuto)} · Leer = auto</div>
             </div>
             <div style="padding:10px 14px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
-              <div style="font-size:11px;color:var(--clr-text-light)">Vertragsende (berechnet)</div>
-              <div style="font-weight:600;font-size:14px">${fmtD(kz.ende)}</div>
+              <div style="font-size:11px;color:var(--clr-text-light)">Ausbildungsende</div>
+              <input type="date" class="form-control" id="adEnde" value="${s.ausbildungsende || ''}" onchange="AzubiDashboard._saveField(${s.id},'ausbildungsende',this.value)" style="font-weight:600;font-size:13px;padding:4px 6px">
+              <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">Berechnet: ${fmtD(kz.ende)}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ausbildungs-Einstellungen (editierbar) -->
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:6px">Ausbildungs-Einstellungen</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Beruf (Tarif)</div>
+              <select class="form-control" id="adBeruf" onchange="AzubiDashboard._saveField(${s.id},'beruf_id',this.value)" style="font-size:12px;padding:4px 6px">
+                <option value="">–</option>${R.BERUFE.map(b => `<option value="${b.id}" ${(s.beruf_id||'')=== b.id ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}
+              </select>
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Reguläre Dauer (Mon.)</div>
+              <input type="number" class="form-control" id="adDauer" value="${s.regulaer_dauer_monate || 36}" min="6" max="48" onchange="AzubiDashboard._saveField(${s.id},'regulaer_dauer_monate',parseInt(this.value)||36)" style="font-size:13px;padding:4px 6px">
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Verkürzung (Mon.)</div>
+              <input type="number" class="form-control" id="adVerk" value="${s.verkuerzung_monate || 0}" min="0" max="18" onchange="AzubiDashboard._saveField(${s.id},'verkuerzung_monate',parseInt(this.value)||0)" style="font-size:13px;padding:4px 6px">
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Geburtsdatum</div>
+              <input type="date" class="form-control" id="adGeburt" value="${s.geburtsdatum || ''}" onchange="AzubiDashboard._saveField(${s.id},'geburtsdatum',this.value)" style="font-size:13px;padding:4px 6px">
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Optionen</div>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-top:4px">
+                <input type="checkbox" ${s.vorzeitige_zulassung ? 'checked' : ''} onchange="AzubiDashboard._saveField(${s.id},'vorzeitige_zulassung',this.checked?1:0)" style="width:16px;height:16px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+              </label>
             </div>
           </div>
         </div>
@@ -151,6 +185,13 @@ const AzubiDashboard = {
       if (kz.aktVerg < letztes.lj[ljIdx]) risiken.push('Vergütung unter Mindestvergütung (§17 BBiG)');
     }
     return risiken;
+  },
+
+  _saveField(schuelerId, field, value) {
+    const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden'];
+    if (!allowed.includes(field)) return;
+    App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [value, schuelerId]);
+    App.toast('Gespeichert', 'success');
   },
 
   _renderKennzahlCard(titel, wert, farbe) {
