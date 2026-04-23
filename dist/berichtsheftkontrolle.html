@@ -15559,8 +15559,26 @@ const StammdatenTab = {
 
     const ampelIcon = (erg) => !erg ? '⚪' : erg === 'in_ordnung' ? '🟢' : '🔴';
 
+    const bs = App.query('SELECT * FROM berufsschulen WHERE id=?', [kl.berufsschule_id])[0] || {};
+    const ansprechpartner = (() => { try { return JSON.parse(bs.ansprechpartner_json || '[]'); } catch { return []; } })();
+
     App.openModal(`📚 ${esc(kl.klassenbezeichnung)} – ${esc(kl.schule)}`, `
-      <div style="margin-bottom:8px;font-size:12px;color:var(--clr-text-light)">${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Schüler</div>
+      <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px;font-size:12px;color:var(--clr-text-light)">
+          ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Schüler
+          ${bs.telefon ? '<br>📞 <a href="tel:' + esc(bs.telefon) + '" style="color:var(--clr-forest)">' + esc(bs.telefon) + '</a>' : ''}
+          ${bs.email ? '<br>📧 <a href="mailto:' + esc(bs.email) + '" style="color:var(--clr-forest)">' + esc(bs.email) + '</a>' : ''}
+        </div>
+        ${ansprechpartner.length ? `<div style="flex:1;min-width:180px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
+          <strong style="font-size:11px;color:var(--clr-forest)">Ansprechpartner:</strong>
+          ${ansprechpartner.map(a => `<div style="margin-top:3px">${esc(a.name||'')}${a.funktion ? ' <span style="color:var(--clr-text-light)">(' + esc(a.funktion) + ')</span>' : ''}
+            ${a.telefon ? '<br>📞 <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
+            ${a.email ? ' 📧 <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
+          </div>`).join('')}
+        </div>` : (bs.ansprechpartner ? `<div style="flex:1;min-width:180px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
+          <strong style="font-size:11px;color:var(--clr-forest)">Ansprechpartner:</strong> ${esc(bs.ansprechpartner)}
+        </div>` : '')}
+      </div>
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>Betrieb</th><th>Kontakt</th><th></th></tr></thead>
         <tbody>${azubis.map(s => `<tr>
@@ -15575,7 +15593,9 @@ const StammdatenTab = {
           <td><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})">✏️</button></td>
         </tr>`).join('')}</tbody>
       </table>
-    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editSchule(${kl.berufsschule_id})">✏️ Schule bearbeiten</button>`);
+    _makeModalWide();
   },
 
   showSchuleAzubis(schuleId) {
@@ -15646,12 +15666,23 @@ const StammdatenTab = {
       ? `🔴 Beanstandete Azubis – ${esc(bName)}`
       : `👥 Azubis – ${esc(bName)}${b.zusatzbezeichnung ? ' · ' + esc(b.zusatzbezeichnung) : ''}`;
 
+    const ausbilder = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? ORDER BY nachname', [betriebId]);
+
     App.openModal(title, `
-      ${b.email || b.telefon ? `<div style="margin-bottom:10px;font-size:12px;color:var(--clr-text-light)">
-        ${b.email ? `📧 <a href="mailto:${esc(b.email)}" style="color:var(--clr-forest)">${esc(b.email)}</a>` : ''}
-        ${b.telefon ? `${b.email ? ' · ' : ''}📞 <a href="tel:${esc(b.telefon)}" style="color:var(--clr-forest)">${esc(b.telefon)}</a>` : ''}
-        ${b.ort ? ` · 📍 ${esc(b.strasse ? b.strasse + ', ' : '')}${esc(b.plz)} ${esc(b.ort)}` : ''}
-      </div>` : ''}
+      <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px;font-size:12px;color:var(--clr-text-light)">
+          ${b.email ? `📧 <a href="mailto:${esc(b.email)}" style="color:var(--clr-forest)">${esc(b.email)}</a><br>` : ''}
+          ${b.telefon ? `📞 <a href="tel:${esc(b.telefon)}" style="color:var(--clr-forest)">${esc(b.telefon)}</a><br>` : ''}
+          ${b.ort ? `📍 ${esc(b.strasse ? b.strasse + ', ' : '')}${esc(b.plz)} ${esc(b.ort)}` : ''}
+        </div>
+        ${ausbilder.length ? `<div style="flex:1;min-width:200px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
+          <strong style="font-size:11px;color:var(--clr-forest)">Ausbilder:</strong>
+          ${ausbilder.map(a => `<div style="margin-top:3px">${esc((a.vorname ? a.vorname + ' ' : '') + a.nachname)}${a.funktion ? ' <span style="color:var(--clr-text-light)">(' + esc(a.funktion) + ')</span>' : ''}
+            ${a.telefon ? '<br>📞 <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
+            ${a.mobil ? ' 📱 <a href="tel:' + esc(a.mobil) + '" style="color:var(--clr-forest)">' + esc(a.mobil) + '</a>' : ''}
+            ${a.email ? '<br>📧 <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
+          </div>`).join('')}
+        </div>` : ''}
       ${!azubis.length ? '<p style="color:var(--clr-text-light);font-size:13px">Keine Azubis gefunden.</p>' : `
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>FR / JG</th><th>Letzte Kontrolle</th><th>Kontakt</th><th></th></tr></thead>
@@ -15672,7 +15703,9 @@ const StammdatenTab = {
           }).join('')}
         </tbody>
       </table>`}
-    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">✏️ Betrieb bearbeiten</button>`);
+    _makeModalWide();
   },
 };
 
