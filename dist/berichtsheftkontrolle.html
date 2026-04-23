@@ -24320,13 +24320,13 @@ const AzubiRechner = {
     const isFachwerker = typeof App !== 'undefined' && App.isFachwerker && App.isFachwerker(s.fachrichtung_id);
     const hatIndividuellenLohn = s.brutto_lohn > 0;
     const perioden = isFachwerker || hatIndividuellenLohn ? [] : this.berechneVerguetungsUebersicht(cfg, phasenMit);
-    let aktVerg;
+    let aktVerg, aktPeriode = null;
     if (hatIndividuellenLohn) {
       aktVerg = s.brutto_lohn;
     } else if (isFachwerker) {
       aktVerg = this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
-      const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
+      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
       aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
     }
 
