@@ -24319,15 +24319,21 @@ const AzubiRechner = {
 
     const isFachwerker = typeof App !== 'undefined' && App.isFachwerker && App.isFachwerker(s.fachrichtung_id);
     const hatIndividuellenLohn = s.brutto_lohn > 0;
-    const perioden = isFachwerker || hatIndividuellenLohn ? [] : this.berechneVerguetungsUebersicht(cfg, phasenMit);
-    let aktVerg, aktPeriode = null;
+    // Perioden IMMER berechnen (für Lehrjahr, Urlaub, TZ-Wechsel); Brutto wird ggf. überschrieben
+    let perioden = isFachwerker ? [] : this.berechneVerguetungsUebersicht(cfg, phasenMit);
     if (hatIndividuellenLohn) {
-      aktVerg = s.brutto_lohn;
-    } else if (isFachwerker) {
+      perioden = perioden.map(p => p.unterbrechung ? p : {
+        ...p,
+        vergVZ: s.brutto_lohn,
+        vergEff: Math.round(s.brutto_lohn * (p.quote || 100) / 100),
+      });
+    }
+    let aktVerg, aktPeriode = null;
+    if (isFachwerker) {
       aktVerg = this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
-      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
-      aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung) || perioden.filter(p => !p.unterbrechung).pop();
+      aktVerg = aktPeriode ? aktPeriode.vergEff : (hatIndividuellenLohn ? s.brutto_lohn : 0);
     }
 
     const fruehPruef = this.fruehesterPruefungstermin(ende, false);
