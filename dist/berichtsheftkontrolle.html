@@ -24595,6 +24595,85 @@ const AzubiDashboard = {
     if (!allowed.includes(field)) return;
     App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [value, schuelerId]);
     App.toast('Gespeichert', 'success');
+    if (field === 'ausbildungsende' && value) {
+      this._checkJahrgangAnpassung(schuelerId, value);
+    }
+  },
+
+  _checkJahrgangAnpassung(schuelerId, neuesEnde) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s) return;
+    const R = AzubiRechner;
+    const endeDate = R.parseISO(neuesEnde);
+    const apDate = R.apTerminAuto(endeDate, s.vorzeitige_zulassung);
+    if (!apDate) return;
+
+    const apMonat = apDate.getMonth();
+    const apJahr = apDate.getFullYear();
+    let neuerTyp, neuesBez;
+    if (apMonat >= 5 && apMonat <= 8) { neuerTyp = 'Sommer'; neuesBez = `S${apJahr}`; }
+    else if (apMonat >= 0 && apMonat <= 2) { neuerTyp = 'Winter'; neuesBez = `W${apJahr}`; }
+    else if (apMonat >= 9) { neuerTyp = 'Herbst'; neuesBez = `H${apJahr}`; }
+    else { neuerTyp = 'Frühjahr'; neuesBez = `F${apJahr}`; }
+
+    const aktJg = s.jahrgang_id ? App.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [s.jahrgang_id])[0] : null;
+    if (aktJg && aktJg.bezeichnung === neuesBez) return;
+
+    let neuerJg = App.query('SELECT * FROM abschlussjahrgaenge WHERE bezeichnung=?', [neuesBez])[0];
+    const jgOptionen = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ').map(j =>
+      `<option value="${j.id}" ${j.bezeichnung === neuesBez ? 'selected' : ''}>${esc(j.bezeichnung)}</option>`
+    ).join('');
+
+    const heute = new Date();
+    const zpInfo = s.zp_termin ? R.parseISO(s.zp_termin) : null;
+    const zpInZukunft = zpInfo && zpInfo > heute;
+
+    App.openModal('Jahrgang anpassen?', `
+      <div style="font-size:13px;margin-bottom:12px">
+        Das Ausbildungsende wurde auf <strong>${R.fmtDE(endeDate)}</strong> geändert.<br>
+        Berechneter AP-Termin: <strong>${R.fmtDE(apDate)}</strong> → Jahrgang <strong>${neuesBez}</strong>
+        ${aktJg ? `<br>Aktueller Jahrgang: <strong>${esc(aktJg.bezeichnung)}</strong>` : ''}
+      </div>
+      <div class="form-group">
+        <label>Neuer Jahrgang</label>
+        <select class="form-control" id="adNeuerJG">
+          ${jgOptionen}
+          <option value="_neu" ${!neuerJg ? 'selected' : ''}>+ Neuen Jahrgang "${neuesBez}" anlegen</option>
+        </select>
+      </div>
+      ${zpInZukunft ? `<div style="margin-top:8px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="adResetZP" checked style="width:16px;height:16px;accent-color:var(--clr-forest)">
+          ZP-Termin neu berechnen lassen (aktuell: ${R.fmtDE(zpInfo)}, liegt in der Zukunft)
+        </label>
+      </div>` : s.zp_termin ? `<div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">ZP-Termin (${s.zp_termin}) liegt in der Vergangenheit — wird beibehalten.</div>` : ''}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Nicht ändern</button>
+        <button class="btn btn-primary" onclick="AzubiDashboard._applyJahrgangChange(${schuelerId},'${neuesBez}')">Jahrgang anpassen</button>`);
+  },
+
+  _applyJahrgangChange(schuelerId, neuesBez) {
+    const sel = document.getElementById('adNeuerJG');
+    let jgId;
+    if (sel.value === '_neu') {
+      const m = neuesBez.match(/^([SWFH])(\d{4})$/);
+      const typMap = { S: 'Sommer', W: 'Winter', F: 'Frühjahr', H: 'Herbst' };
+      const typ = m ? typMap[m[1]] : 'Sommer';
+      const jahr = m ? parseInt(m[2]) : new Date().getFullYear();
+      App.run("INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung, typ, jahr, aktiv) VALUES (?,?,?,1)", [neuesBez, typ, jahr]);
+      jgId = App.scalar("SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?", [neuesBez]);
+    } else {
+      jgId = parseInt(sel.value);
+    }
+    if (jgId) App.run("UPDATE schueler SET jahrgang_id=? WHERE id=?", [jgId, schuelerId]);
+
+    const resetZP = document.getElementById('adResetZP');
+    if (resetZP && resetZP.checked) {
+      App.run("UPDATE schueler SET zp_termin='' WHERE id=?", [schuelerId]);
+    }
+
+    App.closeModal();
+    App.toast(`Jahrgang auf ${neuesBez} geändert`, 'success');
+    this.open(schuelerId);
   },
 
   _renderKennzahlCard(titel, wert, farbe) {
