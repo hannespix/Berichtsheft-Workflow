@@ -926,6 +926,7 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
+              · <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#128202; Dashboard</a>
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✏️ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>

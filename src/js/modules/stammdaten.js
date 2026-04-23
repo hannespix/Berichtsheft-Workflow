@@ -146,6 +146,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">📚 Klasse zuordnen</button>
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">📅 Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">🌿 Fachrichtung ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">📋 Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
@@ -177,10 +178,10 @@ const StammdatenTab = {
           </td>
           <td style="font-size:10px">
             ${ktrls.slice(0,3).map(ke=>'<a href="#" onclick="App.navigate(\'kontrolle\');setTimeout(()=>{document.getElementById(\'selKontrolltermin\').value='+ke.kontrolltermin_id+';KontrolleHandler.loadTermin('+ke.kontrolltermin_id+');setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(x=>x.id==='+s.id+');if(idx>=0){KontrolleHandler.currentIndex=idx;KontrolleHandler._viewMode=\'einzeln\';KontrolleHandler.enterSch\u00fcler();}},200)},100);return false" style="display:inline-block;padding:1px 5px;margin:1px;border-radius:6px;text-decoration:none;background:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green-light)':'var(--clr-red-light)')+';color:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green)':'var(--clr-red)')+'" title="'+formatDate(ke.geplant_datum)+'">'+(ke.ergebnis==='in_ordnung'?'OK':'!')+' '+formatDate(ke.geplant_datum).substring(0,6)+'</a>').join('')}
-            ${ktrls.length===0?'-':''}
+            ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
+          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">&#128202;</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -349,6 +350,29 @@ const StammdatenTab = {
     if (App.filterFachrichtungen.length) labels.push('Berufe (global): ' + App.filterFachrichtungen.length + ' ausgewählt');
     if (App.filterJahrgang.length) labels.push('Jahrgang (global): ' + App.filterJahrgang.length + ' ausgewählt');
     return labels;
+  },
+
+  quickEinsendung(schuelerIds) {
+    if (!schuelerIds || !schuelerIds.length) return;
+    const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
+    const today = new Date().toISOString().slice(0, 10);
+    const names = schuelerIds.map(id => {
+      const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
+      return s ? `${s.nachname}, ${s.vorname}` : '';
+    }).filter(Boolean);
+    const autoTitel = names.length <= 3 ? 'Einzelprüfung ' + names.join('; ') : `Einzelprüfung ${names.length} Azubis`;
+    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
+      [jgId || null, today, 'einsendung', autoTitel]);
+    const terminId = App.scalar("SELECT MAX(id) FROM kontrolltermine");
+    schuelerIds.forEach(sid => {
+      App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
+    });
+    App.toast(`Einzelprüfung erstellt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      const sel = document.getElementById('selKontrolltermin');
+      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
+    }, 200);
   },
 
   showAzubiSnapshots(sid) {

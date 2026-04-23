@@ -533,6 +533,10 @@ const PlanungHandler = {
         allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
         });
+        if (!bem) {
+          const autoTitel = App.generateTerminTitel(newId);
+          if (autoTitel) App.run('UPDATE kontrolltermine SET bemerkung=? WHERE id=?', [autoTitel, newId]);
+        }
       }
     }
     App.invalidateTerminCache();

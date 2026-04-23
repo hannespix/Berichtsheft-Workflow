@@ -3274,7 +3274,26 @@ const App = {
     if (frAj && frAj !== '–') parts.push(frAj);
     parts.push(`${count} Sch.`);
     if (t.pruefer) parts.push(t.pruefer);
-    return parts.join(' – ') + ` (${t.status || 'geplant'})`;
+    const label = parts.join(' – ') + ` (${t.status || 'geplant'})`;
+    return t.bemerkung ? `${label} — ${t.bemerkung}` : label;
+  },
+
+  generateTerminTitel(terminId) {
+    const t = this.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!t) return '';
+    const klassen = this.getTerminKlassen(terminId);
+    const isEins = t.typ === 'einsendung';
+    const frAj = this.formatTerminFrAj(terminId);
+    if (isEins) {
+      const schueler = this.query(`SELECT s.nachname, s.vorname FROM kontrolltermin_schueler kts JOIN schueler s ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);
+      if (schueler.length <= 3) return 'Einsendung ' + schueler.map(s => `${s.nachname}`).join(', ');
+      return `Einsendung ${schueler.length} Azubis` + (frAj && frAj !== '–' ? ` ${frAj}` : '');
+    }
+    const schule = klassen.length ? klassen[0].schule : '';
+    const parts = [];
+    if (frAj && frAj !== '–') parts.push(frAj);
+    if (schule) parts.push(schule);
+    return parts.join(' ') || 'Durchsicht';
   },
 
   // Format FR + AJ for display (e.g. "GaLaBau 2. AJ, Zierpfl. 2. AJ")

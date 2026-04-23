@@ -205,6 +205,7 @@ const SchuelerView = {
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
+          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">📋 Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
         </div>

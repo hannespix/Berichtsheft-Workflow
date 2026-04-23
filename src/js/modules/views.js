@@ -993,7 +993,7 @@ const Views = {
       </div>
 
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const schule = klassen.length ? klassen[0].schule : '–';
@@ -1003,7 +1003,8 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}">
-            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
+            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">📬</span>':''}</td>
+            <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
             <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
             <td>${esc(klassenStr)}</td>
             <td>${esc(frStr)}</td>

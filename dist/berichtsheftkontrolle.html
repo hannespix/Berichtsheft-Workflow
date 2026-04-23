@@ -10468,7 +10468,26 @@ const App = {
     if (frAj && frAj !== '–') parts.push(frAj);
     parts.push(`${count} Sch.`);
     if (t.pruefer) parts.push(t.pruefer);
-    return parts.join(' – ') + ` (${t.status || 'geplant'})`;
+    const label = parts.join(' – ') + ` (${t.status || 'geplant'})`;
+    return t.bemerkung ? `${label} — ${t.bemerkung}` : label;
+  },
+
+  generateTerminTitel(terminId) {
+    const t = this.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!t) return '';
+    const klassen = this.getTerminKlassen(terminId);
+    const isEins = t.typ === 'einsendung';
+    const frAj = this.formatTerminFrAj(terminId);
+    if (isEins) {
+      const schueler = this.query(`SELECT s.nachname, s.vorname FROM kontrolltermin_schueler kts JOIN schueler s ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);
+      if (schueler.length <= 3) return 'Einsendung ' + schueler.map(s => `${s.nachname}`).join(', ');
+      return `Einsendung ${schueler.length} Azubis` + (frAj && frAj !== '–' ? ` ${frAj}` : '');
+    }
+    const schule = klassen.length ? klassen[0].schule : '';
+    const parts = [];
+    if (frAj && frAj !== '–') parts.push(frAj);
+    if (schule) parts.push(schule);
+    return parts.join(' ') || 'Durchsicht';
   },
 
   // Format FR + AJ for display (e.g. "GaLaBau 2. AJ, Zierpfl. 2. AJ")
@@ -12634,7 +12653,7 @@ const Views = {
       </div>
 
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const schule = klassen.length ? klassen[0].schule : '–';
@@ -12644,7 +12663,8 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}">
-            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
+            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">📬</span>':''}</td>
+            <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
             <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
             <td>${esc(klassenStr)}</td>
             <td>${esc(frStr)}</td>
@@ -14179,6 +14199,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">📚 Klasse zuordnen</button>
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">📅 Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">🌿 Fachrichtung ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">📋 Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
@@ -14210,10 +14231,10 @@ const StammdatenTab = {
           </td>
           <td style="font-size:10px">
             ${ktrls.slice(0,3).map(ke=>'<a href="#" onclick="App.navigate(\'kontrolle\');setTimeout(()=>{document.getElementById(\'selKontrolltermin\').value='+ke.kontrolltermin_id+';KontrolleHandler.loadTermin('+ke.kontrolltermin_id+');setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(x=>x.id==='+s.id+');if(idx>=0){KontrolleHandler.currentIndex=idx;KontrolleHandler._viewMode=\'einzeln\';KontrolleHandler.enterSch\u00fcler();}},200)},100);return false" style="display:inline-block;padding:1px 5px;margin:1px;border-radius:6px;text-decoration:none;background:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green-light)':'var(--clr-red-light)')+';color:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green)':'var(--clr-red)')+'" title="'+formatDate(ke.geplant_datum)+'">'+(ke.ergebnis==='in_ordnung'?'OK':'!')+' '+formatDate(ke.geplant_datum).substring(0,6)+'</a>').join('')}
-            ${ktrls.length===0?'-':''}
+            ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
+          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">&#128202;</button><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -14382,6 +14403,29 @@ const StammdatenTab = {
     if (App.filterFachrichtungen.length) labels.push('Berufe (global): ' + App.filterFachrichtungen.length + ' ausgewählt');
     if (App.filterJahrgang.length) labels.push('Jahrgang (global): ' + App.filterJahrgang.length + ' ausgewählt');
     return labels;
+  },
+
+  quickEinsendung(schuelerIds) {
+    if (!schuelerIds || !schuelerIds.length) return;
+    const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
+    const today = new Date().toISOString().slice(0, 10);
+    const names = schuelerIds.map(id => {
+      const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
+      return s ? `${s.nachname}, ${s.vorname}` : '';
+    }).filter(Boolean);
+    const autoTitel = names.length <= 3 ? 'Einzelprüfung ' + names.join('; ') : `Einzelprüfung ${names.length} Azubis`;
+    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
+      [jgId || null, today, 'einsendung', autoTitel]);
+    const terminId = App.scalar("SELECT MAX(id) FROM kontrolltermine");
+    schuelerIds.forEach(sid => {
+      App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
+    });
+    App.toast(`Einzelprüfung erstellt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      const sel = document.getElementById('selKontrolltermin');
+      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
+    }, 200);
   },
 
   showAzubiSnapshots(sid) {
@@ -17185,6 +17229,10 @@ const PlanungHandler = {
         allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
         });
+        if (!bem) {
+          const autoTitel = App.generateTerminTitel(newId);
+          if (autoTitel) App.run('UPDATE kontrolltermine SET bemerkung=? WHERE id=?', [autoTitel, newId]);
+        }
       }
     }
     App.invalidateTerminCache();
@@ -19146,6 +19194,7 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
+              · <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#128202; Dashboard</a>
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✏️ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
@@ -24584,6 +24633,7 @@ const SchuelerView = {
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
+          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">📋 Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
         </div>
