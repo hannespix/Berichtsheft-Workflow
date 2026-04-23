@@ -77,7 +77,12 @@ const AzubiRechner = {
 
   // ── Helfer ──
   parseISO(s) { return new Date(s + "T00:00:00"); },
-  fmtISO(d) { return d.toISOString().slice(0, 10); },
+  fmtISO(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  },
   addMonths(d, n) {
     const r = new Date(d);
     const targetMonth = r.getMonth() + n;
@@ -256,11 +261,11 @@ const AzubiRechner = {
     const lj = Math.max(1, Math.min(3, lehrjahr)) - 1;
     let betrag = beruf.tarife[0].lj[lj];
     for (let i = beruf.tarife.length - 1; i >= 0; i--) {
-      if (datum >= new Date(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
+      if (datum >= this.parseISO(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
     }
     const miavStichtag = ausbildungsBeginn || datum;
     for (let i = this.MINDESTVERGUETUNG.length - 1; i >= 0; i--) {
-      if (miavStichtag >= new Date(this.MINDESTVERGUETUNG[i].ab)) {
+      if (miavStichtag >= this.parseISO(this.MINDESTVERGUETUNG[i].ab)) {
         betrag = Math.max(betrag, this.MINDESTVERGUETUNG[i].lj[lj]); break;
       }
     }
@@ -359,11 +364,11 @@ const AzubiRechner = {
         if (Math.floor(erbrPunkt / 12) !== Math.floor(erbrPrev / 12)) breakpoints.add(this.fmtISO(dat));
       }
       if (beruf) beruf.tarife.forEach(t => {
-        const d = new Date(t.ab);
+        const d = this.parseISO(t.ab);
         if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
       });
       this.MINDESTVERGUETUNG.forEach(m => {
-        const d = new Date(m.ab);
+        const d = this.parseISO(m.ab);
         if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
       });
       for (let yr = phVon.getFullYear(); yr <= phBis.getFullYear() + 1; yr++) {
