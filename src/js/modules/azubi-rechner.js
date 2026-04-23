@@ -72,6 +72,9 @@ const AzubiRechner = {
     { ab: "2026-01-01", lj: [724, 854, 977] },
   ],
 
+  // Fachwerker/Fachpraktiker: Ausbildungsgeld der Arbeitsagentur (§122 SGB III)
+  FACHWERKER_AUSBILDUNGSGELD: { elternhaushalt: 501, eigeneWohnung: 822 },
+
   // ── Helfer ──
   parseISO(s) { return new Date(s + "T00:00:00"); },
   fmtISO(d) { return d.toISOString().slice(0, 10); },
@@ -473,9 +476,18 @@ const AzubiRechner = {
 
     const wochenstunden = +(cfg.vollzeit_wochenstunden * tz).toFixed(1);
 
-    const perioden = this.berechneVerguetungsUebersicht(cfg, phasenMit);
-    const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
-    const aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+    const isFachwerker = typeof App !== 'undefined' && App.isFachwerker && App.isFachwerker(s.fachrichtung_id);
+    const hatIndividuellenLohn = s.brutto_lohn > 0;
+    const perioden = isFachwerker || hatIndividuellenLohn ? [] : this.berechneVerguetungsUebersicht(cfg, phasenMit);
+    let aktVerg;
+    if (hatIndividuellenLohn) {
+      aktVerg = s.brutto_lohn;
+    } else if (isFachwerker) {
+      aktVerg = this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
+    } else {
+      const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
+      aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+    }
 
     const fruehPruef = this.fruehesterPruefungstermin(ende, false);
     const fruehPruefVorzeitig = this.fruehesterPruefungstermin(ende, true);
@@ -494,7 +506,7 @@ const AzubiRechner = {
     const probleme = this.phasenValidieren(phasen);
 
     return {
-      schueler: s, cfg, phasen, phasenMit,
+      schueler: s, cfg, phasen, phasenMit, isFachwerker, hatIndividuellenLohn,
       tz, tzMittel, dauer, effektiveDauer, wochenstunden,
       start, ende, heute, kTageGes, kTageVorbei, progress,
       atVollzeit, atGes, fehltageSoft, fehltageHart, ausbildungsTageGes,
@@ -527,5 +539,17 @@ const AzubiRechner = {
 
   deletePhase(phaseId) {
     App.run('DELETE FROM ausbildungsphasen WHERE id=?', [phaseId]);
+  },
+
+  _loadCustomTarife() {
+    try {
+      const ct = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'");
+      if (ct) {
+        const custom = JSON.parse(ct);
+        custom.forEach((cb, i) => { if (this.BERUFE[i]) this.BERUFE[i].tarife = cb.tarife; });
+      }
+      const cm = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'");
+      if (cm) this.MINDESTVERGUETUNG = JSON.parse(cm);
+    } catch(e) { console.warn('Custom Tarife laden:', e); }
   },
 };

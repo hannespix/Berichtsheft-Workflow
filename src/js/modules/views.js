@@ -1349,6 +1349,13 @@ const Views = {
         <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">📄 Beispiel-Vorlage herunterladen</button>
       </div>
 
+      <!-- Tariflöhne -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">💰 Tariflöhne & Vergütung</div>
+        <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Tarifliche Ausbildungsvergütungen und Mindestvergütung nach §17 BBiG verwalten.</p>
+        <div style="padding:8px 12px 12px"><button class="btn btn-primary btn-sm" onclick="Views.openTarifModal()">Tariflöhne bearbeiten</button></div>
+      </div>
+
       <!-- Import-History -->
       ${(() => {
         const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -2387,5 +2394,71 @@ const Views = {
       sections.forEach(s => observer.observe(s));
       links[0]?.classList.add('active');
     }, 120);
+  },
+
+  openTarifModal() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = saved || AzubiRechner.BERUFE;
+    const miav = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG;
+
+    const berufRows = berufe.map((b, bi) => {
+      const lastTarif = b.tarife[b.tarife.length - 1];
+      return `<tr>
+        <td style="font-size:12px;font-weight:600">${esc(b.label)}</td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="0" value="${lastTarif.lj[0]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="1" value="${lastTarif.lj[1]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="2" value="${lastTarif.lj[2]}" min="0"></td>
+        <td style="font-size:10px;color:var(--clr-text-light)">ab ${lastTarif.ab}</td>
+      </tr>`;
+    }).join('');
+
+    const lastMiav = miav[miav.length - 1];
+    App.openModal('Tariflöhne bearbeiten', `
+      <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
+        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.
+      </div>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Beruf</th><th>1. LJ (€)</th><th>2. LJ (€)</th><th>3. LJ (€)</th><th>Gültig</th></tr></thead>
+          <tbody>${berufRows}</tbody>
+        </table>
+      </div>
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">Mindestvergütung §17 BBiG</div>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px;align-items:center;font-size:12px;margin-bottom:12px">
+        <span style="font-weight:600">Aktuell (${lastMiav.ab}):</span>
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav1" value="${lastMiav.lj[0]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav2" value="${lastMiav.lj[1]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav3" value="${lastMiav.lj[2]}" min="0">
+      </div>
+      <div style="font-size:11px;color:var(--clr-text-light)">Fachwerker erhalten Ausbildungsgeld der Arbeitsagentur (${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt}€ / ${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.eigeneWohnung}€) — nicht tarifgebunden.</div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-sm" style="color:var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('custom_tarife','custom_mindestverguetung')&quot;);AzubiRechner._loadCustomTarife();App.closeModal();App.toast('Auf Standard-Tarife zurückgesetzt','success')">Auf Standard zurücksetzen</button>
+        <button class="btn btn-primary" onclick="Views.saveTarife()">Speichern</button>`);
+    _makeModalWide();
+  },
+
+  saveTarife() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = JSON.parse(JSON.stringify(saved || AzubiRechner.BERUFE));
+    document.querySelectorAll('[data-beruf]').forEach(input => {
+      const bi = parseInt(input.dataset.beruf);
+      const lj = parseInt(input.dataset.lj);
+      const val = parseInt(input.value) || 0;
+      if (berufe[bi]) {
+        berufe[bi].tarife[berufe[bi].tarife.length - 1].lj[lj] = val;
+      }
+    });
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_tarife',?)", [JSON.stringify(berufe)]);
+
+    const miav = JSON.parse(JSON.stringify(JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG));
+    const lastIdx = miav.length - 1;
+    miav[lastIdx].lj[0] = parseInt(document.getElementById('miav1').value) || 0;
+    miav[lastIdx].lj[1] = parseInt(document.getElementById('miav2').value) || 0;
+    miav[lastIdx].lj[2] = parseInt(document.getElementById('miav3').value) || 0;
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_mindestverguetung',?)", [JSON.stringify(miav)]);
+
+    AzubiRechner._loadCustomTarife();
+    App.closeModal();
+    App.toast('Tariflöhne gespeichert', 'success');
   },
 };

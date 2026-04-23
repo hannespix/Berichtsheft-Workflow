@@ -1016,6 +1016,7 @@ const App = {
       geburtsdatum TEXT DEFAULT '',
       zp_termin TEXT DEFAULT '',
       ap_termin TEXT DEFAULT '',
+      brutto_lohn REAL DEFAULT 0,
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -2836,6 +2837,7 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0");
   },
 
   _importFromDisk(diskDb) {
@@ -3430,11 +3432,18 @@ const App = {
   // Alle anderen Produktionsgartenbau-FRs: 2 Bescheinigungen
   getRequiredUBA(fachrichtungId) {
     if (!fachrichtungId) return 2;
-    const fr = this.query('SELECT code, bezeichnung FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
+    const fr = this.query('SELECT code, bezeichnung, typ FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
     if (!fr) return 2;
-    // GaLaBau = Code 036 or 176
+    if (fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker')) return 1;
     if (fr.code === '036' || fr.code === '176' || (fr.bezeichnung||'').toLowerCase().includes('galabau')) return 6;
     return 2;
+  },
+
+  isFachwerker(fachrichtungId) {
+    if (!fachrichtungId) return false;
+    const fr = this.query('SELECT typ, bezeichnung FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
+    if (!fr) return false;
+    return fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker');
   },
   // S2027 + Kontrolle am 15.03.2026 → AJ 2
   // Verkürzer mit S2027 + Start Sep 2025 → auch AJ 2 (gleiche Klasse)
@@ -3743,6 +3752,7 @@ const App = {
     }
     // ── Migrate old kw_maengel → kw_status if needed ──
     this.migrateDB();
+    try { if (typeof AzubiRechner !== 'undefined') AzubiRechner._loadCustomTarife(); } catch(e) {}
     this.startPolling();
 
     // Mark sync as ready after a short delay (file handle needs to stabilize after F5)
@@ -4229,6 +4239,7 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0"); } catch(e) {}
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──

@@ -8212,6 +8212,7 @@ const App = {
       geburtsdatum TEXT DEFAULT '',
       zp_termin TEXT DEFAULT '',
       ap_termin TEXT DEFAULT '',
+      brutto_lohn REAL DEFAULT 0,
       import_datum TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS pruefer (
@@ -10032,6 +10033,7 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''");
+    run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0");
   },
 
   _importFromDisk(diskDb) {
@@ -10626,11 +10628,18 @@ const App = {
   // Alle anderen Produktionsgartenbau-FRs: 2 Bescheinigungen
   getRequiredUBA(fachrichtungId) {
     if (!fachrichtungId) return 2;
-    const fr = this.query('SELECT code, bezeichnung FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
+    const fr = this.query('SELECT code, bezeichnung, typ FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
     if (!fr) return 2;
-    // GaLaBau = Code 036 or 176
+    if (fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker')) return 1;
     if (fr.code === '036' || fr.code === '176' || (fr.bezeichnung||'').toLowerCase().includes('galabau')) return 6;
     return 2;
+  },
+
+  isFachwerker(fachrichtungId) {
+    if (!fachrichtungId) return false;
+    const fr = this.query('SELECT typ, bezeichnung FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
+    if (!fr) return false;
+    return fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker');
   },
   // S2027 + Kontrolle am 15.03.2026 → AJ 2
   // Verkürzer mit S2027 + Start Sep 2025 → auch AJ 2 (gleiche Klasse)
@@ -10939,6 +10948,7 @@ const App = {
     }
     // ── Migrate old kw_maengel → kw_status if needed ──
     this.migrateDB();
+    try { if (typeof AzubiRechner !== 'undefined') AzubiRechner._loadCustomTarife(); } catch(e) {}
     this.startPolling();
 
     // Mark sync as ready after a short delay (file handle needs to stabilize after F5)
@@ -11425,6 +11435,7 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0"); } catch(e) {}
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──
@@ -13063,6 +13074,13 @@ const Views = {
         <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">📄 Beispiel-Vorlage herunterladen</button>
       </div>
 
+      <!-- Tariflöhne -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">💰 Tariflöhne & Vergütung</div>
+        <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Tarifliche Ausbildungsvergütungen und Mindestvergütung nach §17 BBiG verwalten.</p>
+        <div style="padding:8px 12px 12px"><button class="btn btn-primary btn-sm" onclick="Views.openTarifModal()">Tariflöhne bearbeiten</button></div>
+      </div>
+
       <!-- Import-History -->
       ${(() => {
         const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -14101,6 +14119,72 @@ const Views = {
       sections.forEach(s => observer.observe(s));
       links[0]?.classList.add('active');
     }, 120);
+  },
+
+  openTarifModal() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = saved || AzubiRechner.BERUFE;
+    const miav = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG;
+
+    const berufRows = berufe.map((b, bi) => {
+      const lastTarif = b.tarife[b.tarife.length - 1];
+      return `<tr>
+        <td style="font-size:12px;font-weight:600">${esc(b.label)}</td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="0" value="${lastTarif.lj[0]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="1" value="${lastTarif.lj[1]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="2" value="${lastTarif.lj[2]}" min="0"></td>
+        <td style="font-size:10px;color:var(--clr-text-light)">ab ${lastTarif.ab}</td>
+      </tr>`;
+    }).join('');
+
+    const lastMiav = miav[miav.length - 1];
+    App.openModal('Tariflöhne bearbeiten', `
+      <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
+        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.
+      </div>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Beruf</th><th>1. LJ (€)</th><th>2. LJ (€)</th><th>3. LJ (€)</th><th>Gültig</th></tr></thead>
+          <tbody>${berufRows}</tbody>
+        </table>
+      </div>
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">Mindestvergütung §17 BBiG</div>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px;align-items:center;font-size:12px;margin-bottom:12px">
+        <span style="font-weight:600">Aktuell (${lastMiav.ab}):</span>
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav1" value="${lastMiav.lj[0]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav2" value="${lastMiav.lj[1]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav3" value="${lastMiav.lj[2]}" min="0">
+      </div>
+      <div style="font-size:11px;color:var(--clr-text-light)">Fachwerker erhalten Ausbildungsgeld der Arbeitsagentur (${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt}€ / ${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.eigeneWohnung}€) — nicht tarifgebunden.</div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-sm" style="color:var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('custom_tarife','custom_mindestverguetung')&quot;);AzubiRechner._loadCustomTarife();App.closeModal();App.toast('Auf Standard-Tarife zurückgesetzt','success')">Auf Standard zurücksetzen</button>
+        <button class="btn btn-primary" onclick="Views.saveTarife()">Speichern</button>`);
+    _makeModalWide();
+  },
+
+  saveTarife() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = JSON.parse(JSON.stringify(saved || AzubiRechner.BERUFE));
+    document.querySelectorAll('[data-beruf]').forEach(input => {
+      const bi = parseInt(input.dataset.beruf);
+      const lj = parseInt(input.dataset.lj);
+      const val = parseInt(input.value) || 0;
+      if (berufe[bi]) {
+        berufe[bi].tarife[berufe[bi].tarife.length - 1].lj[lj] = val;
+      }
+    });
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_tarife',?)", [JSON.stringify(berufe)]);
+
+    const miav = JSON.parse(JSON.stringify(JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG));
+    const lastIdx = miav.length - 1;
+    miav[lastIdx].lj[0] = parseInt(document.getElementById('miav1').value) || 0;
+    miav[lastIdx].lj[1] = parseInt(document.getElementById('miav2').value) || 0;
+    miav[lastIdx].lj[2] = parseInt(document.getElementById('miav3').value) || 0;
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_mindestverguetung',?)", [JSON.stringify(miav)]);
+
+    AzubiRechner._loadCustomTarife();
+    App.closeModal();
+    App.toast('Tariflöhne gespeichert', 'success');
   },
 };
 
@@ -23829,6 +23913,9 @@ const AzubiRechner = {
     { ab: "2026-01-01", lj: [724, 854, 977] },
   ],
 
+  // Fachwerker/Fachpraktiker: Ausbildungsgeld der Arbeitsagentur (§122 SGB III)
+  FACHWERKER_AUSBILDUNGSGELD: { elternhaushalt: 501, eigeneWohnung: 822 },
+
   // ── Helfer ──
   parseISO(s) { return new Date(s + "T00:00:00"); },
   fmtISO(d) { return d.toISOString().slice(0, 10); },
@@ -24230,9 +24317,18 @@ const AzubiRechner = {
 
     const wochenstunden = +(cfg.vollzeit_wochenstunden * tz).toFixed(1);
 
-    const perioden = this.berechneVerguetungsUebersicht(cfg, phasenMit);
-    const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
-    const aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+    const isFachwerker = typeof App !== 'undefined' && App.isFachwerker && App.isFachwerker(s.fachrichtung_id);
+    const hatIndividuellenLohn = s.brutto_lohn > 0;
+    const perioden = isFachwerker || hatIndividuellenLohn ? [] : this.berechneVerguetungsUebersicht(cfg, phasenMit);
+    let aktVerg;
+    if (hatIndividuellenLohn) {
+      aktVerg = s.brutto_lohn;
+    } else if (isFachwerker) {
+      aktVerg = this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
+    } else {
+      const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
+      aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+    }
 
     const fruehPruef = this.fruehesterPruefungstermin(ende, false);
     const fruehPruefVorzeitig = this.fruehesterPruefungstermin(ende, true);
@@ -24251,7 +24347,7 @@ const AzubiRechner = {
     const probleme = this.phasenValidieren(phasen);
 
     return {
-      schueler: s, cfg, phasen, phasenMit,
+      schueler: s, cfg, phasen, phasenMit, isFachwerker, hatIndividuellenLohn,
       tz, tzMittel, dauer, effektiveDauer, wochenstunden,
       start, ende, heute, kTageGes, kTageVorbei, progress,
       atVollzeit, atGes, fehltageSoft, fehltageHart, ausbildungsTageGes,
@@ -24284,6 +24380,18 @@ const AzubiRechner = {
 
   deletePhase(phaseId) {
     App.run('DELETE FROM ausbildungsphasen WHERE id=?', [phaseId]);
+  },
+
+  _loadCustomTarife() {
+    try {
+      const ct = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'");
+      if (ct) {
+        const custom = JSON.parse(ct);
+        custom.forEach((cb, i) => { if (this.BERUFE[i]) this.BERUFE[i].tarife = cb.tarife; });
+      }
+      const cm = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'");
+      if (cm) this.MINDESTVERGUETUNG = JSON.parse(cm);
+    } catch(e) { console.warn('Custom Tarife laden:', e); }
   },
 };
 
@@ -24360,7 +24468,7 @@ const AzubiDashboard = {
         <!-- Kennzahlen-Cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
           ${this._renderKennzahlCard('Fehltagsbudget', kz.pauschalFehltage.summe + ' / ' + kz.fehltageSoft + ' (10%) / ' + kz.fehltageHart + ' (15%)', kz.pauschalFehltage.summe > kz.fehltageHart ? 'red' : kz.pauschalFehltage.summe > kz.fehltageSoft ? 'amber' : 'green')}
-          ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
+          ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.isFachwerker ? ' (Ausbg.)' : kz.hatIndividuellenLohn ? ' (indiv.)' : kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
           ${this._renderKennzahlCard('Wochenstunden', kz.wochenstunden + ' h', 'forest')}
           ${this._renderKennzahlCard('Fortschritt', kz.progress + '%', kz.progress > 90 ? 'green' : 'forest')}
         </div>
@@ -24408,6 +24516,11 @@ const AzubiDashboard = {
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
               <div style="font-size:11px;color:var(--clr-text-light)">Geburtsdatum</div>
               <input type="date" class="form-control" id="adGeburt" value="${s.geburtsdatum || ''}" onchange="AzubiDashboard._saveField(${s.id},'geburtsdatum',this.value)" style="font-size:13px;padding:4px 6px">
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Individueller Bruttolohn ${kz.isFachwerker ? '<span style="color:var(--clr-amber)">(Fachwerker: Ausbildungsgeld)</span>' : ''}</div>
+              <input type="number" class="form-control" id="adBrutto" value="${s.brutto_lohn || ''}" min="0" max="3000" step="10" placeholder="${kz.isFachwerker ? '501 (Ausbg.)' : 'Tarif'}" onchange="AzubiDashboard._saveField(${s.id},'brutto_lohn',parseFloat(this.value)||0)" style="font-size:13px;padding:4px 6px">
+              <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">0 oder leer = Tarif${kz.isFachwerker ? ' · FW: 501€ (Eltern) / 822€ (eigen)' : ''}</div>
             </div>
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
               <div style="font-size:11px;color:var(--clr-text-light)">Optionen</div>
@@ -24478,7 +24591,7 @@ const AzubiDashboard = {
   },
 
   _saveField(schuelerId, field, value) {
-    const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden'];
+    const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden','brutto_lohn'];
     if (!allowed.includes(field)) return;
     App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [value, schuelerId]);
     App.toast('Gespeichert', 'success');

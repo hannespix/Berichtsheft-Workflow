@@ -70,7 +70,7 @@ const AzubiDashboard = {
         <!-- Kennzahlen-Cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
           ${this._renderKennzahlCard('Fehltagsbudget', kz.pauschalFehltage.summe + ' / ' + kz.fehltageSoft + ' (10%) / ' + kz.fehltageHart + ' (15%)', kz.pauschalFehltage.summe > kz.fehltageHart ? 'red' : kz.pauschalFehltage.summe > kz.fehltageSoft ? 'amber' : 'green')}
-          ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
+          ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.isFachwerker ? ' (Ausbg.)' : kz.hatIndividuellenLohn ? ' (indiv.)' : kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
           ${this._renderKennzahlCard('Wochenstunden', kz.wochenstunden + ' h', 'forest')}
           ${this._renderKennzahlCard('Fortschritt', kz.progress + '%', kz.progress > 90 ? 'green' : 'forest')}
         </div>
@@ -118,6 +118,11 @@ const AzubiDashboard = {
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
               <div style="font-size:11px;color:var(--clr-text-light)">Geburtsdatum</div>
               <input type="date" class="form-control" id="adGeburt" value="${s.geburtsdatum || ''}" onchange="AzubiDashboard._saveField(${s.id},'geburtsdatum',this.value)" style="font-size:13px;padding:4px 6px">
+            </div>
+            <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+              <div style="font-size:11px;color:var(--clr-text-light)">Individueller Bruttolohn ${kz.isFachwerker ? '<span style="color:var(--clr-amber)">(Fachwerker: Ausbildungsgeld)</span>' : ''}</div>
+              <input type="number" class="form-control" id="adBrutto" value="${s.brutto_lohn || ''}" min="0" max="3000" step="10" placeholder="${kz.isFachwerker ? '501 (Ausbg.)' : 'Tarif'}" onchange="AzubiDashboard._saveField(${s.id},'brutto_lohn',parseFloat(this.value)||0)" style="font-size:13px;padding:4px 6px">
+              <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">0 oder leer = Tarif${kz.isFachwerker ? ' · FW: 501€ (Eltern) / 822€ (eigen)' : ''}</div>
             </div>
             <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
               <div style="font-size:11px;color:var(--clr-text-light)">Optionen</div>
@@ -188,7 +193,7 @@ const AzubiDashboard = {
   },
 
   _saveField(schuelerId, field, value) {
-    const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden'];
+    const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden','brutto_lohn'];
     if (!allowed.includes(field)) return;
     App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [value, schuelerId]);
     App.toast('Gespeichert', 'success');
