@@ -820,7 +820,7 @@ const KontrolleHandler = {
             return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
               data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
-              onclick="KWNav.focusCell(this)"
+              onclick="KWNav.focusCell(this,event)"
               title="${title}">
               ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
             </div>`;

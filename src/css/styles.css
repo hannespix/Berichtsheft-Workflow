@@ -617,6 +617,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #fff5e6, #fff5e6 3px, #ffedcc 3px, #ffedcc 6px); border-color: #f0c878; }
 .kw-cell.kw-session { box-shadow: inset 0 0 0 2px var(--clr-leaf); }
 .kw-cell.kw-session:focus { box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; outline: 2px dashed var(--clr-forest); outline-offset: 3px; }
+.kw-cell.kw-selected { border-color: var(--clr-blue, #2563eb) !important; box-shadow: inset 0 0 0 2px rgba(37,99,235,0.3); z-index: 5; }
+.kw-cell.kw-selected:focus { box-shadow: 0 0 0 3px var(--clr-blue, #2563eb), inset 0 0 0 2px rgba(37,99,235,0.2); }
 .kw-cell.kw-inactive { opacity: 0.25; pointer-events: none; background: var(--clr-sand) !important; }
 .kw-cell .kw-num { font-size: 11px; line-height: 1; }
 .kw-cell .kw-codes { font-size: 8px; line-height: 1; margin-top: 1px; letter-spacing: 0.5px; }
