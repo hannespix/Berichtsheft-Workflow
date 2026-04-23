@@ -9,6 +9,24 @@ function esc(str) {
   return d.innerHTML;
 }
 
+// ── Lokales Datum als YYYY-MM-DD (KEIN UTC!) ──
+// Ersetzt das verbreitete .toISOString().slice(0,10) welches in Sommerzeit
+// einen Tag früher liefern kann (UTC vs. lokale Zeit Verschiebung).
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function dateStr(d) {
+  if (!d) return '';
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function addDaysStr(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function formatDate(d) {
   if (!d) return '–';
   try {

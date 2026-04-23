@@ -131,7 +131,7 @@ const PlanungHandler = {
       <div class="form-row">
         <div class="form-group"><label>Datum</label>
           <div style="display:flex;gap:8px;align-items:center">
-            <input type="date" class="form-control" id="mKtDatum" value="${new Date().toISOString().split('T')[0]}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
+            <input type="date" class="form-control" id="mKtDatum" value="${todayStr()}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
             <span id="mKtKwLabel" style="font-size:12px;color:var(--clr-forest);font-weight:600;white-space:nowrap"></span>
           </div>
         </div>
@@ -451,7 +451,7 @@ const PlanungHandler = {
     const dt = document.getElementById('mKtDatum')?.value;
     const label = document.getElementById('mKtKwLabel');
     if (!dt || !label) return;
-    const d = new Date(dt);
+    const d = new Date(dt + 'T00:00:00');
     // ISO week number
     const tmp = new Date(d.getTime()); tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
     const kw = Math.ceil(((tmp - new Date(tmp.getFullYear(), 0, 4)) / 86400000 + ((new Date(tmp.getFullYear(), 0, 4).getDay() + 6) % 7) + 1) / 7);
@@ -831,13 +831,13 @@ const PlanungHandler = {
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
       if (d > end) d.setTime(end.getTime());
 
-      const dateStr = d.toISOString().split('T')[0];
+      const dStr = dateStr(d);
       const pr = prueferNames || '';
       const klasse = App.query('SELECT jahrgang_id FROM klassen WHERE id=?', [klasseId])[0];
       const jgId = klasse?.jahrgang_id || 1;
 
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, geplant_datum, pruefer, status) VALUES (?,?,?,?,?)',
-        [klasseId, jgId, dateStr, pr, 'geplant']);
+        [klasseId, jgId, dStr, pr, 'geplant']);
       const terminId = App.scalar('SELECT last_insert_rowid()');
       App.run('INSERT INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klasseId]);
       count++;

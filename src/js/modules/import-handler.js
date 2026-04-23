@@ -463,7 +463,7 @@ const ImportHandler = {
           if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
           if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
-            const today = new Date().toISOString().slice(0,10);
+            const today = todayStr();
             if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
             if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', 'BAV beendet (IBYKUS)', ex.inaktiv_grund]);
             stats.bavEnde = (stats.bavEnde || 0) + 1;
@@ -865,7 +865,7 @@ const ImportHandler = {
     App.toast('Schüler aktualisiert', 'success');
   },
   setInaktiv(id) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     App.run("UPDATE schueler SET aktiv=0, status='ap_bestanden', inaktiv_datum=? WHERE id=?", [today, id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}

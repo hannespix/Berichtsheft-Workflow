@@ -1315,7 +1315,7 @@ const KontrolleHandler = {
       if (value === 'in_ordnung') {
         const openWVs = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
         if (openWVs.length) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = todayStr();
           openWVs.forEach(wv => {
             App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [today, wv.id]);
           });
@@ -2026,7 +2026,7 @@ const KontrolleHandler = {
           App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
         });
         // Auto-erledige offene WVs
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayStr();
         App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [today, sid]);
         count++;
       }
@@ -2057,9 +2057,9 @@ const KontrolleHandler = {
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const plus4w = new Date(Date.now() + 28*86400000).toISOString().split('T')[0];
-    const plus2w = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
-    const plus3w = new Date(Date.now() + 21*86400000).toISOString().split('T')[0];
+    const plus4w = addDaysStr(28);
+    const plus2w = addDaysStr(14);
+    const plus3w = addDaysStr(21);
     const wvDefaults = {
       nachholung_naechste_durchsicht: nextTermin || plus4w,
       sachberichte_wetter_email: plus4w,
@@ -2113,7 +2113,7 @@ const KontrolleHandler = {
         </div>
       </div>
 
-      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${todayStr()}"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="KontrolleHandler.doAbschliessen()">✓ Abschließen + Nachbereitung starten</button>`);
   },

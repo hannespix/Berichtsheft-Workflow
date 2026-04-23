@@ -40,7 +40,7 @@ const BerichteHandler = {
       headStyles: { fillColor: [45, 80, 22] },
     });
 
-    const today = new Date().toISOString().split('T')[0].replace(/-/g,'');
+    const today = todayStr().replace(/-/g,'');
     doc.save(`Klassenuebersicht_${klasse.schule}_${klasse.klassenbezeichnung}_${schueler.length}Schueler_${today}.pdf`.replace(/[\/ \\:,;]/g,'_'));
     App.closeModal();
     App.toast('PDF erstellt', 'success');
@@ -212,7 +212,7 @@ const BerichteHandler = {
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `BH-Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `BH-Dashboard_${todayStr()}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
       App.hideLoading();
@@ -658,7 +658,7 @@ const BerichteHandler = {
 
     drawFooter(doc, pageNum);
 
-    doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${todayStr()}.pdf`);
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout

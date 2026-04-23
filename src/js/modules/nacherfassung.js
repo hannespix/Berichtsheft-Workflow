@@ -121,8 +121,8 @@ const NacherfassungHandler = {
         // Default: +4 weeks from Datum
         const d = document.getElementById('neTerminDatum')?.value;
         if (d) {
-          const dt = new Date(d); dt.setDate(dt.getDate() + 28);
-          wvInput.value = dt.toISOString().split('T')[0];
+          const dt = new Date(d + 'T00:00:00'); dt.setDate(dt.getDate() + 28);
+          wvInput.value = dateStr(dt);
         }
       }
     }

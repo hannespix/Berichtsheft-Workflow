@@ -35,7 +35,7 @@ const Views = {
       label.textContent = monate + (monate === 1 ? ' Monat' : ' Monaten');
       const cutoff = new Date();
       cutoff.setMonth(cutoff.getMonth() - monate);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
+      const cutoffStr = dateStr(cutoff);
       const rows = App.query(`SELECT s.id, s.nachname, s.vorname, COALESCE(b.name, s.ausbildungsstaette) as betrieb,
         CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung,
         j.bezeichnung as jahrgang,
@@ -73,7 +73,7 @@ const Views = {
   },
 
   dashboard() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     const jf = App.jgWhere('s.jahrgang_id');
     const jfkt = App.jgWhere('kt.jahrgang_id');
     const aktivClause = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
@@ -113,8 +113,8 @@ const Views = {
       LIMIT 15`, jf.params);
 
     // Morgen-Briefing data
-    const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, new Date(Date.now()+7*86400000).toISOString().split('T')[0], ...jfkt.params])[0]?.c || 0;
-    const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, new Date(Date.now()+3*86400000).toISOString().split('T')[0], ...jf.params])[0]?.c || 0;
+    const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, addDaysStr(7), ...jfkt.params])[0]?.c || 0;
+    const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, addDaysStr(3), ...jf.params])[0]?.c || 0;
     // Datenpflege
     const ohneBetrieb = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.betrieb_id IS NULL AND s.ausbildungsstaette != '' AND ${aktivClause}${jf.where}`, jf.params) || 0;
     const gfSch = App.gf('schulen');
@@ -1068,7 +1068,7 @@ const Views = {
   //  WIEDERVORLAGEN
   // ════════════════════════════════════════════
   wiedervorlagen() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
     try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
@@ -1585,7 +1585,7 @@ const Views = {
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Datum der Durchsicht</label>
-            <input type="date" class="form-control" id="neTerminDatum" value="${new Date().toISOString().split('T')[0]}" style="width:160px">
+            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px">
           </div>
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Prüfer</label>

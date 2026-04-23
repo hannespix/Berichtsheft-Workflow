@@ -119,7 +119,7 @@ const SchuelerView = {
     if (!count) return App.toast('Keine aktiven Schüler in diesem Jahrgang', 'warning');
     if (!confirm(`${count} Schüler im Jahrgang "${jgName}" als AP-bestanden markieren und inaktiv setzen?`)) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     App.run(`UPDATE schueler SET aktiv=0, status='ap_bestanden', ap_bestanden=1, inaktiv_datum=?, inaktiv_grund='Jahrgang abgeschlossen' WHERE jahrgang_id=? AND aktiv=1`, [today, jgId]);
     // Also close open Wiedervorlagen
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Jahrgang abgeschlossen' WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?) AND status IN ('offen','ueberfaellig')`, [today, jgId]);

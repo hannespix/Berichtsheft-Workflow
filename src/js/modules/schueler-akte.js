@@ -394,7 +394,7 @@ const SchuelerAkte = {
     }
 
     // Save
-    const fileName = `Aktenvermerk_${s.nachname}_${s.vorname}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const fileName = `Aktenvermerk_${s.nachname}_${s.vorname}_${todayStr()}.pdf`;
     doc.save(fileName);
     App.toast(`Aktenvermerk exportiert: ${fileName}`, 'success');
   },

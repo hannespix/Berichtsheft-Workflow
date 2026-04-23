@@ -12,7 +12,7 @@ const BulkWV = {
     const ids = this.getSelected();
     if (!ids.length) return;
     App.openModal(`${ids.length} Wiedervorlagen als erledigt markieren`, `
-      <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mBulkWVDatum" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mBulkWVDatum" value="${todayStr()}"></div>
       <div class="form-group"><label>Bemerkung (optional)</label><textarea class="form-control" id="mBulkWVBem" rows="2"></textarea></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="BulkWV.doErledigt()">Erledigt (${ids.length})</button>`);
@@ -29,7 +29,7 @@ const BulkWV = {
   extendFrist() {
     const ids = this.getSelected();
     if (!ids.length) return;
-    const in2w = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
+    const in2w = addDaysStr(14);
     App.openModal(`${ids.length} Wiedervorlagen – Frist verlängern`, `
       <div class="form-group"><label>Neue Frist</label><input type="date" class="form-control" id="mBulkWVFrist" value="${in2w}"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>

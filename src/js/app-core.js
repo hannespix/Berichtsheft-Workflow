@@ -1740,11 +1740,11 @@ const App = {
         wvId++;
         const daysOut = ri(14,90);
         const frist = new Date(Date.now() + daysOut * 86400000 * (Math.random() < 0.4 ? -1 : 1));
-        const fristStr = frist.toISOString().split('T')[0];
+        const fristStr = dateStr(frist);
         // Realistische Statusverteilung: 35% erledigt, 65% offen (auto→überfällig bei View)
         const isErledigt = Math.random() < 0.35;
         const status = isErledigt ? 'erledigt' : 'offen';
-        const erledigtDatum = isErledigt ? new Date(frist.getTime() - ri(1,30)*86400000).toISOString().split('T')[0] : null;
+        const erledigtDatum = isErledigt ? dateStr(new Date(frist.getTime() - ri(1,30)*86400000)) : null;
         db.run("INSERT INTO wiedervorlagen (kontrollergebnis_id,schueler_id,art,frist_datum,status,erledigt_datum) VALUES (?,?,?,?,?,?)",
           [ke.id, ke.schueler_id, ke.ergebnis, fristStr, status, erledigtDatum]);
         if (Math.random() < 0.3) {
@@ -4334,7 +4334,7 @@ const App = {
 
   updateBadges() {
     if (!this.db) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     const jf = this.jgWhere('s.jahrgang_id');
     const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum < ?${jf.where}`, [today, ...jf.params]) || 0;
     const b1 = document.getElementById('badgeOverdue');
@@ -4419,7 +4419,7 @@ const App = {
     const blob = new Blob([ics], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `BH-Kontrolltermine_${new Date().toISOString().split('T')[0]}.ics`;
+    a.download = `BH-Kontrolltermine_${todayStr()}.ics`;
     a.click();
   },
 };

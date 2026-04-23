@@ -8936,11 +8936,11 @@ const App = {
         wvId++;
         const daysOut = ri(14,90);
         const frist = new Date(Date.now() + daysOut * 86400000 * (Math.random() < 0.4 ? -1 : 1));
-        const fristStr = frist.toISOString().split('T')[0];
+        const fristStr = dateStr(frist);
         // Realistische Statusverteilung: 35% erledigt, 65% offen (auto→überfällig bei View)
         const isErledigt = Math.random() < 0.35;
         const status = isErledigt ? 'erledigt' : 'offen';
-        const erledigtDatum = isErledigt ? new Date(frist.getTime() - ri(1,30)*86400000).toISOString().split('T')[0] : null;
+        const erledigtDatum = isErledigt ? dateStr(new Date(frist.getTime() - ri(1,30)*86400000)) : null;
         db.run("INSERT INTO wiedervorlagen (kontrollergebnis_id,schueler_id,art,frist_datum,status,erledigt_datum) VALUES (?,?,?,?,?,?)",
           [ke.id, ke.schueler_id, ke.ergebnis, fristStr, status, erledigtDatum]);
         if (Math.random() < 0.3) {
@@ -11530,7 +11530,7 @@ const App = {
 
   updateBadges() {
     if (!this.db) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     const jf = this.jgWhere('s.jahrgang_id');
     const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum < ?${jf.where}`, [today, ...jf.params]) || 0;
     const b1 = document.getElementById('badgeOverdue');
@@ -11615,7 +11615,7 @@ const App = {
     const blob = new Blob([ics], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `BH-Kontrolltermine_${new Date().toISOString().split('T')[0]}.ics`;
+    a.download = `BH-Kontrolltermine_${todayStr()}.ics`;
     a.click();
   },
 };
@@ -11630,6 +11630,24 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = String(str);
   return d.innerHTML;
+}
+
+// ── Lokales Datum als YYYY-MM-DD (KEIN UTC!) ──
+// Ersetzt das verbreitete .toISOString().slice(0,10) welches in Sommerzeit
+// einen Tag früher liefern kann (UTC vs. lokale Zeit Verschiebung).
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function dateStr(d) {
+  if (!d) return '';
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function addDaysStr(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function formatDate(d) {
@@ -11760,7 +11778,7 @@ const Views = {
       label.textContent = monate + (monate === 1 ? ' Monat' : ' Monaten');
       const cutoff = new Date();
       cutoff.setMonth(cutoff.getMonth() - monate);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
+      const cutoffStr = dateStr(cutoff);
       const rows = App.query(`SELECT s.id, s.nachname, s.vorname, COALESCE(b.name, s.ausbildungsstaette) as betrieb,
         CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung,
         j.bezeichnung as jahrgang,
@@ -11798,7 +11816,7 @@ const Views = {
   },
 
   dashboard() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     const jf = App.jgWhere('s.jahrgang_id');
     const jfkt = App.jgWhere('kt.jahrgang_id');
     const aktivClause = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
@@ -11838,8 +11856,8 @@ const Views = {
       LIMIT 15`, jf.params);
 
     // Morgen-Briefing data
-    const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, new Date(Date.now()+7*86400000).toISOString().split('T')[0], ...jfkt.params])[0]?.c || 0;
-    const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, new Date(Date.now()+3*86400000).toISOString().split('T')[0], ...jf.params])[0]?.c || 0;
+    const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, addDaysStr(7), ...jfkt.params])[0]?.c || 0;
+    const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, addDaysStr(3), ...jf.params])[0]?.c || 0;
     // Datenpflege
     const ohneBetrieb = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.betrieb_id IS NULL AND s.ausbildungsstaette != '' AND ${aktivClause}${jf.where}`, jf.params) || 0;
     const gfSch = App.gf('schulen');
@@ -12793,7 +12811,7 @@ const Views = {
   //  WIEDERVORLAGEN
   // ════════════════════════════════════════════
   wiedervorlagen() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
     try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
@@ -13310,7 +13328,7 @@ const Views = {
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Datum der Durchsicht</label>
-            <input type="date" class="form-control" id="neTerminDatum" value="${new Date().toISOString().split('T')[0]}" style="width:160px">
+            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px">
           </div>
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Prüfer</label>
@@ -14460,7 +14478,7 @@ const StammdatenTab = {
     const ids = this._bulkGetSelected();
     if (!ids.length) return;
     if (!confirm(`${ids.length} Azubis auf inaktiv setzen?`)) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     ids.forEach(id => App.run("UPDATE schueler SET aktiv=0, status='inaktiv', inaktiv_datum=? WHERE id=?", [today, id]));
     App.toast(`${ids.length} Azubis auf inaktiv gesetzt`, 'success');
     this._bulkDeselectAll();
@@ -14505,7 +14523,7 @@ const StammdatenTab = {
       const infoWs = XLSX.utils.aoa_to_sheet([['Aktive Filter'], ...filterLabels.map(l => [l]), [], ['Anzahl Ergebnisse', azubis.length], ['Exportiert am', new Date().toLocaleString('de-DE')]]);
       XLSX.utils.book_append_sheet(wb, infoWs, 'Filter-Info');
     }
-    XLSX.writeFile(wb, `Azubi-Liste_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Azubi-Liste_${todayStr()}.xlsx`);
     App.toast(`${azubis.length} Azubis als Excel exportiert`, 'success');
   },
 
@@ -14546,7 +14564,7 @@ const StammdatenTab = {
   quickEinsendung(schuelerIds) {
     if (!schuelerIds || !schuelerIds.length) return;
     const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayStr();
     const names = schuelerIds.map(id => {
       const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
       return s ? `${s.nachname}, ${s.vorname}` : '';
@@ -16124,7 +16142,7 @@ const ImportHandler = {
           if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
           if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
-            const today = new Date().toISOString().slice(0,10);
+            const today = todayStr();
             if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
             if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', 'BAV beendet (IBYKUS)', ex.inaktiv_grund]);
             stats.bavEnde = (stats.bavEnde || 0) + 1;
@@ -16526,7 +16544,7 @@ const ImportHandler = {
     App.toast('Schüler aktualisiert', 'success');
   },
   setInaktiv(id) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     App.run("UPDATE schueler SET aktiv=0, status='ap_bestanden', inaktiv_datum=? WHERE id=?", [today, id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
@@ -17014,7 +17032,7 @@ const PlanungHandler = {
       <div class="form-row">
         <div class="form-group"><label>Datum</label>
           <div style="display:flex;gap:8px;align-items:center">
-            <input type="date" class="form-control" id="mKtDatum" value="${new Date().toISOString().split('T')[0]}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
+            <input type="date" class="form-control" id="mKtDatum" value="${todayStr()}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
             <span id="mKtKwLabel" style="font-size:12px;color:var(--clr-forest);font-weight:600;white-space:nowrap"></span>
           </div>
         </div>
@@ -17334,7 +17352,7 @@ const PlanungHandler = {
     const dt = document.getElementById('mKtDatum')?.value;
     const label = document.getElementById('mKtKwLabel');
     if (!dt || !label) return;
-    const d = new Date(dt);
+    const d = new Date(dt + 'T00:00:00');
     // ISO week number
     const tmp = new Date(d.getTime()); tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
     const kw = Math.ceil(((tmp - new Date(tmp.getFullYear(), 0, 4)) / 86400000 + ((new Date(tmp.getFullYear(), 0, 4).getDay() + 6) % 7) + 1) / 7);
@@ -17714,13 +17732,13 @@ const PlanungHandler = {
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
       if (d > end) d.setTime(end.getTime());
 
-      const dateStr = d.toISOString().split('T')[0];
+      const dStr = dateStr(d);
       const pr = prueferNames || '';
       const klasse = App.query('SELECT jahrgang_id FROM klassen WHERE id=?', [klasseId])[0];
       const jgId = klasse?.jahrgang_id || 1;
 
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, geplant_datum, pruefer, status) VALUES (?,?,?,?,?)',
-        [klasseId, jgId, dateStr, pr, 'geplant']);
+        [klasseId, jgId, dStr, pr, 'geplant']);
       const terminId = App.scalar('SELECT last_insert_rowid()');
       App.run('INSERT INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klasseId]);
       count++;
@@ -17857,8 +17875,8 @@ const NacherfassungHandler = {
         // Default: +4 weeks from Datum
         const d = document.getElementById('neTerminDatum')?.value;
         if (d) {
-          const dt = new Date(d); dt.setDate(dt.getDate() + 28);
-          wvInput.value = dt.toISOString().split('T')[0];
+          const dt = new Date(d + 'T00:00:00'); dt.setDate(dt.getDate() + 28);
+          wvInput.value = dateStr(dt);
         }
       }
     }
@@ -19770,7 +19788,7 @@ const KontrolleHandler = {
       if (value === 'in_ordnung') {
         const openWVs = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
         if (openWVs.length) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = todayStr();
           openWVs.forEach(wv => {
             App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [today, wv.id]);
           });
@@ -20481,7 +20499,7 @@ const KontrolleHandler = {
           App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
         });
         // Auto-erledige offene WVs
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayStr();
         App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [today, sid]);
         count++;
       }
@@ -20512,9 +20530,9 @@ const KontrolleHandler = {
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const plus4w = new Date(Date.now() + 28*86400000).toISOString().split('T')[0];
-    const plus2w = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
-    const plus3w = new Date(Date.now() + 21*86400000).toISOString().split('T')[0];
+    const plus4w = addDaysStr(28);
+    const plus2w = addDaysStr(14);
+    const plus3w = addDaysStr(21);
     const wvDefaults = {
       nachholung_naechste_durchsicht: nextTermin || plus4w,
       sachberichte_wetter_email: plus4w,
@@ -20568,7 +20586,7 @@ const KontrolleHandler = {
         </div>
       </div>
 
-      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${todayStr()}"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="KontrolleHandler.doAbschliessen()">✓ Abschließen + Nachbereitung starten</button>`);
   },
@@ -22099,7 +22117,7 @@ const BulkWV = {
     const ids = this.getSelected();
     if (!ids.length) return;
     App.openModal(`${ids.length} Wiedervorlagen als erledigt markieren`, `
-      <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mBulkWVDatum" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mBulkWVDatum" value="${todayStr()}"></div>
       <div class="form-group"><label>Bemerkung (optional)</label><textarea class="form-control" id="mBulkWVBem" rows="2"></textarea></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="BulkWV.doErledigt()">Erledigt (${ids.length})</button>`);
@@ -22116,7 +22134,7 @@ const BulkWV = {
   extendFrist() {
     const ids = this.getSelected();
     if (!ids.length) return;
-    const in2w = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
+    const in2w = addDaysStr(14);
     App.openModal(`${ids.length} Wiedervorlagen – Frist verlängern`, `
       <div class="form-group"><label>Neue Frist</label><input type="date" class="form-control" id="mBulkWVFrist" value="${in2w}"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
@@ -22914,7 +22932,7 @@ const WiedervorlagenHandler = {
       App.toast('Bitte Ergebnis auf „In Ordnung" setzen – Wiedervorlage wird automatisch erledigt', 'info');
     } else {
       // Fallback: kein Kontrolltermin verknüpft → direkt erledigen
-      App.openModal('Wiedervorlage als erledigt markieren', '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + new Date().toISOString().split('T')[0] + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2"></textarea></div>',
+      App.openModal('Wiedervorlage als erledigt markieren', '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + todayStr() + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2"></textarea></div>',
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
@@ -23160,7 +23178,7 @@ const BerichteHandler = {
       headStyles: { fillColor: [45, 80, 22] },
     });
 
-    const today = new Date().toISOString().split('T')[0].replace(/-/g,'');
+    const today = todayStr().replace(/-/g,'');
     doc.save(`Klassenuebersicht_${klasse.schule}_${klasse.klassenbezeichnung}_${schueler.length}Schueler_${today}.pdf`.replace(/[\/ \\:,;]/g,'_'));
     App.closeModal();
     App.toast('PDF erstellt', 'success');
@@ -23332,7 +23350,7 @@ const BerichteHandler = {
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `BH-Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `BH-Dashboard_${todayStr()}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
       App.hideLoading();
@@ -23778,7 +23796,7 @@ const BerichteHandler = {
 
     drawFooter(doc, pageNum);
 
-    doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${todayStr()}.pdf`);
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout
@@ -25051,7 +25069,7 @@ const SchuelerView = {
     if (!count) return App.toast('Keine aktiven Schüler in diesem Jahrgang', 'warning');
     if (!confirm(`${count} Schüler im Jahrgang "${jgName}" als AP-bestanden markieren und inaktiv setzen?`)) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     App.run(`UPDATE schueler SET aktiv=0, status='ap_bestanden', ap_bestanden=1, inaktiv_datum=?, inaktiv_grund='Jahrgang abgeschlossen' WHERE jahrgang_id=? AND aktiv=1`, [today, jgId]);
     // Also close open Wiedervorlagen
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Jahrgang abgeschlossen' WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?) AND status IN ('offen','ueberfaellig')`, [today, jgId]);
@@ -25599,7 +25617,7 @@ const SchuelerAkte = {
     }
 
     // Save
-    const fileName = `Aktenvermerk_${s.nachname}_${s.vorname}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const fileName = `Aktenvermerk_${s.nachname}_${s.vorname}_${todayStr()}.pdf`;
     doc.save(fileName);
     App.toast(`Aktenvermerk exportiert: ${fileName}`, 'success');
   },

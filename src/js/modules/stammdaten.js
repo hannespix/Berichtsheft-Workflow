@@ -269,7 +269,7 @@ const StammdatenTab = {
     const ids = this._bulkGetSelected();
     if (!ids.length) return;
     if (!confirm(`${ids.length} Azubis auf inaktiv setzen?`)) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     ids.forEach(id => App.run("UPDATE schueler SET aktiv=0, status='inaktiv', inaktiv_datum=? WHERE id=?", [today, id]));
     App.toast(`${ids.length} Azubis auf inaktiv gesetzt`, 'success');
     this._bulkDeselectAll();
@@ -314,7 +314,7 @@ const StammdatenTab = {
       const infoWs = XLSX.utils.aoa_to_sheet([['Aktive Filter'], ...filterLabels.map(l => [l]), [], ['Anzahl Ergebnisse', azubis.length], ['Exportiert am', new Date().toLocaleString('de-DE')]]);
       XLSX.utils.book_append_sheet(wb, infoWs, 'Filter-Info');
     }
-    XLSX.writeFile(wb, `Azubi-Liste_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Azubi-Liste_${todayStr()}.xlsx`);
     App.toast(`${azubis.length} Azubis als Excel exportiert`, 'success');
   },
 
@@ -355,7 +355,7 @@ const StammdatenTab = {
   quickEinsendung(schuelerIds) {
     if (!schuelerIds || !schuelerIds.length) return;
     const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayStr();
     const names = schuelerIds.map(id => {
       const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
       return s ? `${s.nachname}, ${s.vorname}` : '';
