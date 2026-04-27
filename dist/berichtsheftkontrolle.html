@@ -14104,45 +14104,120 @@ const Views = {
     const content = document.querySelector('#mainContent .fade-in');
     if (!content) return App.toast('Hilfe-Seite nicht gefunden', 'error');
     const cards = [...content.querySelectorAll('.card[id^="help_"]')].filter(c => c.style.display !== 'none');
-    const titles = cards.map((c, i) => {
+    if (!cards.length) return App.toast('Keine Hilfe-Sektionen gefunden', 'error');
+
+    App.showLoading('Erstelle PDF…');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pw = 170, lm = 20, rm = 190, tm = 25;
+    let y = tm;
+    const green = [45, 80, 22];
+    const gray = [120, 120, 120];
+
+    const addPage = () => { doc.addPage(); y = tm; };
+    const checkSpace = (need) => { if (y + need > 272) addPage(); };
+    const splitText = (text, maxW) => doc.splitTextToSize(text, maxW || pw);
+
+    // Titel-Seite
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(...green);
+    doc.text('Hilfe – Berichtsheftkontrolle', lm, 50);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...gray);
+    doc.text('Version 2.0 · Stand: 27.04.2026', lm, 60);
+    doc.text('Regierungspräsidium Freiburg, Abt. 3, Ref. 31', lm, 67);
+    doc.text('Ausbildungsberater Gärtner', lm, 74);
+
+    // Inhaltsverzeichnis
+    y = 95;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...green);
+    doc.text('Inhaltsverzeichnis', lm, y); y += 10;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+
+    const chapters = cards.map((c, i) => {
       const hdr = c.querySelector('.card-header');
-      return { id: i, text: hdr ? hdr.textContent.trim() : `Abschnitt ${i+1}` };
+      return hdr ? hdr.textContent.trim() : 'Abschnitt ' + (i + 1);
     });
-    const printWin = window.open('', '_blank');
-    printWin.document.write(`<!DOCTYPE html><html><head><title>Hilfe – Berichtsheftkontrolle</title>
-      <style>
-        body{font-family:'Segoe UI','Helvetica',sans-serif;font-size:12px;line-height:1.7;max-width:800px;margin:0 auto;padding:30px 40px;color:#333}
-        h1{font-size:22px;color:#2d5016;margin-bottom:4px}
-        .subtitle{font-size:11px;color:#888;margin-bottom:24px}
-        .toc{margin:16px 0 30px;padding:16px 20px;background:#f8f7f2;border:1px solid #ddd;border-radius:8px}
-        .toc-title{font-weight:700;font-size:14px;color:#2d5016;margin-bottom:8px}
-        .toc a{display:block;padding:2px 0;color:#2d5016;text-decoration:none;font-size:12px}
-        .toc a:hover{text-decoration:underline}
-        .toc-num{display:inline-block;width:24px;color:#888;font-size:11px}
-        .section{border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px;break-inside:avoid;page-break-inside:avoid}
-        .section-header{font-weight:700;font-size:15px;margin-bottom:8px;color:#2d5016;border-bottom:1px solid #e0e0d8;padding-bottom:4px}
-        strong{color:#1a3a0a}
-        code,kbd{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace}
-        table{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}
-        th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}th{background:#f5f5f0}
-        .footer{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}
-        @media print{.toc{break-after:page}.section{break-inside:avoid}}
-      </style></head><body>
-      <h1>📖 Hilfe – Berichtsheftkontrolle</h1>
-      <div class="subtitle">Version 2.0 · Stand: 27.04.2026 · Regierungspräsidium Freiburg, Abt. 3, Ref. 31</div>
-      <div class="toc">
-        <div class="toc-title">Inhaltsverzeichnis</div>
-        ${titles.map((t, i) => `<a href="#pdf_${t.id}"><span class="toc-num">${i+1}.</span> ${t.text}</a>`).join('')}
-      </div>`);
-    cards.forEach((card, i) => {
+    chapters.forEach((title, i) => {
+      if (y > 270) addPage();
+      doc.text(`${i + 1}.  ${title}`, lm + 4, y);
+      y += 6;
+    });
+
+    // Kapitel
+    cards.forEach((card, idx) => {
+      addPage();
       const hdr = card.querySelector('.card-header');
       const title = hdr ? hdr.textContent.trim() : '';
-      const bodyHTML = card.innerHTML.replace(/<div class="card-header"[^>]*>.*?<\/div>/i, '');
-      printWin.document.write(`<div class="section" id="pdf_${i}"><div class="section-header">${i+1}. ${title}</div>${bodyHTML}</div>`);
+
+      // Kapitel-Header
+      doc.setDrawColor(...green); doc.setLineWidth(0.8);
+      doc.line(lm, y - 2, rm, y - 2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...green);
+      doc.text(`${idx + 1}. ${title}`, lm, y + 5); y += 12;
+
+      // Inhaltstext extrahieren
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = card.innerHTML;
+      const headerEl = tempDiv.querySelector('.card-header');
+      if (headerEl) headerEl.remove();
+
+      // Alle <p>, <div>, <strong>, Listen etc. als Text
+      const blocks = tempDiv.querySelectorAll('p, div[style], li');
+      const seen = new Set();
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+
+      blocks.forEach(block => {
+        const text = block.textContent.trim();
+        if (!text || seen.has(text)) return;
+        seen.add(text);
+        const lines = splitText(text);
+        const blockH = lines.length * 5;
+        checkSpace(blockH + 3);
+
+        if (block.querySelector('strong') && text.length < 80) {
+          doc.setFont('helvetica', 'bold');
+          doc.text(lines, lm, y); y += blockH + 2;
+          doc.setFont('helvetica', 'normal');
+        } else if (text.startsWith('•') || text.startsWith('-')) {
+          doc.text(lines, lm + 4, y); y += blockH + 1;
+        } else {
+          doc.text(lines, lm, y); y += blockH + 2;
+        }
+      });
+
+      // Tabellen
+      const tables = card.querySelectorAll('table');
+      tables.forEach(table => {
+        const rows = [...table.querySelectorAll('tr')].map(tr =>
+          [...tr.querySelectorAll('th, td')].map(cell => cell.textContent.trim())
+        );
+        if (rows.length) {
+          checkSpace(rows.length * 7 + 10);
+          try {
+            doc.autoTable({
+              startY: y, margin: { left: lm, right: 20 },
+              head: [rows[0]], body: rows.slice(1),
+              styles: { fontSize: 8, cellPadding: 2, lineWidth: 0.2 },
+              headStyles: { fillColor: [240, 238, 230], textColor: [45, 80, 22], fontStyle: 'bold' },
+              theme: 'grid',
+            });
+            y = doc.lastAutoTable.finalY + 6;
+          } catch(e) { y += 5; }
+        }
+      });
     });
-    printWin.document.write(`<div class="footer">Berichtsheftkontrolle v2.0 · Regierungspräsidium Freiburg · Generiert am ${new Date().toLocaleDateString('de-DE')}</div></body></html>`);
-    printWin.document.close();
-    setTimeout(() => { printWin.print(); }, 500);
+
+    // Fußzeile auf jeder Seite
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...gray);
+      doc.text(`Berichtsheftkontrolle v2.0 · RP Freiburg`, lm, 290);
+      doc.text(`Seite ${i} / ${totalPages}`, rm - 20, 290);
+    }
+
+    App.hideLoading();
+    doc.save(`Hilfe_Berichtsheftkontrolle_${todayStr()}.pdf`);
+    App.toast('PDF erstellt', 'success');
   },
 
   showLogbuch() {
