@@ -1700,24 +1700,26 @@ const Views = {
     const c = document.getElementById('mainContent');
     const version = '2.0';
     const buildDate = '27.04.2026';
+    const helpSections = ['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Azubi-Dashboard','Azubi-Rechner & Tarife','Schüler-Akte','Phasen-Editor','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'];
     c.innerHTML = `
-    <div class="fade-in" style="padding-top:28px">
-    <div style="max-width:900px;margin:0 auto">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 style="font-size:22px;margin-bottom:4px">📖 Hilfe – Berichtsheftkontrolle</h2>
-        <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" title="Hilfe als PDF exportieren" style="font-size:11px">📄 Als PDF exportieren</button>
-      </div>
-      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:16px">Version ${version} · Stand: ${buildDate} · Regierungspräsidium Freiburg, Abt. 3, Ref. 31</p>
-
-      <div style="display:grid;grid-template-columns:240px 1fr;gap:16px;align-items:start">
-        <!-- Navigation -->
-        <div class="card" id="helpNav" style="position:sticky;top:8px;padding:8px 0;font-size:13px">
-          <div style="padding:4px 16px;font-weight:700;color:var(--clr-forest-dark);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
-          ${['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Azubi-Dashboard','Azubi-Rechner & Tarife','Schüler-Akte','Phasen-Editor','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'].map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:4px 16px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s">${t}</a>`).join('')}
+    <div class="fade-in">
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <h2>📖 Hilfe</h2>
+          <p>Version ${version} · Stand: ${buildDate}</p>
         </div>
+        <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">📄 PDF exportieren</button>
+      </div>
 
-        <!-- Content -->
-        <div style="font-size:13px;line-height:1.7">
+      <!-- Kapitel-Navigation (horizontal, kompakt) -->
+      <div class="card" style="margin-bottom:16px;padding:10px 14px">
+        <div style="display:flex;flex-wrap:wrap;gap:4px 6px;font-size:11px">
+          ${helpSections.map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="padding:3px 8px;color:var(--clr-forest);text-decoration:none;border-radius:var(--radius);background:var(--clr-warm);border:1px solid var(--clr-sand);white-space:nowrap;transition:background 0.15s">${i+1}. ${t}</a>`).join('')}
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div style="font-size:13px;line-height:1.7">
 
           <div id="help_0" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">🚀 Schnellstart</div>
@@ -2284,26 +2286,29 @@ const Views = {
             Ja. Erstellen Sie über den Startbildschirm eine neue Datenbank und importieren Sie ausschließlich die aktuellen Jahrgänge. Die bisherige Datenbank verbleibt im Ordner <code>Datenbanken/</code> und kann jederzeit erneut geöffnet werden.</p>
           </div>
 
-        </div>
       </div>
-    </div>
     </div>`;
-    // Scroll-spy: highlight active section in nav
+    // Scroll-spy: highlight active tag in nav
     setTimeout(() => {
       const mc = document.getElementById('mainContent');
       const sections = mc.querySelectorAll('[id^="help_"]');
       const links = mc.querySelectorAll('.help-nav-link');
       if (!sections.length || !links.length) return;
-      let activeId = 'help_0';
       const observer = new IntersectionObserver((entries) => {
-        entries.forEach(e => { if (e.isIntersecting) activeId = e.target.id; });
-        links.forEach(l => {
-          l.classList.toggle('active', l.dataset.section === activeId.replace('help_',''));
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            const id = e.target.id.replace('help_','');
+            links.forEach(l => {
+              const isActive = l.dataset.section === id;
+              l.style.background = isActive ? 'var(--clr-forest)' : '';
+              l.style.color = isActive ? 'white' : '';
+              l.style.borderColor = isActive ? 'var(--clr-forest)' : '';
+            });
+          }
         });
-      }, { root: mc, rootMargin: '-5% 0px -75% 0px', threshold: 0 });
+      }, { root: mc, rootMargin: '-10% 0px -80% 0px', threshold: 0 });
       sections.forEach(s => observer.observe(s));
-      links[0]?.classList.add('active');
-    }, 120);
+    }, 200);
   },
 
   exportHilfePDF() {
