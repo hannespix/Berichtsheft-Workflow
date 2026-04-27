@@ -14228,11 +14228,19 @@ const Views = {
       const hdr = c.querySelector('.card-header');
       return hdr ? hdr.textContent.trim() : 'Abschnitt ' + (i + 1);
     });
+    // TOC-Einträge: Position + Klickfläche merken, Seitenzahl wird später nachgetragen
+    const tocEntries = [];
     chapters.forEach((title, i) => {
       if (y > 270) addPage();
-      doc.text(`${i + 1}.  ${clean(title)}`, lm + 4, y);
+      const cleanTitle = clean(title);
+      doc.setTextColor(45, 80, 22);
+      doc.textWithLink(`${i + 1}.  ${cleanTitle}`, lm + 4, y, { pageNumber: 1 }); // Platzhalter
+      // Klickfläche für späteren Sprung speichern
+      tocEntries.push({ x: lm + 4, y: y - 4, w: pw - 30, h: 6, page: doc.getCurrentPageInfo().pageNumber, ySlot: y });
       y += 6;
     });
+    doc.setTextColor(50, 50, 50);
+    const pageRefs = []; // Index → Seitenzahl im PDF
 
     // ── Warnseite: Wichtige Hinweise für neue Mitarbeiter ──
     const warningCard = document.getElementById('help_warning');
@@ -14287,6 +14295,7 @@ const Views = {
     // Kapitel
     cards.forEach((card, idx) => {
       addPage();
+      pageRefs[idx] = doc.getCurrentPageInfo().pageNumber;
       const hdr = card.querySelector('.card-header');
       const title = hdr ? hdr.textContent.trim() : '';
 
@@ -14347,6 +14356,18 @@ const Views = {
           } catch(e) { y += 5; }
         }
       });
+    });
+
+    // TOC-Hyperlinks nachträglich setzen + Seitenzahlen ergänzen
+    tocEntries.forEach((entry, i) => {
+      const targetPage = pageRefs[i];
+      if (!targetPage) return;
+      doc.setPage(entry.page);
+      // Klickfläche für Sprung zur Kapitelseite
+      doc.link(entry.x - 2, entry.y, entry.w, entry.h, { pageNumber: targetPage });
+      // Seitenzahl rechts neben TOC-Eintrag (in dezenter Farbe)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150, 150, 150);
+      doc.text(`S. ${targetPage}`, lm + pw - 10, entry.ySlot, { align: 'right' });
     });
 
     // Fußzeile auf jeder Seite
