@@ -15856,12 +15856,24 @@ const ImportHandler = {
   },
 
   async doImport(data) {
-    if (!data) return;
+    if (!data || !data.length) return App.toast('Keine Daten zum Importieren', 'warning');
+
+    // Validierung: Pflichtfelder müssen zugeordnet sein
+    const getMap = f => document.getElementById('map_' + f)?.value || '';
+    const nachCol = getMap('nachname');
+    const vorCol = getMap('vorname');
+    if (!nachCol || !vorCol) {
+      return App.toast('Pflichtfelder "Nachname" und "Vorname" müssen zugeordnet sein!', 'error');
+    }
+    const firstRow = data[0];
+    if (firstRow && (firstRow[nachCol] === undefined || firstRow[vorCol] === undefined)) {
+      return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
+    }
+
     App.showLoading('Importiere Schülerdaten…');
-    // Disable dirty-tracking during bulk import (full-write at end)
+    const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
-    const getMap = f => document.getElementById('map_' + f)?.value || '';
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
     let schulen = App.query('SELECT * FROM berufsschulen');
@@ -16013,9 +16025,12 @@ const ImportHandler = {
     }
 
     // ═══ MAIN IMPORT LOOP ═══
-    let jgCounter = {}; // Track which jahrgang gets most students
+    let jgCounter = {};
     let noKlasseCount = 0;
-    data.forEach(row => {
+    let errorRows = [];
+   try {
+    data.forEach((row, rowIdx) => {
+     try {
       const nachname = (row[getMap('nachname')]||'').trim();
       const vorname = (row[getMap('vorname')]||'').trim();
       if (!nachname || !vorname) { skipped++; return; }
@@ -16116,7 +16131,8 @@ const ImportHandler = {
         }
 
         // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
-        const hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0;
+        let hatPhasen = false;
+        try { hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0; } catch(e) {}
         const datumsAenderung = changes.some(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
         if (hatPhasen && datumsAenderung) {
           const konfliktChanges = changes.filter(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
@@ -16147,7 +16163,16 @@ const ImportHandler = {
         [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,bavAktiv,bavStatus]);
       imported++;
       if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
+     } catch(rowErr) {
+      console.warn(`Import Zeile ${rowIdx + 2}:`, rowErr.message);
+      errorRows.push({ zeile: rowIdx + 2, fehler: rowErr.message, name: (row[getMap('nachname')]||'') + ', ' + (row[getMap('vorname')]||'') });
+      skipped++;
+     }
     });
+   } catch(loopErr) {
+    console.error('Import-Loop abgebrochen:', loopErr);
+    App.toast('Import-Fehler: ' + loopErr.message, 'error');
+   }
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
     if (imported > 0) {
@@ -16178,13 +16203,13 @@ const ImportHandler = {
     if (stats.bavReaktiviert) parts.push(`✅ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
-    // Re-enable dirty-tracking
-    App._bulkImport = false;
-    // Full-write: export entire in-memory DB to disk (no merge-replay needed)
-    if (App.dbFileHandle) {
-      try { await App.fullSave(); } catch(e) { console.warn('Post-import save:', e); }
-    }
+    if (errorRows.length) parts.push(`⚠️ <strong>${errorRows.length}</strong> Zeilen mit Fehlern (übersprungen)`);
 
+    // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
+    App._bulkImport = false;
+    try {
+      if (App.dbFileHandle) await App.fullSave();
+    } catch(e) { console.warn('Post-import save:', e); }
     App.hideLoading();
     // Log import in einstellungen
     const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -16205,6 +16230,10 @@ const ImportHandler = {
             <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',${JSON.stringify(k.changes).replace(/"/g,'&quot;')});this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
           </div>`).join('')}
         </div>
+      </div>` : ''}
+      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
+        <strong>⚠️ Fehlerhafte Zeilen (${errorRows.length}):</strong>
+        <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
   },
