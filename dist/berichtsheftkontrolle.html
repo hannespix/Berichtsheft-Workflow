@@ -10551,9 +10551,10 @@ const App = {
     const d1 = this._parseDate(s.ausbildungsbeginn), d2 = this._parseDate(s.ausbildungsende);
     if (!d1 || !d2) return [1, 2, 3];
 
-    // School year starts in September: before Sep → previous year's SY
     const startSY = d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1;
-    const endSY = d2.getMonth() >= 8 ? d2.getFullYear() : d2.getFullYear() - 1;
+    // Enddatum: 1 Tag abziehen — 01.09.2027 bedeutet letzter Tag ist 31.08.2027 (SY 2026/27)
+    const d2adj = new Date(d2); d2adj.setDate(d2adj.getDate() - 1);
+    const endSY = d2adj.getMonth() >= 8 ? d2adj.getFullYear() : d2adj.getFullYear() - 1;
     const numSY = endSY - startSY + 1;
 
     // AJ numbers: count backwards from 3 (AJ3 = exam year)
