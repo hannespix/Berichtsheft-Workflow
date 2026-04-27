@@ -141,8 +141,7 @@ const Views = {
         </div>
       </div>` : ''}
 
-      <!-- Stat Cards (Easter Egg: nur sichtbar wenn aktiviert) -->
-      <div id="dashStatSection" style="${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'':'display:none'}">
+      <!-- Stat Cards (immer sichtbar) -->
       <div class="grid-4" style="margin-bottom:20px">
         <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
           <div class="stat-label">Schüler gesamt</div>
@@ -218,7 +217,8 @@ const Views = {
         </div>
       </div>
 
-      <!-- Kontrollstatus + Betriebe Side-by-Side -->
+      <!-- Kontrollstatus + Charts (Easter Egg) -->
+      <div id="dashStatSection" style="${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'':'display:none'}">
       <div class="grid-2" style="margin-bottom:20px">
         <!-- Kontrollstatus-Übersicht -->
         <div class="card" style="border-left:3px solid var(--clr-amber)">
