@@ -1436,8 +1436,11 @@ const Views = {
 
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
-    if (!enabled) localStorage.removeItem('bhk_stats_unlocked');
-    App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert' : 'Statistiken & Jahresbericht deaktiviert', 'success');
+    if (!enabled) {
+      localStorage.removeItem('bhk_stats_unlocked');
+      document.getElementById('dashboardToggle').style.display = 'none';
+    }
+    App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
   },
 
   saveEinstellungen() {
@@ -1890,7 +1893,7 @@ const Views = {
             <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
           </div>
 
-          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);"
+          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
             <div class="card-header" style="font-size:15px">🎓 Azubi-Dashboard</div>
             <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den 🎓-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
@@ -1907,7 +1910,7 @@ const Views = {
             <p>• <strong>Vergütungsperioden-Tabelle</strong> – Zeitraum, Betrieb, Lehrjahr, TZ-%, Brutto VZ/effektiv, Urlaub</p>
           </div>
 
-          <div id="help_10" class="card" style="margin-bottom:12px;"
+          <div id="help_10" class="card" style="margin-bottom:12px;">
             <div class="card-header" style="font-size:15px">💰 Azubi-Rechner & Tarife</div>
             <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
             <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
@@ -1927,7 +1930,7 @@ const Views = {
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
-          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);"
+          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
             <div class="card-header" style="font-size:15px">🔀 Phasen-Editor</div>
             <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
@@ -2324,7 +2327,9 @@ const Views = {
     const cards = [...content.querySelectorAll('.card[id^="help_"]')].filter(c => c.style.display !== 'none');
     if (!cards.length) return App.toast('Keine Hilfe-Sektionen gefunden', 'error');
 
+    if (!window.jspdf) return App.toast('jsPDF-Bibliothek nicht geladen', 'error');
     App.showLoading('Erstelle PDF…');
+    try {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pw = 170, lm = 20, rm = 190, tm = 25;
@@ -2436,6 +2441,7 @@ const Views = {
     App.hideLoading();
     doc.save(`Hilfe_Berichtsheftkontrolle_${todayStr()}.pdf`);
     App.toast('PDF erstellt', 'success');
+    } catch(e) { App.hideLoading(); App.toast('PDF-Fehler: ' + e.message, 'error'); console.error('PDF:', e); }
   },
 
   showLogbuch() {
