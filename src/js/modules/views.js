@@ -2339,7 +2339,9 @@ const Views = {
 
     const addPage = () => { doc.addPage(); y = tm; };
     const checkSpace = (need) => { if (y + need > 272) addPage(); };
-    const splitText = (text, maxW) => doc.splitTextToSize(text, maxW || pw);
+    // Emojis und nicht-druckbare Zeichen entfernen (jsPDF helvetica unterstützt sie nicht)
+    const clean = (s) => (s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}←-⇿\u{1F100}-\u{1F1FF}]/gu, '').replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim();
+    const splitText = (text, maxW) => doc.splitTextToSize(clean(text), maxW || pw);
 
     // Titel-Seite
     doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(...green);
@@ -2361,7 +2363,7 @@ const Views = {
     });
     chapters.forEach((title, i) => {
       if (y > 270) addPage();
-      doc.text(`${i + 1}.  ${title}`, lm + 4, y);
+      doc.text(`${i + 1}.  ${clean(title)}`, lm + 4, y);
       y += 6;
     });
 
@@ -2375,7 +2377,7 @@ const Views = {
       doc.setDrawColor(...green); doc.setLineWidth(0.8);
       doc.line(lm, y - 2, rm, y - 2);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...green);
-      doc.text(`${idx + 1}. ${title}`, lm, y + 5); y += 12;
+      doc.text(`${idx + 1}. ${clean(title)}`, lm, y + 5); y += 12;
 
       // Inhaltstext extrahieren
       const tempDiv = document.createElement('div');
@@ -2389,10 +2391,11 @@ const Views = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
 
       blocks.forEach(block => {
-        const text = block.textContent.trim();
+        const rawText = block.textContent.trim();
+        const text = clean(rawText);
         if (!text || seen.has(text)) return;
         seen.add(text);
-        const lines = splitText(text);
+        const lines = splitText(rawText);
         const blockH = lines.length * 5;
         checkSpace(blockH + 3);
 
@@ -2411,7 +2414,7 @@ const Views = {
       const tables = card.querySelectorAll('table');
       tables.forEach(table => {
         const rows = [...table.querySelectorAll('tr')].map(tr =>
-          [...tr.querySelectorAll('th, td')].map(cell => cell.textContent.trim())
+          [...tr.querySelectorAll('th, td')].map(cell => clean(cell.textContent))
         );
         if (rows.length) {
           checkSpace(rows.length * 7 + 10);
