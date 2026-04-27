@@ -794,7 +794,7 @@ const ImportHandler = {
             <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
           </label></div>
         </div>
-        <div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>
+        ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>`:''}
       </div>
 
       <!-- Tab 3: Prüfungen -->
