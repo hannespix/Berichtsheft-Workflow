@@ -13059,7 +13059,7 @@ const Views = {
 
       <!-- Sichtbare Menüpunkte -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">📌 Sichtbare Menüpunkte</div>
+        <div class="card-header"><span onclick="Views._pinClicked()" style="cursor:default">📌</span> Sichtbare Menüpunkte</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Menüpunkte ein-/ausblenden. Weniger genutzte Funktionen können ausgeblendet werden, um die Sidebar übersichtlich zu halten.
         </p>
@@ -13072,6 +13072,12 @@ const Views = {
               ${esc(cfg.label)}
             </label>`;
           }).join('')}
+        </div>
+        <div id="dashboardToggle" style="display:none;margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
+            Erweiterte Funktionen (Statistiken, Azubi-Dashboard, Phasen)
+          </label>
         </div>
       </div>
 
@@ -13206,16 +13212,6 @@ const Views = {
           </tbody></table>
         </div>`;
       })()}
-      <!-- Pin -->
-      <div style="text-align:right;padding:12px"><span id="pinEE" style="opacity:0.25;font-size:14px;cursor:default;padding:8px" onclick="Views._pinClicked()">📌</span></div>
-      <div id="dashboardToggle" style="display:none;margin-top:8px;padding:12px 16px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px">Erweiterte Funktionen</div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-          <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:20px;height:20px;accent-color:var(--clr-forest)">
-          Erweiterte Funktionen aktivieren
-        </label>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Dashboard-Statistiken, Azubi-Dashboard (🎓), Phasen-Editor, Vergütungsberechnung</div>
-      </div>
     </div>`;
     setTimeout(() => this.renderTextbausteine(), 50);
   },
