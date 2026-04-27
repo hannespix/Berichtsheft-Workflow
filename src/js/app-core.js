@@ -1141,6 +1141,19 @@ const App = {
       pauschal_fehltage_u INTEGER DEFAULT 0,
       anmerkung TEXT
     );
+    CREATE TABLE IF NOT EXISTS aenderungslog (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER,
+      schueler_name TEXT DEFAULT '',
+      feld TEXT NOT NULL,
+      alter_wert TEXT DEFAULT '',
+      neuer_wert TEXT DEFAULT '',
+      aktion TEXT DEFAULT 'geaendert',
+      bearbeiter TEXT DEFAULT '',
+      zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+      ibykus_relevant INTEGER DEFAULT 1,
+      exportiert INTEGER DEFAULT 0
+    );
   `,
 
   SEED_DATA: `
@@ -2838,6 +2851,13 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0");
+    run(`CREATE TABLE IF NOT EXISTS aenderungslog (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER, schueler_name TEXT DEFAULT '',
+      feld TEXT NOT NULL, alter_wert TEXT DEFAULT '', neuer_wert TEXT DEFAULT '',
+      aktion TEXT DEFAULT 'geaendert', bearbeiter TEXT DEFAULT '',
+      zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+      ibykus_relevant INTEGER DEFAULT 1, exportiert INTEGER DEFAULT 0
+    )`);
   },
 
   _importFromDisk(diskDb) {
@@ -3688,6 +3708,18 @@ const App = {
     };
   },
 
+  // ── Änderungs-Logbuch (für IBYKUS-Nachtrag) ──
+  IBYKUS_FELDER: ['nachname','vorname','ausbildungsbeginn','ausbildungsende','ausbildungsstaette','fachrichtung_id','klasse_id','jahrgang_id','betrieb_id','status','aktiv','ap_zugelassen','ap_bestanden','zwischenpruefung','zustaendiges_amt','landesfachklasse','inaktiv_datum','inaktiv_grund'],
+  logChange(schuelerId, feld, alterWert, neuerWert, aktion) {
+    if (String(alterWert) === String(neuerWert)) return;
+    const s = this.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0];
+    const name = s ? `${s.nachname}, ${s.vorname}` : `ID ${schuelerId}`;
+    const bearbeiter = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
+    const ibykusRelevant = this.IBYKUS_FELDER.includes(feld) ? 1 : 0;
+    this.run("INSERT INTO aenderungslog (schueler_id, schueler_name, feld, alter_wert, neuer_wert, aktion, bearbeiter, ibykus_relevant) VALUES (?,?,?,?,?,?,?,?)",
+      [schuelerId, name, feld, String(alterWert || ''), String(neuerWert || ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
+  },
+
   // ── Ampel-System: Schüler-Status auf Basis der letzten Kontrolle ──
   // Returns {color:'green'|'yellow'|'red'|'gray', icon:'🟢'|'🟡'|'🔴'|'⚪', label:'...', prevErgebnis:'...', wvOffen:bool}
   getSchuelerAmpel(schuelerId) {
@@ -4252,6 +4284,13 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0"); } catch(e) {}
+      this.db.run(`CREATE TABLE IF NOT EXISTS aenderungslog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER, schueler_name TEXT DEFAULT '',
+        feld TEXT NOT NULL, alter_wert TEXT DEFAULT '', neuer_wert TEXT DEFAULT '',
+        aktion TEXT DEFAULT 'geaendert', bearbeiter TEXT DEFAULT '',
+        zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+        ibykus_relevant INTEGER DEFAULT 1, exportiert INTEGER DEFAULT 0
+      )`);
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──

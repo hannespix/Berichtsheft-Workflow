@@ -1356,6 +1356,21 @@ const Views = {
         <div style="padding:8px 12px 12px"><button class="btn btn-primary btn-sm" onclick="Views.openTarifModal()">Tariflöhne bearbeiten</button></div>
       </div>
 
+      <!-- Änderungs-Logbuch -->
+      ${(() => {
+        const logCount = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE ibykus_relevant=1 AND exportiert=0") || 0;
+        const logAll = App.scalar("SELECT COUNT(*) FROM aenderungslog") || 0;
+        return `<div class="card" style="margin-top:16px">
+          <div class="card-header">📋 Änderungs-Logbuch ${logCount > 0 ? `<span style="background:var(--clr-red);color:white;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px">${logCount} offen</span>` : ''}</div>
+          <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Datenänderungen an Azubi-Stammdaten für den Nachtrag in IBYKUS. ${logAll} Einträge gesamt, davon ${logCount} noch nicht exportiert.</p>
+          <div style="padding:8px 12px 12px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="Views.showLogbuch()">Logbuch anzeigen</button>
+            <button class="btn btn-secondary btn-sm" onclick="Views.exportLogbuch()">📄 Als CSV exportieren</button>
+            ${logCount > 0 ? `<button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="App.run('UPDATE aenderungslog SET exportiert=1 WHERE exportiert=0');Views.einstellungen();App.toast(${logCount}+' Einträge als exportiert markiert','success')">✓ Alle als exportiert markieren</button>` : ''}
+          </div>
+        </div>`;
+      })()}
+
       <!-- Import-History -->
       ${(() => {
         const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -1395,8 +1410,25 @@ const Views = {
           </tbody></table>
         </div>`;
       })()}
+      <!-- Pin -->
+      <div style="text-align:right;padding:12px;opacity:0.3"><span id="pinEE" onclick="Views._pinClicked()" style="cursor:default;font-size:14px;user-select:none">📌</span></div>
+      <div id="dashboardToggle" style="display:none;margin-top:8px;padding:12px 16px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px">Erweiterte Funktionen</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="App.run('INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (\\'azubi_dashboard_enabled\\',?)',[this.checked?'1':'0']);App.toast(this.checked?'Azubi-Dashboard aktiviert':'Azubi-Dashboard deaktiviert','success')" style="width:20px;height:20px;accent-color:var(--clr-forest)">
+          Azubi-Dashboard &amp; Phasen-Editor aktivieren
+        </label>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Erweiterte Ausbildungsverlaufs-Funktionen (🎓 Button bei Azubis)</div>
+      </div>
     </div>`;
     setTimeout(() => this.renderTextbausteine(), 50);
+  },
+
+  _pinClicked() {
+    const pw = prompt('Passwort für erweiterte Funktionen:');
+    if (pw === 'dienstweg') {
+      document.getElementById('dashboardToggle').style.display = '';
+    }
   },
 
   saveEinstellungen() {
@@ -1668,7 +1700,10 @@ const Views = {
     c.innerHTML = `
     <div class="fade-in" style="padding-top:28px">
     <div style="max-width:900px;margin:0 auto">
-      <h2 style="font-size:22px;margin-bottom:4px">📖 Hilfe – Berichtsheftkontrolle</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="font-size:22px;margin-bottom:4px">📖 Hilfe – Berichtsheftkontrolle</h2>
+        <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" title="Hilfe als PDF exportieren" style="font-size:11px">📄 Als PDF exportieren</button>
+      </div>
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:16px">Version ${version} · Stand: ${buildDate} · Regierungspräsidium Freiburg, Abt. 3, Ref. 31</p>
 
       <div style="display:grid;grid-template-columns:240px 1fr;gap:16px;align-items:start">
@@ -1689,6 +1724,18 @@ const Views = {
             <p>2. <strong>Kontrollplanung</strong> → Durchsichtstermine anlegen und Berufsschulklassen zuweisen</p>
             <p>3. <strong>Kontrolldurchführung</strong> → Ausbildungsnachweise prüfen, Ergebnisse im KW-Raster dokumentieren</p>
             <p>4. <strong>Nachverfolgung</strong> → Wiedervorlagen bearbeiten, Durchsichtsbögen und Berichte exportieren</p>
+          </div>
+
+          <div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+            <div class="card-header" style="font-size:15px;color:var(--clr-red)">⚠️ Wichtige Hinweise für neue Mitarbeiter</div>
+            <p><strong>Datenfluss:</strong> Die Datenstruktur ist eine <strong>Einbahnstraße</strong>: IBYKUS → Export (CSV) → Import in dieses Tool. Es gibt <strong>keine Rücksynchronisation</strong> zum IBYKUS-System!</p>
+            <p style="margin-top:6px"><strong>Gefahrenquellen:</strong></p>
+            <p>• <strong>Vor jeder neuen Kontrolle</strong> immer einen frischen IBYKUS-Export importieren → stellt sicher, dass Stammdaten (Status, Betrieb, etc.) aktuell sind</p>
+            <p>• <strong>Änderungen in diesem Tool</strong> (z.B. Inaktiv-Setzung, Betriebswechsel, AP-Zulassung) werden NICHT automatisch in IBYKUS übertragen. Solche Änderungen müssen über das <strong>Änderungs-Logbuch</strong> (Einstellungen) an die Assistenz weitergegeben werden, die sie in IBYKUS nachträgt.</p>
+            <p>• <strong>Niemals</strong> die SQLite-Datei manuell bearbeiten oder kopieren während die App geöffnet ist</p>
+            <p>• <strong>Regelmäßig Backups</strong> erstellen (passiert automatisch, aber prüfen unter _bhk/backups/)</p>
+            <p>• <strong>Multi-User:</strong> Maximal 2–3 Personen gleichzeitig. Vor dem Bearbeiten den eigenen Prüfernamen auswählen!</p>
+            <p style="margin-top:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px"><strong>Merke:</strong> Dieses Tool ersetzt IBYKUS nicht — es ist ein Arbeitsinstrument für die Durchsicht. IBYKUS bleibt das führende System.</p>
           </div>
 
           <div id="help_1" class="card" style="margin-bottom:12px">
@@ -1832,7 +1879,7 @@ const Views = {
             <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
           </div>
 
-          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
             <div class="card-header" style="font-size:15px">🎓 Azubi-Dashboard</div>
             <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den 🎓-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
@@ -1849,7 +1896,7 @@ const Views = {
             <p>• <strong>Vergütungsperioden-Tabelle</strong> – Zeitraum, Betrieb, Lehrjahr, TZ-%, Brutto VZ/effektiv, Urlaub</p>
           </div>
 
-          <div id="help_10" class="card" style="margin-bottom:12px">
+          <div id="help_10" class="card" style="margin-bottom:12px;${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
             <div class="card-header" style="font-size:15px">💰 Azubi-Rechner & Tarife</div>
             <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
             <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
@@ -1869,7 +1916,7 @@ const Views = {
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
-          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
             <div class="card-header" style="font-size:15px">🔀 Phasen-Editor</div>
             <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
@@ -2237,6 +2284,63 @@ const Views = {
       sections.forEach(s => observer.observe(s));
       links[0]?.classList.add('active');
     }, 120);
+  },
+
+  exportHilfePDF() {
+    const content = document.querySelector('#mainContent .fade-in');
+    if (!content) return App.toast('Hilfe-Seite nicht gefunden', 'error');
+    const printWin = window.open('', '_blank');
+    printWin.document.write(`<!DOCTYPE html><html><head><title>Hilfe – Berichtsheftkontrolle</title>
+      <style>body{font-family:'Segoe UI',sans-serif;font-size:12px;line-height:1.7;max-width:800px;margin:0 auto;padding:20px}
+      h2{font-size:18px;margin-top:24px;color:#2d5016;border-bottom:2px solid #2d5016;padding-bottom:4px}
+      .card{border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:12px;break-inside:avoid}
+      .card-header{font-weight:700;font-size:14px;margin-bottom:6px;color:#2d5016}
+      strong{color:#1a3a0a}code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
+      table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}
+      th{background:#f5f5f0}@media print{.no-print{display:none}}</style></head><body>`);
+    const cards = content.querySelectorAll('.card');
+    cards.forEach(card => { printWin.document.write(card.outerHTML); });
+    printWin.document.write(`<div style="margin-top:20px;font-size:10px;color:#999;text-align:center">Berichtsheftkontrolle v2.0 · Stand: 27.04.2026 · Regierungspräsidium Freiburg</div></body></html>`);
+    printWin.document.close();
+    setTimeout(() => { printWin.print(); }, 500);
+  },
+
+  showLogbuch() {
+    const logs = App.query("SELECT * FROM aenderungslog ORDER BY zeitpunkt DESC LIMIT 200");
+    const feldLabel = {nachname:'Nachname',vorname:'Vorname',ausbildungsbeginn:'AV-Beginn',ausbildungsende:'AV-Ende',ausbildungsstaette:'Betrieb',status:'Status',aktiv:'Aktiv',ap_zugelassen:'AP-Zulassung',ap_bestanden:'AP-Bestanden',jahrgang_id:'Jahrgang',klasse_id:'Klasse',fachrichtung_id:'Fachrichtung',betrieb_id:'Betrieb-ID',zwischenpruefung:'ZP',zustaendiges_amt:'Amt',landesfachklasse:'LFK',inaktiv_datum:'Inaktiv-Datum',inaktiv_grund:'Inaktiv-Grund',beruf_id:'Beruf',geburtsdatum:'Geburtsdatum',regulaer_dauer_monate:'Dauer (Mon.)',verkuerzung_monate:'Verkürzung',vorzeitige_zulassung:'§45 Vorz.',brutto_lohn:'Bruttolohn',zp_termin:'ZP-Termin',ap_termin:'AP-Termin'};
+    App.openModal('📋 Änderungs-Logbuch', `
+      <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
+        <table class="data-table" style="font-size:11px">
+          <thead><tr><th>Zeitpunkt</th><th>Azubi</th><th>Feld</th><th>Alt</th><th>Neu</th><th>Aktion</th><th>Bearbeiter</th><th>IBYKUS</th></tr></thead>
+          <tbody>${logs.map(l => `<tr style="${l.exportiert ? 'opacity:0.5' : l.ibykus_relevant ? 'background:var(--clr-amber-light)' : ''}">
+            <td style="white-space:nowrap">${esc(l.zeitpunkt||'')}</td>
+            <td><strong>${esc(l.schueler_name||'')}</strong></td>
+            <td>${esc(feldLabel[l.feld] || l.feld)}</td>
+            <td style="color:var(--clr-red)">${esc(l.alter_wert||'–')}</td>
+            <td style="color:var(--clr-green);font-weight:600">${esc(l.neuer_wert||'–')}</td>
+            <td style="font-size:10px">${esc(l.aktion||'')}</td>
+            <td style="font-size:10px">${esc(l.bearbeiter||'')}</td>
+            <td style="text-align:center">${l.ibykus_relevant ? (l.exportiert ? '✓' : '⚠️') : '–'}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-primary" onclick="Views.exportLogbuch();App.closeModal()">📄 CSV exportieren</button>`);
+    _makeModalWide();
+  },
+
+  exportLogbuch() {
+    const logs = App.query("SELECT * FROM aenderungslog WHERE ibykus_relevant=1 ORDER BY zeitpunkt DESC");
+    if (!logs.length) return App.toast('Keine IBYKUS-relevanten Änderungen vorhanden', 'warning');
+    const header = 'Zeitpunkt;Azubi;Feld;Alter Wert;Neuer Wert;Aktion;Bearbeiter;Exportiert';
+    const rows = logs.map(l => [l.zeitpunkt, l.schueler_name, l.feld, l.alter_wert, l.neuer_wert, l.aktion, l.bearbeiter, l.exportiert ? 'Ja' : 'Nein'].map(v => `"${(v||'').replace(/"/g,'""')}"`).join(';'));
+    const csv = '﻿' + header + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `IBYKUS-Aenderungen_${todayStr()}.csv`;
+    a.click();
+    App.toast(`${logs.length} Einträge exportiert`, 'success');
   },
 
   openTarifModal() {

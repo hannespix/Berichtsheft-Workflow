@@ -847,6 +847,7 @@ const ImportHandler = {
     const n = document.getElementById('mSNach').value.trim();
     const v = document.getElementById('mSVor').value.trim();
     if (!n || !v) return App.toast('Name und Vorname sind Pflichtfelder', 'error');
+    const oldS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     const status = document.getElementById('mSStatus').value;
     const aktiv = (status === 'aktiv' || status === 'ap_zugelassen') ? 1 : 0;
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
@@ -886,15 +887,18 @@ const ImportHandler = {
        parseInt(document.getElementById('mSVerk')?.value) || 0,
        document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
+    // Änderungen loggen
+    const newS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
+    App.IBYKUS_FELDER.forEach(f => { if (String(oldS[f]||'') !== String(newS[f]||'')) App.logChange(id, f, oldS[f], newS[f], 'stammdaten_bearbeitet'); });
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
-    // Also refresh Azubi-Tab if visible under Stammdaten
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
     App.toast('Schüler aktualisiert', 'success');
   },
   setInaktiv(id) {
     const today = todayStr();
+    App.logChange(id, 'status', 'aktiv', 'ap_bestanden', 'inaktiv_gesetzt');
     App.run("UPDATE schueler SET aktiv=0, status='ap_bestanden', inaktiv_datum=? WHERE id=?", [today, id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
@@ -903,6 +907,7 @@ const ImportHandler = {
     App.toast('Schüler auf inaktiv gesetzt', 'success');
   },
   setAktiv(id) {
+    App.logChange(id, 'status', 'inaktiv', 'aktiv', 'reaktiviert');
     App.run("UPDATE schueler SET aktiv=1, status='aktiv', inaktiv_datum='', inaktiv_grund='' WHERE id=?", [id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}

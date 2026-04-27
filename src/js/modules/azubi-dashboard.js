@@ -5,7 +5,12 @@
 
 const AzubiDashboard = {
 
+  isEnabled() {
+    return App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") === '1';
+  },
+
   open(schuelerId) {
+    if (!this.isEnabled()) { App.toast('Funktion nicht verfügbar', 'warning'); return; }
     const kz = AzubiRechner.computeKennzahlen(schuelerId);
     if (!kz) {
       App.toast('Kein Ausbildungsbeginn hinterlegt — bitte erst in Stammdaten eintragen.', 'warning');
@@ -195,7 +200,9 @@ const AzubiDashboard = {
   _saveField(schuelerId, field, value) {
     const allowed = ['zp_termin','ap_termin','ausbildungsende','beruf_id','regulaer_dauer_monate','verkuerzung_monate','geburtsdatum','vorzeitige_zulassung','vollzeit_wochenstunden','brutto_lohn'];
     if (!allowed.includes(field)) return;
+    const oldVal = App.scalar(`SELECT ${field} FROM schueler WHERE id=?`, [schuelerId]);
     App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [value, schuelerId]);
+    App.logChange(schuelerId, field, oldVal, value, 'dashboard_bearbeitet');
     App.toast('Gespeichert', 'success');
     if (field === 'ausbildungsende' && value) {
       this._checkJahrgangAnpassung(schuelerId, value);
