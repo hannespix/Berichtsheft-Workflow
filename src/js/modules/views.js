@@ -1717,7 +1717,10 @@ const Views = {
           <h2>📖 Hilfe</h2>
           <p>Version ${version} · Stand: ${buildDate}</p>
         </div>
-        <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">📄 PDF exportieren</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" style="font-size:11px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="Views.exportWarnungPDF()" title="Wichtige Hinweise als PDF (Aushang)">⚠️ Hinweise PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">📄 Komplett-PDF</button>
+        </div>
       </div>
 
       <div style="display:flex;gap:16px;align-items:flex-start">
@@ -1740,7 +1743,7 @@ const Views = {
             <p>4. <strong>Nachverfolgung</strong> → Wiedervorlagen bearbeiten, Durchsichtsbögen und Berichte exportieren</p>
           </div>
 
-          <div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+          <div id="help_warning" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
             <div class="card-header" style="font-size:15px;color:var(--clr-red)">⚠️ Wichtige Hinweise für neue Mitarbeiter</div>
             <p><strong>Datenfluss:</strong> Die Datenstruktur ist eine <strong>Einbahnstraße</strong>: IBYKUS → Export (CSV) → Import in dieses Tool. Es gibt <strong>keine Rücksynchronisation</strong> zum IBYKUS-System!</p>
             <p style="margin-top:6px"><strong>Gefahrenquellen:</strong></p>
@@ -2321,6 +2324,76 @@ const Views = {
     }, 200);
   },
 
+  exportWarnungPDF() {
+    if (!window.jspdf) return App.toast('jsPDF-Bibliothek nicht geladen', 'error');
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pw = 170, lm = 20;
+      let y = 30;
+
+      // Roter Banner ganz oben
+      doc.setFillColor(220, 53, 69); doc.rect(0, 0, 210, 22, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(255, 255, 255);
+      doc.text('WICHTIGE HINWEISE', lm, 14);
+      doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+      doc.text('Berichtsheftkontrolle - Fuer alle neuen Mitarbeiter', lm, 19);
+      y = 35;
+
+      // Untertitel
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(120, 30, 30);
+      doc.text('Fuer alle Mitarbeiter im Ausbildungsberatungsdienst', lm, y); y += 10;
+
+      // Datenfluss
+      doc.setFillColor(255, 243, 205); doc.rect(lm - 4, y - 5, pw + 8, 26, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(120, 30, 30);
+      doc.text('Datenfluss: EINBAHNSTRASSE!', lm, y + 2); y += 8;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(50, 50, 50);
+      const dfLines = doc.splitTextToSize('IBYKUS  ->  CSV-Export  ->  Import in dieses Tool. KEINE Rueck-Synchronisation zum IBYKUS-System! Datenaenderungen muessen nachgetragen werden.', pw);
+      doc.text(dfLines, lm, y + 2); y += dfLines.length * 5 + 12;
+
+      // Gefahrenquellen
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(120, 30, 30);
+      doc.text('Gefahrenquellen', lm, y); y += 8;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(50, 50, 50);
+      const gefahren = [
+        ['Vor jeder neuen Kontrolle:', 'Frischen IBYKUS-Export importieren! Stellt sicher, dass Stammdaten (Status, Betrieb, etc.) aktuell sind.'],
+        ['Aenderungen im Tool:', 'Inaktiv-Setzung, Betriebswechsel, AP-Zulassung etc. werden NICHT automatisch in IBYKUS uebertragen. Solche Aenderungen werden ueber das Aenderungs-Logbuch (Einstellungen) an die Assistenz weitergegeben, die sie in IBYKUS nachtraegt.'],
+        ['SQLite-Datei:', 'Niemals manuell bearbeiten oder kopieren, waehrend die App geoeffnet ist!'],
+        ['Backups:', 'Werden automatisch unter _bhk/backups/ erstellt - regelmaessig pruefen.'],
+        ['Multi-User:', 'Maximal 2-3 Personen gleichzeitig. Vor dem Bearbeiten den eigenen Pruefernamen auswaehlen!'],
+      ];
+      gefahren.forEach(([title, text]) => {
+        if (y > 240) { doc.addPage(); y = 30; }
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(120, 30, 30); doc.setFontSize(11);
+        doc.text('• ' + title, lm, y); y += 6;
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50); doc.setFontSize(11);
+        const lines = doc.splitTextToSize(text, pw - 6);
+        doc.text(lines, lm + 6, y); y += lines.length * 5 + 4;
+      });
+
+      y += 4;
+      if (y > 240) { doc.addPage(); y = 30; }
+
+      // Merke-Kasten
+      doc.setFillColor(232, 245, 233); doc.rect(lm - 4, y - 4, pw + 8, 24, 'F');
+      doc.setDrawColor(45, 80, 22); doc.setLineWidth(0.6); doc.rect(lm - 4, y - 4, pw + 8, 24);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(45, 80, 22);
+      doc.text('MERKE:', lm, y + 2);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(40, 40, 40);
+      const merke = doc.splitTextToSize('Dieses Tool ersetzt IBYKUS nicht - es ist ein Arbeitsinstrument fuer die Berichtsheft-Durchsicht. IBYKUS bleibt das fuehrende System fuer alle Stammdaten.', pw - 18);
+      doc.text(merke, lm + 18, y + 2); y += merke.length * 5 + 16;
+
+      // Fußzeile
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+      doc.text('Berichtsheftkontrolle v2.0 - Regierungspraesidium Freiburg, Abt. 3, Ref. 31', lm, 285);
+      doc.text('Stand: 27.04.2026', lm, 290);
+
+      doc.save(`Wichtige_Hinweise_Berichtsheftkontrolle_${todayStr()}.pdf`);
+      App.toast('Hinweise als PDF erstellt', 'success');
+    } catch(e) { App.toast('PDF-Fehler: ' + e.message, 'error'); console.error('PDF:', e); }
+  },
+
   exportHilfePDF() {
     const content = document.querySelector('#mainContent .fade-in');
     if (!content) return App.toast('Hilfe-Seite nicht gefunden', 'error');
@@ -2366,6 +2439,56 @@ const Views = {
       doc.text(`${i + 1}.  ${clean(title)}`, lm + 4, y);
       y += 6;
     });
+
+    // ── Warnseite: Wichtige Hinweise für neue Mitarbeiter ──
+    const warningCard = document.getElementById('help_warning');
+    if (warningCard) {
+      addPage();
+      // Roter Rahmen + roter Banner
+      doc.setFillColor(220, 53, 69); doc.rect(lm, tm, pw, 14, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255);
+      doc.text('WICHTIGE HINWEISE FUER NEUE MITARBEITER', lm + 4, tm + 9);
+      y = tm + 22;
+
+      // Rote Box mit Inhalt
+      doc.setDrawColor(220, 53, 69); doc.setLineWidth(0.6);
+      const boxStart = y - 3;
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(120, 30, 30);
+      doc.text('Datenfluss: Einbahnstrasse', lm + 4, y); y += 6;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+      const dfText = doc.splitTextToSize('IBYKUS -> CSV-Export -> Import in dieses Tool. KEINE Rueck-Synchronisation zum IBYKUS-System!', pw - 8);
+      doc.text(dfText, lm + 4, y); y += dfText.length * 5 + 6;
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(120, 30, 30);
+      doc.text('Gefahrenquellen', lm + 4, y); y += 6;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+      const gefahren = [
+        'Vor jeder neuen Kontrolle frischen IBYKUS-Export importieren - stellt sicher, dass Stammdaten aktuell sind.',
+        'Aenderungen in diesem Tool (Inaktiv-Setzung, Betriebswechsel, AP-Zulassung) werden NICHT automatisch in IBYKUS uebertragen. Solche Aenderungen muessen ueber das Aenderungs-Logbuch (Einstellungen) an die Assistenz weitergegeben werden, die sie in IBYKUS nachtraegt.',
+        'Niemals die SQLite-Datei manuell bearbeiten oder kopieren waehrend die App geoeffnet ist.',
+        'Regelmaessig Backups pruefen (passiert automatisch unter _bhk/backups/).',
+        'Multi-User: Maximal 2-3 Personen gleichzeitig. Vor dem Bearbeiten den eigenen Pruefernamen auswaehlen!',
+      ];
+      gefahren.forEach(g => {
+        const lines = doc.splitTextToSize('• ' + g, pw - 12);
+        if (y + lines.length * 5 > 260) addPage();
+        doc.text(lines, lm + 6, y); y += lines.length * 5 + 3;
+      });
+
+      y += 4;
+      if (y > 250) addPage();
+      doc.setFillColor(255, 243, 205); doc.rect(lm, y - 3, pw, 16, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(80, 60, 0);
+      doc.text('Merke:', lm + 4, y + 4);
+      doc.setFont('helvetica', 'normal');
+      const merke = doc.splitTextToSize('Dieses Tool ersetzt IBYKUS nicht - es ist ein Arbeitsinstrument fuer die Durchsicht. IBYKUS bleibt das fuehrende System.', pw - 24);
+      doc.text(merke, lm + 18, y + 4);
+      y += 20;
+
+      doc.setDrawColor(220, 53, 69); doc.setLineWidth(0.6);
+      doc.rect(lm - 2, boxStart - 5, pw + 4, y - boxStart + 5);
+    }
 
     // Kapitel
     cards.forEach((card, idx) => {
