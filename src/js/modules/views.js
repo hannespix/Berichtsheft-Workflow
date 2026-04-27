@@ -1796,8 +1796,8 @@ const Views = {
             <p>Über Checkboxen können mehrere Schüler gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Schüler können per ✕-Button aus dem Termin entfernt werden.</p>
           </div>
 
-          <div id="help_8" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📊 KW-Raster (Kalenderwochen)</div>
+          <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">📊 KW-Raster & Bulk-Editing</div>
             <p>Das KW-Raster bildet alle Kalenderwochen eines Ausbildungsjahres ab. Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
@@ -1805,17 +1805,86 @@ const Views = {
               <strong>C</strong><span>Berufsschulthemen fehlen oder sind unvollständig</span>
               <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig</span>
               <strong>E</strong><span>Inhaltlich lückenhaft (Tätigkeitsbeschreibungen unzureichend)</span>
-              <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig (keine Einträge für die KW)</span>
+              <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig</span>
               <strong>G</strong><span>Datum- oder KW-Angabe fehlt</span>
-              <strong>H</strong><span>Fehltage nicht dokumentiert</span>
-              <strong>I</strong><span>Sonstiges (ergänzende Bemerkung erforderlich)</span>
+              <strong>H</strong><span>Fehltage (1–5 Tage pro KW)</span>
+              <strong>I</strong><span>Sonstiges (Bemerkung erforderlich)</span>
             </div>
-            <p>• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses (vor Ausbildungsbeginn oder nach Ausbildungsende)</p>
-            <p>• <strong>Klick</strong> auf eine KW → Mängelcodes auswählen oder aufheben</p>
+            <p style="margin-top:8px"><strong>Tastaturkürzel im KW-Raster:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
+              <code>A–G</code><span>Mängelcode direkt togglen (an/aus)</span>
+              <code>H</code><span>Fehltage-Eingabe öffnen (Popover)</span>
+              <code>1–5</code><span>Fehltage-Schnelleingabe (setzt H + Anzahl)</span>
+              <code>0</code><span>Fehltage entfernen</span>
+              <code>I</code><span>Sonstiges-Dialog mit Bemerkung + Textbausteinen</span>
+              <code>O</code><span>Keine Beanstandungen (als geprüft markieren)</span>
+              <code>Entf / Backspace</code><span>Alle Codes entfernen (→ behoben)</span>
+              <code>Leertaste / Enter</code><span>Vollständiges Bearbeitungs-Modal öffnen</span>
+              <code>Pfeiltasten</code><span>Zwischen KW-Zellen navigieren</span>
+            </div>
+            <p style="margin-top:8px"><strong>Mehrfachauswahl (Bulk-Editing):</strong></p>
+            <p>• <strong>Shift+Klick</strong> – Alle KWs von der zuletzt fokussierten bis zur geklickten Zelle markieren (blauer Rahmen)</p>
+            <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
+            <p>• <strong>Escape</strong> – Selektion aufheben</p>
+            <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
+            <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
             <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
           </div>
 
-          <div id="help_9" class="card" style="margin-bottom:12px">
+          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">🎓 Azubi-Dashboard</div>
+            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den 🎓-Button in Stammdaten, SchuelerView und Kontrolle.</p>
+            <p><strong>Komponenten:</strong></p>
+            <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
+            <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
+            <p>• <strong>Phasen-Timeline</strong> – Farbiger Balken: dunkelgrün = Vollzeit, hellgrün = Teilzeit, grau-gestreift = Unterbrechung, goldene Linie = Betriebswechsel, rote Linie = Heute</p>
+            <p>• <strong>Kennzahlen-Cards</strong> – Fehltagsbudget (10%/15%-Schwelle), aktuelle Vergütung, Wochenstunden, Fortschritt</p>
+            <p>• <strong>Risiko-Indikatoren</strong> – Automatische Warnungen bei Fehltage-Überschreitung, Phasen-Lücken, Unterbrechungen</p>
+            <p style="margin-top:8px"><strong>Editierbare Felder (direkt im Dashboard):</strong></p>
+            <p>• Zwischenprüfung / Abschlussprüfung (leer = automatisch berechnet)</p>
+            <p>• Ausbildungsende – bei Änderung wird Jahrgangs-Anpassung angeboten</p>
+            <p>• Beruf (Tarif), reguläre Dauer, Verkürzung, Geburtsdatum, vorzeitige Zulassung §45</p>
+            <p>• Individueller Bruttolohn (überschreibt Tarif, 0 = Tarifberechnung)</p>
+            <p>• <strong>Vergütungsperioden-Tabelle</strong> – Zeitraum, Betrieb, Lehrjahr, TZ-%, Brutto VZ/effektiv, Urlaub</p>
+          </div>
+
+          <div id="help_10" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">💰 Azubi-Rechner & Tarife</div>
+            <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
+            <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
+            <p>• 7 Gartenbau-Fachrichtungen mit Tarifsätzen je Lehrjahr (GaLaBau, Baumschule, Friedhof, Gemüse, Obst, Stauden, Zierpflanzen)</p>
+            <p>• Mindestvergütung §17 BBiG – separat editierbar, jährlich aktualisiert</p>
+            <p>• „Auf Standard zurücksetzen" – Tarife auf eingebaute Werte zurücksetzen</p>
+            <p style="margin-top:8px"><strong>Sonderregelungen:</strong></p>
+            <p>• <strong>Fachwerker/Fachpraktiker (§66 BBiG)</strong> – Erhalten Ausbildungsgeld der Arbeitsagentur: 501 € (Elternhaushalt) / 822 € (eigene Wohnung), nicht tarifgebunden. Nur 1 ÜBA-Bescheinigung erforderlich (statt 2 bzw. 6).</p>
+            <p>• <strong>Individueller Bruttolohn</strong> – Pro Azubi einstellbar, überschreibt Tarifberechnung. Vergütungsperioden werden trotzdem angezeigt (Lehrjahr-Wechsel, Urlaub).</p>
+          </div>
+
+          <div id="help_11" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">📋 Schüler-Akte</div>
+            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den 📋-Button in Stammdaten und SchuelerView.</p>
+            <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
+            <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
+            <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
+          </div>
+
+          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">🔀 Phasen-Editor</div>
+            <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
+            <p><strong>Phasentypen:</strong></p>
+            <p>• <strong>Ausbildung</strong> – Betrieb, Teilzeit-% (25–100%), pauschale Fehltage</p>
+            <p>• <strong>Unterbrechung</strong> – Grund (Mutterschutz, Elternzeit, Krankheit etc.), verschiebt Vertragsende</p>
+            <p style="margin-top:8px"><strong>Funktionen:</strong></p>
+            <p>• „Standard-Phase aus Stammdaten erzeugen" – Erstellt automatisch eine Phase aus Ausbildungsbeginn/-ende</p>
+            <p>• <strong>Konflikt-Erkennung</strong> – Neue Phase überlappt bestehende → Dialog mit Auflösungsoptionen (Kürzen, Splitten, Akzeptieren)</p>
+            <p>• <strong>Validierung</strong> – Lücken und Überlappungen werden automatisch erkannt und als Warnung angezeigt</p>
+            <p>• Lehrjahr-Berechnung basiert auf VZ-Äquivalent, nicht auf Kalenderzeit</p>
+            <p>• KW-Raster markiert Unterbrechungs-Phasen als inaktive (graue) Wochen</p>
+            <p style="margin-top:8px"><strong>IBYKUS-Import-Schutz:</strong> Wenn ein Re-Import Ausbildungsbeginn/-ende ändern würde und Phasen existieren, werden die Datums-Felder NICHT überschrieben. Ein Konflikt-Dialog nach dem Import ermöglicht die manuelle Entscheidung.</p>
+          </div>
+
+          <div id="help_13" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">🔔 Wiedervorlagen</div>
             <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
             <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
@@ -1825,7 +1894,7 @@ const Views = {
             <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
           </div>
 
-          <div id="help_10" class="card" style="margin-bottom:12px">
+          <div id="help_14" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">📄 Berichte & Export</div>
             <p>Folgende Exportfunktionen stehen zur Verfügung:</p>
             <p>• <strong>Jahresbericht (PDF)</strong> – Zusammenfassende Statistik mit Mängelverteilung, Berufsschulübersicht, Fachrichtungsauswertung, Betriebsranking und detaillierter Aufschlüsselung nach Fachrichtung und zuständigem Amt</p>
@@ -1835,7 +1904,7 @@ const Views = {
             <p>• <strong>Snapshot-Archiv</strong> – Unveränderliche Momentaufnahme der Durchsichtsergebnisse eines Termins zur Dokumentation und Archivierung</p>
           </div>
 
-          <div id="help_11" class="card" style="margin-bottom:12px">
+          <div id="help_15" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">📊 Jahresbericht (PDF)</div>
             <p>Der Jahresbericht wird unter <em>Berichte → Jahresbericht generieren</em> erstellt und enthält:</p>
             <p><strong>Seite 1 – Zusammenfassung:</strong></p>
@@ -1851,7 +1920,7 @@ const Views = {
             <p>• Gesamtübersicht nach Amt (alle Schulen zusammengefasst)</p>
           </div>
 
-          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+          <div id="help_16" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
             <div class="card-header" style="font-size:15px">🔍 Globale Filter</div>
             <p>Die Filter in der Topbar wirken auf <strong>alle Ansichten</strong> gleichzeitig (Dashboard, Stammdaten, Kontrolle etc.):</p>
             <p>• <strong>📅 Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
@@ -1882,7 +1951,7 @@ const Views = {
             <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
           </div>
 
-          <div id="help_13" class="card" style="margin-bottom:12px">
+          <div id="help_17" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">🔎 Globale Suche (Strg+K)</div>
             <p>Die Volltextsuche durchsucht den <strong>gesamten Datenbestand</strong> nach folgenden Feldern:</p>
             <p>• Nachname, Vorname, Ausbildungsbetrieb, Berufsschule, Klasse, Jahrgang, Fachrichtung, BAV-Identnummer, E-Mail, Telefon</p>
@@ -1891,7 +1960,27 @@ const Views = {
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 
-          <div id="help_14" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_18" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">⌨️ Tastenkürzel</div>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Escape</kbd><span>Dialogfenster / Suche schließen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">◀ / ▶</kbd><span>Vorheriger / nächster Auszubildender (in der Kontrolle)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">↑ / ↓</kbd><span>In Ergebnislisten navigieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Enter</kbd><span>Auswahl bestätigen</span>
+            </div>
+          </div>
+
+                    <div id="help_19" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">↩️ Undo / Redo</div>
+            <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
+            <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
+            <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederholte Aktion wiederherstellen (Redo)</p>
+            <p>• Der Undo-Verlauf ist session-lokal und wird beim Verlassen der Kontrolle zurückgesetzt</p>
+            <p>• Unterstützt: Code-Toggles, Fehltage-Änderungen, Zellen leeren</p>
+          </div>
+
+<div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">👥 Mehrbenutzer-Betrieb & Synchronisation</div>
             <p>Mehrere Ausbildungsberater können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
@@ -1908,25 +1997,14 @@ const Views = {
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
 
-          <div id="help_15" class="card" style="margin-bottom:12px">
+          <div id="help_21" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">💾 Datensicherung</div>
             <p><strong>Automatisches Speichern:</strong> Jede Änderung wird nach 1,5 Sekunden automatisch in die Datenbankdatei geschrieben (verzögertes Speichern). Ein manuelles Speichern ist nicht erforderlich.</p>
             <p><strong>Automatische Backups:</strong> Sicherungskopien der Datenbank werden regelmäßig in <code>_bhk/backups/</code> erstellt. Ältere Sicherungen werden automatisch bereinigt.</p>
             <p><strong>Empfehlung:</strong> Der Arbeitsordner sollte auf einem regelmäßig gesicherten Netzlaufwerk liegen. Die SQLite-Datei im Unterordner <code>Datenbanken/</code> enthält den gesamten Datenbestand und kann zusätzlich manuell gesichert werden.</p>
           </div>
 
-          <div id="help_16" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">⌨️ Tastenkürzel</div>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Escape</kbd><span>Dialogfenster / Suche schließen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">◀ / ▶</kbd><span>Vorheriger / nächster Auszubildender (in der Kontrolle)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">↑ / ↓</kbd><span>In Ergebnislisten navigieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Enter</kbd><span>Auswahl bestätigen</span>
-            </div>
-          </div>
-
-          <div id="help_17" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
             <div class="card-header" style="font-size:15px">⏱️ Nacherfassung (Übernahme von Altdaten)</div>
             <p>Beim Umstieg von der bisherigen papiergestützten Dokumentation auf die Berichtsheftkontrolle müssen vergangene Durchsichten nicht vollständig nacherfasst werden. Empfohlen wird folgender pragmatischer Ansatz:</p>
 
@@ -1978,7 +2056,19 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+                    <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+            <div class="card-header" style="font-size:15px">⚙️ Einstellungen</div>
+            <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
+            <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
+            <p>• <strong>Tariflöhne bearbeiten</strong> – Tarifliche Ausbildungsvergütung pro Beruf und Lehrjahr anpassen. Mindestvergütung §17 BBiG separat editierbar. „Auf Standard zurücksetzen" möglich.</p>
+            <p>• <strong>Word-Vorlage</strong> – DOCX-Vorlage für Serienbriefe an Betriebe/Schulen hochladen</p>
+            <p>• <strong>RP-Adressen</strong> – Adresse für persönliche Vorlage und Post-Versand</p>
+            <p>• <strong>E-Mail-Vorlage Freisprechung</strong> – Text für Freisprechungseinladungen</p>
+            <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
+            <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
+          </div>
+
+<div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">🔧 Wartung & Administration</div>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
@@ -2000,254 +2090,7 @@ const Views = {
             <p>• Auszubildende mit BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) verbleiben im Datenbestand, werden jedoch über den BAV-Status-Filter standardmäßig ausgeblendet</p>
           </div>
 
-          <div id="help_19" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">💻 Weiterentwicklung</div>
-            <p>Der Quellcode ist <strong>modular aufgebaut</strong>. Jedes Modul liegt als eigene Datei in <code>src/js/modules/</code>. Ein Build-Script (<code>build.sh</code>) erzeugt daraus die fertige All-in-One HTML-Datei.</p>
-            <p style="margin-top:8px"><strong>Projektstruktur:</strong></p>
-            <div style="background:var(--clr-sand-light);padding:10px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:8px 0;line-height:1.6">
-              index.html &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entwicklungs-Einstiegspunkt<br>
-              build.sh &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Erzeugt dist/berichtsheftkontrolle.html<br>
-              src/css/styles.css &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Alle Styles (~1170 Zeilen)<br>
-              src/js/app-core.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← App-Kern: DB, Navigation, Save/Load<br>
-              src/js/utils.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Hilfsfunktionen + Init<br>
-              src/js/modules/views.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Dashboard, Sidebar, Hilfe<br>
-              src/js/modules/kontrolle.js &nbsp;← KW-Raster, Einzelansicht (größtes Modul)<br>
-              src/js/modules/stammdaten.js &nbsp;← Azubis, Schulen, Betriebe, Klassen<br>
-              src/js/modules/import-handler.js ← IBYKUS-CSV Import<br>
-              src/js/modules/planung.js &nbsp;&nbsp;&nbsp;← Kontrolltermin-Planung<br>
-              src/js/modules/workflows.js &nbsp;← Workflow-Engine<br>
-              src/js/modules/berichte.js &nbsp;&nbsp;← Statistiken, Jahresbericht<br>
-              src/js/modules/pdf-export.js &nbsp;← PDF-Durchsichtsbogen<br>
-              + 12 weitere Module &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← ~15.000 Zeilen JS gesamt<br>
-              libs/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Libraries (sql.js, Chart.js, …)<br>
-              fonts/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Lokale Schriftarten (DM Sans, Fraunces)
-            </div>
-            <p style="margin-top:8px"><strong>Build-Prozess:</strong></p>
-            <p>Nach jeder Code-Änderung <code>./build.sh</code> ausführen. Das Script bettet alle Libraries, Fonts (als Base64) und Module in eine einzelne HTML-Datei ein → <code>dist/berichtsheftkontrolle.html</code> (~6 MB).</p>
-            <p style="margin-top:8px"><strong>Einfache Änderungen (ohne Programmierkenntnisse):</strong></p>
-            <p>• <em>Textbausteine ändern</em>: In Einstellungen → Textbausteine bearbeiten (kein Code nötig)</p>
-            <p>• <em>Farben anpassen</em>: CSS-Variablen am Anfang der Datei (Zeile 20–55) suchen, z.B. <code>--clr-forest: #2d5016</code></p>
-            <p>• <em>Mängelcodes A-I ändern</em>: Nach <code>codeLabels</code> suchen → Labels anpassen</p>
-            <p>• <em>Neues Amt hinzufügen</em>: Nach <code>AEMTER:</code> suchen → Eintrag ergänzen</p>
-            <p>• <em>Prüfer hinzufügen</em>: Über die App: Stammdaten → Prüfer-Tab</p>
-            <p style="margin-top:8px"><strong>Mittlere Änderungen (Grundkenntnisse HTML/JS):</strong></p>
-            <p>• <em>Neues Feld im Schema</em>: 1) CREATE TABLE erweitern, 2) ALTER TABLE Migration ergänzen, 3) Import-Mapping hinzufügen, 4) In Ansichten anzeigen</p>
-            <p>• <em>Neuen Filter hinzufügen</em>: gf()-Funktion erweitern, Button in Filter-Panel, Update-Funktion</p>
-            <p>• <em>Neuen View (Seite) hinzufügen</em>: 1) Sidebar-Button, 2) In validViews aufnehmen, 3) Views.neuerView() Funktion, 4) In renderCurrentView registrieren</p>
-            <p style="margin-top:8px"><strong>Testen:</strong></p>
-            <p>• <strong>Modulare Entwicklung:</strong> <code>index.html</code> im Browser öffnen → Demo-Modus → Änderungen sofort sichtbar (ohne Build)</p>
-            <p>• <strong>Produktions-Build:</strong> <code>./build.sh</code> ausführen → <code>dist/berichtsheftkontrolle.html</code> testen</p>
-            <p>• Browser-Konsole (F12 → Console) zeigt Fehler an</p>
-            <p>• Nach Änderungen: Braces zählen! <code>{</code> und <code>}</code> müssen gleich oft vorkommen</p>
-          </div>
-
-          <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">🤖 KI-gestützte Entwicklung (Beispiel-Prompts)</div>
-            <p>Diese Anwendung wurde mit <strong>Claude Code</strong> (Anthropic) entwickelt. Für Änderungen und Erweiterungen können KI-Coding-Tools sehr effektiv genutzt werden.</p>
-            <p style="margin-top:8px"><strong>Vorgehen mit Claude Code (empfohlen):</strong></p>
-            <p>1. Terminal im Projektordner öffnen, <code>claude</code> starten</p>
-            <p>2. Änderungswunsch als Prompt eingeben – Claude Code liest die modularen Dateien, bearbeitet den Code und führt <code>build.sh</code> aus</p>
-            <p>3. Im Browser testen (F5), bei Fehlern: Screenshot + Fehlermeldung an Claude Code senden</p>
-            <p>4. Die CLAUDE.md im Projektordner enthält alle Konventionen und wird automatisch gelesen</p>
-            <p style="margin-top:10px"><strong>Alternative Tools:</strong></p>
-            <p>• <strong>Claude Code</strong> (CLI): Primäres Entwicklungstool – arbeitet direkt im Projektordner mit modularer Struktur und Git</p>
-            <p>• <strong>Claude.ai</strong> (Projects): Für Diskussionen und Konzeptarbeit, CLAUDE.md + relevante Module als Kontext hochladen</p>
-            <p>• <strong>Cursor IDE</strong>: Lokaler Editor mit eingebauter KI – ideal für gezielte Einzeländerungen</p>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📝 Beispiel-Prompts:</p>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">🔄 Neues Import-Feld hinzufügen</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Füge ein neues Feld 'Ausbildereignung' zum IBYKUS-Import hinzu. Die IBYKUS-Spalte heißt 'Ausbildereignung'. Der Wert soll in der schueler-Tabelle gespeichert und im Stammdaten-Tab angezeigt werden. Bitte Schema, Migration, Import-Mapping und Anzeige anpassen."</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">📊 Neues Dashboard-Chart</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Erstelle ein neues Balkendiagramm im Dashboard das die Anzahl der Kontrollen pro Monat der letzten 12 Monate zeigt. Es soll auf die globalen Filter reagieren und der Klick auf einen Balken soll per DrillDown die Azubi-Liste filtern."</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">📄 PDF-Export erweitern</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Erweitere den Jahresbericht-PDF um eine Seite mit einer Übersicht der Zwischenprüfungstermine. Pro Termin (z.B. F2025, H2026) soll die Anzahl der Azubis und deren Fachrichtungsverteilung angezeigt werden."</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">🐛 Bug fixen</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Wenn ich auf den Betrieb 'Gärtnerei Müller' in der Suche klicke, öffnet sich das Modal. Wenn ich das Modal schließe, bin ich in den Stammdaten aber ohne den Betrieb im Filter. Bitte den Code so ändern, dass nach dem Schließen des Betrieb-Modals der Betrieb in der Stammdaten-Suche vorausgewählt ist. [Screenshot beifügen]"</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">🎨 Design ändern</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Ändere das Farbschema der App von Grüntönen auf Blautöne. Die Hauptfarbe soll #1a56db sein statt #2d5016. Bitte alle CSS-Variablen im :root Bereich entsprechend anpassen."</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">➕ Neuen View hinzufügen</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Erstelle eine neue Seite 'Statistik' die über die Sidebar erreichbar ist. Sie soll eine Tabelle mit allen Betrieben zeigen, sortiert nach Anzahl der Beanstandungen, mit Ampel-Symbol und der Möglichkeit per Klick die zugehörigen Azubis anzuzeigen."</p>
-            </div>
-
-            <div style="margin-top:8px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);border-left:3px solid var(--clr-forest)">
-              <p style="font-weight:600;margin-bottom:4px">🔍 Audit durchführen</p>
-              <p style="font-size:12px;font-style:italic;color:var(--clr-text-light)">"Führe ein vollständiges Audit der Anwendung durch. Prüfe: Syntax (Braces/Brackets balanced), Schema vs. Migrationen, Import-Mapping Vollständigkeit, Filter-Abdeckung (gf()), CSS-Variablen, Sync-System, alle Views, Dashboard-Charts, und potenzielle Fehlerquellen."</p>
-            </div>
-
-            <p style="margin-top:12px"><strong>Tipps für gute Prompts:</strong></p>
-            <p>• <strong>Kontext geben</strong>: "Dies ist eine Single-File HTML+SQLite App für Berichtsheftkontrollen"</p>
-            <p>• <strong>Spezifisch sein</strong>: Nicht "Mach es besser" sondern "Die Tabelle soll nach Spalte X sortierbar sein"</p>
-            <p>• <strong>Screenshots beifügen</strong>: Bei visuellen Problemen immer einen Screenshot mitliefern</p>
-            <p>• <strong>Fehlermeldungen kopieren</strong>: Browser-Konsole (F12) öffnen, Fehler kopieren</p>
-            <p>• <strong>Iterativ arbeiten</strong>: Kleine Änderungen → testen → nächste Änderung</p>
-            <p>• <strong>Audit nach großen Änderungen</strong>: Nach Feature-Batches ein Audit-Prompt ausführen</p>
-          </div>
-
-          <div id="help_21" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">📦 Quellcode & Weiterentwicklung mit GitHub</div>
-            <p>Der vollständige Quellcode der Anwendung wird auf GitHub verwaltet. Von dort kann er als ZIP-Archiv heruntergeladen und zur Nachvollziehbarkeit neben der fertigen HTML-Datei auf dem Netzlaufwerk abgelegt werden.</p>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📋 Quellcode auf dem Netzlaufwerk bereitstellen</p>
-            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.9">
-              <p><strong>1.</strong> Auf GitHub die Repository-Seite öffnen</p>
-              <p><strong>2.</strong> Grüne Schaltfläche <strong>„Code"</strong> → <strong>„Download ZIP"</strong> wählen</p>
-              <p><strong>3.</strong> Das heruntergeladene ZIP-Archiv entpacken</p>
-              <p><strong>4.</strong> Den entpackten Ordner in einen Unterordner <code>quellcode</code> neben die HTML-Datei auf dem Netzlaufwerk kopieren</p>
-              <p style="margin-top:8px">Die Ordnerstruktur auf dem Netzlaufwerk sieht dann so aus:</p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                N:\\Berichtsheftkontrolle\\<br>
-                ├── berichtsheftkontrolle.html &nbsp;&nbsp;← Fertige Anwendung<br>
-                ├── berichtsheftkontrolle.sqlite &nbsp;← Datenbank (wird automatisch angelegt)<br>
-                └── quellcode\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Entpacktes ZIP von GitHub<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;├── CLAUDE.md<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;├── build.sh<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;├── index.html<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;├── src\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← CSS + JavaScript-Module<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;├── libs\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Offline-Bibliotheken<br>
-                &nbsp;&nbsp;&nbsp;&nbsp;└── fonts\\ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← Schriftarten
-              </div>
-              <p style="margin-top:6px;color:var(--clr-text-light)"><em>Bei jeder neuen Version der Anwendung den Quellcode-Ordner durch den aktuellen ZIP-Download ersetzen.</em></p>
-            </div>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">🤖 Mit Claude Code weiterentwickeln</p>
-            <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.9">
-              <p><strong>Voraussetzungen:</strong></p>
-              <p>• Ein GitHub-Konto mit dem Quellcode-Repository</p>
-              <p>• Node.js (Version 18+): <a href="https://nodejs.org" target="_blank" style="color:var(--clr-forest)">nodejs.org</a></p>
-              <p>• Claude Code: <code>npm install -g @anthropic-ai/claude-code</code></p>
-              <p>• Ein Anthropic-API-Schlüssel oder ein Claude-Max/Pro-Abonnement</p>
-
-              <p style="margin-top:10px"><strong>1. Repository klonen (einmalig)</strong></p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                git clone https://github.com/BENUTZERNAME/berichtsheftkontrolle.git<br>
-                cd berichtsheftkontrolle
-              </div>
-
-              <p style="margin-top:10px"><strong>2. Claude Code starten</strong></p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                claude
-              </div>
-              <p style="margin-left:12px">Claude Code liest automatisch die Datei <code>CLAUDE.md</code> und kennt dadurch die gesamte Projektstruktur, die Konventionen und die Architektur.</p>
-
-              <p style="margin-top:10px"><strong>3. Änderungswunsch beschreiben</strong></p>
-              <p style="margin-left:12px">Im Claude-Code-Terminal den gewünschten Änderungswunsch in natürlicher Sprache eingeben, z.B.:</p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                &gt; Füge eine neue Spalte "Ausbildereignung" zum IBYKUS-Import hinzu.<br>
-                &gt; Die Spalte soll in der Stammdaten-Ansicht angezeigt werden.
-              </div>
-              <p style="margin-left:12px">Claude Code liest die betroffenen Module, nimmt die Änderungen vor und führt <code>./build.sh</code> aus.</p>
-
-              <p style="margin-top:10px"><strong>4. Testen und bereitstellen</strong></p>
-              <p style="margin-left:12px">• Die erzeugte Datei <code>dist/berichtsheftkontrolle.html</code> im Browser öffnen und testen</p>
-              <p style="margin-left:12px">• Bei Erfolg: die HTML-Datei auf das Netzlaufwerk kopieren</p>
-              <p style="margin-left:12px">• Änderungen in Git sichern und auf GitHub hochladen:</p>
-              <div style="background:var(--clr-sand);padding:8px 12px;border-radius:var(--radius);font-family:monospace;font-size:11px;margin:6px 0;line-height:1.7">
-                git add . &amp;&amp; git commit -m "Beschreibung der Änderung" &amp;&amp; git push
-              </div>
-              <p style="margin-left:12px">• Anschließend den <code>quellcode</code>-Ordner auf dem Netzlaufwerk durch einen frischen ZIP-Download von GitHub ersetzen</p>
-            </div>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">💡 Warum den Quellcode neben die HTML-Datei legen?</p>
-            <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>• <strong>Nachvollziehbarkeit:</strong> Jeder Sachbearbeiter kann jederzeit nachsehen, wie die Anwendung aufgebaut ist</p>
-              <p>• <strong>Unabhängigkeit:</strong> Auch ohne GitHub-Zugang ist der Quellcode verfügbar – die Anwendung bleibt wartbar</p>
-              <p>• <strong>Dokumentation:</strong> Die Datei <code>CLAUDE.md</code> im Quellcode beschreibt die gesamte Architektur und dient gleichzeitig als Projekthandbuch</p>
-              <p>• <strong>Weitergabe:</strong> Bei einer Übergabe an andere Sachbearbeiter oder Dienststellen liegt alles beisammen</p>
-            </div>
-          </div>
-
-          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">⏱️ Zeitersparnis & Arbeitserleichterung</div>
-            <p>Die Berichtsheftkontrolle ersetzt einen aufwändigen, papiergestützten Verwaltungsprozess, der bisher mit Excel-Listen, Word-Vorlagen, manuellen E-Mails und physischer Aktenablage durchgeführt wurde.</p>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-forest-dark)">📊 Zeitvergleich je Durchsichtstermin (ca. 20 Auszubildende):</p>
-            <div style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
-              <div style="padding:10px;background:var(--clr-red-light);border-radius:var(--radius);text-align:center">
-                <div style="font-size:9px;color:var(--clr-red);font-weight:700;text-transform:uppercase">Papier (bisher)</div>
-                <div style="font-size:22px;font-weight:700;color:var(--clr-red)">~4 Std.</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Durchsicht + Verwaltung</div>
-              </div>
-              <div style="padding:10px;background:var(--clr-amber-light);border-radius:var(--radius);text-align:center">
-                <div style="font-size:9px;color:var(--clr-amber);font-weight:700;text-transform:uppercase">MS Office</div>
-                <div style="font-size:22px;font-weight:700;color:var(--clr-amber)">~2,5 Std.</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Excel + Word + E-Mail</div>
-              </div>
-              <div style="padding:10px;background:var(--clr-green-light);border-radius:var(--radius);text-align:center">
-                <div style="font-size:9px;color:var(--clr-green);font-weight:700;text-transform:uppercase">Dieses Tool</div>
-                <div style="font-size:22px;font-weight:700;color:var(--clr-green)">~1 Std.</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Durchsicht direkt in der Anwendung</div>
-              </div>
-            </div>
-
-            <p style="margin-top:16px;font-weight:700;color:var(--clr-red)">❌ Bisheriger Workflow (papiergestützt):</p>
-            <div style="margin-top:4px;padding:10px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>1. Vorbereitung</strong> (~30 Min.): Liste der Auszubildenden aus IBYKUS exportieren, manuell in eine Excel-Tabelle übertragen. Durchsichtsbögen einzeln in Word ausfüllen (Name, Betrieb, Berufsschule je Auszubildendem). Bögen ausdrucken.</p>
-              <p><strong>2. Durchsicht</strong> (~60 Min.): Ausbildungsnachweise prüfen, Ergebnisse handschriftlich auf dem Papierbogen eintragen. Mängelcodes in Kästchen ankreuzen. Fehltage auszählen und notieren.</p>
-              <p><strong>3. Nachbereitung</strong> (~90 Min.): Ergebnisse von den Papierbögen zurück in Excel übertragen. Bei Beanstandungen: Wiedervorlagetermin im Outlook-Kalender eintragen, Erinnerung manuell setzen. Aufforderungsschreiben einzeln in Word erstellen und per E-Mail versenden. Prüfen, ob alle Wiedervorlagen bearbeitet wurden.</p>
-              <p><strong>4. Ablage</strong> (~30 Min.): Papierbögen scannen oder kopieren. In die E-Akte hochladen oder im Aktenordner abheften. Excel-Liste aktualisieren.</p>
-              <p style="margin-top:4px;color:var(--clr-red)"><strong>Fehlerquellen:</strong> Übertragungsfehler (Papier → Excel), vergessene Wiedervorlagen, veraltete Stammdaten, keine Übersicht über den Gesamtstand, Abstimmungsprobleme bei mehreren Sachbearbeitern.</p>
-            </div>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-amber)">⚠️ Hypothetischer Workflow mit MS Office + E-Akte:</p>
-            <div style="margin-top:4px;padding:10px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>Excel als Stammdatenverwaltung:</strong> Mehrere Tabellenblätter (Auszubildende, Betriebe, Kontrollergebnisse, Wiedervorlagen). Keine referenzielle Integrität – Tippfehler in Betriebsnamen führen zu Inkonsistenzen. Keine automatische Verknüpfung mit dem IBYKUS-Datenbestand.</p>
-              <p><strong>Word-Serienbriefe für Durchsichtsbögen:</strong> Serienbriefvorlage pflegen, Datenquellverknüpfung regelmäßig reparieren. Jede Änderung am Bogenlayout erfordert Word-Kenntnisse. Kein individuelles KW-Raster je Auszubildendem möglich.</p>
-              <p><strong>Outlook für Wiedervorlagen:</strong> Jede Wiedervorlage manuell als Aufgabe bzw. Termin anlegen. Kein Zusammenhang zur Excel-Tabelle – Doppelpflege. Überfällige Wiedervorlagen fallen nicht systematisch auf.</p>
-              <p><strong>E-Akte für Ablage:</strong> PDF-Bögen einzeln hochladen. Keine automatische Zuordnung zum Auszubildenden. Suche nur über den Dateinamen möglich.</p>
-              <p><strong>Mehrbenutzer-Betrieb:</strong> Excel-Dateien auf dem Netzlaufwerk werden von Windows gesperrt (nur ein Benutzer gleichzeitig). Alternativ SharePoint – erfordert IT-Einrichtung und Schulung.</p>
-              <p style="margin-top:4px;color:var(--clr-amber)"><strong>Aufwand:</strong> Hoher initialer Einrichtungsaufwand (2–3 Tage). Fragile Verknüpfungen, die bei Windows-Updates oder Pfadänderungen brechen. Keine Gesamtübersicht, kein Ampelsystem.</p>
-            </div>
-
-            <p style="margin-top:12px;font-weight:700;color:var(--clr-green)">✅ Workflow mit der Berichtsheftkontrolle:</p>
-            <div style="margin-top:4px;padding:10px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.7">
-              <p><strong>1. Vorbereitung</strong> (~2 Min.): IBYKUS-CSV importieren → sämtliche Stammdaten, Betriebe, Berufsschulen und Klassen werden automatisch angelegt bzw. aktualisiert. Durchsichtstermin anlegen und Klassen zuweisen.</p>
-              <p><strong>2. Durchsicht</strong> (~45 Min.): Ausbildungsnachweise prüfen, Mängelcodes direkt im KW-Raster per Tastatur eingeben. Fehltage mit einem Klick. Pflichtbestandteile als Dropdown. Ergebnis auswählen → Wiedervorlage wird automatisch mit korrektem Fristdatum angelegt.</p>
-              <p><strong>3. Nachbereitung</strong> (~10 Min.): PDF-Export aller Durchsichtsbögen mit einem Klick. E-Mail-Vorlagen für Aufforderungsschreiben werden automatisch erzeugt (Betrieb, Schule, Auszubildender – vollständig vorausgefüllt). Wiedervorlagen-Übersicht zeigt offene und überfällige Vorgänge auf einen Blick.</p>
-              <p><strong>4. Ablage</strong> (~2 Min.): PDF-Durchsichtsbögen sind sofort verfügbar. Export als Sammel-PDF oder Einzelbögen. Automatische Archivierung als Snapshot in der Datenbank.</p>
-            </div>
-
-            <p style="margin-top:16px;font-weight:700;color:var(--clr-forest-dark)">📋 Konkrete Arbeitserleichterungen:</p>
-            <div style="margin-top:6px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>⏱ <strong>Individuelle Durchsichtsbögen</strong> – Werden automatisch aus den Stammdaten erzeugt. Kein manuelles Ausfüllen von Name, Betrieb, Berufsschule und Klasse mehr. KW-Raster über 4 Ausbildungsjahre, Fehltageberechnung und Pflichtbestandteile – alles auf einem Bogen.</p>
-              <p>⏱ <strong>Aufforderungsschreiben und Einladungen</strong> – Vorausgefüllte E-Mail-Vorlagen mit allen Daten des Auszubildenden und des Betriebs. Ein Klick öffnet den E-Mail-Client mit fertigem Text. Word-Serienbriefe für postalischen Versand möglich.</p>
-              <p>⏱ <strong>Wiedervorlagen</strong> – Werden automatisch aus dem Durchsichtsergebnis angelegt. Frist, Art (E-Mail/Post/persönlich) und Zuständigkeit – alles in einem System. Überfällige Wiedervorlagen werden farblich hervorgehoben. Kein manuelles Nachhalten in Outlook oder Excel mehr.</p>
-              <p>⏱ <strong>Wiedervorlagen-Übersicht</strong> – Das Dashboard zeigt auf einen Blick: Wie viele Wiedervorlagen sind offen? Wie viele überfällig? Welche Auszubildenden und welche Betriebe sind betroffen? Filterung nach Jahrgang, Fachrichtung und Amt ist sofort möglich.</p>
-              <p>⏱ <strong>Ablage der Durchsichtsbögen</strong> – PDF-Export einzeln oder als Sammel-PDF je Durchsichtstermin. Archivierung als Snapshot in der Datenbank. Kein Scannen, kein manuelles Hochladen in die E-Akte.</p>
-              <p>⏱ <strong>Abstimmung zwischen Sachbearbeitern</strong> – Drei Ausbildungsberater arbeiten gleichzeitig an derselben Datenbank. Automatische Synchronisation im 8-Sekunden-Intervall. Das Sperrsystem verhindert Bearbeitungskonflikte. Jeder sieht unmittelbar, was die anderen bereits erledigt haben.</p>
-              <p>⏱ <strong>Jahresbericht</strong> – Vollständiger Jahresbericht als PDF mit Statistiken (Berufsschulen, Fachrichtungen, Ämter, Mängelverteilung) auf Knopfdruck. Bisher: tagelange manuelle Auswertung der Excel-Tabellen.</p>
-              <p>⏱ <strong>Datenqualität</strong> – Der IBYKUS-Import hält die Stammdaten automatisch aktuell. Keine manuelle Pflege, keine veralteten Adressen, keine doppelten Einträge. Ausbildungsbetriebe werden automatisch verknüpft.</p>
-            </div>
-
-            <p style="margin-top:16px;font-weight:700;color:var(--clr-forest-dark)">📈 Hochrechnung Zeitersparnis pro Jahr:</p>
-            <div style="margin-top:6px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>Bei ca. 600 Auszubildenden, ~25 Durchsichtsterminen/Jahr und 3 Ausbildungsberatern:</p>
-              <p>• <strong>Papier-Workflow:</strong> ~25 × 4 Std. = <strong>100 Stunden</strong>/Jahr (reine Verwaltung, ohne die eigentliche Prüfung)</p>
-              <p>• <strong>MS Office:</strong> ~25 × 2,5 Std. = <strong>62 Stunden</strong>/Jahr + hoher Einrichtungsaufwand + Fehlerkorrektur</p>
-              <p>• <strong>Berichtsheftkontrolle:</strong> ~25 × 1 Std. = <strong>25 Stunden</strong>/Jahr (inkl. Import, Export, Wiedervorlagen)</p>
-              <p style="margin-top:6px;font-weight:700;color:var(--clr-forest)">→ Ersparnis gegenüber Papier: <strong>~75 Stunden/Jahr</strong> (≈ 10 Arbeitstage)</p>
-              <p style="font-weight:700;color:var(--clr-forest)">→ Ersparnis gegenüber MS Office: <strong>~37 Stunden/Jahr</strong> (≈ 5 Arbeitstage)</p>
-              <p style="margin-top:6px;color:var(--clr-text-light)">Zusätzlich: Weniger Fehler, bessere Übersicht, keine vergessenen Wiedervorlagen, sofortige Auskunftsfähigkeit bei Rückfragen, professionelle Außenwirkung durch einheitliche Durchsichtsbögen.</p>
-            </div>
-          </div>
-
-          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+          <div id="help_25" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
             <div class="card-header" style="font-size:15px">🔒 Datenschutz & Rechtskonformität</div>
             <p style="font-weight:600;color:var(--clr-forest-dark)">Datenschutzrechtliche Einordnung für Führungskräfte, Datenschutzbeauftragte und behördliche Prüfungen</p>
 
@@ -2350,7 +2193,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_24" class="card" style="margin-bottom:12px">
+          <div id="help_26" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">❓ Häufig gestellte Fragen (FAQ)</div>
             <p><strong>Die Diagramme im Dashboard werden unscharf dargestellt.</strong><br>
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>
@@ -2378,6 +2221,90 @@ const Views = {
       </div>
     </div>
     </div>`;
+    // Scroll-spy: highlight active section in nav
+    setTimeout(() => {
+      const mc = document.getElementById('mainContent');
+      const sections = mc.querySelectorAll('[id^="help_"]');
+      const links = mc.querySelectorAll('.help-nav-link');
+      if (!sections.length || !links.length) return;
+      let activeId = 'help_0';
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(e => { if (e.isIntersecting) activeId = e.target.id; });
+        links.forEach(l => {
+          l.classList.toggle('active', l.dataset.section === activeId.replace('help_',''));
+        });
+      }, { root: mc, rootMargin: '-5% 0px -75% 0px', threshold: 0 });
+      sections.forEach(s => observer.observe(s));
+      links[0]?.classList.add('active');
+    }, 120);
+  },
+
+  openTarifModal() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = saved || AzubiRechner.BERUFE;
+    const miav = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG;
+
+    const berufRows = berufe.map((b, bi) => {
+      const lastTarif = b.tarife[b.tarife.length - 1];
+      return `<tr>
+        <td style="font-size:12px;font-weight:600">${esc(b.label)}</td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="0" value="${lastTarif.lj[0]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="1" value="${lastTarif.lj[1]}" min="0"></td>
+        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="2" value="${lastTarif.lj[2]}" min="0"></td>
+        <td style="font-size:10px;color:var(--clr-text-light)">ab ${lastTarif.ab}</td>
+      </tr>`;
+    }).join('');
+
+    const lastMiav = miav[miav.length - 1];
+    App.openModal('Tariflöhne bearbeiten', `
+      <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
+        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.
+      </div>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Beruf</th><th>1. LJ (€)</th><th>2. LJ (€)</th><th>3. LJ (€)</th><th>Gültig</th></tr></thead>
+          <tbody>${berufRows}</tbody>
+        </table>
+      </div>
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">Mindestvergütung §17 BBiG</div>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px;align-items:center;font-size:12px;margin-bottom:12px">
+        <span style="font-weight:600">Aktuell (${lastMiav.ab}):</span>
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav1" value="${lastMiav.lj[0]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav2" value="${lastMiav.lj[1]}" min="0">
+        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav3" value="${lastMiav.lj[2]}" min="0">
+      </div>
+      <div style="font-size:11px;color:var(--clr-text-light)">Fachwerker erhalten Ausbildungsgeld der Arbeitsagentur (${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt}€ / ${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.eigeneWohnung}€) — nicht tarifgebunden.</div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-sm" style="color:var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('custom_tarife','custom_mindestverguetung')&quot;);AzubiRechner._loadCustomTarife();App.closeModal();App.toast('Auf Standard-Tarife zurückgesetzt','success')">Auf Standard zurücksetzen</button>
+        <button class="btn btn-primary" onclick="Views.saveTarife()">Speichern</button>`);
+    _makeModalWide();
+  },
+
+  saveTarife() {
+    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
+    const berufe = JSON.parse(JSON.stringify(saved || AzubiRechner.BERUFE));
+    document.querySelectorAll('[data-beruf]').forEach(input => {
+      const bi = parseInt(input.dataset.beruf);
+      const lj = parseInt(input.dataset.lj);
+      const val = parseInt(input.value) || 0;
+      if (berufe[bi]) {
+        berufe[bi].tarife[berufe[bi].tarife.length - 1].lj[lj] = val;
+      }
+    });
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_tarife',?)", [JSON.stringify(berufe)]);
+
+    const miav = JSON.parse(JSON.stringify(JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG));
+    const lastIdx = miav.length - 1;
+    miav[lastIdx].lj[0] = parseInt(document.getElementById('miav1').value) || 0;
+    miav[lastIdx].lj[1] = parseInt(document.getElementById('miav2').value) || 0;
+    miav[lastIdx].lj[2] = parseInt(document.getElementById('miav3').value) || 0;
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_mindestverguetung',?)", [JSON.stringify(miav)]);
+
+    AzubiRechner._loadCustomTarife();
+    App.closeModal();
+    App.toast('Tariflöhne gespeichert', 'success');
+  },
+};
     // Scroll-spy: highlight active section in nav
     setTimeout(() => {
       const mc = document.getElementById('mainContent');
