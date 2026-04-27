@@ -6,11 +6,14 @@
 const AzubiDashboard = {
 
   isEnabled() {
+    return true;
+  },
+
+  isStatsEnabled() {
     return App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") === '1';
   },
 
   open(schuelerId) {
-    if (!this.isEnabled()) { App.toast('Funktion nicht verfügbar', 'warning'); return; }
     const kz = AzubiRechner.computeKennzahlen(schuelerId);
     if (!kz) {
       App.toast('Kein Ausbildungsbeginn hinterlegt — bitte erst in Stammdaten eintragen.', 'warning');

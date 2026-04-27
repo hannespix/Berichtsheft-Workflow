@@ -218,7 +218,7 @@ const Views = {
       </div>
 
       <!-- Kontrollstatus + Charts (Easter Egg) -->
-      <div id="dashStatSection" style="${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'':'display:none'}">
+      <div id="dashStatSection" style="${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isStatsEnabled()?'':'display:none'}">
       <div class="grid-2" style="margin-bottom:20px">
         <!-- Kontrollstatus-Übersicht -->
         <div class="card" style="border-left:3px solid var(--clr-amber)">
@@ -1199,10 +1199,10 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
       </div>
-      <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
+      ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
         <div class="card-header">📊 Jahresbericht generieren</div>
         <p style="font-size:13px;color:var(--clr-text-light)">Gesamtstatistik als PDF: Anzahl kontrolliert, Mängelquote, Top-Codes, Betrieb-Ranking, Vergleich pro Schule.</p>
-      </div>
+      </div>` : ''}
     </div>`;
   },
 
@@ -1279,10 +1279,10 @@ const Views = {
             </label>`;
           }).join('')}
         </div>
-        <div id="dashboardToggle" style="display:none;margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div id="dashboardToggle" style="display:${localStorage.getItem('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
-            Erweiterte Funktionen (Statistiken, Azubi-Dashboard, Phasen)
+            Statistiken &amp; Jahresbericht einblenden
           </label>
         </div>
       </div>
@@ -1423,15 +1423,21 @@ const Views = {
   },
 
   _pinClicked() {
-    const pw = prompt('Passwort für erweiterte Funktionen:');
+    if (localStorage.getItem('bhk_stats_unlocked') === '1') {
+      document.getElementById('dashboardToggle').style.display = '';
+      return;
+    }
+    const pw = prompt('Passwort:');
     if (pw === 'dienstweg') {
+      localStorage.setItem('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
     }
   },
 
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
-    App.toast(enabled ? 'Azubi-Dashboard aktiviert — Seite neu laden für volle Wirkung' : 'Azubi-Dashboard deaktiviert', 'success');
+    if (!enabled) localStorage.removeItem('bhk_stats_unlocked');
+    App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert' : 'Statistiken & Jahresbericht deaktiviert', 'success');
   },
 
   saveEinstellungen() {
@@ -1711,15 +1717,15 @@ const Views = {
         <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">📄 PDF exportieren</button>
       </div>
 
-      <!-- Kapitel-Navigation (horizontal, kompakt) -->
-      <div class="card" style="margin-bottom:16px;padding:10px 14px">
-        <div style="display:flex;flex-wrap:wrap;gap:4px 6px;font-size:11px">
-          ${helpSections.map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="padding:3px 8px;color:var(--clr-forest);text-decoration:none;border-radius:var(--radius);background:var(--clr-warm);border:1px solid var(--clr-sand);white-space:nowrap;transition:background 0.15s">${i+1}. ${t}</a>`).join('')}
+      <div style="display:flex;gap:16px;align-items:flex-start">
+        <!-- Navigation (links, sticky) -->
+        <div id="helpNav" style="position:sticky;top:0;min-width:200px;max-width:200px;max-height:calc(100vh - 20px);overflow-y:auto;padding:8px 0;font-size:12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand);flex-shrink:0">
+          <div style="padding:4px 12px;font-weight:700;color:var(--clr-forest-dark);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
+          ${helpSections.map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:3px 12px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;font-size:11px;line-height:1.4;transition:background 0.15s,border-color 0.15s">${i+1}. ${t}</a>`).join('')}
         </div>
-      </div>
 
-      <!-- Content -->
-      <div style="font-size:13px;line-height:1.7">
+        <!-- Content (rechts, feste Breite) -->
+        <div style="flex:1;min-width:0;font-size:13px;line-height:1.7">
 
           <div id="help_0" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">🚀 Schnellstart</div>
@@ -1884,7 +1890,7 @@ const Views = {
             <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
           </div>
 
-          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
+          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);"
             <div class="card-header" style="font-size:15px">🎓 Azubi-Dashboard</div>
             <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den 🎓-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
@@ -1901,7 +1907,7 @@ const Views = {
             <p>• <strong>Vergütungsperioden-Tabelle</strong> – Zeitraum, Betrieb, Lehrjahr, TZ-%, Brutto VZ/effektiv, Urlaub</p>
           </div>
 
-          <div id="help_10" class="card" style="margin-bottom:12px;${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
+          <div id="help_10" class="card" style="margin-bottom:12px;"
             <div class="card-header" style="font-size:15px">💰 Azubi-Rechner & Tarife</div>
             <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
             <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
@@ -1921,7 +1927,7 @@ const Views = {
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
-          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?'':'display:none'}"
+          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);"
             <div class="card-header" style="font-size:15px">🔀 Phasen-Editor</div>
             <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
@@ -2287,8 +2293,9 @@ const Views = {
           </div>
 
       </div>
+      </div>
     </div>`;
-    // Scroll-spy: highlight active tag in nav
+    // Scroll-spy: highlight active link in nav
     setTimeout(() => {
       const mc = document.getElementById('mainContent');
       const sections = mc.querySelectorAll('[id^="help_"]');
@@ -2300,13 +2307,13 @@ const Views = {
             const id = e.target.id.replace('help_','');
             links.forEach(l => {
               const isActive = l.dataset.section === id;
-              l.style.background = isActive ? 'var(--clr-forest)' : '';
-              l.style.color = isActive ? 'white' : '';
-              l.style.borderColor = isActive ? 'var(--clr-forest)' : '';
+              l.style.background = isActive ? 'var(--clr-green-light)' : '';
+              l.style.borderLeftColor = isActive ? 'var(--clr-forest)' : 'transparent';
+              l.style.fontWeight = isActive ? '700' : '';
             });
           }
         });
-      }, { root: mc, rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+      }, { root: mc, rootMargin: '-5% 0px -85% 0px', threshold: 0 });
       sections.forEach(s => observer.observe(s));
     }, 200);
   },
