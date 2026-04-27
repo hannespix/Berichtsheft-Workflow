@@ -1415,7 +1415,7 @@ const Views = {
       <div id="dashboardToggle" style="display:none;margin-top:8px;padding:12px 16px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
         <div style="font-size:13px;font-weight:600;margin-bottom:6px">Erweiterte Funktionen</div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-          <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="App.run('INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (\\'azubi_dashboard_enabled\\',?)',[this.checked?'1':'0']);App.toast(this.checked?'Azubi-Dashboard aktiviert':'Azubi-Dashboard deaktiviert','success')" style="width:20px;height:20px;accent-color:var(--clr-forest)">
+          <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:20px;height:20px;accent-color:var(--clr-forest)">
           Azubi-Dashboard &amp; Phasen-Editor aktivieren
         </label>
         <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Erweiterte Ausbildungsverlaufs-Funktionen (🎓 Button bei Azubis)</div>
@@ -1429,6 +1429,11 @@ const Views = {
     if (pw === 'dienstweg') {
       document.getElementById('dashboardToggle').style.display = '';
     }
+  },
+
+  _toggleDashboard(enabled) {
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
+    App.toast(enabled ? 'Azubi-Dashboard aktiviert — Seite neu laden für volle Wirkung' : 'Azubi-Dashboard deaktiviert', 'success');
   },
 
   saveEinstellungen() {
