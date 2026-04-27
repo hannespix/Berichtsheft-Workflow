@@ -2286,12 +2286,6 @@ const Views = {
             Ja. Erstellen Sie über den Startbildschirm eine neue Datenbank und importieren Sie ausschließlich die aktuellen Jahrgänge. Die bisherige Datenbank verbleibt im Ordner <code>Datenbanken/</code> und kann jederzeit erneut geöffnet werden.</p>
           </div>
 
-          <div class="card" style="margin-bottom:12px;background:var(--clr-sand-light);text-align:center;padding:20px">
-            <p style="font-size:12px;color:var(--clr-text-light)">Berichtsheftkontrolle · Regierungspräsidium Freiburg · Abt. 3 · Ref. 31<br>
-            Entwickelt für Ausbildungsberater Gärtner<br>
-            Bei Fragen: Hannes Pix, Christoph Zilz, Eva Dronia</p>
-          </div>
-
         </div>
       </div>
     </div>
