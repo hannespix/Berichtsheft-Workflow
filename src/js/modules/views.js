@@ -2007,27 +2007,50 @@ const Views = {
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 
-          <div id="help_18" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">⌨️ Tastenkürzel</div>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
+          <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">⌨️ Tastenkürzel (vollständig)</div>
+            <p><strong>Allgemein:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Escape</kbd><span>Dialogfenster / Suche schließen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">◀ / ▶</kbd><span>Vorheriger / nächster Auszubildender (in der Kontrolle)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">↑ / ↓</kbd><span>In Ergebnislisten navigieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Enter</kbd><span>Auswahl bestätigen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+S</kbd><span>Sofort speichern</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F1 / ?</kbd><span>Tastenkürzel-Übersicht</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Escape</kbd><span>Dialog schließen / Selektion aufheben</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Alt+1–8</kbd><span>Schnellnavigation (Dashboard, Stammdaten, Import, Planung, Kontrolle, WV, Berichte, Einstellungen)</span>
+            </div>
+            <p><strong>In der Kontrolle:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Schüler-Suche fokussieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F5</kbd><span>Von Datenträger neu laden</span>
+            </div>
+            <p><strong>Im KW-Raster:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">A–G</kbd><span>Mängelcode togglen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">H</kbd><span>Fehltage-Popover öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">1–5</kbd><span>Fehltage-Schnelleingabe</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">0</kbd><span>Fehltage entfernen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">I</kbd><span>Sonstiges-Dialog (Bemerkung)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">O</kbd><span>Keine Beanstandungen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Entf / Backspace</kbd><span>Zelle leeren (→ behoben)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Leertaste / Enter</kbd><span>Bearbeitungs-Modal öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Pfeiltasten</kbd><span>Zwischen Zellen navigieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Shift+Klick</kbd><span>Bereich auswählen (Bulk)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Shift+Pfeiltaste</kbd><span>Selektion erweitern</span>
             </div>
           </div>
 
-                    <div id="help_19" class="card" style="margin-bottom:12px">
+          <div id="help_19" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">↩️ Undo / Redo</div>
             <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
             <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
-            <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederholte Aktion wiederherstellen (Redo)</p>
+            <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederherstellen (Redo)</p>
             <p>• Der Undo-Verlauf ist session-lokal und wird beim Verlassen der Kontrolle zurückgesetzt</p>
             <p>• Unterstützt: Code-Toggles, Fehltage-Änderungen, Zellen leeren</p>
           </div>
 
-<div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">👥 Mehrbenutzer-Betrieb & Synchronisation</div>
             <p>Mehrere Ausbildungsberater können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
@@ -2103,7 +2126,7 @@ const Views = {
             </div>
           </div>
 
-                    <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">⚙️ Einstellungen</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
@@ -2115,7 +2138,7 @@ const Views = {
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
           </div>
 
-<div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">🔧 Wartung & Administration</div>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
@@ -2289,18 +2312,44 @@ const Views = {
   exportHilfePDF() {
     const content = document.querySelector('#mainContent .fade-in');
     if (!content) return App.toast('Hilfe-Seite nicht gefunden', 'error');
+    const cards = [...content.querySelectorAll('.card[id^="help_"]')].filter(c => c.style.display !== 'none');
+    const titles = cards.map((c, i) => {
+      const hdr = c.querySelector('.card-header');
+      return { id: i, text: hdr ? hdr.textContent.trim() : `Abschnitt ${i+1}` };
+    });
     const printWin = window.open('', '_blank');
     printWin.document.write(`<!DOCTYPE html><html><head><title>Hilfe – Berichtsheftkontrolle</title>
-      <style>body{font-family:'Segoe UI',sans-serif;font-size:12px;line-height:1.7;max-width:800px;margin:0 auto;padding:20px}
-      h2{font-size:18px;margin-top:24px;color:#2d5016;border-bottom:2px solid #2d5016;padding-bottom:4px}
-      .card{border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:12px;break-inside:avoid}
-      .card-header{font-weight:700;font-size:14px;margin-bottom:6px;color:#2d5016}
-      strong{color:#1a3a0a}code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
-      table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}
-      th{background:#f5f5f0}@media print{.no-print{display:none}}</style></head><body>`);
-    const cards = content.querySelectorAll('.card');
-    cards.forEach(card => { printWin.document.write(card.outerHTML); });
-    printWin.document.write(`<div style="margin-top:20px;font-size:10px;color:#999;text-align:center">Berichtsheftkontrolle v2.0 · Stand: 27.04.2026 · Regierungspräsidium Freiburg</div></body></html>`);
+      <style>
+        body{font-family:'Segoe UI','Helvetica',sans-serif;font-size:12px;line-height:1.7;max-width:800px;margin:0 auto;padding:30px 40px;color:#333}
+        h1{font-size:22px;color:#2d5016;margin-bottom:4px}
+        .subtitle{font-size:11px;color:#888;margin-bottom:24px}
+        .toc{margin:16px 0 30px;padding:16px 20px;background:#f8f7f2;border:1px solid #ddd;border-radius:8px}
+        .toc-title{font-weight:700;font-size:14px;color:#2d5016;margin-bottom:8px}
+        .toc a{display:block;padding:2px 0;color:#2d5016;text-decoration:none;font-size:12px}
+        .toc a:hover{text-decoration:underline}
+        .toc-num{display:inline-block;width:24px;color:#888;font-size:11px}
+        .section{border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px;break-inside:avoid;page-break-inside:avoid}
+        .section-header{font-weight:700;font-size:15px;margin-bottom:8px;color:#2d5016;border-bottom:1px solid #e0e0d8;padding-bottom:4px}
+        strong{color:#1a3a0a}
+        code,kbd{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace}
+        table{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}
+        th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}th{background:#f5f5f0}
+        .footer{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}
+        @media print{.toc{break-after:page}.section{break-inside:avoid}}
+      </style></head><body>
+      <h1>📖 Hilfe – Berichtsheftkontrolle</h1>
+      <div class="subtitle">Version 2.0 · Stand: 27.04.2026 · Regierungspräsidium Freiburg, Abt. 3, Ref. 31</div>
+      <div class="toc">
+        <div class="toc-title">Inhaltsverzeichnis</div>
+        ${titles.map((t, i) => `<a href="#pdf_${t.id}"><span class="toc-num">${i+1}.</span> ${t.text}</a>`).join('')}
+      </div>`);
+    cards.forEach((card, i) => {
+      const hdr = card.querySelector('.card-header');
+      const title = hdr ? hdr.textContent.trim() : '';
+      const bodyHTML = card.innerHTML.replace(/<div class="card-header"[^>]*>.*?<\/div>/i, '');
+      printWin.document.write(`<div class="section" id="pdf_${i}"><div class="section-header">${i+1}. ${title}</div>${bodyHTML}</div>`);
+    });
+    printWin.document.write(`<div class="footer">Berichtsheftkontrolle v2.0 · Regierungspräsidium Freiburg · Generiert am ${new Date().toLocaleDateString('de-DE')}</div></body></html>`);
     printWin.document.close();
     setTimeout(() => { printWin.print(); }, 500);
   },
