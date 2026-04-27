@@ -13406,8 +13406,8 @@ const Views = {
   // ════════════════════════════════════════════
   hilfe() {
     const c = document.getElementById('mainContent');
-    const version = '1.1';
-    const buildDate = '23.03.2026';
+    const version = '2.0';
+    const buildDate = '27.04.2026';
     c.innerHTML = `
     <div class="fade-in" style="padding-top:28px">
     <div style="max-width:900px;margin:0 auto">
@@ -13418,7 +13418,7 @@ const Views = {
         <!-- Navigation -->
         <div class="card" id="helpNav" style="position:sticky;top:8px;padding:8px 0;font-size:13px">
           <div style="padding:4px 16px;font-weight:700;color:var(--clr-forest-dark);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
-          ${['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Multi-User & Sync','Datensicherung','Tastenkürzel','Nacherfassung (Altdaten)','Wartung & Administration','Weiterentwicklung','KI-gestützte Entwicklung','Quellcode & GitHub','Zeitersparnis & Arbeitserleichterung','Datenschutz & Rechtskonformität','FAQ'].map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:4px 16px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s">${t}</a>`).join('')}
+          ${['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Azubi-Dashboard','Azubi-Rechner & Tarife','Schüler-Akte','Phasen-Editor','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'].map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:4px 16px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s">${t}</a>`).join('')}
         </div>
 
         <!-- Content -->
