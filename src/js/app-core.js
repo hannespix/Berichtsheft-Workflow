@@ -3862,8 +3862,19 @@ const App = {
     } catch(e) { console.warn('[Session] Restore failed:', e.message); }
 
     if (!restored) {
-      this.navigate(validViews.includes(hashView) ? hashView : 'dashboard');
+      const dashEnabled = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") === '1';
+      const defaultView = dashEnabled ? 'dashboard' : 'stammdaten';
+      this.navigate(validViews.includes(hashView) ? hashView : defaultView);
     }
+    // Dashboard-Sidebar ausblenden wenn Feature deaktiviert
+    try {
+      if (this.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") !== '1') {
+        const dashBtn = document.querySelector('[data-view="dashboard"]');
+        const dashSection = document.getElementById('sidebarSectionDashboard');
+        if (dashBtn) dashBtn.style.display = 'none';
+        if (dashSection) dashSection.style.display = 'none';
+      }
+    } catch(e) {}
     window.addEventListener('hashchange', () => {
       const v = location.hash.replace('#','');
       if (validViews.includes(v) && v !== App.currentView) App.navigate(v, true);

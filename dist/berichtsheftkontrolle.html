@@ -7097,7 +7097,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="App.toggleSidebar()"></div>
     <!-- Sidebar -->
     <nav class="sidebar" id="sidebarNav">
-      <div class="sidebar-section">Übersicht</div>
+      <div class="sidebar-section" id="sidebarSectionDashboard">Übersicht</div>
       <button class="sidebar-item active" data-view="dashboard" onclick="App.navigate('dashboard')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Dashboard
@@ -11058,8 +11058,19 @@ const App = {
     } catch(e) { console.warn('[Session] Restore failed:', e.message); }
 
     if (!restored) {
-      this.navigate(validViews.includes(hashView) ? hashView : 'dashboard');
+      const dashEnabled = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") === '1';
+      const defaultView = dashEnabled ? 'dashboard' : 'stammdaten';
+      this.navigate(validViews.includes(hashView) ? hashView : defaultView);
     }
+    // Dashboard-Sidebar ausblenden wenn Feature deaktiviert
+    try {
+      if (this.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") !== '1') {
+        const dashBtn = document.querySelector('[data-view="dashboard"]');
+        const dashSection = document.getElementById('sidebarSectionDashboard');
+        if (dashBtn) dashBtn.style.display = 'none';
+        if (dashSection) dashSection.style.display = 'none';
+      }
+    } catch(e) {}
     window.addEventListener('hashchange', () => {
       const v = location.hash.replace('#','');
       if (validViews.includes(v) && v !== App.currentView) App.navigate(v, true);
