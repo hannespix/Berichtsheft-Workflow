@@ -1413,7 +1413,7 @@ const Views = {
         </div>`;
       })()}
       <!-- Pin -->
-      <div style="text-align:right;padding:12px;opacity:0.3"><span id="pinEE" onclick="Views._pinClicked()" style="cursor:default;font-size:14px;user-select:none">📌</span></div>
+      <div style="text-align:right;padding:12px"><span id="pinEE" style="opacity:0.25;font-size:14px;cursor:default;padding:8px" onclick="Views._pinClicked()">📌</span></div>
       <div id="dashboardToggle" style="display:none;margin-top:8px;padding:12px 16px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
         <div style="font-size:13px;font-weight:600;margin-bottom:6px">Erweiterte Funktionen</div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
