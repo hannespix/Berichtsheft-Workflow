@@ -141,7 +141,8 @@ const Views = {
         </div>
       </div>` : ''}
 
-      <!-- Stat Cards -->
+      <!-- Stat Cards (Easter Egg: nur sichtbar wenn aktiviert) -->
+      <div id="dashStatSection" style="${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'':'display:none'}">
       <div class="grid-4" style="margin-bottom:20px">
         <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
           <div class="stat-label">Schüler gesamt</div>
@@ -482,6 +483,7 @@ const Views = {
 
       </div>`;
       })()}
+      </div>
     </div>`;
     // Init kontrollstatus slider + charts (can't use <script> in innerHTML)
     setTimeout(() => {
@@ -1416,9 +1418,9 @@ const Views = {
         <div style="font-size:13px;font-weight:600;margin-bottom:6px">Erweiterte Funktionen</div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
           <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:20px;height:20px;accent-color:var(--clr-forest)">
-          Azubi-Dashboard &amp; Phasen-Editor aktivieren
+          Erweiterte Funktionen aktivieren
         </label>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Erweiterte Ausbildungsverlaufs-Funktionen (🎓 Button bei Azubis)</div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Dashboard-Statistiken, Azubi-Dashboard (🎓), Phasen-Editor, Vergütungsberechnung</div>
       </div>
     </div>`;
     setTimeout(() => this.renderTextbausteine(), 50);
