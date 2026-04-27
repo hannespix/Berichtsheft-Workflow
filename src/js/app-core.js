@@ -3351,22 +3351,33 @@ const App = {
   // Ein Verkürzer der im März startet spannt 3 Schuljahre → braucht 3 KW-Grids.
   getSchuelerAJs(schuelerId) {
     const s = this.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
-    if (!s?.ausbildungsbeginn || !s?.ausbildungsende) return [1, 2, 3];
-    const d1 = this._parseDate(s.ausbildungsbeginn), d2 = this._parseDate(s.ausbildungsende);
-    if (!d1 || !d2) return [1, 2, 3];
+    if (!s?.ausbildungsbeginn) return [1, 2, 3];
+    const d1 = this._parseDate(s.ausbildungsbeginn);
+    if (!d1) return [1, 2, 3];
+
+    // Effektives Ende: Phasen → berechnetes Vertragsende, sonst DB-Feld
+    let d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
+    if (typeof AzubiRechner !== 'undefined') {
+      try {
+        const phasen = AzubiRechner.getPhasen(schuelerId);
+        if (phasen.length) {
+          const phasenMit = AzubiRechner.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0);
+          const berechnetesEnde = AzubiRechner.vertragsendeAusPhasen(phasenMit);
+          if (berechnetesEnde) d2 = berechnetesEnde;
+        }
+      } catch(e) {}
+    }
+    if (!d2) return [1, 2, 3];
 
     const startSY = d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1;
-    // Enddatum: 1 Tag abziehen — 01.09.2027 bedeutet letzter Tag ist 31.08.2027 (SY 2026/27)
     const d2adj = new Date(d2); d2adj.setDate(d2adj.getDate() - 1);
     const endSY = d2adj.getMonth() >= 8 ? d2adj.getFullYear() : d2adj.getFullYear() - 1;
     const numSY = endSY - startSY + 1;
 
-    // AJ numbers: count backwards from 3 (AJ3 = exam year)
-    // 1 SY → [3], 2 SY → [2,3], 3 SY → [1,2,3], 4+ SY → [1,2,3,4,...]
     if (numSY <= 1) return [3];
     if (numSY === 2) return [2, 3];
     if (numSY === 3) return [1, 2, 3];
-    return Array.from({length: numSY}, (_, i) => i + 1); // [1,2,3,4] etc.
+    return Array.from({length: numSY}, (_, i) => i + 1);
   },
 
   // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
