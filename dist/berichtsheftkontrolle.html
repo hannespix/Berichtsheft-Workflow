@@ -12992,6 +12992,10 @@ const Views = {
           <div class="card-header">Excel-Dashboard</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
+        <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
+          <div class="card-header">🎓 Zulassungsliste AP</div>
+          <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
+        </div>
       </div>
       ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
         <div class="card-header">📊 Jahresbericht generieren</div>
@@ -24151,6 +24155,164 @@ const BerichteHandler = {
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout
+  },
+
+  // ═══════════════════════════════════════════
+  //  ZULASSUNGSLISTE AP
+  // ═══════════════════════════════════════════
+  zulassungsliste() {
+    this._zlFilter = { schule: '', fachrichtung: '', jahrgang: '', amt: '', pa: '' };
+    this._renderZulassungsliste();
+  },
+
+  _renderZulassungsliste() {
+    const f = this._zlFilter;
+    const gf = App.gf('schueler');
+    let sql = `SELECT s.*,
+      COALESCE(b.name, s.ausbildungsstaette) as betrieb_display, b.ort as b_ort,
+      CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(fr.bezeichnung,'') as fachrichtung,
+      fr.code as fr_code,
+      j.bezeichnung as jahrgang,
+      k.klassenbezeichnung, bs.name as schule,
+      (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis,
+      (SELECT ke2.pruefungsausschuss FROM kontrollergebnisse ke2 JOIN kontrolltermine kt2 ON ke2.kontrolltermin_id=kt2.id WHERE ke2.schueler_id=s.id ORDER BY kt2.geplant_datum DESC LIMIT 1) as pruefungsausschuss,
+      (SELECT COUNT(*) FROM wiedervorlagen w WHERE w.schueler_id=s.id AND w.status IN ('offen','ueberfaellig')) as offene_wv,
+      (SELECT COUNT(*) FROM kw_status kws WHERE kws.schueler_id=s.id AND kws.maengel_codes != '' AND kws.maengel_codes != 'H') as offene_maengel
+      FROM schueler s
+      LEFT JOIN betriebe b ON s.betrieb_id=b.id
+      LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+      LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf}`;
+    const params = [];
+    if (f.schule) { sql += ' AND bs.name=?'; params.push(f.schule); }
+    if (f.fachrichtung) { sql += ' AND s.fachrichtung_id=?'; params.push(parseInt(f.fachrichtung)); }
+    if (f.jahrgang) { sql += ' AND s.jahrgang_id=?'; params.push(parseInt(f.jahrgang)); }
+    if (f.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(f.amt); }
+    if (f.pa === 'ja') sql += ' AND s.id IN (SELECT ke3.schueler_id FROM kontrollergebnisse ke3 WHERE ke3.pruefungsausschuss=1)';
+    if (f.pa === 'nein') sql += ' AND s.id NOT IN (SELECT ke3.schueler_id FROM kontrollergebnisse ke3 WHERE ke3.pruefungsausschuss=1)';
+    sql += ' ORDER BY bs.name, fr.bezeichnung, s.nachname';
+    const azubis = App.query(sql, params);
+
+    const schulen = App.query(`SELECT DISTINCT bs.name FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf} ORDER BY bs.name`);
+    const frs = App.query(`SELECT DISTINCT fr.id, CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || fr.bezeichnung as label FROM schueler s JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf} ORDER BY fr.bezeichnung`);
+    const jgs = App.query(`SELECT DISTINCT j.id, j.bezeichnung FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf} ORDER BY j.jahr DESC`);
+    const aemter = App.query(`SELECT DISTINCT s.zustaendiges_amt FROM schueler s WHERE s.ap_zugelassen=1 AND s.aktiv=1 AND s.zustaendiges_amt!=''${gf} ORDER BY s.zustaendiges_amt`);
+
+    const ampelIcon = (e) => !e ? '⚪' : e === 'in_ordnung' ? '🟢' : '🔴';
+    const ergebnisLabel = {in_ordnung:'OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
+
+    App.openModal(`🎓 Zulassungsliste AP (${azubis.length} Azubis)`, `
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+        <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.schule=this.value;BerichteHandler._renderZulassungsliste()">
+          <option value="">Alle Schulen</option>${schulen.map(s => `<option value="${esc(s.name)}" ${f.schule===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.fachrichtung=this.value;BerichteHandler._renderZulassungsliste()">
+          <option value="">Alle Fachrichtungen</option>${frs.map(fr => `<option value="${fr.id}" ${f.fachrichtung==fr.id?'selected':''}>${esc(fr.label)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.jahrgang=this.value;BerichteHandler._renderZulassungsliste()">
+          <option value="">Alle Jahrgänge</option>${jgs.map(j => `<option value="${j.id}" ${f.jahrgang==j.id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.amt=this.value;BerichteHandler._renderZulassungsliste()">
+          <option value="">Alle Ämter</option>${aemter.map(a => `<option value="${esc(a.zustaendiges_amt)}" ${f.amt===a.zustaendiges_amt?'selected':''}>${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.pa=this.value;BerichteHandler._renderZulassungsliste()">
+          <option value="">PA: Alle</option><option value="ja" ${f.pa==='ja'?'selected':''}>Prüfungsausschuss</option><option value="nein" ${f.pa==='nein'?'selected':''}>Kein PA</option>
+        </select>
+      </div>
+      ${azubis.length ? `<div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+        <table class="data-table" style="font-size:12px" id="zlTable">
+          <thead><tr><th></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>FR</th><th>JG</th><th>Ergebnis</th><th>WV</th><th>PA</th></tr></thead>
+          <tbody>${azubis.map(s => `<tr>
+            <td style="text-align:center">${ampelIcon(s.letztes_ergebnis)}</td>
+            <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}</td>
+            <td style="font-size:11px">${esc(s.betrieb_display||'')}${s.b_ort ? ' <span style="color:var(--clr-text-light)">('+esc(s.b_ort)+')</span>' : ''}</td>
+            <td style="font-size:11px">${esc(s.schule||'')} <span style="color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</span></td>
+            <td style="font-size:11px">${esc(s.fachrichtung||'')}</td>
+            <td>${esc(s.jahrgang||'')}</td>
+            <td>${s.letztes_ergebnis ? `<span class="badge-status ${s.letztes_ergebnis==='in_ordnung'?'badge-ok':'badge-open'}" style="font-size:10px">${ergebnisLabel[s.letztes_ergebnis]||s.letztes_ergebnis}</span>` : '–'}</td>
+            <td style="text-align:center">${s.offene_wv > 0 ? `<span style="color:var(--clr-red);font-weight:700">${s.offene_wv}</span>` : '–'}</td>
+            <td style="text-align:center">${s.pruefungsausschuss ? '<span style="color:var(--clr-red);font-weight:700">PA</span>' : ''}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>` : '<p style="text-align:center;color:var(--clr-text-light);padding:20px">Keine zugelassenen Azubis mit diesen Filtern gefunden.</p>'}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.exportZulassungExcel()">📊 Excel</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.exportZulassungPDF()">📄 PDF</button>`);
+    _makeModalWide();
+  },
+
+  exportZulassungExcel() {
+    const f = this._zlFilter;
+    const gf = App.gf('schueler');
+    let sql = `SELECT s.nachname, s.vorname, COALESCE(b.name, s.ausbildungsstaette) as betrieb, b.ort,
+      CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(fr.bezeichnung,'') as fachrichtung,
+      j.bezeichnung as jahrgang, bs.name as schule, k.klassenbezeichnung,
+      s.ausbildungsbeginn, s.ausbildungsende, s.zustaendiges_amt,
+      (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis
+      FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf}`;
+    const params = [];
+    if (f.schule) { sql += ' AND bs.name=?'; params.push(f.schule); }
+    if (f.fachrichtung) { sql += ' AND s.fachrichtung_id=?'; params.push(parseInt(f.fachrichtung)); }
+    if (f.jahrgang) { sql += ' AND s.jahrgang_id=?'; params.push(parseInt(f.jahrgang)); }
+    if (f.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(f.amt); }
+    sql += ' ORDER BY bs.name, fr.bezeichnung, s.nachname';
+    const data = App.query(sql, params);
+    if (!data.length) return App.toast('Keine Daten zum Exportieren', 'warning');
+
+    const ws = XLSX.utils.json_to_sheet(data.map(s => ({
+      'Nachname': s.nachname, 'Vorname': s.vorname, 'Betrieb': s.betrieb, 'Ort': s.ort,
+      'Fachrichtung': s.fachrichtung, 'Jahrgang': s.jahrgang, 'Schule': s.schule, 'Klasse': s.klassenbezeichnung,
+      'AV-Beginn': s.ausbildungsbeginn, 'AV-Ende': s.ausbildungsende, 'Amt': s.zustaendiges_amt,
+      'Letztes Ergebnis': s.letztes_ergebnis || ''
+    })));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Zulassungsliste');
+    XLSX.writeFile(wb, `Zulassungsliste_AP_${todayStr()}.xlsx`);
+    App.toast(`${data.length} Azubis exportiert`, 'success');
+  },
+
+  exportZulassungPDF() {
+    const table = document.getElementById('zlTable');
+    if (!table) return App.toast('Keine Tabelle gefunden', 'error');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(45, 80, 22);
+    doc.text('Zulassungsliste Abschlussprüfung', 20, 18);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120, 120, 120);
+    const filterParts = [];
+    if (this._zlFilter.schule) filterParts.push('Schule: ' + this._zlFilter.schule);
+    if (this._zlFilter.jahrgang) filterParts.push('JG: ' + App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [this._zlFilter.jahrgang]));
+    if (this._zlFilter.fachrichtung) filterParts.push('FR: ' + App.scalar('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [this._zlFilter.fachrichtung]));
+    if (this._zlFilter.amt) filterParts.push('Amt: ' + this._zlFilter.amt);
+    doc.text(`Stand: ${new Date().toLocaleDateString('de-DE')}${filterParts.length ? ' · Filter: ' + filterParts.join(', ') : ''}`, 20, 24);
+
+    const rows = [...table.querySelectorAll('tbody tr')].map(tr =>
+      [...tr.querySelectorAll('td')].map(td => td.textContent.trim())
+    );
+    const head = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+
+    doc.autoTable({
+      startY: 30, margin: { left: 14, right: 14 },
+      head: [head], body: rows,
+      styles: { fontSize: 9, cellPadding: 2.5, lineWidth: 0.2 },
+      headStyles: { fillColor: [45, 80, 22], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 247, 242] },
+      theme: 'grid',
+    });
+
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+      doc.text('Berichtsheftkontrolle · RP Freiburg', 14, 200);
+      doc.text(`Seite ${i} / ${totalPages}`, 267, 200);
+    }
+
+    doc.save(`Zulassungsliste_AP_${todayStr()}.pdf`);
+    App.toast('PDF erstellt', 'success');
   }
 };
 

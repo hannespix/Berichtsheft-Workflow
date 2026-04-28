@@ -1198,6 +1198,10 @@ const Views = {
           <div class="card-header">Excel-Dashboard</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
+        <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
+          <div class="card-header">🎓 Zulassungsliste AP</div>
+          <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
+        </div>
       </div>
       ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
         <div class="card-header">📊 Jahresbericht generieren</div>
