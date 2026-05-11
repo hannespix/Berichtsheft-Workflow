@@ -139,6 +139,31 @@ const GlobalSearch = {
       });
     }
 
+    // ── Ausbilder ──
+    let aWhere = '1=1';
+    const aParams = [];
+    tokens.forEach(t => { const p=`%${t}%`; aWhere += " AND (a.nachname LIKE ? OR a.vorname LIKE ? OR a.telefon LIKE ? OR a.email LIKE ? OR a.mobil LIKE ? OR a.funktion LIKE ? OR b.name LIKE ?)"; aParams.push(p,p,p,p,p,p,p); });
+    const ausbilder = App.query(`SELECT a.*, b.name as betrieb_name, b.ort as betrieb_ort, b.id as betrieb_id FROM ausbilder a LEFT JOIN betriebe b ON a.betrieb_id=b.id WHERE ${aWhere} ORDER BY a.nachname LIMIT 10`, aParams);
+    if (ausbilder.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder ('+ausbilder.length+')</div>';
+      ausbilder.forEach(a => {
+        const idx = this._results.length;
+        this._results.push({ type: 'ausbilder', id: a.id, action: () => { if (a.betrieb_id) { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } }});
+        html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
+          <span>👤</span>
+          <div style="flex:1;min-width:0">
+            <div><strong>${esc((a.vorname?a.vorname+' ':'')+a.nachname)}</strong>${a.funktion?' <span style="color:var(--clr-text-light);font-size:12px">('+esc(a.funktion)+')</span>':''}</div>
+            <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
+              ${a.betrieb_name ? '<span>🏢 '+esc(a.betrieb_name)+(a.betrieb_ort?' ('+esc(a.betrieb_ort)+')':'')+'</span>' : ''}
+              ${a.telefon ? '<span>📞 '+esc(a.telefon)+'</span>' : ''}
+              ${a.mobil ? '<span>📱 '+esc(a.mobil)+'</span>' : ''}
+              ${a.email ? '<span>✉ '+esc(a.email)+'</span>' : ''}
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+
     // ── Schulen (ALL) ──
     let schWhere = '1=1';
     const schParams = [];
