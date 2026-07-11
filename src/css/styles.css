@@ -435,6 +435,18 @@ body {
   border-bottom: 1px solid var(--clr-sand-light);
   vertical-align: middle;
 }
+/* ── Sticky Namensspalte: bleibt beim horizontalen Scrollen sichtbar ── */
+.table-sticky-name thead th:nth-child(2),
+.table-sticky-name tbody td:nth-child(2) {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #ffffff;
+  box-shadow: 4px 0 6px -4px rgba(0,0,0,0.2);
+}
+.table-sticky-name thead th:nth-child(2) { z-index: 3; background: var(--clr-warm); }
+body.dark-mode .table-sticky-name tbody td:nth-child(2) { background: #211F1D; }
+body.dark-mode .table-sticky-name thead th:nth-child(2) { background: #2a2a2a; }
 .data-table tbody tr:hover {
   background: var(--clr-leaf-light);
 }
@@ -1076,6 +1088,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .btn { padding: 10px 14px; font-size: 13px; }
   .btn-sm { padding: 7px 10px; font-size: 11px; }
   .btn-group { flex-wrap: wrap; gap: 6px; }
+  /* In Tabellenzellen nicht stapeln — Tabelle scrollt ohnehin horizontal */
+  .data-table .btn-group { flex-wrap: nowrap; gap: 4px; }
 
   /* ── Forms: stack rows ── */
   .form-row { flex-direction: column; gap: 0; }
