@@ -6203,6 +6203,18 @@ body {
   border-bottom: 1px solid var(--clr-sand-light);
   vertical-align: middle;
 }
+/* ── Sticky Namensspalte: bleibt beim horizontalen Scrollen sichtbar ── */
+.table-sticky-name thead th:nth-child(2),
+.table-sticky-name tbody td:nth-child(2) {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #ffffff;
+  box-shadow: 4px 0 6px -4px rgba(0,0,0,0.2);
+}
+.table-sticky-name thead th:nth-child(2) { z-index: 3; background: var(--clr-warm); }
+body.dark-mode .table-sticky-name tbody td:nth-child(2) { background: #211F1D; }
+body.dark-mode .table-sticky-name thead th:nth-child(2) { background: #2a2a2a; }
 .data-table tbody tr:hover {
   background: var(--clr-leaf-light);
 }
@@ -6844,6 +6856,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .btn { padding: 10px 14px; font-size: 13px; }
   .btn-sm { padding: 7px 10px; font-size: 11px; }
   .btn-group { flex-wrap: wrap; gap: 6px; }
+  /* In Tabellenzellen nicht stapeln — Tabelle scrollt ohnehin horizontal */
+  .data-table .btn-group { flex-wrap: nowrap; gap: 4px; }
 
   /* ── Forms: stack rows ── */
   .form-row { flex-direction: column; gap: 0; }
@@ -14817,7 +14831,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
-    <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
+    <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
       ${azubis.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
       ${azubis.map(s => {
         const ktrls = App.query('SELECT ke.*, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != "" ORDER BY kt.geplant_datum DESC', [s.id]);
@@ -25859,7 +25873,6 @@ const SchuelerView = {
     if (this.filters.schule) { sql += ' AND bs.name = ?'; params.push(this.filters.schule); }
     if (this.filters.fachrichtung) { sql += ' AND s.fachrichtung_id = ?'; params.push(parseInt(this.filters.fachrichtung)); }
     if (this.filters.klasse) { sql += ' AND s.klasse_id = ?'; params.push(parseInt(this.filters.klasse)); }
-    if (this.filters.lehrjahr) { sql += ' AND k.lehrjahr = ?'; params.push(parseInt(this.filters.lehrjahr)); }
     if (this.filters.betrieb) { sql += ' AND s.ausbildungsstaette LIKE ?'; params.push(`%${this.filters.betrieb}%`); }
 
     // Sort
@@ -25871,7 +25884,19 @@ const SchuelerView = {
     const sortField = sortMap[this.sortCol] || 's.nachname';
     sql += ` ORDER BY ${sortField} ${this.sortDir === 'desc' ? 'DESC' : 'ASC'}, s.nachname ASC`;
 
-    return App.query(sql, params);
+    let rows = App.query(sql, params);
+    // Lehrjahr-Fallback: wenn die Klasse kein Lehrjahr gepflegt hat,
+    // aus dem Ausbildungsbeginn berechnen (phasen-aware via getCurrentAJ)
+    rows.forEach(s => {
+      s.eff_lehrjahr = s.lehrjahr || (s.aktiv ? App.getCurrentAJ(s.ausbildungsbeginn, s.id) : null);
+      s.lj_berechnet = !s.lehrjahr && !!s.eff_lehrjahr;
+    });
+    if (this.filters.lehrjahr) rows = rows.filter(s => s.eff_lehrjahr === parseInt(this.filters.lehrjahr));
+    if (this.sortCol === 'lehrjahr') {
+      const dir = this.sortDir === 'desc' ? -1 : 1;
+      rows.sort((a, b) => ((a.eff_lehrjahr || 0) - (b.eff_lehrjahr || 0)) * dir || (a.nachname || '').localeCompare(b.nachname || ''));
+    }
+    return rows;
   },
 
   getFilterOptions() {
@@ -25913,7 +25938,7 @@ const SchuelerView = {
 
   abschliessenJahrgang() {
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
-    App.openModal('◈ Jahrgang abschließen', `
+    App.openModal('⚑ Jahrgang abschließen', `
       <p style="font-size:13px;margin-bottom:12px">Alle Schüler eines Jahrgangs als <strong>"AP bestanden"</strong> markieren und <strong>inaktiv</strong> setzen. Die Daten bleiben für Statistiken erhalten.</p>
       <div class="form-group"><label>Jahrgang auswählen</label><select class="form-control" id="mAbschlJG">
         ${jahrgaenge.map(j => {
@@ -25925,7 +25950,7 @@ const SchuelerView = {
         ⚠︎ Schüler mit offenen Wiedervorlagen oder unvollständigen Pflichtteilen werden markiert aber trotzdem abgeschlossen. Prüfen Sie vorher die Übersicht.
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-success" onclick="SchuelerView.doAbschliessen()">◈ Jahrgang abschließen</button>`);
+        <button class="btn btn-success" onclick="SchuelerView.doAbschliessen()">⚑ Jahrgang abschließen</button>`);
   },
 
   doAbschliessen() {
@@ -25976,8 +26001,8 @@ const SchuelerView = {
           Schüler (${isFiltered ? `${filtered} von ${totalAll}` : totalAll})
           <div class="btn-group">
             <button class="btn btn-sm btn-secondary" onclick="ImportHandler.addManually()">+ Manuell</button>
-            <button class="btn btn-sm btn-secondary" onclick="SchuelerView.abschliessenJahrgang()" title="Alle Schüler eines Jahrgangs als AP-bestanden markieren + inaktiv setzen">◈ Jahrgang abschließen</button>
-            ${totalAll ? `<button class="btn btn-sm btn-danger" onclick="ImportHandler.deleteAllJahrgang()">Alle löschen</button>` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="SchuelerView.abschliessenJahrgang()" title="Alle Schüler eines Jahrgangs als AP-bestanden markieren + inaktiv setzen">⚑ Jahrgang abschließen</button>
+            ${totalAll ? `<button class="btn btn-sm" style="background:transparent;color:var(--clr-red);border:1px solid var(--clr-red)" onclick="ImportHandler.deleteAllJahrgang()">Alle löschen</button>` : ''}
           </div>
         </div>
 
@@ -26030,7 +26055,7 @@ const SchuelerView = {
         <!-- Table -->
         ${filtered > 0 ? `
         <div style="overflow-x:auto">
-        <table class="data-table"><thead><tr>
+        <table class="data-table table-sticky-name"><thead><tr>
           <th style="width:30px"><input type="checkbox" id="chkAllS" onchange="BulkSchueler.toggleAll(this.checked)"></th>
           ${thSort('nachname','Name')}
           ${thSort('vorname','Vorname')}
@@ -26056,7 +26081,7 @@ const SchuelerView = {
             <td><small>${esc(s.fachrichtung||'–')}</small></td>
             <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
             <td><small>${esc(s.klassenbezeichnung||'–')}</small></td>
-            <td>${s.lehrjahr||'–'}</td>
+            <td>${s.eff_lehrjahr ? (s.lj_berechnet ? `<span style="opacity:0.75" title="Aus Ausbildungsbeginn berechnet (Klasse ohne Lehrjahr-Angabe)">${s.eff_lehrjahr}</span>` : s.eff_lehrjahr) : '–'}</td>
             <td><small>${esc(s.jahrgang||'–')}</small></td>
             <td>${statusCls ? `<span class="badge-status ${statusCls}" style="font-size:10px">${statusLabels[s.status]||s.status||'Aktiv'}</span>` : '<span style="font-size:10px;color:var(--clr-text-light)">Aktiv</span>'}</td>
             <td class="btn-group">
