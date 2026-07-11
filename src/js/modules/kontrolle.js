@@ -1433,7 +1433,7 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
       } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes="", fehltage=0, geprueft=1',
           [s.id, aj, kw, keId]);
       }
       KWNav.trackSessionKW(keId, aj, kw);
@@ -1466,7 +1466,7 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
       } else if (bem) {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
           [s.id, aj, kw, bem, keId]);
       }
       if (bem) {

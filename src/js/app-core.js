@@ -2131,6 +2131,7 @@ const App = {
   // ── Lock file: prevents concurrent writes on slow connections ──
   _lockFileName: null,
   _lockNonce: null,
+  _lockErrorCount: 0,
   async _acquireLock() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
@@ -2143,7 +2144,12 @@ const App = {
         const lock = JSON.parse(text);
         // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
         // sonst wird ein legitimer langsamer Save als "stale" übernommen.
-        if (Date.now() - new Date(lock.t).getTime() < 150000) {
+        // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
+        // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
+        const ageEmbedded = Date.now() - new Date(lock.t).getTime();
+        const ageMtime = Date.now() - file.lastModified;
+        if (Math.min(ageEmbedded, ageMtime) < 150000) {
+          this._lockErrorCount = 0;
           return false;
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
@@ -2153,17 +2159,46 @@ const App = {
       await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: nonce }));
       await writable.close();
       // Verify: hat UNSER Write gewonnen? (check-then-create ist nicht atomar)
-      try {
-        const verify = await syncDir.getFileHandle(lockName, { create: false });
-        const vLock = JSON.parse(await (await verify.getFile()).text());
-        if (vLock.n && vLock.n !== nonce) return false; // anderer User war schneller
-      } catch(e) {}
+      // Doppel-Verify mit Zufalls-Wartezeit: Verify #1 fängt "anderer schrieb vor uns",
+      // die Jitter-Pause + Verify #2 fängt "anderer schreibt gerade nach uns" –
+      // sonst können auf langsamem SMB BEIDE Nutzer das Lock gleichzeitig halten.
+      for (let v = 0; v < 2; v++) {
+        if (v === 1) await new Promise(r => setTimeout(r, 400 + Math.floor(Math.random() * 700)));
+        try {
+          const verify = await syncDir.getFileHandle(lockName, { create: false });
+          const vLock = JSON.parse(await (await verify.getFile()).text());
+          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; return false; } // anderer User war schneller
+        } catch(e) {}
+      }
       this._lockFileName = lockName;
       this._lockNonce = nonce;
+      this._lockErrorCount = 0;
       return true;
     } catch(e) {
-      return true; // lock mechanism failure → proceed without lock
+      // Fail-CLOSED: bei Fehlern im Lock-Mechanismus NICHT einfach ohne Lock
+      // schreiben (Datenverlust-Risiko). Erst nach 3 Fehlversuchen in Folge
+      // notfalls ohne Lock weitermachen, damit Speichern nie dauerhaft blockiert.
+      this._lockErrorCount++;
+      if (this._lockErrorCount >= 3) {
+        console.warn('[Lock] Mechanismus fehlgeschlagen (' + this._lockErrorCount + 'x) – fahre ohne Lock fort:', e.message);
+        return true;
+      }
+      console.warn('[Lock] Fehler beim Acquire – Save wird verschoben:', e.message);
+      return false;
     }
+  },
+  // Heartbeat: Lock-Timestamp auffrischen (vor langer Schreibphase), damit
+  // ein legitimer langsamer Save nicht durch die 150s-Staleness gestohlen wird.
+  async _refreshLock() {
+    if (!this._lockFileName || !this._lockNonce) return;
+    try {
+      const syncDir = this.bhkDirHandle || this.dirHandle;
+      if (!syncDir) return;
+      const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: this._lockNonce }));
+      await writable.close();
+    } catch(e) { /* best effort */ }
   },
   async _releaseLock() {
     if (!this._lockFileName) return;
@@ -2178,7 +2213,9 @@ const App = {
             await syncDir.removeEntry(this._lockFileName);
           }
         } catch(e) {
-          try { await syncDir.removeEntry(this._lockFileName); } catch(e2) {}
+          // Ownership nicht verifizierbar → NICHT löschen. Ein evtl. verwaistes
+          // eigenes Lock heilt die 150s-Staleness; ein fremdes Lock zu löschen
+          // würde dessen laufenden Save ungeschützt lassen.
         }
       }
     } catch(e) { /* ignore */ }
@@ -2187,16 +2224,20 @@ const App = {
   },
 
   // ── Pre-write version check (closes TOCTOU window) ──
-  async _checkMarkerChanged() {
+  async _readMarkerToken() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
-      if (!syncDir) return false;
+      if (!syncDir) return null;
       const syncName = 'sync' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
       const handle = await syncDir.getFileHandle(syncName, { create: false });
       const file = await handle.getFile();
       const marker = JSON.parse(await file.text());
-      return marker.v && marker.v !== this._lastSyncVersion;
-    } catch(e) { return false; }
+      return marker.v || null;
+    } catch(e) { return null; }
+  },
+  async _checkMarkerChanged() {
+    const token = await this._readMarkerToken();
+    return !!(token && token !== this._lastSyncVersion);
   },
 
   // ── Network quality tracking ──
@@ -2500,7 +2541,20 @@ const App = {
     // During bulk import: skip dirty-tracking, full-write happens at end
     if (this._bulkImport) return;
     // ── Dirty-Tracking: record the SQL + params for merge-save ──
-    this._dirtyOps.push({ sql, params: [...params] });
+    // datetime('now') EINFRIEREN: Beim Replay auf der Disk-DB (Sekunden bis
+    // Minuten später) würde SQLite den Ausdruck neu auswerten → geaendert_am
+    // divergiert zwischen Memory und Disk und kippt die LWW-Konfliktauflösung.
+    let opSql = sql;
+    if (opSql.includes("datetime('now'")) {
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, '0');
+      const localTs = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+      const utcTs = `${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+      opSql = opSql
+        .replace(/datetime\('now',\s*'localtime'\)/g, `'${localTs}'`)
+        .replace(/datetime\('now'\)/g, `'${utcTs}'`);
+    }
+    this._dirtyOps.push({ sql: opSql, params: [...params] });
     this.markDirty();
   },
   _bulkImport: false,
@@ -2508,11 +2562,26 @@ const App = {
   _runSilent(sql, params = []) {
     this.db.run(sql, params);
   },
-  // Full-write after bulk import: merge other users' changes first, then write
+  // Full-write after bulk import: merge other users' changes first, then write.
+  // Fährt dasselbe Schutzprotokoll wie mergeAndSave (Lock + Marker-Check) –
+  // sonst vernichten sich Bulk-Import und paralleler Save eines anderen
+  // Nutzers gegenseitig (Full-Write ersetzt die ganze Datei).
+  _fullSaveRetries: 0,
   async fullSave() {
     if (!this.dbFileHandle || !this.db) return;
+    if (this._mergeInProgress) { setTimeout(() => this.fullSave(), 2000); return; }
     this._mergeInProgress = true;
+    let writable = null;
     try {
+      // 0) Lock über die gesamte Read-Merge-Write-Sequenz
+      const lockAcquired = await this._acquireLock();
+      if (!lockAcquired) {
+        this._mergeInProgress = false;
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte (anderer User speichert)…';
+        setTimeout(() => this.fullSave(), 3000);
+        return;
+      }
+
       // 1) Read disk version to preserve other users' changes
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
@@ -2523,11 +2592,24 @@ const App = {
       this._importFromDisk(diskDb);
       diskDb.close();
 
+      // 2b) Marker-Check direkt vor dem Schreiben: hat jemand zwischen unserem
+      // Read und jetzt gespeichert? Dann mit frischem Disk-Stand neu ansetzen.
+      const freshToken = await this._readMarkerToken();
+      if (freshToken && freshToken !== this._lastSyncVersion && this._fullSaveRetries < 5) {
+        this._fullSaveRetries++;
+        this._lastSyncVersion = freshToken; // Retry liest die Disk sofort neu → Stand ist dann enthalten
+        console.log('[Save] Marker changed during fullSave → retry with fresh disk data');
+        setTimeout(() => this.fullSave(), 100);
+        return;
+      }
+      this._fullSaveRetries = 0;
+
       // 3) NOW export our merged in-memory DB (has both our import + others' edits)
       const data = this.db.export();
-      const writable = await this.dbFileHandle.createWritable();
+      writable = await this.dbFileHandle.createWritable();
       await writable.write(data);
       await writable.close();
+      writable = null;
 
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified;
@@ -2541,12 +2623,14 @@ const App = {
       document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
       this._broadcastChange();
-      this._writeSyncMarker();
+      await this._writeSyncMarker(); // VOR Lock-Release, sonst maskiert ein späterer Marker fremde Saves
       console.log('[Save] Full-write nach Import abgeschlossen (mit Merge)');
     } catch(e) {
+      if (writable) { try { await writable.abort(); } catch(_) {} writable = null; }
       console.error('[Save] fullSave error:', e);
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
     } finally {
+      await this._releaseLock();
       this._mergeInProgress = false;
     }
   },
@@ -2651,28 +2735,53 @@ const App = {
       }
 
       // 3b) Pre-write version check: detect if another user saved between our read and now
-      const markerChanged = await this._checkMarkerChanged();
-      if (markerChanged) {
+      const freshToken = await this._readMarkerToken();
+      if (freshToken && freshToken !== this._lastSyncVersion) {
         diskDb.close();
-        await this._releaseLock();
-        this._mergeInProgress = false;
+        // Fremdes Token als gesehen übernehmen – der Retry liest die Disk sofort
+        // neu, damit ist der fremde Stand enthalten. Ohne das dreht der Retry
+        // endlos (Livelock), weil derselbe Marker immer wieder "neu" ist.
+        this._lastSyncVersion = freshToken;
         console.log('[Save] Marker changed during save → retry with fresh disk data');
-        return this.mergeAndSave(force);
+        // Retry NACH dem finally planen (nicht rekursiv im try!) – sonst gibt
+        // das finally dieses Aufrufs das frisch acquirierte Lock des Retries frei.
+        setTimeout(() => this.mergeAndSave(force), 100);
+        return;
       }
+
+      // 3c) Lock-Heartbeat: Timestamp auffrischen, damit ein langsamer Save
+      // (Lesen+Migrieren+Replay können >30s dauern) nicht als stale gestohlen wird.
+      await this._refreshLock();
 
       // 4) Write merged diskDb back to file (adaptive timeout based on connection speed)
       const data = diskDb.export();
       const timeoutMs = this._networkQuality === 'good' ? 30000
         : this._networkQuality === 'slow' ? 60000 : 120000;
+      let writable = null;
       const writeOp = async () => {
-        const writable = await this.dbFileHandle.createWritable();
+        writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
         await writable.close();
+        writable = null;
       };
-      await Promise.race([
-        writeOp(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Schreibvorgang Timeout (${timeoutMs/1000}s) – Netzlaufwerk reagiert nicht`)), timeoutMs))
-      ]);
+      try {
+        await Promise.race([
+          writeOp(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(`Schreibvorgang Timeout (${timeoutMs/1000}s) – Netzlaufwerk reagiert nicht`)), timeoutMs))
+        ]);
+      } catch(writeErr) {
+        // Zombie-Write verhindern: Der Timeout gewinnt nur das Race – der Write
+        // läuft im Hintergrund WEITER und würde beim späteren close() die Datei
+        // atomar ersetzen (überschreibt dann den Save eines anderen Nutzers,
+        // dessen Lock wir gleich freigeben). abort() verwirft die Swap-Datei.
+        if (writable) {
+          try {
+            await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]);
+          } catch(_) {}
+          writable = null;
+        }
+        throw writeErr;
+      }
 
       // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
@@ -2701,7 +2810,10 @@ const App = {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
 
       this._broadcastChange();
-      this._writeSyncMarker();
+      // Marker awaited und VOR dem Lock-Release (finally): ein fire-and-forget-
+      // Marker kann nach dem Release den frischen Marker eines anderen Nutzers
+      // überschreiben und dessen Save für alle maskieren.
+      await this._writeSyncMarker();
       this._persistDirtyOps();
 
       if (permanentlyDropped) {
@@ -2723,9 +2835,9 @@ const App = {
           const oldName = this.dbFileHandle?.name || 'berichtsheftkontrolle.sqlite';
           this.dbFileHandle = await this.dirHandle.getFileHandle(oldName, { create: false });
           console.log('[Save] retry ' + this._saveRetryCount + '/3');
-          this._mergeInProgress = false;
-          await this._releaseLock();
-          return this.mergeAndSave(force);
+          // Retry NACH dem finally planen (nicht rekursiv) – siehe Marker-Retry oben.
+          setTimeout(() => this.mergeAndSave(force), 100);
+          return;
         } catch(reacquireErr) {}
       }
 
@@ -2815,6 +2927,16 @@ const App = {
     run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
     // kontrolltermine columns
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
+    // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
+    // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
+    run(`CREATE TABLE IF NOT EXISTS kw_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
+      maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+      geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
+      erstellt_bei INTEGER DEFAULT NULL, behoben_bei INTEGER DEFAULT NULL,
+      UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche))`);
     // kw_status columns
     run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
     // Schueler-Bemerkungen + Dateien
@@ -2951,6 +3073,13 @@ const App = {
         erstellt_bei INTEGER DEFAULT NULL, behoben_bei INTEGER DEFAULT NULL,
         UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche))`,
       `INSERT OR IGNORE INTO kw_status (id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) SELECT id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,COALESCE(behobene_codes,''),fehltage,geprueft,COALESCE(bemerkung,''),erstellt_bei,behoben_bei FROM kw_status_new`);
+    rebuild('kw_maengel', 'IN (1,2,3)',
+      `CREATE TABLE kw_maengel (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kontrollergebnis_id INTEGER NOT NULL REFERENCES kontrollergebnisse(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER, maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+        UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche))`,
+      `INSERT OR IGNORE INTO kw_maengel SELECT * FROM kw_maengel_new`);
     rebuild('fachrichtungen', "IN ('Gärtner','Fachwerker')",
       `CREATE TABLE fachrichtungen (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL DEFAULT '', bezeichnung TEXT NOT NULL, typ TEXT DEFAULT 'Gärtner', UNIQUE(code))`,
       `INSERT OR IGNORE INTO fachrichtungen SELECT * FROM fachrichtungen_new`);
@@ -2965,6 +3094,11 @@ const App = {
     const myPruefer = (KontrolleHandler?.activePruefer || '').toLowerCase();
     // Build set of schueler_ids with pending dirty ops (don't overwrite these!)
     const dirtySchuelerIds = new Set();
+    // kw_status-Zeilen mit pendenten lokalen Ops (Natural Key s_aj_kw) –
+    // deren Felder dürfen beim Import nicht überschrieben werden.
+    const dirtyKwKeys = new Set();
+    const dirtyKwIds = new Set();
+    const dirtyKeIds = new Set();
     this._dirtyOps.forEach(op => {
       const m = op.sql.match(/schueler_id[=,]\s*\?/i);
       if (m && op.params) {
@@ -2973,6 +3107,35 @@ const App = {
         const paramIdx = (sqlBefore.match(/\?/g) || []).length;
         if (op.params[paramIdx]) dirtySchuelerIds.add(op.params[paramIdx]);
       }
+      // Häufigste Op-Form ist "UPDATE <tabelle> ... WHERE id=?" – die id ist der
+      // letzte Parameter. Der schueler_id-Regex oben greift dort nicht.
+      if (/^\s*UPDATE\s+kontrollergebnisse\b/i.test(op.sql) && /WHERE\s+id\s*=\s*\?\s*$/i.test(op.sql)) {
+        const id = op.params[op.params.length - 1];
+        if (id != null) dirtyKeIds.add(id);
+      }
+      if (/kw_status/i.test(op.sql)) {
+        if (/WHERE\s+id\s*=\s*\?\s*$/i.test(op.sql)) {
+          const id = op.params[op.params.length - 1];
+          if (id != null) dirtyKwIds.add(id);
+        }
+        const mCols = op.sql.match(/INSERT\s+(?:OR\s+\w+\s+)?INTO\s+kw_status\s*\(([^)]*)\)/i);
+        if (mCols) {
+          const cols = mCols[1].split(',').map(c => c.trim().toLowerCase());
+          const si = cols.indexOf('schueler_id'), ai = cols.indexOf('ausbildungsjahr'), ki = cols.indexOf('kalenderwoche');
+          if (si >= 0 && ai >= 0 && ki >= 0 && op.params.length > Math.max(si, ai, ki)) {
+            dirtyKwKeys.add(op.params[si] + '_' + op.params[ai] + '_' + op.params[ki]);
+          }
+        }
+      }
+    });
+    // ids → natürliche Schlüssel auflösen (lokale DB kennt die Zeilen)
+    dirtyKwIds.forEach(id => {
+      const r = this.query('SELECT schueler_id,ausbildungsjahr,kalenderwoche FROM kw_status WHERE id=?', [id])[0];
+      if (r) dirtyKwKeys.add(r.schueler_id + '_' + r.ausbildungsjahr + '_' + r.kalenderwoche);
+    });
+    dirtyKeIds.forEach(id => {
+      const sid = this.scalar('SELECT schueler_id FROM kontrollergebnisse WHERE id=?', [id]);
+      if (sid != null) dirtySchuelerIds.add(sid);
     });
 
     try {
@@ -2985,7 +3148,7 @@ const App = {
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
-        'zulassung_ap','pruefungsausschuss','geaendert_von','geaendert_am'];
+        'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
         const local = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?',
@@ -2993,8 +3156,8 @@ const App = {
 
         if (!local.length) {
           // Row exists on disk but not locally → import fully
-          this._runSilent('INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb,fehltage_gesamt,anwesend,bemerkung,durchsicht_nr,geprueft_kws,geaendert_am,geaendert_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [dke.kontrolltermin_id,dke.schueler_id,dke.ergebnis,dke.p_1_1_ausbildungsplan,dke.p_1_4_auszubildende,dke.p_1_5_bescheinigungen,dke.bescheinigungen_anzahl,dke.f_1_2_vertragliche_regelungen,dke.f_1_6_ausbildungsbetrieb,dke.fehltage_gesamt,dke.anwesend,dke.bemerkung,dke.durchsicht_nr,dke.geprueft_kws,dke.geaendert_am||'',dke.geaendert_von||'']);
+          this._runSilent('INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb,fehltage_gesamt,anwesend,bemerkung,durchsicht_nr,geprueft_kws,zulassung_ap,pruefungsausschuss,sachberichte_anzahl,erstellt_am,geaendert_am,geaendert_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [dke.kontrolltermin_id,dke.schueler_id,dke.ergebnis,dke.p_1_1_ausbildungsplan,dke.p_1_4_auszubildende,dke.p_1_5_bescheinigungen,dke.bescheinigungen_anzahl,dke.f_1_2_vertragliche_regelungen,dke.f_1_6_ausbildungsbetrieb,dke.fehltage_gesamt,dke.anwesend,dke.bemerkung,dke.durchsicht_nr,dke.geprueft_kws,dke.zulassung_ap??0,dke.pruefungsausschuss??0,dke.sachberichte_anzahl??0,dke.erstellt_am||'',dke.geaendert_am||'',dke.geaendert_von||'']);
           this._importChangeCount++;
           return;
         }
@@ -3067,16 +3230,18 @@ const App = {
       stmtKw.free();
 
       diskKW.forEach(dkw => {
+        const kwKey = dkw.schueler_id + '_' + dkw.ausbildungsjahr + '_' + dkw.kalenderwoche;
+        const localDirty = dirtyKwKeys.has(kwKey);
         const local = this.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
           [dkw.schueler_id, dkw.ausbildungsjahr, dkw.kalenderwoche]);
         if (!local.length) {
-          // New KW data from disk → import
-          this._runSilent('INSERT OR IGNORE INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,erstellt_bei,behoben_bei) VALUES (?,?,?,?,?,?,?,?,?)',
-            [dkw.schueler_id,dkw.ausbildungsjahr,dkw.kalenderwoche,dkw.maengel_codes,dkw.behobene_codes,dkw.fehltage,dkw.geprueft,dkw.erstellt_bei,dkw.behoben_bei]);
+          // New KW data from disk → import (inkl. bemerkung – fehlte früher)
+          this._runSilent('INSERT OR IGNORE INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [dkw.schueler_id,dkw.ausbildungsjahr,dkw.kalenderwoche,dkw.maengel_codes,dkw.behobene_codes,dkw.fehltage,dkw.geprueft,dkw.bemerkung||'',dkw.erstellt_bei,dkw.behoben_bei]);
           this._importChangeCount++;
         } else {
           const lkw = local[0];
-          // If disk has more behobene_codes, merge them
+          // If disk has more behobene_codes, merge them (Union, immer sicher)
           if (dkw.behobene_codes && dkw.behobene_codes !== lkw.behobene_codes) {
             const localBehoben = (lkw.behobene_codes || '').split(',').filter(Boolean);
             const diskBehoben = (dkw.behobene_codes || '').split(',').filter(Boolean);
@@ -3085,9 +3250,21 @@ const App = {
               this._runSilent('UPDATE kw_status SET behobene_codes=? WHERE id=?', [merged, lkw.id]);
             }
           }
-          // If disk cleared maengel that we still have, take the cleared version
-          if (lkw.maengel_codes && !dkw.maengel_codes && dkw.behobene_codes) {
-            this._runSilent('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [dkw.behobene_codes, lkw.id]);
+          if (localDirty) return; // ungespeicherte lokale Eingaben nie überschreiben
+          // Zeile lokal NICHT dirty → geänderte Felder des anderen Prüfers übernehmen
+          // (früher wurden maengel_codes/fehltage/geprueft/bemerkung NIE importiert →
+          // Lost Update beim nächsten eigenen Schreiben auf dieselbe Zeile)
+          const fieldUpdates = [];
+          const fieldValues = [];
+          ['maengel_codes','fehltage','geprueft','bemerkung','erstellt_bei','behoben_bei'].forEach(col => {
+            const dv = dkw[col] ?? (col === 'fehltage' || col === 'geprueft' ? 0 : '');
+            const lv = lkw[col] ?? (col === 'fehltage' || col === 'geprueft' ? 0 : '');
+            if (String(dv) !== String(lv)) { fieldUpdates.push(col + '=?'); fieldValues.push(dkw[col] ?? null); }
+          });
+          if (fieldUpdates.length) {
+            fieldValues.push(lkw.id);
+            this._runSilent('UPDATE kw_status SET ' + fieldUpdates.join(',') + ' WHERE id=?', fieldValues);
+            this._importChangeCount++;
           }
         }
       });
@@ -3182,9 +3359,11 @@ const App = {
             [d.id,d.kontrollergebnis_id,d.schueler_id,d.art||'',d.frist_datum,d.erinnerung_datum||'',d.status||'offen',d.erledigt_datum||'',d.erledigt_bemerkung||'',d.erstellt_am||'']);
           this._importChangeCount++;
         } else {
-          const lw = this.query('SELECT status FROM wiedervorlagen WHERE id=?', [d.id])[0];
-          if (lw && d.status !== lw.status) {
-            this._runSilent('UPDATE wiedervorlagen SET status=?,frist_datum=? WHERE id=?', [d.status, d.frist_datum, d.id]);
+          const lw = this.query('SELECT status,frist_datum,erledigt_datum,erledigt_bemerkung FROM wiedervorlagen WHERE id=?', [d.id])[0];
+          if (lw && (d.status !== lw.status || d.frist_datum !== lw.frist_datum
+              || (d.erledigt_datum||'') !== (lw.erledigt_datum||'') || (d.erledigt_bemerkung||'') !== (lw.erledigt_bemerkung||''))) {
+            this._runSilent('UPDATE wiedervorlagen SET status=?,frist_datum=?,erledigt_datum=?,erledigt_bemerkung=? WHERE id=?',
+              [d.status, d.frist_datum, d.erledigt_datum||'', d.erledigt_bemerkung||'', d.id]);
             this._importChangeCount++;
           }
         }
@@ -3221,10 +3400,15 @@ const App = {
       try {
       const diskS = this._readTable(diskDb, 'schueler');
       const localSIds = new Set(this.query('SELECT id FROM schueler').map(r => r.id));
+      // Spaltenliste dynamisch (Schnittmenge Disk-Zeile / lokales Schema):
+      // eine feste 16-Spalten-Liste hat ~20 Felder (Beruf, Dauer, ZP/AP-Termine,
+      // Bruttolohn, Status …) verworfen – Folge-Saves löschten sie dauerhaft.
+      const schuelerCols = this.query('PRAGMA table_info(schueler)').map(c => c.name);
       diskS.forEach(d => {
         if (!localSIds.has(d.id)) {
-          this._runSilent('INSERT INTO schueler (id,nachname,vorname,ibykus_id,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,ausbildungsstaette,ausbildungsbeginn,ausbildungsende,email,telefon,aktiv,zustaendiges_amt,geschlecht) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [d.id,d.nachname,d.vorname,d.ibykus_id||'',d.klasse_id,d.jahrgang_id,d.fachrichtung_id,d.betrieb_id,d.ausbildungsstaette||'',d.ausbildungsbeginn||'',d.ausbildungsende||'',d.email||'',d.telefon||'',d.aktiv??1,d.zustaendiges_amt||'',d.geschlecht||'']);
+          const cols = schuelerCols.filter(c => c in d);
+          this._runSilent(`INSERT OR IGNORE INTO schueler (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
+            cols.map(c => d[c] ?? null));
           this._importChangeCount++;
         }
       });

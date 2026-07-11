@@ -337,7 +337,7 @@ const KWNav = {
             [codesStr, fehltage, keId, existing[0].id]);
         }
       } else if (codesStr || fehltage || keepGeprueft) {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1',
           [sid, aj, kw, codesStr, fehltage, keId]);
       }
 
@@ -395,7 +395,7 @@ const KWNav = {
         if (s) {
           const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
           if (!exists) {
-            App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+            App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
               [s.id, aj, fillKW, keId]);
           } else {
             App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
@@ -420,7 +420,7 @@ const KWNav = {
             newlyFilled.push({aj: prevAJ, kw: fillKW});
             const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
             if (!exists) {
-              App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+              App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
                 [s.id, prevAJ, fillKW, keId]);
             } else {
               App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
@@ -510,7 +510,7 @@ const KWNav = {
     if (existing.length) {
       App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
     } else if (bem) {
-      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?)',
+      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
         [sid, aj, kw, bem, keId]);
     }
 

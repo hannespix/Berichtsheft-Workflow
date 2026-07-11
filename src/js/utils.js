@@ -131,8 +131,10 @@ window.addEventListener('beforeunload', (e) => {
   if (App._dirtyOps && App._dirtyOps.length > 0) {
     try { App._persistDirtyOps(); } catch(ex) {}
   }
-  // Release lock file
-  try { App._releaseLock(); } catch(ex) {}
+  // Release lock file – aber NICHT während ein Save läuft: bricht der Nutzer
+  // das Tab-Schließen ab, liefe der Schreibvorgang sonst ungeschützt weiter
+  // (das finally von mergeAndSave gibt das Lock ohnehin frei).
+  try { if (!App._mergeInProgress) App._releaseLock(); } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';
