@@ -417,13 +417,13 @@ const SchuelerAkte = {
 
   _fileIcon(ext) {
     const icons = {
-      pdf: '&#128196;', doc: '&#128196;', docx: '&#128196;', odt: '&#128196;',
-      msg: '&#128231;', eml: '&#128231;',
-      jpg: '&#128247;', jpeg: '&#128247;', png: '&#128247;', gif: '&#128247;', bmp: '&#128247;',
-      xlsx: '&#128202;', xls: '&#128202;', csv: '&#128202;',
-      zip: '&#128230;', rar: '&#128230;', '7z': '&#128230;'
+      pdf: '▤', doc: '▤', docx: '▤', odt: '▤',
+      msg: '✉︎', eml: '✉︎',
+      jpg: '▤', jpeg: '▤', png: '▤', gif: '▤', bmp: '▤',
+      xlsx: '', xls: '', csv: '',
+      zip: '', rar: '', '7z': ''
     };
-    return icons[ext] || '&#128206;';
+    return icons[ext] || '▤';
   },
 
   // ── Zähler für Badge ──

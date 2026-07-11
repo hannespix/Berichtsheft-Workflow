@@ -106,7 +106,7 @@ const NacherfassungHandler = {
         </table>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px">
-        <button class="btn btn-primary" onclick="NacherfassungHandler.saveAll()" style="font-size:14px;padding:10px 24px">💾 Alle speichern</button>
+        <button class="btn btn-primary" onclick="NacherfassungHandler.saveAll()" style="font-size:14px;padding:10px 24px">Alle speichern</button>
         <span style="font-size:11px;color:var(--clr-text-light)">Nur Zeilen mit einem Ergebnis (≠ "–") werden gespeichert.</span>
       </div>
     </div>`;
@@ -211,7 +211,7 @@ const NacherfassungHandler = {
      }
     });
 
-    App.toast(`✅ ${saved} Kontrollergebnisse nacherfasst (Termin ${formatDate(datum)})`, 'success');
+    App.toast(`✓ ${saved} Kontrollergebnisse nacherfasst (Termin ${formatDate(datum)})`, 'success');
     this.loadSchueler(); // Refresh
     this._updateNichtErfasst();
   },
@@ -250,7 +250,7 @@ const NacherfassungHandler = {
 
     body.innerHTML = Object.entries(bySchool).map(([school, students]) => `
       <div style="margin:8px 0">
-        <div style="font-weight:600;font-size:12px;color:var(--clr-forest);padding:4px 0">🏫 ${esc(school)} (${students.length})</div>
+        <div style="font-weight:600;font-size:12px;color:var(--clr-forest);padding:4px 0">${esc(school)} (${students.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           ${students.map(s => `<span style="font-size:11px;padding:2px 6px;background:var(--clr-amber-light);border-radius:4px" title="${esc(s.fachrichtung||'')} · ${esc(s.jahrgang||'')} · ${App.amtLabel(s.zustaendiges_amt)}">${esc(s.nachname)}, ${esc(s.vorname)}</span>`).join('')}
         </div>

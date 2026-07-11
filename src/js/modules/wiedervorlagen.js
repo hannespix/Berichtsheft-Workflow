@@ -81,8 +81,8 @@ const WiedervorlagenHandler = {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
           Zur Kontrolle springen
         </button>` : ''}
-        ${w.kontrolltermin_id ? `<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${w.kontrolltermin_id},${w.schueler_id})" title="Aktuellen Durchsichtsbogen als PDF">📄 PDF aktuell</button>` : ''}
-        <button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${id})" title="E-Mail an Betrieb senden">📧 Betrieb kontaktieren</button>
+        ${w.kontrolltermin_id ? `<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${w.kontrolltermin_id},${w.schueler_id})" title="Aktuellen Durchsichtsbogen als PDF">▤ PDF aktuell</button>` : ''}
+        <button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${id})" title="E-Mail an Betrieb senden">✉︎ Betrieb kontaktieren</button>
       </div>
 
       <!-- ── Offene Mängel ── -->
@@ -112,16 +112,16 @@ const WiedervorlagenHandler = {
             // Find matching snapshots for this KE
             const keSnaps = snapshots.filter(s => s.kontrollergebnis_id === ke.id);
             return `<tr style="${ke.id === w.kontrollergebnis_id ? 'background:var(--clr-amber-light);font-weight:600' : ''}">
-              <td>${alleKE.length - i}${ke.id === w.kontrollergebnis_id ? ' ⬅' : ''}</td>
+              <td>${alleKE.length - i}${ke.id === w.kontrollergebnis_id ? ' ←' : ''}</td>
               <td>${formatDate(ke.geplant_datum)}</td>
               <td>${esc(ke.termin_pruefer || ke.geaendert_von || '–')}</td>
               <td>${ke.ergebnis ? `<span class="badge-status ${ke.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${ergebnisLabel(ke.ergebnis)}</span>` : '<span style="color:var(--clr-text-light)">–</span>'}</td>
               <td>${ke.fehltage_gesamt || 0}</td>
               <td class="btn-group">
-                <button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${ke.kontrolltermin_id},${w.schueler_id})" title="PDF dieses Kontrolltermins">📄</button>
+                <button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${ke.kontrolltermin_id},${w.schueler_id})" title="PDF dieses Kontrolltermins">▤</button>
                 ${keSnaps.length ? keSnaps.map(snap => 
-                  `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" title="Snapshot vom ${formatDate(snap.snapshot_datum)} anzeigen">🔍</button>
-                   <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.exportSnapshotPDF(${snap.id})" title="Archiv-PDF vom ${formatDate(snap.snapshot_datum)}">📋</button>`
+                  `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" title="Snapshot vom ${formatDate(snap.snapshot_datum)} anzeigen">◉</button>
+                   <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.exportSnapshotPDF(${snap.id})" title="Archiv-PDF vom ${formatDate(snap.snapshot_datum)}">▤</button>`
                 ).join('') : ''}
               </td>
             </tr>`;

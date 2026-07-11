@@ -96,7 +96,7 @@ const SchuelerView = {
 
   abschliessenJahrgang() {
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
-    App.openModal('🎓 Jahrgang abschließen', `
+    App.openModal('◈ Jahrgang abschließen', `
       <p style="font-size:13px;margin-bottom:12px">Alle Schüler eines Jahrgangs als <strong>"AP bestanden"</strong> markieren und <strong>inaktiv</strong> setzen. Die Daten bleiben für Statistiken erhalten.</p>
       <div class="form-group"><label>Jahrgang auswählen</label><select class="form-control" id="mAbschlJG">
         ${jahrgaenge.map(j => {
@@ -105,10 +105,10 @@ const SchuelerView = {
         }).join('')}
       </select></div>
       <div style="padding:8px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px;margin-bottom:8px">
-        ⚠ Schüler mit offenen Wiedervorlagen oder unvollständigen Pflichtteilen werden markiert aber trotzdem abgeschlossen. Prüfen Sie vorher die Übersicht.
+        ⚠︎ Schüler mit offenen Wiedervorlagen oder unvollständigen Pflichtteilen werden markiert aber trotzdem abgeschlossen. Prüfen Sie vorher die Übersicht.
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-success" onclick="SchuelerView.doAbschliessen()">🎓 Jahrgang abschließen</button>`);
+        <button class="btn btn-success" onclick="SchuelerView.doAbschliessen()">◈ Jahrgang abschließen</button>`);
   },
 
   doAbschliessen() {
@@ -159,7 +159,7 @@ const SchuelerView = {
           Schüler (${isFiltered ? `${filtered} von ${totalAll}` : totalAll})
           <div class="btn-group">
             <button class="btn btn-sm btn-secondary" onclick="ImportHandler.addManually()">+ Manuell</button>
-            <button class="btn btn-sm btn-secondary" onclick="SchuelerView.abschliessenJahrgang()" title="Alle Schüler eines Jahrgangs als AP-bestanden markieren + inaktiv setzen">🎓 Jahrgang abschließen</button>
+            <button class="btn btn-sm btn-secondary" onclick="SchuelerView.abschliessenJahrgang()" title="Alle Schüler eines Jahrgangs als AP-bestanden markieren + inaktiv setzen">◈ Jahrgang abschließen</button>
             ${totalAll ? `<button class="btn btn-sm btn-danger" onclick="ImportHandler.deleteAllJahrgang()">Alle löschen</button>` : ''}
           </div>
         </div>
@@ -205,7 +205,7 @@ const SchuelerView = {
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
-          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">📋 Einzelprüfung</button>
+          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">▤ Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
         </div>
@@ -246,8 +246,8 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">&#127891;</button>`:''}
-              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">&#128209;</button>
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">◈</button>`:''}
+              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">▤</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               </button>

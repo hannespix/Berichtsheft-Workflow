@@ -86,10 +86,10 @@
         Arbeitsordner auswählen
       </button>
       <button class="btn btn-secondary" onclick="App.promptNewDb()" style="font-size:13px;padding:8px 16px;width:100%">
-        ✨ Neue Datenbank erstellen
+        Neue Datenbank erstellen
       </button>
       <button class="btn btn-secondary" onclick="App.startDemo()" style="font-size:12px;padding:8px 16px;width:100%">
-        🎮 Demo-Modus (ohne Datenbank)
+        Demo-Modus (ohne Datenbank)
       </button>
     </div>
     <p style="font-size:11px;color:var(--clr-text-light);margin-top:12px">
@@ -97,11 +97,11 @@
       App-Daten (Sync, Backups) liegen in <strong>_bhk/</strong>.
     </p>
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
-      <a href="#" onclick="document.getElementById('startHilfe').style.display=document.getElementById('startHilfe').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">📖 Hilfe & Dokumentation</a>
-      <a href="#" onclick="document.getElementById('startDatenschutz').style.display=document.getElementById('startDatenschutz').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">🔒 Datenschutz & Sicherheit</a>
+      <a href="#" onclick="document.getElementById('startHilfe').style.display=document.getElementById('startHilfe').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">Hilfe & Dokumentation</a>
+      <a href="#" onclick="document.getElementById('startDatenschutz').style.display=document.getElementById('startDatenschutz').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">⊘ Datenschutz & Sicherheit</a>
     </div>
     <div id="startDatenschutz" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
-      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">🔒 Datenschutz & Unbedenklichkeit</p>
+      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">⊘ Datenschutz & Unbedenklichkeit</p>
       <p><strong>Keine personenbezogenen Daten verlassen das Intranet.</strong></p>
       <p style="margin-top:6px">• Die Anwendung läuft <strong>vollständig lokal</strong> im Browser – kein Server, keine Cloud, kein Internet erforderlich</p>
       <p>• Alle Daten (Azubi-Stammdaten, Kontrollergebnisse) liegen als SQLite-Datei auf Ihrem <strong>lokalen Netzlaufwerk</strong></p>
@@ -110,7 +110,7 @@
       <p>• Durchsichtsbögen werden regelmäßig als <strong>PDF exportiert und archiviert</strong></p>
     </div>
     <div id="startHilfe" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
-      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">📖 Kurzanleitung</p>
+      <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">Kurzanleitung</p>
       <p><strong>1.</strong> Arbeitsordner auswählen (oder neu erstellen)</p>
       <p><strong>2.</strong> IBYKUS-CSV importieren (Schüler-Import)</p>
       <p><strong>3.</strong> Kontrolltermine planen (Kontrollplanung)</p>
@@ -119,7 +119,7 @@
       <p style="margin-top:8px">Ausführliche Hilfe mit allen Funktionen finden Sie nach dem Start unter <strong>Sidebar → Hilfe</strong>.</p>
     </div>
     <p id="browserHint" style="font-size:12px;color:var(--clr-amber);margin-top:8px;display:none">
-      ⚠️ <strong>Bitte Google Chrome oder Microsoft Edge verwenden!</strong><br>
+      ⚠︎ <strong>Bitte Google Chrome oder Microsoft Edge verwenden!</strong><br>
       <span style="font-size:11px;color:var(--clr-text-light)">Dieses Tool benötigt die File System Access API (Chrome, Edge, Brave).</span>
     </p>
     <script>
@@ -151,7 +151,7 @@
       <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
-        <option value="">👤 Prüfer</option>
+        <option value="">Prüfer</option>
       </select>
       <span id="dbFileName" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">–</span>
       <span id="autoSaveIndicator" style="font-size:11px;opacity:0.7">Auto-Save</span>
@@ -159,7 +159,7 @@
         ↻ DB
       </button>
       <button id="btnGrantAccess" class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;display:none" onclick="App.grantFolderAccess()">
-        🔓 Freigeben
+        Freigeben
       </button>
     </div>
   </div>
@@ -168,25 +168,25 @@
   <div class="filter-panel" id="filterPanel">
     <div style="position:relative;display:inline-block">
       <button id="jgFilterBtn" class="fp-btn" onclick="App.toggleJgDropdown()" title="Jahrgangs-Filter">
-        📅 Alle Jahrgänge ▾
+        Alle Jahrgänge ▾
       </button>
       <div id="jgFilterDropdown" class="fp-dropdown" style="display:none;min-width:240px;max-height:400px;overflow-y:auto"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="bgFilterBtn" class="fp-btn" onclick="App.toggleBgDropdown()" title="Berufsgruppen-Filter (Mehrfachauswahl)">
-        🌿 Alle Berufe ▾
+        Alle Berufe ▾
       </button>
       <div id="bgFilterDropdown" class="fp-dropdown" style="display:none;min-width:220px"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="amtFilterBtn" class="fp-btn" onclick="App.toggleAmtDropdown()" title="Zuständiges Amt (Mehrfachauswahl)">
-        🏛 Alle Ämter ▾
+        § Alle Ämter ▾
       </button>
       <div id="amtFilterDropdown" class="fp-dropdown" style="display:none;min-width:200px"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="bavFilterBtn" class="fp-btn" onclick="App.toggleBavDropdown()" title="BAV-Status Filter">
-        📋 Aktive BAV ▾
+        ▤ Aktive BAV ▾
       </button>
       <div id="bavFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px">
         <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('aktiv')">

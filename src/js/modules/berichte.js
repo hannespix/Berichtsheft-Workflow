@@ -239,31 +239,31 @@ const BerichteHandler = {
       return ke?.ergebnis && ke.ergebnis !== 'in_ordnung';
     }).length;
 
-    App.openModal('📦 Gesamtpaket – ' + klassenStr, `
+    App.openModal('Gesamtpaket – ' + klassenStr, `
       <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Schüler · ${mangelCount} beanstandet</p>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> 📄 Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
+          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> 📊 Seriendruck-CSV für Betriebe (${mangelCount} beanstandet)
+          <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> Seriendruck-CSV für Betriebe (${mangelCount} beanstandet)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpEmail" style="accent-color:var(--clr-forest)"> 📧 E-Mail an Schule öffnen
+          <input type="checkbox" id="gpEmail" style="accent-color:var(--clr-forest)"> ✉︎ E-Mail an Schule öffnen
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpBriefe" style="accent-color:var(--clr-forest)"> 📄 PDF-Anschreiben an Betriebe
+          <input type="checkbox" id="gpBriefe" style="accent-color:var(--clr-forest)"> ▤ PDF-Anschreiben an Betriebe
         </label>
         ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpWord" checked style="accent-color:var(--clr-forest)"> 📝 Word-Serienbriefe (aus Vorlage)
+          <input type="checkbox" id="gpWord" checked style="accent-color:var(--clr-forest)"> ✎ Word-Serienbriefe (aus Vorlage)
         </label>` : ''}
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> 📊 Excel-Dashboard
+          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> Excel-Dashboard
         </label>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="BerichteHandler.doGesamtpaket(${terminId})">📦 Alles exportieren</button>`);
+        <button class="btn btn-primary" onclick="BerichteHandler.doGesamtpaket(${terminId})">Alles exportieren</button>`);
   },
 
   doGesamtpaket(terminId) {
@@ -707,10 +707,10 @@ const BerichteHandler = {
     const jgs = App.query(`SELECT DISTINCT j.id, j.bezeichnung FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf} ORDER BY j.jahr DESC`);
     const aemter = App.query(`SELECT DISTINCT s.zustaendiges_amt FROM schueler s WHERE s.ap_zugelassen=1 AND s.aktiv=1 AND s.zustaendiges_amt!=''${gf} ORDER BY s.zustaendiges_amt`);
 
-    const ampelIcon = (e) => !e ? '⚪' : e === 'in_ordnung' ? '🟢' : '🔴';
+    const ampelIcon = (e) => !e ? '<span style="color:var(--clr-sage-light)">○</span>' : e === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
     const ergebnisLabel = {in_ordnung:'OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
-    App.openModal(`🎓 Zulassungsliste AP (${azubis.length} Azubis)`, `
+    App.openModal(`◈ Zulassungsliste AP (${azubis.length} Azubis)`, `
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
         <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.schule=this.value;BerichteHandler._renderZulassungsliste()">
           <option value="">Alle Schulen</option>${schulen.map(s => `<option value="${esc(s.name)}" ${f.schule===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}
@@ -745,8 +745,8 @@ const BerichteHandler = {
         </table>
       </div>` : '<p style="text-align:center;color:var(--clr-text-light);padding:20px">Keine zugelassenen Azubis mit diesen Filtern gefunden.</p>'}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-        <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.exportZulassungExcel()">📊 Excel</button>
-        <button class="btn btn-primary" onclick="BerichteHandler.exportZulassungPDF()">📄 PDF</button>`);
+        <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.exportZulassungExcel()">Excel</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.exportZulassungPDF()">▤ PDF</button>`);
     _makeModalWide();
   },
 
@@ -804,7 +804,7 @@ const BerichteHandler = {
     doc.text(`Stand: ${new Date().toLocaleDateString('de-DE')}${filterParts.length ? ' · Filter: ' + filterParts.join(', ') : ''}`, 20, 24);
 
     // Ampel-Emojis → Text (jsPDF helvetica kann keine Emojis → Müll-Zeichen)
-    const ampelText = { '⚪': '–', '🟢': 'OK', '🔴': 'Mangel' };
+    const ampelText = { '○': '–', '●': 'OK', '◆': 'Mangel', '◐': 'Achtung' };
     const rows = [...table.querySelectorAll('tbody tr')].map(tr =>
       [...tr.querySelectorAll('td')].map((td, i) => {
         const t = td.textContent.trim();
