@@ -194,7 +194,7 @@ const Views = {
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Schüler)" style="font-size:11px;padding:2px 8px">▶ Starten</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Schüler)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -385,7 +385,7 @@ const Views = {
         <div class="grid-3" style="margin-bottom:16px">
           <!-- Kennzahlen -->
           <div class="card" style="text-align:center">
-            <div class="card-header">Kennzahlen</div>
+            <div class="card-header">∑ Kennzahlen</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-forest)">${total}</div>
@@ -437,7 +437,7 @@ const Views = {
         </div>
 
         <!-- ═══ CHART.JS VISUALISIERUNGEN ═══ -->
-        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin:20px 0 12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">Diagramme</h3>
+        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin:20px 0 12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">◔ Diagramme</h3>
 
         <div class="grid-3" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
@@ -1257,7 +1257,7 @@ const Views = {
 
         <!-- Darstellung -->
         <div class="card">
-          <div class="card-header">Darstellung</div>
+          <div class="card-header">◑ Darstellung</div>
           <div style="padding:8px 0">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:12px">
               <input type="checkbox" ${isDark?'checked':''} onchange="document.body.classList.toggle('dark-mode',this.checked);try{App.uSet('dark',this.checked?'1':'0')}catch(e){}" style="width:20px;height:20px;accent-color:var(--clr-forest)">
@@ -1777,7 +1777,7 @@ const Views = {
           </div>
 
           <div id="help_2" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Startbildschirm</div>
+            <div class="card-header" style="font-size:15px">⌂ Startbildschirm</div>
             <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
             <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
             <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
@@ -1856,7 +1856,7 @@ const Views = {
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
             <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften</p>
             <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
-            <p>6. Weiter zum nächsten Auszubildenden (◀ ▶ Schaltflächen oder Tastaturnavigation)</p>
+            <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
             <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
@@ -1939,7 +1939,7 @@ const Views = {
           </div>
 
           <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">Phasen-Editor</div>
+            <div class="card-header" style="font-size:15px">⇄ Phasen-Editor</div>
             <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
             <p>• <strong>Ausbildung</strong> – Betrieb, Teilzeit-% (25–100%), pauschale Fehltage</p>
@@ -1954,7 +1954,7 @@ const Views = {
           </div>
 
           <div id="help_13" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Wiedervorlagen</div>
+            <div class="card-header" style="font-size:15px">◷ Wiedervorlagen</div>
             <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
             <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
             <p>• <strong>Manuelle Anlage</strong> – Zusätzliche Wiedervorlagen können je Auszubildendem manuell erstellt werden</p>
@@ -2030,7 +2030,7 @@ const Views = {
           </div>
 
           <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">⌨ Tastenkürzel (vollständig)</div>
+            <div class="card-header" style="font-size:15px">⌨︎ Tastenkürzel (vollständig)</div>
             <p><strong>Allgemein:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
@@ -2064,7 +2064,7 @@ const Views = {
           </div>
 
           <div id="help_19" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">↩ Undo / Redo</div>
+            <div class="card-header" style="font-size:15px">↩︎ Undo / Redo</div>
             <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
             <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
             <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederherstellen (Redo)</p>
@@ -2149,7 +2149,7 @@ const Views = {
           </div>
 
           <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">⚙ Einstellungen</div>
+            <div class="card-header" style="font-size:15px">⚙︎ Einstellungen</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
             <p>• <strong>Tariflöhne bearbeiten</strong> – Tarifliche Ausbildungsvergütung pro Beruf und Lehrjahr anpassen. Mindestvergütung §17 BBiG separat editierbar. „Auf Standard zurücksetzen" möglich.</p>
@@ -2161,7 +2161,7 @@ const Views = {
           </div>
 
           <div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">Wartung & Administration</div>
+            <div class="card-header" style="font-size:15px">⚙︎ Wartung & Administration</div>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
             <p>1. Neue Version der HTML-Datei in den Arbeitsordner kopieren (bestehende Datei überschreiben)</p>
@@ -2226,7 +2226,7 @@ const Views = {
               <p style="margin-top:6px"><strong>Datenausgabe:</strong> PDF-Durchsichtsbögen und Berichte werden lokal erzeugt und vom Sachbearbeiter in den Verwaltungsvorgang (E-Akte/Papierakte) überführt. Es erfolgt kein automatisierter Datenversand.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Technische Architektur und Datensicherheit</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">▣ Technische Architektur und Datensicherheit</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Lokale Verarbeitung:</strong> Die gesamte Anwendung läuft als einzelne HTML-Datei (~6 MB) im Browser des Dienstrechners. Es existiert kein externer Server, kein Backend, keine Cloud-Komponente. Die Datenverarbeitung erfolgt vollständig im Arbeitsspeicher des Browsers (Chromium-basierte JavaScript-Engine).</p>
               <p style="margin-top:6px"><strong>Datenspeicherung:</strong> Die Datenbank (SQLite-Format, ca. 1–30 MB) liegt als einzelne Datei auf dem Netzlaufwerk des Regierungspräsidiums Freiburg. Der Speicherort unterliegt den bestehenden Zugriffs- und Berechtigungskonzepten der Windows-Domäne (Active Directory).</p>
@@ -2234,7 +2234,7 @@ const Views = {
               <p style="margin-top:6px"><strong>Zugriffsschutz:</strong> Der Zugriff auf die Datenbankdatei wird durch die NTFS-Berechtigungen des Netzlaufwerks gesteuert. Innerhalb der Anwendung identifizieren sich die Sachbearbeiter über ein Prüfer-Dropdown (Hannes Pix, Christoph Zilz, Eva Dronia). Diese Kennung dient der Nachvollziehbarkeit (wer hat wann welche Kontrolle durchgeführt), nicht der Authentifizierung im IT-Sicherheitssinne.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Netzwerkverkehr und externe Verbindungen</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⇅ Netzwerkverkehr und externe Verbindungen</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Es findet keinerlei Netzwerkverkehr statt.</strong></p>
               <p style="margin-top:6px">Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind als Base64-codierte Daten direkt in die HTML-Datei eingebettet.</p>
@@ -2249,14 +2249,14 @@ const Views = {
               <p style="margin-top:6px"><strong>Backup-Bereinigung:</strong> Automatische Backups in <code>_bhk/backups/</code> werden regelmäßig bereinigt. Bei endgültiger Löschung sollten auch Backup-Dateien geprüft und ggf. entfernt werden.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Keine Softwareinstallation – Einordnung als Arbeitsmittel</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⊞ Keine Softwareinstallation – Einordnung als Arbeitsmittel</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p>Die Anwendung erfordert <strong>keine Installation, keine Administratorrechte und keine Konfiguration durch die IT-Abteilung</strong>. Sie wird als einzelne HTML-Datei im Browser geöffnet – funktional vergleichbar mit einer Excel-Arbeitsmappe mit erweiterter Funktionalität.</p>
               <p style="margin-top:6px"><strong>Technische Einordnung:</strong> Es handelt sich nicht um eine Fachanwendung im Sinne der IT-Strategie, sondern um ein lokales Arbeitsinstrument der Sachbearbeitung. Die Datei nutzt ausschließlich Standardfunktionalitäten des Browsers (File System Access API, Web SQL via sql.js). Es werden keine Browser-Erweiterungen, Plugins oder Systemressourcen außerhalb der Browser-Sandbox beansprucht.</p>
               <p style="margin-top:6px"><strong>Kompatibilität:</strong> Lauffähig auf den vorhandenen Dienstrechnern (Windows 10/11, Zero-Trust-Umgebung) mit Google Chrome oder Microsoft Edge. Keine Abhängigkeit von bestimmten Betriebssystemversionen oder zusätzlicher Software.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Datenschutz-Folgenabschätzung (DSFA)</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">§ Datenschutz-Folgenabschätzung (DSFA)</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p>Eine Datenschutz-Folgenabschätzung nach Art. 35 DSGVO ist nach Einschätzung des Verantwortlichen <strong>nicht erforderlich</strong>, da:</p>
               <p style="margin-top:4px">• keine systematische und umfassende Bewertung persönlicher Aspekte natürlicher Personen stattfindet (kein Profiling, kein Scoring),</p>
