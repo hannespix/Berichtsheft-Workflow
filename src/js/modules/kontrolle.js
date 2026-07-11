@@ -2101,7 +2101,7 @@ const KontrolleHandler = {
       <!-- Step 2: Wiedervorlagen-Fristen -->
       ${mangelhafte.length ? `
       <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-        <strong style="font-size:13px;color:var(--clr-forest)">Wiedervorlagen-Fristen (automatisch vorgeschlagen)</strong>
+        <strong style="font-size:13px;color:var(--clr-forest)">◷ Wiedervorlagen-Fristen (automatisch vorgeschlagen)</strong>
         <div style="max-height:150px;overflow-y:auto;margin-top:8px">
           ${mangelhafte.map(m => {
             const existingWV = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [m.ke.id]);

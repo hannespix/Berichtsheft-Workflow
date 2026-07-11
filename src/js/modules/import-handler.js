@@ -163,7 +163,7 @@ const ImportHandler = {
           }).join('')}
         </div>
         <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
-          <strong style="font-size:13px;color:var(--clr-forest-dark)">Vollautomatische Zuordnung:</strong>
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">⚙︎ Vollautomatische Zuordnung:</strong>
           <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
             <li><strong>Beruf-Code</strong> (31–37 Gärtner, 171–177 Fachwerker) → Fachrichtung</li>
             <li><strong>Abschlussprüfung</strong> ("S2028", "W2027") → Abschlussjahrgang</li>

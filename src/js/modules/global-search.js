@@ -202,7 +202,7 @@ const GlobalSearch = {
   },
 
   showCheatSheet() {
-    App.openModal('⌨ Tastenkürzel', `
+    App.openModal('⌨︎ Tastenkürzel', `
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px 16px;font-size:13px">
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>

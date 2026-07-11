@@ -1010,13 +1010,19 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   /* ── Hamburger visible ── */
   .hamburger { display: flex; }
 
-  /* ── Topbar compact ── */
-  .topbar { padding: 0 12px; height: 48px; }
-  .topbar-brand h1 { font-size: 15px; }
+  /* ── Topbar compact: darf umbrechen, Höhe wächst mit ── */
+  .topbar { padding: 6px 12px; height: auto; min-height: 48px; flex-wrap: wrap; row-gap: 6px; }
+  .topbar-brand { flex-shrink: 0; }
+  .topbar-brand h1 { font-size: 15px; white-space: nowrap; }
   .topbar-brand svg { width: 22px; height: 22px; }
-  .topbar-status { gap: 8px; font-size: 10px; flex-wrap: wrap; }
+  .topbar-status { gap: 8px; font-size: 10px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  .topbar-status kbd { display: none; } /* Ctrl+K-Hinweis auf Touch-Geräten sinnlos */
   .topbar-status #dbFileName,
-  .topbar-status #autoSaveIndicator { display: none; }
+  .topbar-status #autoSaveIndicator,
+  .topbar-status #networkQuality { display: none; }
+  .topbar-status #dbStatusIndicator { font-size: 0; } /* Text weg, Punkt bleibt */
+  .topbar-status #dbStatusIndicator .dot { margin-right: 0; }
+  .topbar-user-select { max-width: 110px; font-size: 11px; padding: 4px 20px 4px 8px; }
 
   /* ── Sidebar: slide-in overlay ── */
   .sidebar-resize { display: none; }

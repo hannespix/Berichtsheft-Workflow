@@ -15,7 +15,7 @@ const UndoManager = {
     try {
       entry.undo();
       this._redoStack.push(entry);
-      App.toast(`↩ Rückgängig: ${entry.desc}`, 'info');
+      App.toast(`↩︎ Rückgängig: ${entry.desc}`, 'info');
     } catch(e) {
       console.error('Undo error:', e);
       App.toast('Undo fehlgeschlagen', 'error');
@@ -28,7 +28,7 @@ const UndoManager = {
     try {
       entry.redo();
       this._stack.push(entry);
-      App.toast(`↪ Wiederholt: ${entry.desc}`, 'info');
+      App.toast(`↪︎ Wiederholt: ${entry.desc}`, 'info');
     } catch(e) {
       console.error('Redo error:', e);
     }
