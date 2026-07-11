@@ -166,6 +166,11 @@ const AzubiDashboard = {
               </tbody>
             </table>
           </div>
+          <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
+            Tarifstand zum Ausbildungsbeginn – gilt lt. BAV für die gesamte Ausbildung.
+            Spätere Tariferhöhungen greifen nur, wenn der Betrieb freiwillig anpasst
+            (dann individuellen Bruttolohn eintragen).
+          </div>
         </div>` : ''}
 
         <!-- Phasen-Probleme -->
