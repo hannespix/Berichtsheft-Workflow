@@ -164,7 +164,48 @@ _migrateDiskDb(diskDb) {
 
 **Warum beides?** Die In-Memory DB hat das neue Schema (durch migrateDB beim Start). Aber die Disk-DB auf dem Netzlaufwerk kann aelter sein (anderer User hat noch nicht aktualisiert). Wenn mergeAndSave die Dirty-Ops auf die Disk-DB replayed, muss die Disk-DB das gleiche Schema haben.
 
-### 3.6 Multi-User Synchronisation
+### 3.6 Multi-User Synchronisation (Sync-v3: Append-only Op-Logs)
+
+**Architekturprinzip: Ein Writer pro Datei.** Kein Client schreibt im
+Normalbetrieb auf eine geteilte Datei — damit sind Lost Updates, Locks und
+Schreib-Races konstruktionsbedingt eliminiert:
+
+```
+    Client A                    Netzlaufwerk                   Client B
+    ┌──────────┐    append     ┌────────────────────┐  append  ┌──────────┐
+    │ In-Memory│ ─────────────►│ oplog_db_A.jsonl   │◄──────── │ In-Memory│
+    │  SQLite  │               │ oplog_db_B.jsonl   │          │  SQLite  │
+    │          │◄──── poll ────│                    │─ poll ──►│          │
+    └──────────┘  (fremde Logs)│ db.sqlite=SNAPSHOT │          └──────────┘
+                               │ snapmeta_db.json   │
+                               └────────────────────┘
+```
+
+- **Schreiben** = eigene Ops (SQL + Parameter + UID + Zeitstempel) als
+  JSONL-Zeilen an die EIGENE Log-Datei anhängen (`oplog_<db>_<clientId>.jsonl`)
+- **Lesen** = alle 3s fremde Logs ab gemerktem Byte-Offset einlesen und die
+  Ops zeitstempel-geordnet auf die eigene In-Memory-DB anwenden (LWW-Guard
+  verhindert, dass verspätete Offline-Ops neuere Daten überschreiben)
+- **Snapshot** = die `.sqlite`-Datei; wird nur bei der KOMPAKTIERUNG
+  beschrieben (Logs > 1,5 MB, nach IBYKUS-Import, nach dem Start) — dann mit
+  Lock, Timeout und Zombie-Write-Abort. `snapmeta_<db>.json` merkt sich, bis
+  zu welchem Byte-Offset jedes Log im Snapshot enthalten ist
+- **Log-Rotation**: deckt der Snapshot das eigene Log vollständig ab, leert
+  der Besitzer seine Datei selbst (weiterhin: nur der Besitzer schreibt sie)
+- **Start** = Snapshot laden + alle Logs ab snapmeta-Offsets anwenden
+- **Id-Divergenz unmöglich**: INSERTs tragen global eindeutige zeitbasierte
+  IDs; Ops auf die Hotspot-Tabellen adressieren per natürlichem Schlüssel;
+  FK-Verweise auf Kontrollergebnisse reisen als Natural-Key-Subselect und
+  werden beim Empfänger gegen DESSEN lokale Zeile aufgelöst
+- Verifiziert durch `node tests/sync-test.mjs` (3 simulierte Clients + Fake-
+  Netzlaufwerk, 28 Assertions: Races, Löschungen, Doppel-Apply, Kompaktierung,
+  Rotation, Bootstrap)
+
+Der ältere Merge-Pfad (v2: Dirty-Op-Replay auf die geteilte Datei mit Lock +
+Marker) bleibt als Fallback erhalten, wenn kein Ordner-Handle verfügbar ist,
+und liefert die Schreib-Maschinerie für die Kompaktierung.
+
+### 3.6b Multi-User Synchronisation (Legacy v2 — Fallback)
 
 ```
     User A (Chrome)              Netzlaufwerk              User B (Chrome)

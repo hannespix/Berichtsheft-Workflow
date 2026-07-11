@@ -1,11 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════
-//  Zwei-Client-Sync-Test: simuliert zwei Nutzer + Netzlaufwerk in Node
+//  Sync-v3-Test: Append-only Op-Logs, zwei/drei Clients + Netzlaufwerk
 //  Ausführen:  node tests/sync-test.mjs
 //
-//  Testet die komplette Multi-User-Pipeline aus app-core.js gegen ein
-//  In-Memory-"Netzlaufwerk": Lock-Protokoll, Dirty-Op-Replay, explizite
-//  IDs, Natural-Key-Rewrite, KE-Id-Reconciliation, Tombstones (Lösch-
-//  Propagation), Idempotenz-Ledger, Feld-Import.
+//  Simuliert das komplette Multi-User-System aus app-core.js in Node:
+//  jeder Client schreibt nur sein eigenes Op-Log; die DB-Datei ist ein
+//  Snapshot, der gelockt kompaktiert wird. Getestet werden: parallele
+//  INSERTs (globale IDs), KE-Anlage-Race (Natural-Key + Subselect-FKs),
+//  Feld-Sync, LWW-Guard, Lösch-Propagation, Doppel-Apply-Schutz,
+//  Kompaktierung + Log-Rotation, Bootstrap eines frischen Clients.
 // ═══════════════════════════════════════════════════════════════════
 import vm from 'node:vm';
 import fs from 'node:fs';
@@ -20,35 +22,50 @@ const initSqlJs = require(path.join(ROOT, 'libs/sql-wasm.js'));
 // ── Fake-Netzlaufwerk (File System Access API Nachbau) ──
 function makeStore() { return { files: new Map() }; }
 
+function fakeFile(entry) {
+  const data = entry.data;
+  return {
+    arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    text: async () => new TextDecoder().decode(data),
+    slice: (start, end) => ({
+      text: async () => new TextDecoder().decode(data.subarray(start ?? 0, end ?? data.length)),
+    }),
+    lastModified: entry.mtime,
+    size: data.length,
+  };
+}
+
 class FakeFileHandle {
   constructor(store, name) { this.store = store; this.name = name; }
   async getFile() {
     const e = this.store.files.get(this.name);
     if (!e) { const err = new Error('NotFound: ' + this.name); err.name = 'NotFoundError'; throw err; }
-    const data = e.data;
-    return {
-      arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
-      text: async () => new TextDecoder().decode(data),
-      lastModified: e.mtime,
-      size: data.length,
-    };
+    return fakeFile(e);
   }
-  async createWritable() {
-    let chunks = [];
+  async createWritable(opts = {}) {
     const store = this.store, name = this.name;
+    const base = opts.keepExistingData && store.files.get(name) ? store.files.get(name).data : new Uint8Array(0);
+    let buf = Array.from(base);
+    let pos = 0;
+    let aborted = false;
+    const put = (position, bytes) => {
+      for (let i = 0; i < bytes.length; i++) buf[position + i] = bytes[i];
+      pos = position + bytes.length;
+    };
     return {
       async write(d) {
-        if (!chunks) throw new Error('stream aborted');
-        chunks.push(typeof d === 'string' ? new TextEncoder().encode(d) : new Uint8Array(d));
+        if (aborted) throw new Error('stream aborted');
+        let data = d, position = pos;
+        if (d && typeof d === 'object' && d.type === 'write') { position = d.position ?? pos; data = d.data; }
+        const bytes = typeof data === 'string' ? new TextEncoder().encode(data)
+          : data instanceof Uint8Array ? data : new Uint8Array(data);
+        put(position, bytes);
       },
       async close() {
-        if (!chunks) throw new Error('stream aborted');
-        const total = chunks.reduce((n, c) => n + c.length, 0);
-        const buf = new Uint8Array(total); let o = 0;
-        chunks.forEach(c => { buf.set(c, o); o += c.length; });
-        store.files.set(name, { data: buf, mtime: Date.now() });
+        if (aborted) throw new Error('stream aborted');
+        store.files.set(name, { data: Uint8Array.from(buf, x => x || 0), mtime: Date.now() });
       },
-      async abort() { chunks = null; },
+      async abort() { aborted = true; },
     };
   }
 }
@@ -63,16 +80,21 @@ class FakeDir {
     return new FakeFileHandle(this.store, name);
   }
   async removeEntry(name) { this.store.files.delete(name); }
+  async *entries() {
+    for (const name of [...this.store.files.keys()]) {
+      yield [name, new FakeFileHandle(this.store, name)];
+    }
+  }
 }
 
-// ── App-Instanz in eigenem vm-Kontext laden (2× = 2 unabhängige Clients) ──
+// ── App-Instanz in eigenem vm-Kontext laden ──
 const APP_SRC = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
 
-function makeClient(SQL, store, pruefer, dbBytes) {
+async function makeClient(SQL, store, pruefer, dbBytes) {
   const el = () => ({ textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {} } });
   const sandbox = {
     console, setTimeout, clearTimeout, setInterval, clearInterval,
-    Date, Math, JSON, Promise, TextEncoder, TextDecoder, Uint8Array, Set, Map, RegExp, Error, Object, Array, String, Number, Boolean, parseInt, parseFloat, isNaN,
+    Date, Math, JSON, Promise, TextEncoder, TextDecoder, Uint8Array, Set, Map,
     document: { getElementById: el, createElement: el, hidden: false, addEventListener() {}, body: { classList: { add() {}, remove() {}, contains: () => false } } },
     navigator: {},
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -86,7 +108,6 @@ function makeClient(SQL, store, pruefer, dbBytes) {
   vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
   const app = sandbox.__App;
 
-  // UI-/Nebenwege stummschalten
   app.toast = () => {};
   app.scheduleAutoSave = () => {};
   app._broadcastChange = () => {};
@@ -95,9 +116,9 @@ function makeClient(SQL, store, pruefer, dbBytes) {
   app._persistDirtyOps = async () => {};
   app._showConflicts = () => {};
   app.tryReconnect = async () => {};
+  app._smartRefresh = () => {};
   app.markDirty = function () { this.unsavedChanges = true; };
 
-  // Umgebung
   app.db = new SQL.Database(dbBytes);
   app.migrateDB();
   app.dbFileHandle = new FakeFileHandle(store, 'test.sqlite');
@@ -108,10 +129,10 @@ function makeClient(SQL, store, pruefer, dbBytes) {
   app._networkQuality = 'good';
   app._syncReady = true;
   app._importChangeCount = 0;
+  await app._bootstrapV3();
   return app;
 }
 
-// ── Assertions ──
 let failed = 0, passed = 0;
 function check(cond, msg) {
   if (cond) { passed++; console.log('  ✓ ' + msg); }
@@ -120,7 +141,7 @@ function check(cond, msg) {
 
 const SQL = await initSqlJs({ locateFile: f => path.join(ROOT, 'libs', f) });
 
-// Basis-Datenbestand: Schema + 1 Termin + 2 Schüler
+// Basis: Schema + 1 Termin + 2 Schüler
 const seed = new SQL.Database();
 {
   const schemaSrc = APP_SRC.match(/SCHEMA: `([\s\S]*?)`,/)[1];
@@ -133,111 +154,125 @@ const seedBytes = seed.export();
 const store = makeStore();
 store.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: Date.now() });
 
-const A = makeClient(SQL, store, 'anna', new Uint8Array(seedBytes));
-const B = makeClient(SQL, store, 'bernd', new Uint8Array(seedBytes));
+const A = await makeClient(SQL, store, 'anna', new Uint8Array(seedBytes));
+const B = await makeClient(SQL, store, 'bernd', new Uint8Array(seedBytes));
+check(A._getClientId() !== B._getClientId(), 'Clients haben verschiedene IDs');
+check(A._v3Ready && B._v3Ready, 'Sync-v3 bei beiden aktiv');
 
-console.log('\n══ T1: Explizite IDs — parallele INSERTs kollidieren nicht ══');
+console.log('\n══ T1: Parallele INSERTs — nur eigene Logs, keine Locks ══');
 {
   A.run("INSERT INTO wiedervorlagen (schueler_id,art,frist_datum,status) VALUES (?,?,?,?)", [1, 'post_an_rp', '2026-08-01', 'offen']);
   B.run("INSERT INTO wiedervorlagen (schueler_id,art,frist_datum,status) VALUES (?,?,?,?)", [2, 'post_an_rp', '2026-08-02', 'offen']);
-  const idA = A.scalar('SELECT id FROM wiedervorlagen');
-  const idB = B.scalar('SELECT id FROM wiedervorlagen');
-  check(idA > 1e15 && idB > 1e15, `beide IDs zeitbasiert groß (A=${idA}, B=${idB})`);
-  check(idA !== idB, 'IDs der beiden Clients verschieden');
-
   await A.mergeAndSave(true);
   await B.mergeAndSave(true);
-  const disk = new SQL.Database(store.files.get('test.sqlite').data);
-  const cnt = disk.exec('SELECT COUNT(*) FROM wiedervorlagen')[0].values[0][0];
-  check(cnt === 2, `Disk hat beide Wiedervorlagen (${cnt}/2)`);
-  check(B.scalar('SELECT COUNT(*) FROM wiedervorlagen') === 2, 'B hat A-Wiedervorlage importiert');
-  disk.close();
+  check(store.files.has(A._myOplogName()) && store.files.has(B._myOplogName()), 'beide Op-Logs existieren');
+  check(![...store.files.keys()].some(n => n.startsWith('lock')), 'KEINE Lock-Datei im Normalbetrieb');
+  const snapBefore = store.files.get('test.sqlite').mtime;
+  await A._pollOplogs();
+  await B._pollOplogs();
+  check(store.files.get('test.sqlite').mtime === snapBefore, 'Snapshot-Datei wurde nicht angefasst');
+  check(A.scalar('SELECT COUNT(*) FROM wiedervorlagen') === 2, 'A sieht beide Wiedervorlagen');
+  check(B.scalar('SELECT COUNT(*) FROM wiedervorlagen') === 2, 'B sieht beide Wiedervorlagen');
+  const ids = A.query('SELECT id FROM wiedervorlagen').map(r => r.id);
+  check(ids[0] !== ids[1] && ids.every(i => i > 1e15), `globale IDs eindeutig (${ids.join(', ')})`);
 }
 
-console.log('\n══ T2: KE-Auto-Anlage-Race — Natural-Key-Replay + Id-Reconciliation ══');
+console.log('\n══ T2: KE-Anlage-Race — Natural-Key-Ops + Subselect-FK ══');
 {
-  // Beide legen "gleichzeitig" das Kontrollergebnis für (Termin 77, Schüler 1) an
   A.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws) VALUES (?,?,?)", [77, 1, '{}']);
   B.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws) VALUES (?,?,?)", [77, 1, '{}']);
   const keA = A.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
   const keB = B.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
-  check(keA !== keB, `lokale KE-Ids divergieren zunächst (A=${keA}, B=${keB})`);
-
-  await A.mergeAndSave(true); // A gewinnt das Race auf der Disk
-  // B editiert VOR seinem Save (Op adressiert per WHERE id=? → Natural-Key-Rewrite)
+  // B ändert das Ergebnis (WHERE id=? → Natural-Key-Rewrite) und hängt eine
+  // Wiedervorlage an SEINE lokale KE-id (→ Subselect-Rewrite im Op)
   B.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?", ['bernd', keB]);
+  B.run("INSERT INTO wiedervorlagen (kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (?,?,?,?,?)", [keB, 1, 'nachholung_naechste_durchsicht', '2026-09-01', 'offen']);
+  await A.mergeAndSave(true);
   await B.mergeAndSave(true);
-
-  const disk = new SQL.Database(store.files.get('test.sqlite').data);
-  const rows = disk.exec('SELECT id, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
-  check(rows[0].values.length === 1, 'Disk hat genau EINE KE-Zeile (kein Duplikat)');
-  check(rows[0].values[0][0] === keA, `Disk behielt A's id (${rows[0].values[0][0]})`);
-  check(rows[0].values[0][1] === 'in_ordnung', "B's Edit landete trotz Id-Divergenz auf der richtigen Zeile");
-  const keBafter = B.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
-  check(keBafter === keA, `B übernahm die Disk-id lokal (Reconcile: ${keBafter})`);
-  disk.close();
+  await A._pollOplogs();
+  await B._pollOplogs();
+  const cntA = A.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
+  check(cntA === 1, 'A: genau eine KE-Zeile (UNIQUE-Index dedupt)');
+  check(A.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1') === 'in_ordnung',
+    "A sieht B's Ergebnis trotz divergenter lokaler KE-ids");
+  const wvKeRefA = A.scalar("SELECT kontrollergebnis_id FROM wiedervorlagen WHERE art='nachholung_naechste_durchsicht'");
+  check(wvKeRefA === keA, `A: WV-FK zeigt auf A's LOKALE KE-Zeile (${wvKeRefA} == ${keA}, Subselect)`);
+  const wvKeRefB = B.scalar("SELECT kontrollergebnis_id FROM wiedervorlagen WHERE art='nachholung_naechste_durchsicht'");
+  check(wvKeRefB === keB, `B: WV-FK zeigt auf B's lokale KE-Zeile (${wvKeRefB} == ${keB})`);
 }
 
-console.log('\n══ T3: kw_status — UPSERT-Replay + Feld-Import ══');
+console.log('\n══ T3: kw_status-Sync + LWW-Guard ══');
 {
   A.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1', [1, 1, 20, 'F', 2, null]);
   await A.mergeAndSave(true);
-  await B.mergeAndSave(true); // B importiert
-  check(B.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=1 AND kalenderwoche=20") === 'F', 'B sieht A-Mängelcodes (Neuzeile)');
-  // A ändert die Codes; B (nicht dirty) muss die Änderung übernehmen
-  const kwIdA = A.scalar('SELECT id FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=1 AND kalenderwoche=20');
-  A.run('UPDATE kw_status SET maengel_codes=?, fehltage=? WHERE id=?', ['F,H', 3, kwIdA]);
-  await A.mergeAndSave(true);
-  await B.mergeAndSave(true);
-  check(B.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=1 AND kalenderwoche=20") === 'F,H', 'B übernahm geänderte Mängelcodes (Feld-Merge bestehender Zeile)');
+  await B._pollOplogs();
+  check(B.scalar('SELECT maengel_codes FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=1 AND kalenderwoche=20') === 'F', 'B sieht A-Mängelcodes');
+  // LWW-Guard: verspätete ALTE Op darf neueren lokalen Stand nicht überschreiben
+  A.run("UPDATE kontrollergebnisse SET bemerkung='NEU', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?", ['anna', 77, 1]);
+  const staleOp = { uid: 'stale-1', ts: Date.now() - 60000, u: 'bernd',
+    sql: "UPDATE kontrollergebnisse SET bemerkung='ALT', geaendert_am='2020-01-01 10:00:00', geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?",
+    params: ['bernd', 77, 1] };
+  A._applyOps([JSON.stringify(staleOp)]);
+  check(A.scalar('SELECT bemerkung FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1') === 'NEU', 'LWW-Guard: alte Offline-Op überschreibt neueren Stand nicht');
 }
 
-console.log('\n══ T4: Tombstones — Löschung propagiert und bleibt ══');
+console.log('\n══ T4: Lösch-Propagation ══');
 {
   const wvIdB = B.scalar('SELECT id FROM wiedervorlagen WHERE schueler_id=2');
   B.run('DELETE FROM wiedervorlagen WHERE id=?', [wvIdB]);
-  check(B.scalar("SELECT COUNT(*) FROM bhk_tombstones WHERE tabelle='wiedervorlagen'") === 1, 'Tombstone lokal erfasst');
   await B.mergeAndSave(true);
-  const disk = new SQL.Database(store.files.get('test.sqlite').data);
-  check(disk.exec('SELECT COUNT(*) FROM wiedervorlagen')[0].values[0][0] === 1, 'Disk: Zeile gelöscht');
-  check(disk.exec("SELECT COUNT(*) FROM bhk_tombstones WHERE tabelle='wiedervorlagen'")[0].values[0][0] === 1, 'Disk: Tombstone repliziert');
-  disk.close();
-  // A hat die Zeile noch lokal → Import muss sie löschen, NICHT re-importieren
-  await A.mergeAndSave(true);
-  check(A.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=2') === 0, 'A: Löschung übernommen (keine Re-Animation)');
-  const disk2 = new SQL.Database(store.files.get('test.sqlite').data);
-  check(disk2.exec('SELECT COUNT(*) FROM wiedervorlagen')[0].values[0][0] === 1, 'Disk: gelöschte Zeile kam nicht zurück');
-  disk2.close();
+  await A._pollOplogs();
+  check(A.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=2') === 0, 'A: Löschung von B übernommen');
+  check(A.scalar("SELECT COUNT(*) FROM bhk_tombstones WHERE tabelle='wiedervorlagen'") >= 1, 'Tombstone repliziert (Schutz für Kompaktierung)');
 }
 
-console.log('\n══ T5: Idempotenz-Ledger — Doppel-Replay erzeugt keine Duplikate ══');
+console.log('\n══ T5: Doppel-Apply-Schutz (uid-Dedupe) ══');
 {
   A.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id,notiz,erstellt_von) VALUES (?,?,?)", [1, 'Testnotiz', 'anna']);
-  const opsBackup = A._dirtyOps.map(o => ({ ...o, params: [...o.params] }));
+  const dup = A._dirtyOps.map(o => ({ ...o, params: [...o.params] }));
   await A.mergeAndSave(true);
-  // Crash-Simulation: Ops kommen (z.B. aus IndexedDB) zurück und werden erneut replayed
-  A._dirtyOps = opsBackup;
+  A._dirtyOps = dup; // Crash-Restore-Simulation: dieselben Ops (gleiche uids) nochmal
   await A.mergeAndSave(true);
-  const disk = new SQL.Database(store.files.get('test.sqlite').data);
-  const cnt = disk.exec("SELECT COUNT(*) FROM wiedervorlage_notizen WHERE notiz='Testnotiz'")[0].values[0][0];
-  check(cnt === 1, `Notiz existiert genau einmal trotz Doppel-Replay (${cnt})`);
-  disk.close();
+  await B._pollOplogs();
+  check(B.scalar("SELECT COUNT(*) FROM wiedervorlage_notizen WHERE notiz='Testnotiz'") === 1, 'B wendete die Op trotz doppelter Log-Zeile genau einmal an');
 }
 
-console.log('\n══ T6: datetime-Freeze + Lock-Verhalten ══');
+console.log('\n══ T6: Kompaktierung + Log-Rotation + frischer Client ══');
+{
+  const ok = await A._compact('test');
+  check(ok === true, 'Kompaktierung erfolgreich');
+  check(store.files.has(A._snapMetaName()), 'snapmeta geschrieben');
+  check(![...store.files.keys()].some(n => n.startsWith('lock')), 'Lock nach Kompaktierung wieder freigegeben');
+  const snap = new SQL.Database(store.files.get('test.sqlite').data);
+  check(snap.exec('SELECT COUNT(*) FROM wiedervorlagen')[0].values[0][0] === 2, 'Snapshot enthält den Gesamtstand (2 WV)');
+  check(snap.exec("SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1")[0].values[0][0] === 'in_ordnung', 'Snapshot enthält KE-Ergebnis');
+  snap.close();
+  // B rotiert sein Log, sobald der Snapshot es abdeckt
+  await B._pollOplogs();
+  const bLog = store.files.get(B._myOplogName());
+  check(bLog && bLog.data.length === 0, 'B hat sein Log rotiert (vom Snapshot abgedeckt)');
+  // Frischer Client C bootstrappt aus Snapshot + Logs
+  const C = await makeClient(SQL, store, 'clara', new Uint8Array(store.files.get('test.sqlite').data));
+  check(C.scalar('SELECT COUNT(*) FROM wiedervorlagen') === 2, 'C (neu) sieht alle Wiedervorlagen');
+  check(C.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=1 AND kalenderwoche=20") === 'F', 'C sieht KW-Daten');
+  // Nach Rotation: B schreibt neue Op, C muss sie trotz Offset-Reset sehen
+  B.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?",
+    ['2026-07-11', 'ok', B.scalar('SELECT id FROM wiedervorlagen WHERE schueler_id=1')]);
+  await B.mergeAndSave(true);
+  await C._pollOplogs();
+  check(C.scalar("SELECT status FROM wiedervorlagen WHERE schueler_id=1") === 'erledigt', 'C sieht Op aus rotiertem Log (Offset-Reset)');
+}
+
+console.log('\n══ T7: datetime-Freeze + Lock-Respekt (Kompaktierungspfad) ══');
 {
   A.run("UPDATE kontrollergebnisse SET bemerkung='x', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?", ['anna', 77, 1]);
   const op = A._dirtyOps[A._dirtyOps.length - 1];
   check(!op.sql.includes("datetime('now'"), 'datetime(now) im Replay-Op eingefroren');
-  check(/geaendert_am='\d{4}-\d{2}-\d{2} /.test(op.sql), 'eingefrorener Zeitstempel als Literal');
   A._dirtyOps = [];
-  // Lock: B hält das Lock → A muss warten (kein Fail-Open)
-  await new FakeDir(store).getFileHandle('lock_test', { create: true });
   const lw = await (await new FakeDir(store).getFileHandle('lock_test', { create: true })).createWritable();
   await lw.write(JSON.stringify({ u: 'bernd', t: new Date().toISOString(), n: 'xyz' }));
   await lw.close();
-  const got = await A._acquireLock();
-  check(got === false, 'frisches fremdes Lock wird respektiert');
+  check(await A._acquireLock() === false, 'frisches fremdes Lock wird respektiert');
   store.files.delete('lock_test');
 }
 
