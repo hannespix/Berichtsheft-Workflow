@@ -6972,8 +6972,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .dash-jg-row { gap: 4px !important; font-size: 11px !important; }
   .dash-jg-row span:first-child { min-width: 50px !important; }
 
-  /* ── Filter dropdowns: wider on mobile ── */
-  [id$="FilterDropdown"] { min-width: 240px; right: 0; left: auto; }
+  /* ── Filter dropdowns: wider on mobile; Ausrichtung übernimmt JS-Clamp ── */
+  [id$="FilterDropdown"] { min-width: 240px; max-width: calc(100vw - 24px); }
 
   /* ── Briefing badges: stack ── */
   .dash-briefing { flex-direction: column; gap: 6px !important; }
@@ -7323,6 +7323,7 @@ const App = {
       ${byCat[cat].map(([k, def]) => `<div class="fp-dd-item" style="padding:4px 12px;cursor:pointer;font-size:12px" onclick="App._addExtraFilter('${k}')">${esc(def.label)}</div>`).join('')}
     `).join('');
     dd.style.display = '';
+    this._clampDropdown(dd);
     // Close on outside click
     setTimeout(() => {
       const close = (e) => { if (!dd.contains(e.target) && e.target.id !== 'extraFilterBtn') { dd.style.display = 'none'; document.removeEventListener('click', close); } };
@@ -7454,12 +7455,24 @@ const App = {
   },
 
   cycleBavFilter() { this.toggleBavDropdown(); }, // legacy compat
+  // Dropdown im Viewport halten: linksbündig am Button; läuft es rechts aus
+  // dem Bildschirm → rechtsbündig; läuft es links raus (z.B. durch die frühere
+  // pauschale right:0-Mobilregel) → wieder linksbündig
+  _clampDropdown(dd) {
+    try {
+      dd.style.left = '0'; dd.style.right = 'auto';
+      const r = dd.getBoundingClientRect();
+      if (r.right > window.innerWidth - 8) { dd.style.left = 'auto'; dd.style.right = '0'; }
+      const r2 = dd.getBoundingClientRect();
+      if (r2.left < 8) { dd.style.left = '0'; dd.style.right = 'auto'; }
+    } catch(e) {}
+  },
   toggleBavDropdown() {
     const dd = document.getElementById('bavFilterDropdown');
     if (!dd) return;
     const isOpen = dd.style.display !== 'none';
     this._closeAllFilterDropdowns();
-    if (!isOpen) dd.style.display = 'block';
+    if (!isOpen) { dd.style.display = 'block'; this._clampDropdown(dd); }
   },
   setBavFilter(val) {
     this.filterBavStatus = val;
@@ -7531,6 +7544,7 @@ const App = {
     if (!wasOpen) {
       this.refreshJgDropdown();
       dd.style.display = '';
+      this._clampDropdown(dd);
       setTimeout(() => {
         const closer = (e) => {
           if (!dd.contains(e.target) && e.target.id !== 'jgFilterBtn') {
@@ -7619,6 +7633,7 @@ const App = {
     if (!wasOpen) {
       this.refreshBgDropdown();
       dd.style.display = '';
+      this._clampDropdown(dd);
       setTimeout(() => {
         const closer = (e) => {
           if (!dd.contains(e.target) && e.target.id !== 'bgFilterBtn') {
@@ -7799,6 +7814,7 @@ const App = {
         </div>`).join('')}
       `;
       dd.style.display = 'block';
+      this._clampDropdown(dd);
       setTimeout(() => {
         document.addEventListener('click', function handler(e) {
           if (!dd.contains(e.target) && e.target.id !== 'amtFilterBtn') {
@@ -12104,6 +12120,14 @@ const App = {
       const v = location.hash.replace('#','');
       if (validViews.includes(v) && v !== App.currentView) App.navigate(v, true);
     });
+    // Zurück-Taste bei offenem Modal: Modal schließen statt Ansicht verlassen
+    window.addEventListener('popstate', () => {
+      const overlay = document.getElementById('modalOverlay');
+      if (App._modalHistoryPushed && overlay && overlay.classList.contains('active')) {
+        App._modalHistoryPushed = false;
+        App.closeModal(true);
+      }
+    });
     this._initSidebarResize();
     this._restoreSidebarState();
     this._restoreFilterPanel();
@@ -12704,10 +12728,23 @@ const App = {
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
     `;
     document.getElementById('modalOverlay').classList.add('active');
+    // Zurück-Taste (v.a. Mobile) soll das Modal schließen, nicht die Ansicht
+    // verlassen: einen History-Eintrag pushen, den popstate wieder konsumiert.
+    if (!this._modalHistoryPushed) {
+      try { history.pushState({ bhkModal: true }, ''); this._modalHistoryPushed = true; } catch(e) {}
+    }
     setTimeout(() => TableSort.initAll(), 50);
   },
-  closeModal() {
+  closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // Modal-History-Eintrag wieder entfernen (außer die Zurück-Taste hat ihn
+    // bereits konsumiert) – sonst müsste man nach dem X-Klick 2× zurück drücken
+    if (this._modalHistoryPushed && !fromPopstate) {
+      this._modalHistoryPushed = false;
+      try { history.back(); } catch(e) {}
+    } else {
+      this._modalHistoryPushed = false;
+    }
   },
 
   // ── ICS Export ──

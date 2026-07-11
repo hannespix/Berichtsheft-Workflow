@@ -1204,8 +1204,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .dash-jg-row { gap: 4px !important; font-size: 11px !important; }
   .dash-jg-row span:first-child { min-width: 50px !important; }
 
-  /* ── Filter dropdowns: wider on mobile ── */
-  [id$="FilterDropdown"] { min-width: 240px; right: 0; left: auto; }
+  /* ── Filter dropdowns: wider on mobile; Ausrichtung übernimmt JS-Clamp ── */
+  [id$="FilterDropdown"] { min-width: 240px; max-width: calc(100vw - 24px); }
 
   /* ── Briefing badges: stack ── */
   .dash-briefing { flex-direction: column; gap: 6px !important; }
