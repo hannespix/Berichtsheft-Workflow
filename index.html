@@ -149,6 +149,7 @@
         <kbd style="font-size:9px;padding:1px 4px;background:rgba(255,255,255,0.2);border-radius:3px">Ctrl+K</kbd>
       </button>
       <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
+      <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">👤 Prüfer</option>
       </select>
@@ -217,7 +218,7 @@
     <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="App.toggleSidebar()"></div>
     <!-- Sidebar -->
     <nav class="sidebar" id="sidebarNav">
-      <div class="sidebar-section">Übersicht</div>
+      <div class="sidebar-section" id="sidebarSectionDashboard">Übersicht</div>
       <button class="sidebar-item active" data-view="dashboard" onclick="App.navigate('dashboard')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Dashboard
@@ -314,6 +315,7 @@
 
 <!-- ═══ APPLICATION MODULES ═══ -->
 <script src="src/js/app-core.js"></script>
+<script src="src/js/utils.js"></script>
 <script src="src/js/modules/views.js"></script>
 <script src="src/js/modules/stammdaten.js"></script>
 <script src="src/js/modules/import-handler.js"></script>
@@ -333,9 +335,10 @@
 <script src="src/js/modules/wiedervorlagen.js"></script>
 <script src="src/js/modules/berichte.js"></script>
 <script src="src/js/modules/table-sort.js"></script>
+<script src="src/js/modules/azubi-rechner.js"></script>
+<script src="src/js/modules/azubi-dashboard.js"></script>
 <script src="src/js/modules/schueler-view.js"></script>
 <script src="src/js/modules/schueler-akte.js"></script>
-<script src="src/js/utils.js"></script>
 
 </body>
 </html>

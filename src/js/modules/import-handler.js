@@ -217,12 +217,25 @@ const ImportHandler = {
   },
 
   async doImport(data) {
-    if (!data) return;
+    if (!data || !data.length) return App.toast('Keine Daten zum Importieren', 'warning');
+
+    // Validierung: Pflichtfelder müssen zugeordnet sein
+    const getMap = f => document.getElementById('map_' + f)?.value || '';
+    const nachCol = getMap('nachname');
+    const vorCol = getMap('vorname');
+    if (!nachCol || !vorCol) {
+      return App.toast('Pflichtfelder "Nachname" und "Vorname" müssen zugeordnet sein!', 'error');
+    }
+    const firstRow = data[0];
+    if (firstRow && (firstRow[nachCol] === undefined || firstRow[vorCol] === undefined)) {
+      return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
+    }
+
     App.showLoading('Importiere Schülerdaten…');
-    // Disable dirty-tracking during bulk import (full-write at end)
+    const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
-    const getMap = f => document.getElementById('map_' + f)?.value || '';
+   try { // Sicherstellen dass _bulkImport IMMER zurückgesetzt wird (sonst Dirty-Tracking dauerhaft aus!)
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
     let schulen = App.query('SELECT * FROM berufsschulen');
@@ -374,9 +387,12 @@ const ImportHandler = {
     }
 
     // ═══ MAIN IMPORT LOOP ═══
-    let jgCounter = {}; // Track which jahrgang gets most students
+    let jgCounter = {};
     let noKlasseCount = 0;
-    data.forEach(row => {
+    let errorRows = [];
+   try {
+    data.forEach((row, rowIdx) => {
+     try {
       const nachname = (row[getMap('nachname')]||'').trim();
       const vorname = (row[getMap('vorname')]||'').trim();
       if (!nachname || !vorname) { skipped++; return; }
@@ -386,9 +402,13 @@ const ImportHandler = {
       const berufCode = (row[getMap('beruf_code')]||'').trim();
       const abegRaw   = (row[getMap('ausbildungsbeginn')]||'').trim();
       const aendRaw   = (row[getMap('ausbildungsende')]||'').trim();
-      // Convert DD.MM.YYYY to ISO YYYY-MM-DD for correct Date parsing everywhere
-      const abeg = (() => { const d = parseD(abegRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : abegRaw; })();
-      const aend = (() => { const d = parseD(aendRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : aendRaw; })();
+      // Convert DD.MM.YYYY to ISO YYYY-MM-DD. Unparsbares Datum → '' (NICHT den Rohtext
+      // in eine Datums-Spalte schreiben — der zerstört KW-Mathematik + Phasen-Berechnung)
+      const abeg = (() => { const d = parseD(abegRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
+      const aend = (() => { const d = parseD(aendRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
+      if ((abegRaw && !abeg) || (aendRaw && !aend)) {
+        errorRows.push({ zeile: rowIdx + 2, fehler: `Unlesbares Datum: "${abegRaw && !abeg ? abegRaw : aendRaw}"`, name: nachname + ', ' + vorname });
+      }
       const ibyk      = (row[getMap('ibykus_id')]||'').trim();
       const apCode    = (row[getMap('pruefungstermin')]||'').trim();
       const schulName = (row[getMap('berufsschule')]||'').trim();
@@ -434,7 +454,8 @@ const ImportHandler = {
       // 6) Duplikatsprüfung: Update statt Skip bei Änderungen
       let existingId = null;
       if (ibyk) existingId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != ""', [ibyk]);
-      if (!existingId && nachname && vorname) existingId = App.scalar('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname,vorname,jgId]);
+      // "jahrgang_id IS ?" statt "=?": bei jgId=null matcht "= NULL" nie → Massenduplikate bei Re-Import
+      if (!existingId && nachname && vorname) existingId = App.scalar('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id IS ?', [nachname,vorname,jgId]);
 
       if (existingId) {
         // Check if data changed → update
@@ -463,7 +484,7 @@ const ImportHandler = {
           if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
           if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
-            const today = new Date().toISOString().slice(0,10);
+            const today = todayStr();
             if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
             if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', 'BAV beendet (IBYKUS)', ex.inaktiv_grund]);
             stats.bavEnde = (stats.bavEnde || 0) + 1;
@@ -476,10 +497,27 @@ const ImportHandler = {
           }
         }
 
-        if (changes.length) {
+        // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
+        let hatPhasen = false;
+        try { hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0; } catch(e) {}
+        const datumsAenderung = changes.some(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+        if (hatPhasen && datumsAenderung) {
+          const konfliktChanges = changes.filter(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
+          if (!stats.phasenKonflikte) stats.phasenKonflikte = [];
+          stats.phasenKonflikte.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, changes: konfliktChanges, allChanges: changes });
+          // Datums-Felder NICHT überschreiben, Rest schon
+          const safeChanges = changes.filter(([f]) => f !== 'ausbildungsbeginn' && f !== 'ausbildungsende');
+          if (safeChanges.length) {
+            safeChanges.forEach(([field, newVal]) => {
+              App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
+            });
+          }
+        } else if (changes.length) {
           changes.forEach(([field, newVal]) => {
             App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
           });
+        }
+        if (changes.length) {
           if (!stats.updated) stats.updated = 0;
           stats.updated++;
         }
@@ -492,11 +530,22 @@ const ImportHandler = {
         [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,bavAktiv,bavStatus]);
       imported++;
       if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
+     } catch(rowErr) {
+      console.warn(`Import Zeile ${rowIdx + 2}:`, rowErr.message);
+      errorRows.push({ zeile: rowIdx + 2, fehler: rowErr.message, name: (row[getMap('nachname')]||'') + ', ' + (row[getMap('vorname')]||'') });
+      skipped++;
+     }
     });
+   } catch(loopErr) {
+    console.error('Import-Loop abgebrochen:', loopErr);
+    App.toast('Import-Fehler: ' + loopErr.message, 'error');
+   }
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
     if (imported > 0) {
-      const mostUsedJgId = Object.entries(jgCounter).sort((a,b) => b[1]-a[1])[0]?.[0];
+      // Zeilen ohne Jahrgang landen unter dem String-Key "null" — der darf NICHT
+      // gewinnen, sonst werden ALLE Jahrgänge deaktiviert und keiner wieder aktiviert
+      const mostUsedJgId = Object.entries(jgCounter).filter(([k]) => k !== 'null' && k !== 'undefined').sort((a,b) => b[1]-a[1])[0]?.[0];
       if (mostUsedJgId) {
         // Set as active (MUST use App.run for dirty-tracking + auto-save!)
         App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
@@ -523,13 +572,13 @@ const ImportHandler = {
     if (stats.bavReaktiviert) parts.push(`✅ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
-    // Re-enable dirty-tracking
-    App._bulkImport = false;
-    // Full-write: export entire in-memory DB to disk (no merge-replay needed)
-    if (App.dbFileHandle) {
-      try { await App.fullSave(); } catch(e) { console.warn('Post-import save:', e); }
-    }
+    if (errorRows.length) parts.push(`⚠️ <strong>${errorRows.length}</strong> Zeilen mit Fehlern (übersprungen)`);
 
+    // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
+    App._bulkImport = false;
+    try {
+      if (App.dbFileHandle) await App.fullSave();
+    } catch(e) { console.warn('Post-import save:', e); }
     App.hideLoading();
     // Log import in einstellungen
     const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -537,11 +586,58 @@ const ImportHandler = {
     if (history.length > 20) history.length = 20;
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('import_history',?)", [JSON.stringify(history)]);
 
+    const pKonf = stats.phasenKonflikte || [];
+    // Konflikte NICHT als JSON ins onclick-Attribut serialisieren (Escaping-Falle bei
+    // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
+    this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
+        <strong>⚠️ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
+        <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
+          ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
+            <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${esc(f)}: ${esc(alt||'–')} → ${esc(neu)}`).join(', ')}
+            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',ImportHandler._pendingKonflikte[${ki}].changes);this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
+      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
+        <strong>⚠️ Fehlerhafte Zeilen (${errorRows.length}):</strong>
+        <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
+      </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+   } catch(importErr) {
+    console.error('Import fehlgeschlagen:', importErr);
+    App.toast('Import-Fehler: ' + importErr.message, 'error');
+   } finally {
+    App._bulkImport = false;
+    App.hideLoading();
+   }
+  },
+
+  _resolveKonflikt(schuelerId, action, changes) {
+    if (action === 'accept') {
+      changes.forEach(([field, newVal]) => {
+        App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, schuelerId]);
+      });
+      const phasen = typeof AzubiRechner !== 'undefined' ? AzubiRechner.getPhasen(schuelerId) : [];
+      if (phasen.length) {
+        const s = App.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+        const first = phasen[0];
+        const last = phasen[phasen.length - 1];
+        if (s.ausbildungsbeginn && first.von !== s.ausbildungsbeginn) {
+          App.run('UPDATE ausbildungsphasen SET von=? WHERE id=?', [s.ausbildungsbeginn, first.id]);
+        }
+        if (s.ausbildungsende && last.typ === 'ausbildung' && !last.bis) {
+          // offene letzte Phase: nothing to adjust
+        } else if (s.ausbildungsende && last.bis && last.bis !== s.ausbildungsende) {
+          App.run('UPDATE ausbildungsphasen SET bis=? WHERE id=?', [s.ausbildungsende, last.id]);
+        }
+      }
+      App.toast('Daten übernommen, Phasen angepasst', 'success');
+    }
   },
 
   addManually() {
@@ -703,6 +799,20 @@ const ImportHandler = {
           </select></div>
           <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
         </div>
+        <div class="form-row">
+          <div class="form-group"><label>Beruf (Tarif)</label><select class="form-control" id="mSBerufId">
+            <option value="">–</option>${(typeof AzubiRechner!=='undefined'?AzubiRechner.BERUFE:[]).map(b=>`<option value="${b.id}" ${(s.beruf_id||'')===b.id?'selected':''}>${esc(b.label)}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
+          <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
+          <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+          </label></div>
+        </div>
+        ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>`:''}
       </div>
 
       <!-- Tab 3: Prüfungen -->
@@ -755,6 +865,7 @@ const ImportHandler = {
     const n = document.getElementById('mSNach').value.trim();
     const v = document.getElementById('mSVor').value.trim();
     if (!n || !v) return App.toast('Name und Vorname sind Pflichtfelder', 'error');
+    const oldS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     const status = document.getElementById('mSStatus').value;
     const aktiv = (status === 'aktiv' || status === 'ap_zugelassen') ? 1 : 0;
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
@@ -762,7 +873,8 @@ const ImportHandler = {
       telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
       status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
       geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
-      bav_status=?,zwischenpruefung=? WHERE id=?`,
+      bav_status=?,zwischenpruefung=?,
+      beruf_id=?,geburtsdatum=?,regulaer_dauer_monate=?,verkuerzung_monate=?,vorzeitige_zulassung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -787,16 +899,24 @@ const ImportHandler = {
        document.getElementById('mSPEW2')?.value || '',
        document.getElementById('mSBAV')?.value?.trim() || '',
        document.getElementById('mSZP')?.value?.trim() || '',
+       document.getElementById('mSBerufId')?.value || '',
+       document.getElementById('mSGeburt')?.value || '',
+       parseInt(document.getElementById('mSDauer')?.value) || 36,
+       parseInt(document.getElementById('mSVerk')?.value) || 0,
+       document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
+    // Änderungen loggen
+    const newS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
+    App.IBYKUS_FELDER.forEach(f => { if (String(oldS[f]||'') !== String(newS[f]||'')) App.logChange(id, f, oldS[f], newS[f], 'stammdaten_bearbeitet'); });
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
-    // Also refresh Azubi-Tab if visible under Stammdaten
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
     App.toast('Schüler aktualisiert', 'success');
   },
   setInaktiv(id) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
+    App.logChange(id, 'status', 'aktiv', 'ap_bestanden', 'inaktiv_gesetzt');
     App.run("UPDATE schueler SET aktiv=0, status='ap_bestanden', inaktiv_datum=? WHERE id=?", [today, id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
@@ -805,6 +925,7 @@ const ImportHandler = {
     App.toast('Schüler auf inaktiv gesetzt', 'success');
   },
   setAktiv(id) {
+    App.logChange(id, 'status', 'inaktiv', 'aktiv', 'reaktiviert');
     App.run("UPDATE schueler SET aktiv=1, status='aktiv', inaktiv_datum='', inaktiv_grund='' WHERE id=?", [id]);
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}

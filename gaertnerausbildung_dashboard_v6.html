@@ -1,0 +1,4109 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ausbildungs-Dashboard V6 · Gartenbau</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=line-clamp"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background: #f7f4ec; }
+    body { font-family: 'IBM Plex Sans', system-ui, -apple-system, Segoe UI, sans-serif; color: #1a1a1a; }
+    #root { min-height: 100vh; }
+    .loading-initial {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #2d5a3d;
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 1.25rem;
+      gap: 0.5rem;
+    }
+    .loading-initial svg { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="loading-initial">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
+      <span>Lade SQLite &amp; Dashboard …</span>
+    </div>
+  </div>
+
+  <!-- SQL.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+
+  <!-- Import Map für ES Modules via esm.sh -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+      "recharts": "https://esm.sh/recharts@2.12.7?deps=react@18.3.1,react-dom@18.3.1",
+      "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1"
+    }
+  }
+  </script>
+
+  <!-- Babel Standalone für JSX-Transformation -->
+  <script src="https://unpkg.com/@babel/standalone@7.26.0/babel.min.js"></script>
+
+  <!-- App-Code (JSX wird im Browser transformiert) -->
+  <script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  ResponsiveContainer, Tooltip as RTooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+} from "recharts";
+import {
+  Sprout, Calendar, NotebookPen, BarChart3, Settings,
+  CheckCircle2, AlertTriangle, Clock, Euro, Plus, Trash2,
+  Download, ChevronLeft, ChevronRight, X, Edit3, FileText,
+  GraduationCap, Flag, Target, TrendingUp, Activity, Zap,
+  Leaf, Award, Heart, Cloud, CloudRain, Sun, CloudSnow,
+  Camera, MapPin, Printer, Users, Wrench, Thermometer,
+  Eye, ImageIcon, Database, Upload, RefreshCw, Link as LinkIcon,
+} from "lucide-react";
+
+// ============================================================
+//  SQLITE-DATENBANK (persistiert in IndexedDB, mit LocalStorage-Fallback)
+// ============================================================
+const IDB_NAME = "gaertnerdb";
+const IDB_STORE = "kv";
+const IDB_KEY_DB = "dbBytes";
+const IDB_KEY_META = "meta";
+const LS_KEY_DB = "gaertnerdb_bytes_b64";
+const LS_KEY_META = "gaertnerdb_meta";
+
+// Welches Backend ist aktiv? Wird in initDatabase() gesetzt.
+let _storageBackend = "unknown"; // "indexeddb" | "localstorage" | "none"
+
+// Prüfung: funktioniert IndexedDB wirklich?
+async function idbProbe() {
+  if (typeof indexedDB === "undefined") return false;
+  try {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open("__probe__" + Math.random().toString(36).slice(2), 1);
+      req.onsuccess = () => { req.result.close(); resolve(); };
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("blocked"));
+      setTimeout(() => reject(new Error("timeout")), 2000);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// IndexedDB-Wrapper
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const r = tx.objectStore(IDB_STORE).get(key);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function idbSet(key, value) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Uint8Array ↔ base64 für LocalStorage-Fallback
+function bytesToBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Abstrahierte Storage-Funktionen mit Backend-Wahl
+async function storageLoadDb() {
+  if (_storageBackend === "indexeddb") {
+    return await idbGet(IDB_KEY_DB);
+  } else if (_storageBackend === "localstorage") {
+    const b64 = localStorage.getItem(LS_KEY_DB);
+    return b64 ? base64ToBytes(b64) : null;
+  }
+  return null;
+}
+async function storageSaveDb(bytes) {
+  if (_storageBackend === "indexeddb") {
+    await idbSet(IDB_KEY_DB, bytes);
+  } else if (_storageBackend === "localstorage") {
+    // LocalStorage hat ~5 MB Limit
+    const b64 = bytesToBase64(bytes);
+    try {
+      localStorage.setItem(LS_KEY_DB, b64);
+    } catch (e) {
+      // QuotaExceeded — weiterwerfen, damit das UI den Fehler anzeigen kann
+      throw new Error("LocalStorage voll (~5 MB Limit). Bitte Bilder entfernen oder .db exportieren.");
+    }
+  }
+}
+async function storageLoadMeta() {
+  if (_storageBackend === "indexeddb") return await idbGet(IDB_KEY_META);
+  if (_storageBackend === "localstorage") {
+    const s = localStorage.getItem(LS_KEY_META);
+    return s ? JSON.parse(s) : null;
+  }
+  return null;
+}
+async function storageSaveMeta(meta) {
+  if (_storageBackend === "indexeddb") await idbSet(IDB_KEY_META, meta);
+  else if (_storageBackend === "localstorage") localStorage.setItem(LS_KEY_META, JSON.stringify(meta));
+}
+
+// Schema
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS config (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  name TEXT, beruf_id TEXT, geburtsdatum TEXT, start_datum TEXT,
+  regulaer_dauer_monate INTEGER, verkuerzung_monate INTEGER, vorzeitige_zulassung INTEGER,
+  teilzeit_prozent INTEGER, vollzeit_wochenstunden REAL, berufsschule_modus TEXT,
+  zp_monat TEXT, ap_monat TEXT,
+  standort_name TEXT, standort_lat REAL, standort_lng REAL,
+  modus TEXT
+);
+CREATE TABLE IF NOT EXISTS arbeitstage (
+  datum TEXT PRIMARY KEY, status TEXT, stunden REAL, bemerkung TEXT
+);
+CREATE TABLE IF NOT EXISTS tagesberichte (
+  datum TEXT PRIMARY KEY, titel TEXT, taetigkeiten TEXT, lerninhalte TEXT,
+  unterweisung TEXT, wetter INTEGER, temperatur REAL, temp_min REAL, temp_max REAL,
+  niederschlag REAL, ort TEXT,
+  personen TEXT, werkzeuge TEXT, besonderheiten TEXT, stundenvon TEXT, stundenbis TEXT
+);
+CREATE TABLE IF NOT EXISTS bilder (
+  id TEXT PRIMARY KEY, bericht_datum TEXT, data TEXT, thumb TEXT, name TEXT
+);
+CREATE TABLE IF NOT EXISTS phasen (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  von TEXT NOT NULL,
+  bis TEXT,
+  typ TEXT NOT NULL CHECK (typ IN ('ausbildung','unterbrechung')),
+  betrieb TEXT,
+  teilzeit_prozent INTEGER,
+  grund TEXT,
+  pauschal_fehltage_e INTEGER DEFAULT 0,
+  pauschal_fehltage_u INTEGER DEFAULT 0,
+  anmerkung TEXT
+);
+`;
+
+// sql.js wird via globalem initSqlJs aus dem CDN geladen
+let SQL = null;
+let _db = null;
+let _dbMeta = { created: null, modified: null };
+let _lastSaveError = null;
+let _pendingSave = false;
+
+async function initDatabase() {
+  if (!SQL) {
+    SQL = await window.initSqlJs({
+      locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`,
+    });
+  }
+
+  // Backend wählen: IndexedDB bevorzugt, sonst LocalStorage, sonst gar nichts
+  const idbOk = await idbProbe();
+  if (idbOk) _storageBackend = "indexeddb";
+  else if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem("__probe__", "1");
+      localStorage.removeItem("__probe__");
+      _storageBackend = "localstorage";
+    } catch { _storageBackend = "none"; }
+  } else _storageBackend = "none";
+
+  const stored = await storageLoadDb();
+  let status = { existierte: false, bytes: 0, geladen: false, backend: _storageBackend };
+  if (stored) {
+    status.bytes = stored.byteLength || stored.length || 0;
+    try {
+      _db = new SQL.Database(stored);
+      status.existierte = true;
+      status.geladen = true;
+    } catch (e) {
+      console.warn("Bestehende DB konnte nicht geladen werden, lege neue an:", e);
+      _db = new SQL.Database();
+    }
+  } else {
+    _db = new SQL.Database();
+  }
+  _db.exec(SCHEMA);
+  // Migrationen für bestehende DBs (Errors bei existierenden Spalten ignorieren)
+  try { _db.run("ALTER TABLE tagesberichte ADD COLUMN niederschlag REAL"); } catch {}
+  try { _db.run("ALTER TABLE tagesberichte ADD COLUMN temp_min REAL"); } catch {}
+  try { _db.run("ALTER TABLE tagesberichte ADD COLUMN temp_max REAL"); } catch {}
+  try { _db.run("ALTER TABLE config ADD COLUMN modus TEXT"); } catch {}
+
+  // Migration: Wenn Config existiert aber noch keine Phase, lege eine Standardphase an
+  const cfgRows = rowsToObjects(_db.exec("SELECT start_datum, teilzeit_prozent, regulaer_dauer_monate, verkuerzung_monate FROM config WHERE id=1"));
+  const phasenRows = rowsToObjects(_db.exec("SELECT COUNT(*) AS c FROM phasen"));
+  if (cfgRows.length && phasenRows[0].c === 0 && cfgRows[0].start_datum) {
+    const c = cfgRows[0];
+    _db.run(
+      `INSERT INTO phasen (von, bis, typ, teilzeit_prozent, anmerkung) VALUES (?,?,?,?,?)`,
+      [c.start_datum, null, "ausbildung", c.teilzeit_prozent || 100, "Initial-Phase aus V5-Migration"]
+    );
+  }
+  const meta = await storageLoadMeta();
+  if (meta) _dbMeta = meta;
+  else {
+    _dbMeta = { created: new Date().toISOString(), modified: null };
+    try { await storageSaveMeta(_dbMeta); } catch (e) { console.warn(e); }
+  }
+
+  // Wenn die DB gerade erst angelegt wurde (keine gespeicherte Version), sofort initial persistieren
+  if (!stored && _storageBackend !== "none") {
+    try {
+      const bytes = _db.export();
+      await storageSaveDb(bytes);
+      _dbMeta.modified = new Date().toISOString();
+      await storageSaveMeta(_dbMeta);
+      status.initial_gespeichert = true;
+    } catch (e) {
+      console.warn("Initial-Speichern fehlgeschlagen:", e);
+    }
+  }
+
+  // Status-Zusammenfassung für UI
+  const cfgCount = rowsToObjects(_db.exec("SELECT COUNT(*) AS c FROM config WHERE start_datum IS NOT NULL"))[0].c;
+  const phasenCount = rowsToObjects(_db.exec("SELECT COUNT(*) AS c FROM phasen"))[0].c;
+  const tageCount = rowsToObjects(_db.exec("SELECT COUNT(*) AS c FROM arbeitstage"))[0].c;
+  const berichteCount = rowsToObjects(_db.exec("SELECT COUNT(*) AS c FROM tagesberichte"))[0].c;
+  status.hatDaten = cfgCount > 0 || phasenCount > 0 || tageCount > 0 || berichteCount > 0;
+  status.counts = { config: cfgCount, phasen: phasenCount, tage: tageCount, berichte: berichteCount };
+  status.meta = _dbMeta;
+  return status;
+}
+
+let _persistTimer = null;
+let _persistListeners = [];
+
+function onPersistStatus(cb) {
+  _persistListeners.push(cb);
+  return () => { _persistListeners = _persistListeners.filter(l => l !== cb); };
+}
+function notifyPersist(status) {
+  _persistListeners.forEach(l => { try { l(status); } catch {} });
+}
+
+function persistDb() {
+  _pendingSave = true;
+  if (_persistTimer) clearTimeout(_persistTimer);
+  notifyPersist({ state: "pending" });
+  _persistTimer = setTimeout(async () => {
+    if (_storageBackend === "none") {
+      _lastSaveError = "Kein persistenter Speicher verfügbar (IndexedDB und LocalStorage blockiert).";
+      _pendingSave = false;
+      notifyPersist({ state: "error", message: _lastSaveError });
+      return;
+    }
+    try {
+      const bytes = _db.export();
+      _dbMeta.modified = new Date().toISOString();
+      await storageSaveDb(bytes);
+      await storageSaveMeta(_dbMeta);
+      _lastSaveError = null;
+      _pendingSave = false;
+      notifyPersist({ state: "saved", modified: _dbMeta.modified, bytes: bytes.length });
+    } catch (e) {
+      _lastSaveError = e.message || String(e);
+      _pendingSave = false;
+      notifyPersist({ state: "error", message: _lastSaveError });
+    }
+  }, 300);
+}
+
+// Helper: query ausführen, Zeilen als Objekte zurückgeben
+function rowsToObjects(result) {
+  if (!result.length) return [];
+  return result[0].values.map(row => {
+    const o = {};
+    result[0].columns.forEach((c, i) => (o[c] = row[i]));
+    return o;
+  });
+}
+
+// === Data-Access ===
+function dbGetConfig() {
+  const r = rowsToObjects(_db.exec("SELECT * FROM config WHERE id=1"));
+  if (!r.length) return null;
+  const c = r[0];
+  c.vorzeitige_zulassung = !!c.vorzeitige_zulassung;
+  return c;
+}
+function dbSaveConfig(c) {
+  _db.run(
+    `INSERT OR REPLACE INTO config
+     (id, name, beruf_id, geburtsdatum, start_datum, regulaer_dauer_monate, verkuerzung_monate,
+      vorzeitige_zulassung, teilzeit_prozent, vollzeit_wochenstunden, berufsschule_modus,
+      zp_monat, ap_monat, standort_name, standort_lat, standort_lng, modus)
+     VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      c.name || null, c.beruf_id, c.geburtsdatum || null, c.start_datum,
+      c.regulaer_dauer_monate, c.verkuerzung_monate || 0, c.vorzeitige_zulassung ? 1 : 0,
+      c.teilzeit_prozent, c.vollzeit_wochenstunden, c.berufsschule_modus,
+      c.zp_monat || null, c.ap_monat || null,
+      c.standort_name || null, c.standort_lat, c.standort_lng,
+      c.modus || "vollstaendig",
+    ]
+  );
+  persistDb();
+}
+
+// === Phasen ===
+function dbGetPhasen() {
+  return rowsToObjects(_db.exec("SELECT * FROM phasen ORDER BY von ASC, id ASC"));
+}
+function dbAddPhase(p) {
+  _db.run(
+    `INSERT INTO phasen (von, bis, typ, betrieb, teilzeit_prozent, grund, pauschal_fehltage_e, pauschal_fehltage_u, anmerkung)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [
+      p.von, p.bis || null, p.typ, p.betrieb || null,
+      p.teilzeit_prozent ?? 100, p.grund || null,
+      p.pauschal_fehltage_e || 0, p.pauschal_fehltage_u || 0, p.anmerkung || null,
+    ]
+  );
+  persistDb();
+}
+function dbUpdatePhase(id, p) {
+  _db.run(
+    `UPDATE phasen SET von=?, bis=?, typ=?, betrieb=?, teilzeit_prozent=?, grund=?,
+     pauschal_fehltage_e=?, pauschal_fehltage_u=?, anmerkung=? WHERE id=?`,
+    [
+      p.von, p.bis || null, p.typ, p.betrieb || null,
+      p.teilzeit_prozent ?? 100, p.grund || null,
+      p.pauschal_fehltage_e || 0, p.pauschal_fehltage_u || 0, p.anmerkung || null,
+      id,
+    ]
+  );
+  persistDb();
+}
+function dbDeletePhase(id) {
+  _db.run("DELETE FROM phasen WHERE id=?", [id]);
+  persistDb();
+}
+function dbGetTage() {
+  const r = rowsToObjects(_db.exec("SELECT * FROM arbeitstage"));
+  const o = {};
+  r.forEach(t => (o[t.datum] = t));
+  return o;
+}
+function dbSaveTag(datum, data) {
+  _db.run(
+    "INSERT OR REPLACE INTO arbeitstage VALUES (?,?,?,?)",
+    [datum, data.status, data.stunden ?? null, data.bemerkung || null]
+  );
+  persistDb();
+}
+function dbDeleteTag(datum) {
+  _db.run("DELETE FROM arbeitstage WHERE datum=?", [datum]);
+  persistDb();
+}
+function dbGetBerichte() {
+  const berichte = rowsToObjects(_db.exec("SELECT * FROM tagesberichte ORDER BY datum DESC"));
+  for (const b of berichte) {
+    const br = _db.exec("SELECT id FROM bilder WHERE bericht_datum=?", [b.datum]);
+    b.bilder = br.length ? br[0].values.map(v => v[0]) : [];
+  }
+  return berichte;
+}
+function dbSaveBericht(b) {
+  _db.run(
+    `INSERT OR REPLACE INTO tagesberichte
+     (datum, titel, taetigkeiten, lerninhalte, unterweisung, wetter, temperatur, temp_min, temp_max, niederschlag, ort, personen, werkzeuge, besonderheiten, stundenvon, stundenbis)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      b.datum, b.titel || null, b.taetigkeiten || null, b.lerninhalte || null, b.unterweisung || null,
+      b.wetter ?? null, b.temperatur ?? null, b.temp_min ?? null, b.temp_max ?? null, b.niederschlag ?? null,
+      b.ort || null, b.personen || null, b.werkzeuge || null,
+      b.besonderheiten || null, b.stundenvon || null, b.stundenbis || null,
+    ]
+  );
+  persistDb();
+}
+function dbDeleteBericht(datum) {
+  _db.run("DELETE FROM bilder WHERE bericht_datum=?", [datum]);
+  _db.run("DELETE FROM tagesberichte WHERE datum=?", [datum]);
+  persistDb();
+}
+function dbGetBild(id) {
+  const r = rowsToObjects(_db.exec("SELECT * FROM bilder WHERE id=?", [id]));
+  return r[0] || null;
+}
+function dbSaveBild(bild, berichtDatum) {
+  _db.run(
+    "INSERT OR REPLACE INTO bilder VALUES (?,?,?,?,?)",
+    [bild.id, berichtDatum, bild.data, bild.thumb, bild.name || null]
+  );
+  persistDb();
+}
+function dbDeleteBild(id) {
+  _db.run("DELETE FROM bilder WHERE id=?", [id]);
+  persistDb();
+}
+
+// === Export/Import ===
+function exportDbAsFile() {
+  const bytes = _db.export();
+  const blob = new Blob([bytes], { type: "application/x-sqlite3" });
+  const url = URL.createObjectURL(blob);
+  const now = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ausbildung-${now}.db`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importDbFromFile(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  if (_db) _db.close();
+  _db = new SQL.Database(bytes);
+  _db.exec(SCHEMA);
+  const exported = _db.export();
+  await idbSet(IDB_KEY_DB, exported);
+  _dbMeta = { created: new Date().toISOString(), modified: new Date().toISOString() };
+  await idbSet(IDB_KEY_META, _dbMeta);
+}
+
+async function resetDatabase() {
+  if (_db) _db.close();
+  _db = new SQL.Database();
+  _db.exec(SCHEMA);
+  const bytes = _db.export();
+  _dbMeta = { created: new Date().toISOString(), modified: null };
+  await idbSet(IDB_KEY_DB, bytes);
+  await idbSet(IDB_KEY_META, _dbMeta);
+}
+
+// ============================================================
+//  STAMMDATEN (aus bestehendem Tool integriert)
+// ============================================================
+
+// Berufe mit echten Tariftabellen + Urlaubstagen
+const BERUFE = [
+  {
+    id: "galabau", label: "Gärtner/in – Garten- und Landschaftsbau",
+    group: "Gartenbau (GaLaBau)", urlaub: 26,
+    tarifInfo: "TV Ausbildungsvergütungen GaLaBau (bundeseinheitlich)",
+    tarife: [
+      { ab: "2024-07-01", lj: [1060, 1180, 1290] },
+      { ab: "2025-07-01", lj: [1100, 1220, 1340] },
+      { ab: "2026-07-01", lj: [1140, 1270, 1390] },
+    ],
+  },
+  {
+    id: "baumschule", label: "Gärtner/in – Baumschule",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+  {
+    id: "friedhof", label: "Gärtner/in – Friedhofsgärtnerei",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+  {
+    id: "gemuese", label: "Gärtner/in – Gemüsebau",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+  {
+    id: "obstbau", label: "Gärtner/in – Obstbau",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+  {
+    id: "stauden", label: "Gärtner/in – Staudengärtnerei",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+  {
+    id: "zierpflanzen", label: "Gärtner/in – Zierpflanzenbau",
+    group: "Erwerbsgartenbau BaWü", urlaub: 26,
+    tarifInfo: "TV Gartenbau Baden-Württemberg-Hessen",
+    tarife: [
+      { ab: "2024-03-01", lj: [900, 1000, 1100] },
+      { ab: "2025-05-01", lj: [980, 1080, 1240] },
+    ],
+  },
+];
+
+// Mindestausbildungsvergütung § 17 Abs. 2 BBiG (gilt für Jahr des Ausbildungsbeginns)
+const MINDESTVERGUETUNG = [
+  { ab: "2024-01-01", lj: [649, 766, 876] },
+  { ab: "2025-01-01", lj: [682, 805, 921] },
+  { ab: "2026-01-01", lj: [724, 854, 977] },
+];
+
+const STATUS = {
+  anwesend:    { label: "Betrieb",      color: "#4a6b3a", bg: "#e8f0e0", heat: "#4a6b3a" },
+  berufsschule:{ label: "Berufsschule", color: "#6b5a3a", bg: "#f0ead8", heat: "#b89856" },
+  lerntag:     { label: "Lerntag",      color: "#8a6a3a", bg: "#f2e4d0", heat: "#c09362" },
+  ueba:        { label: "ÜBA / DEULA",  color: "#3a5a6b", bg: "#d8e4ed", heat: "#6088a3" },
+  urlaub:      { label: "Urlaub",       color: "#2e7d5a", bg: "#d4ebdd", heat: "#5ba885" },
+  krank:       { label: "Krank",        color: "#b04545", bg: "#f2d8d8", heat: "#c66565" },
+  feiertag:    { label: "Feiertag",     color: "#5a5a5a", bg: "#e5e5e5", heat: "#a0a0a0" },
+  frei:        { label: "Frei / WE",    color: "#9a9a9a", bg: "#f0f0f0", heat: "#d0d0d0" },
+};
+
+const LEHRJAHR_PHASEN = [
+  { titel: "1. Lehrjahr", fokus: "Grundlagen & Pflanzenkenntnis",
+    inhalte: ["Boden & Substrate", "Einfache Kulturtechniken", "Pflanzenkenntnisse I", "Werkzeuge & Maschinen"], icon: Sprout },
+  { titel: "2. Lehrjahr", fokus: "Vertiefung & Zwischenprüfung",
+    inhalte: ["Pflanzenschutz", "Vermehrung", "Pflanzenkenntnisse II", "Zwischenprüfung"], icon: Leaf },
+  { titel: "3. Lehrjahr", fokus: "Spezialisierung & Abschluss",
+    inhalte: ["Planung & Gestaltung", "Betriebswirtschaft", "Prüfungsvorbereitung", "Abschlussprüfung"], icon: Award },
+];
+
+// ============================================================
+//  HELFER
+// ============================================================
+function fmtISO(d) { return d.toISOString().slice(0, 10); }
+function parseISO(s) { return new Date(s + "T00:00:00"); }
+function addMonths(d, n) { const r = new Date(d); r.setMonth(r.getMonth() + n); return r; }
+function daysBetween(a, b) { return Math.round((parseISO(fmtISO(b)) - parseISO(fmtISO(a))) / 86400000); }
+
+// Prüfungstermine der zuständigen Stelle (Landwirtschaft BW):
+// Winterprüfung: Februar · Sommerprüfung: Juli. Tag 15 als Platzhalter.
+const AP_MONATE = [1, 6]; // Februar (Monatsindex 1) und Juli (Index 6)
+const AP_TAG = 15;
+
+function pruefungstermine(umDatum, jahreRange = 2) {
+  if (!umDatum) return [];
+  const jahr = umDatum.getFullYear();
+  const arr = [];
+  for (let y = jahr - jahreRange; y <= jahr + jahreRange; y++) {
+    AP_MONATE.forEach(m => arr.push(new Date(y, m, AP_TAG)));
+  }
+  return arr.sort((a, b) => a - b);
+}
+
+// AP: letzter Termin, der ≤ Vertragsende + 14 Tage liegt.
+// Vorzeitige Zulassung → der halbe Jahr früher liegende Termin.
+function apTerminAuto(vertragsende, vorzeitig) {
+  if (!vertragsende) return null;
+  const termine = pruefungstermine(vertragsende, 2);
+  const cutoff = new Date(vertragsende);
+  cutoff.setDate(cutoff.getDate() + 14);
+  let idx = -1;
+  for (let i = termine.length - 1; i >= 0; i--) {
+    if (termine[i] <= cutoff) { idx = i; break; }
+  }
+  if (idx < 0) return null;
+  if (!vorzeitig) return termine[idx];
+  return idx > 0 ? termine[idx - 1] : null;
+}
+
+// ZP: der Feb/Juli-Termin, der am nächsten am "idealen" Zeitpunkt
+// (~40 % der effektiven Ausbildungsdauer) liegt.
+function zpTerminAuto(start, effektiveDauerMonate) {
+  if (!start) return null;
+  const zielMonate = Math.round(effektiveDauerMonate * 14 / 36);
+  const ziel = addMonths(start, zielMonate);
+  const termine = pruefungstermine(ziel, 1);
+  termine.sort((a, b) => Math.abs(ziel - a) - Math.abs(ziel - b));
+  return termine[0];
+}
+
+// ============================================================
+//  PHASEN-MATHEMATIK
+// ============================================================
+// Eine Phase ist ein Zeitabschnitt mit einheitlichen Eigenschaften.
+// "ausbildung"-Phasen tragen zur effektiven Ausbildungszeit bei (skaliert mit
+// Teilzeit), "unterbrechung"-Phasen schieben das Ende nach hinten.
+
+function phasenSortiert(phasen) {
+  return [...phasen].sort((a, b) => a.von.localeCompare(b.von) || a.id - b.id);
+}
+
+// Effektives Ende für die offene Phase: löst die "läuft noch"-Phase auf, indem
+// die noch fehlende Restzeit zur Erreichung der Soll-Dauer berechnet wird.
+function phasenMitEnden(phasen, regulaerDauer, verkuerzung = 0) {
+  const sorted = phasenSortiert(phasen);
+  const sollMonate = Math.max(6, regulaerDauer - (verkuerzung || 0));
+  // Erst alle geschlossenen Phasen berechnen → wieviel "echte Ausbildungszeit"
+  // (Vollzeit-äquivalent) ist schon erbracht?
+  let erbrachtVZ = 0;
+  const ergebnis = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const p = { ...sorted[i] };
+    if (p.bis) {
+      // Geschlossene Phase
+      const von = parseISO(p.von), bis = parseISO(p.bis);
+      const monate = diffMonths(von, bis);
+      p._dauerMonate = monate;
+      if (p.typ === "ausbildung") {
+        const tz = (p.teilzeit_prozent || 100) / 100;
+        p._vzAequivalent = monate * tz;
+        erbrachtVZ += p._vzAequivalent;
+      } else {
+        p._vzAequivalent = 0;
+      }
+    } else {
+      // Offene Phase: "bis" wird berechnet
+      if (p.typ === "ausbildung") {
+        const tz = (p.teilzeit_prozent || 100) / 100;
+        const restVZ = Math.max(0, sollMonate - erbrachtVZ);
+        const restRealMonate = restVZ / tz; // Bei TZ entsprechend gestreckt
+        const von = parseISO(p.von);
+        const bis = addMonths(von, Math.round(restRealMonate));
+        p._berechnetesEnde = fmtISO(bis);
+        p._dauerMonate = restRealMonate;
+        p._vzAequivalent = restVZ;
+        erbrachtVZ += restVZ;
+      } else {
+        // Offene Unterbrechung — kann nicht berechnet werden, läuft "auf unbestimmte Zeit"
+        p._berechnetesEnde = null;
+        p._dauerMonate = null;
+        p._vzAequivalent = 0;
+      }
+    }
+    ergebnis.push(p);
+  }
+  return ergebnis;
+}
+
+// Vertragsende = Ende der letzten Ausbildungsphase
+function vertragsendeAusPhasen(phasenMit) {
+  for (let i = phasenMit.length - 1; i >= 0; i--) {
+    const p = phasenMit[i];
+    if (p.typ !== "ausbildung") continue;
+    const ende = p.bis || p._berechnetesEnde;
+    if (ende) return parseISO(ende);
+  }
+  return null;
+}
+
+// Aktive Phase am Stichtag
+function aktivePhaseAm(phasenMit, datum) {
+  const dStr = fmtISO(datum);
+  for (const p of phasenMit) {
+    const ende = p.bis || p._berechnetesEnde;
+    if (p.von <= dStr && (!ende || ende >= dStr)) return p;
+  }
+  return null;
+}
+
+// Gesamte tatsächliche Ausbildungstage (für Fehltagsbudget) - Summe der
+// Ausbildungsphasen-Dauer in Tagen, ggf. mit Teilzeit gewichtet
+function tatsaechlicheAusbildungsTage(phasenMit, bisHeute = false) {
+  let tage = 0;
+  const heute = new Date();
+  for (const p of phasenMit) {
+    if (p.typ !== "ausbildung") continue;
+    const von = parseISO(p.von);
+    let bis = p.bis ? parseISO(p.bis) : (p._berechnetesEnde ? parseISO(p._berechnetesEnde) : null);
+    if (!bis) continue;
+    if (bisHeute && bis > heute) bis = heute;
+    if (bis < von) continue;
+    tage += daysBetween(von, bis);
+  }
+  return tage;
+}
+
+// Pauschale Fehltage aus allen Phasen summieren
+function pauschaleFehltage(phasen) {
+  let entsch = 0, unentsch = 0;
+  for (const p of phasen) {
+    entsch += p.pauschal_fehltage_e || 0;
+    unentsch += p.pauschal_fehltage_u || 0;
+  }
+  return { entschuldigt: entsch, unentschuldigt: unentsch, summe: entsch + unentsch };
+}
+
+// Validierung: Lücken / Überlappungen finden
+function phasenValidieren(phasen) {
+  const sorted = phasenSortiert(phasen);
+  const probleme = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i], b = sorted[i + 1];
+    if (!a.bis) {
+      probleme.push({ typ: "offen_mitte", phasen: [a.id], text: "Eine offene Phase liegt vor weiteren Phasen — bitte 'bis' eintragen." });
+      continue;
+    }
+    if (a.bis > b.von) {
+      probleme.push({ typ: "ueberlappung", phasen: [a.id, b.id], text: `Phasen überlappen: ${a.bis} > ${b.von}` });
+    } else if (a.bis < b.von) {
+      const tage = daysBetween(parseISO(a.bis), parseISO(b.von));
+      if (tage > 1) probleme.push({ typ: "luecke", phasen: [a.id, b.id], text: `Lücke von ${tage} Tagen zwischen ${a.bis} und ${b.von}` });
+    }
+  }
+  return probleme;
+}
+
+function naechsterSeptember() {
+  // Nächster 1. September ab heute (heute selbst zählt als "kommt noch")
+  const heute = new Date(); heute.setHours(0, 0, 0, 0);
+  const y = heute.getFullYear();
+  const sept = new Date(y, 8, 1); // Monat 8 = September (0-indexed)
+  return fmtISO(heute <= sept ? sept : new Date(y + 1, 8, 1));
+}
+function diffMonths(from, to) {
+  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + (to.getDate() - from.getDate()) / 30;
+}
+function getKW(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - yStart) / 86400000 + 1) / 7);
+}
+function mondayOfKW(year, week) {
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const mondayOfKW1 = new Date(jan4); mondayOfKW1.setDate(jan4.getDate() - jan4Day + 1);
+  const monday = new Date(mondayOfKW1); monday.setDate(mondayOfKW1.getDate() + (week - 1) * 7);
+  return monday;
+}
+const DE_MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+const DE_MONTHS_SHORT = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+const DE_WD = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+const DE_WD_LONG = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+function fmtDE(d) { return d.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" }); }
+function fmtMonYear(iso) { if (!iso) return "–"; const [y, m] = iso.split("-"); return `${DE_MONTHS_SHORT[parseInt(m) - 1]} ${y}`; }
+
+// Alter zum Stichtag
+function alterZuStichtag(geburtsdatum, stichtag) {
+  const geb = new Date(geburtsdatum); const st = new Date(stichtag);
+  let alter = st.getFullYear() - geb.getFullYear();
+  const hatteGeb = st.getMonth() > geb.getMonth() || (st.getMonth() === geb.getMonth() && st.getDate() >= geb.getDate());
+  if (!hatteGeb) alter--;
+  return alter;
+}
+
+// Tarifvergütung inkl. Mindestvergütung
+function getTarifVerguetung(berufId, datum, lehrjahr, ausbildungsBeginn) {
+  const beruf = BERUFE.find(b => b.id === berufId);
+  if (!beruf) return 0;
+  const lj = Math.max(1, Math.min(3, lehrjahr)) - 1;
+  let betrag = beruf.tarife[0].lj[lj];
+  for (let i = beruf.tarife.length - 1; i >= 0; i--) {
+    if (datum >= new Date(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
+  }
+  const miavStichtag = ausbildungsBeginn || datum;
+  for (let i = MINDESTVERGUETUNG.length - 1; i >= 0; i--) {
+    if (miavStichtag >= new Date(MINDESTVERGUETUNG[i].ab)) {
+      betrag = Math.max(betrag, MINDESTVERGUETUNG[i].lj[lj]); break;
+    }
+  }
+  return betrag;
+}
+
+// Urlaub nach § 19 JArbSchG (bei Jugendlichen) oder Tarif
+function getJahresurlaub(berufId, geburtsdatum, jahr) {
+  const beruf = BERUFE.find(b => b.id === berufId);
+  const tarifTage = beruf ? beruf.urlaub : 26;
+  if (!geburtsdatum) return { tage: tarifTage, grund: "tarif" };
+  const alter = alterZuStichtag(geburtsdatum, new Date(jahr, 0, 1));
+  if (alter >= 18) return { tage: tarifTage, grund: "tarif" };
+  if (alter >= 17) return { tage: Math.max(tarifTage, 21), grund: "u18" };
+  if (alter >= 16) return { tage: Math.max(tarifTage, 23), grund: "u17" };
+  return { tage: Math.max(tarifTage, 25), grund: "u16" };
+}
+
+// Prüfungszulassung nach § 43 / § 45 BBiG
+function fruehesterPruefungstermin(endDate, vorzeitig = false) {
+  if (!endDate) return null;
+  const fiktivesEnde = vorzeitig ? addMonths(endDate, -6) : endDate;
+  return addMonths(fiktivesEnde, -2);
+}
+
+// ============================================================
+//  DEFAULT-CONFIG
+// ============================================================
+const DEFAULT_CONFIG = {
+  name: "",
+  beruf_id: "galabau",
+  geburtsdatum: "",            // optional (für JArbSchG)
+  start_datum: "",
+  regulaer_dauer_monate: 36,
+  verkuerzung_monate: 0,       // § 8 BBiG: 0, 6 (Realschule), 12 (FHR/Abi) oder individuell
+  vorzeitige_zulassung: false, // § 45 BBiG: AP 6 Mon. früher bei Ø ≥ "gut"
+  teilzeit_prozent: 100,       // § 7a BBiG: nur wenn Teilzeit
+  vollzeit_wochenstunden: 39,
+  berufsschule_modus: "regulaer",
+  zp_monat: "",                // leer = automatisch vorgeschlagen
+  ap_monat: "",                // leer = automatisch vorgeschlagen
+  // Standort für Wetter-Connector (Open-Meteo)
+  standort_name: "",
+  standort_lat: null,
+  standort_lng: null,
+  // Modus: "vollstaendig" (mit Berichtsheft + Kalender) oder "beratung" (reduziert)
+  modus: "vollstaendig",
+};
+
+// ============================================================
+//  PERIODENBASIERTE VERGÜTUNGS- UND URLAUBSBERECHNUNG
+//  (adaptiert aus bestehendem Ausbildungsrechner)
+// ============================================================
+// Phasen-bewusste Vergütungsperioden:
+// - Pro Ausbildungsphase wird die Quote (TZ-Prozent) übernommen
+// - Unterbrechungs-Phasen erzeugen Lücken (vergEff = 0, mit grund)
+// - Lehrjahr-Wechsel basieren auf erbrachter VZ-Ausbildungszeit
+function berechneVerguetungsUebersichtPhasen(cfg, phasenMit) {
+  const { beruf_id, geburtsdatum, start_datum, verkuerzung_monate } = cfg;
+  const startDate = parseISO(start_datum);
+  if (isNaN(startDate)) return [];
+  const verk = verkuerzung_monate || 0;
+  const beruf = BERUFE.find(b => b.id === beruf_id);
+
+  const ausbPhasen = phasenMit.filter(p => p.typ === "ausbildung");
+  if (!ausbPhasen.length) return [];
+
+  const perioden = [];
+  let erbrachtVZ = 0; // monate VZ-äquivalent über alle vorigen Ausbildungsphasen
+
+  for (const phase of phasenMit) {
+    const phVon = parseISO(phase.von);
+    const phBis = parseISO(phase.bis || phase._berechnetesEnde);
+    if (!phBis || phBis <= phVon) continue;
+
+    if (phase.typ === "unterbrechung") {
+      perioden.push({
+        von: phVon, bis: phBis, unterbrechung: true, grund: phase.grund || "Unterbrechung",
+        lehrjahr: 0, quote: 0, vergVZ: 0, vergEff: 0,
+        monateDauer: Math.round(diffMonths(phVon, phBis) * 10) / 10,
+        urlaubTageJahr: 0, urlaubGrund: "Unterbrechung", urlaubAnteilig: 0,
+      });
+      continue;
+    }
+
+    const quote = phase.teilzeit_prozent || 100;
+    const tz = quote / 100;
+
+    // Innerhalb der Phase: Breakpoints für LJ-Wechsel, Tariftermine, Mindestvergütung-Stichtage, Jahreswechsel
+    const breakpoints = new Set();
+
+    // LJ-Wechsel: berechnen, wann erbrachtVZ + (zeitInPhaseInMonatenBisJetzt * tz) + verk eine Ganzzahl von 12 erreicht
+    // Statt analytisch: wir schieben monatlich durch und prüfen
+    for (let m = 1; m < diffMonths(phVon, phBis) + 1; m++) {
+      const dat = addMonths(phVon, m);
+      if (dat > phBis) break;
+      const erbrPunkt = erbrachtVZ + m * tz + verk;
+      const erbrPrev = erbrachtVZ + (m - 1) * tz + verk;
+      const ljNeu = Math.floor(erbrPunkt / 12);
+      const ljAlt = Math.floor(erbrPrev / 12);
+      if (ljNeu !== ljAlt) breakpoints.add(fmtISO(dat));
+    }
+    if (beruf) beruf.tarife.forEach(t => {
+      const d = new Date(t.ab);
+      if (d > phVon && d < phBis) breakpoints.add(fmtISO(d));
+    });
+    MINDESTVERGUETUNG.forEach(m => {
+      const d = new Date(m.ab);
+      if (d > phVon && d < phBis) breakpoints.add(fmtISO(d));
+    });
+    for (let yr = phVon.getFullYear(); yr <= phBis.getFullYear() + 1; yr++) {
+      const jan1 = new Date(yr, 0, 1);
+      if (jan1 > phVon && jan1 < phBis) breakpoints.add(fmtISO(jan1));
+    }
+
+    const sorted = [...breakpoints].sort().map(s => parseISO(s));
+    sorted.push(new Date(phBis));
+    let periodStart = new Date(phVon);
+
+    for (const bp of sorted) {
+      if (bp <= periodStart) continue;
+      const periodEnd = new Date(bp);
+      const monateInPhase = diffMonths(phVon, periodStart);
+      const erbrachtBisHier = erbrachtVZ + monateInPhase * tz + verk;
+      const lehrjahr = Math.min(3, Math.floor(erbrachtBisHier / 12) + 1);
+      const vergVZ = getTarifVerguetung(beruf_id, periodStart, lehrjahr, startDate);
+      const vergEff = Math.round(vergVZ * tz);
+      const monateDauer = Math.max(0, diffMonths(periodStart, periodEnd));
+      const urlaubInfo = getJahresurlaub(beruf_id, geburtsdatum || null, periodStart.getFullYear());
+      const urlaubAnteilig = Math.round((monateDauer / 12) * urlaubInfo.tage * tz * 2) / 2;
+      perioden.push({
+        von: new Date(periodStart), bis: new Date(periodEnd),
+        unterbrechung: false, grund: null,
+        lehrjahr, tzAktiv: tz < 1, quote, vergVZ, vergEff,
+        monateDauer: Math.round(monateDauer * 10) / 10,
+        urlaubTageJahr: urlaubInfo.tage, urlaubGrund: urlaubInfo.grund, urlaubAnteilig,
+        betrieb: phase.betrieb || null, phaseId: phase.id,
+      });
+      periodStart = new Date(bp);
+    }
+    erbrachtVZ += diffMonths(phVon, phBis) * tz;
+  }
+
+  // Merge benachbarte gleiche Perioden (gleiche Quote, LJ, Tarif, Betrieb, kein Wechsel zu Unterbrechung)
+  const merged = [];
+  for (const p of perioden) {
+    const last = merged[merged.length - 1];
+    if (last && !last.unterbrechung && !p.unterbrechung
+        && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr
+        && last.urlaubTageJahr === p.urlaubTageJahr && last.quote === p.quote
+        && last.betrieb === p.betrieb) {
+      last.bis = p.bis;
+      last.monateDauer = Math.round(diffMonths(last.von, last.bis) * 10) / 10;
+      last.urlaubAnteilig = Math.round((last.monateDauer / 12) * last.urlaubTageJahr * (last.quote/100) * 2) / 2;
+    } else merged.push({ ...p });
+  }
+  return merged;
+}
+
+function berechneVerguetungsUebersicht(cfg, ende) {
+  const { beruf_id, geburtsdatum, start_datum, teilzeit_prozent, verkuerzung_monate } = cfg;
+  const startDate = parseISO(start_datum);
+  if (isNaN(startDate) || isNaN(ende)) return [];
+
+  const tzAktiv = teilzeit_prozent < 100;
+  const quote = teilzeit_prozent;
+  const verk = verkuerzung_monate || 0;
+
+  const breakpoints = new Set();
+  // Lehrjahr-Wechsel (verschoben um Verkürzung)
+  for (let y = 1; y <= 5; y++) {
+    const ljW = addMonths(startDate, 12 * y - verk);
+    if (ljW > startDate && ljW < ende) breakpoints.add(fmtISO(ljW));
+  }
+  const beruf = BERUFE.find(b => b.id === beruf_id);
+  if (beruf) beruf.tarife.forEach(t => {
+    const d = new Date(t.ab);
+    if (d > startDate && d < ende) breakpoints.add(fmtISO(d));
+  });
+  MINDESTVERGUETUNG.forEach(m => {
+    const d = new Date(m.ab);
+    if (d > startDate && d < ende) breakpoints.add(fmtISO(d));
+  });
+  for (let yr = startDate.getFullYear(); yr <= ende.getFullYear() + 1; yr++) {
+    const jan1 = new Date(yr, 0, 1);
+    if (jan1 > startDate && jan1 < ende) breakpoints.add(fmtISO(jan1));
+  }
+
+  const sorted = [...breakpoints].sort().map(s => parseISO(s));
+  sorted.push(new Date(ende));
+  let periodStart = new Date(startDate);
+  const perioden = [];
+
+  for (const bp of sorted) {
+    if (bp <= periodStart) continue;
+    const periodEnd = new Date(bp);
+    const monateAbBeginn = diffMonths(startDate, periodStart) + verk;
+    const lehrjahr = Math.min(3, Math.floor(monateAbBeginn / 12) + 1);
+    const vergVZ = getTarifVerguetung(beruf_id, periodStart, lehrjahr, startDate);
+    const vergEff = Math.round(vergVZ * (quote / 100));
+    const monateDauer = Math.max(0, diffMonths(periodStart, periodEnd));
+    const urlaubInfo = getJahresurlaub(beruf_id, geburtsdatum || null, periodStart.getFullYear());
+    const urlaubAnteilig = Math.round((monateDauer / 12) * urlaubInfo.tage * (quote/100) * 2) / 2;
+    perioden.push({
+      von: new Date(periodStart), bis: new Date(periodEnd),
+      lehrjahr, tzAktiv, quote, vergVZ, vergEff,
+      monateDauer: Math.round(monateDauer * 10) / 10,
+      urlaubTageJahr: urlaubInfo.tage, urlaubGrund: urlaubInfo.grund, urlaubAnteilig,
+    });
+    periodStart = new Date(bp);
+  }
+
+  // Merge gleicher Perioden
+  const merged = [];
+  for (const p of perioden) {
+    const last = merged[merged.length - 1];
+    if (last && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr && last.urlaubTageJahr === p.urlaubTageJahr) {
+      last.bis = p.bis;
+      last.monateDauer = Math.round(diffMonths(last.von, last.bis) * 10) / 10;
+      last.urlaubAnteilig = Math.round((last.monateDauer / 12) * last.urlaubTageJahr * (last.quote/100) * 2) / 2;
+    } else merged.push({ ...p });
+  }
+  return merged;
+}
+
+// ============================================================
+//  KENNZAHLEN
+// ============================================================
+function computeKennzahlen(cfg, tage, phasen) {
+  if (!cfg || !cfg.start_datum) return null;
+  // Phasen mit berechneten Enden (offene Phase wird aufgelöst)
+  const phasenMit = phasen?.length
+    ? phasenMitEnden(phasen, cfg.regulaer_dauer_monate, cfg.verkuerzung_monate)
+    : phasenMitEnden(
+        [{ id: -1, von: cfg.start_datum, bis: null, typ: "ausbildung", teilzeit_prozent: cfg.teilzeit_prozent || 100 }],
+        cfg.regulaer_dauer_monate, cfg.verkuerzung_monate
+      );
+
+  const start = parseISO(cfg.start_datum);
+  const ende = vertragsendeAusPhasen(phasenMit) || addMonths(start, cfg.regulaer_dauer_monate);
+  const heute = new Date();
+
+  // Aktuelle Phase
+  const aktPhase = aktivePhaseAm(phasenMit, heute);
+  const tz = (aktPhase?.teilzeit_prozent ?? cfg.teilzeit_prozent ?? 100) / 100;
+  const dauerFaktor = Math.min(1 / Math.max(tz, 0.01), 1.5);
+  const effektiveDauer = Math.max(6, cfg.regulaer_dauer_monate - (cfg.verkuerzung_monate || 0));
+  const dauer = Math.round(diffMonths(start, ende));
+
+  const kTageGes = Math.max(1, daysBetween(start, ende));
+  const kTageVorbei = Math.max(0, Math.min(kTageGes, daysBetween(start, heute)));
+  const progress = Math.round((kTageVorbei / kTageGes) * 100);
+
+  // Fehltage-Budget aus tatsächlichen Ausbildungstagen (ohne Unterbrechungen)
+  const ausbildungsTageGes = tatsaechlicheAusbildungsTage(phasenMit, false);
+  const atVollzeit = Math.round((ausbildungsTageGes / 7) * 5);
+  // gewichtetes Mittel der Teilzeit-Quoten über alle Ausbildungsphasen
+  const phasenAusb = phasenMit.filter(p => p.typ === "ausbildung");
+  const tzMittel = phasenAusb.length
+    ? phasenAusb.reduce((s, p) => s + ((p.teilzeit_prozent || 100) / 100) * (p._dauerMonate || 0), 0)
+      / Math.max(0.001, phasenAusb.reduce((s, p) => s + (p._dauerMonate || 0), 0))
+    : tz;
+  const atGes = Math.round(atVollzeit * tzMittel);
+  const fehltageSoft = Math.round(atGes * 0.10);
+  const fehltageHart = Math.round(atGes * 0.15);
+
+  const counts = {};
+  Object.keys(STATUS).forEach(k => counts[k] = 0);
+  Object.values(tage).forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+  // Pauschal-Fehltage aus Phasen dazuaddieren (nur Krank-Kategorie als Sammelposten)
+  const pf = pauschaleFehltage(phasen || []);
+  const krank = counts.krank + pf.summe;
+  const urlaubGenommen = counts.urlaub;
+  const anwesend = counts.anwesend + counts.berufsschule + counts.lerntag + counts.ueba;
+
+  // Aktuelles Lehrjahr basiert auf bereits erbrachter VZ-Ausbildungszeit + Verkürzung
+  const erbrachtVZ = phasenMit
+    .filter(p => p.typ === "ausbildung" && (p.bis ? parseISO(p.bis) <= heute : true))
+    .reduce((s, p) => {
+      const von = parseISO(p.von);
+      const bis = p.bis ? parseISO(p.bis) : heute;
+      const eff = bis < heute ? bis : heute;
+      if (eff < von) return s;
+      const monate = diffMonths(von, eff);
+      return s + monate * ((p.teilzeit_prozent || 100) / 100);
+    }, 0);
+  const aktLehrjahr = Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (cfg.verkuerzung_monate || 0)) / 12) + 1));
+
+  // Aktuelle Wochenstunden basieren auf aktiver Phase
+  const wochenstunden = +(cfg.vollzeit_wochenstunden * tz).toFixed(1);
+
+  // Vergütungs-Übersicht (jetzt phasen-bewusst!)
+  const perioden = berechneVerguetungsUebersichtPhasen(cfg, phasenMit);
+  const verguetungGesamt = perioden.reduce((s, p) => s + p.vergEff * p.monateDauer, 0);
+  const urlaubGesamt = Math.round(perioden.reduce((s, p) => s + p.urlaubAnteilig, 0));
+
+  // Aktuelle Vergütung (heute)
+  const aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis) || perioden[perioden.length - 1];
+  const aktVerg = aktPeriode ? aktPeriode.vergEff : 0;
+
+  // Prüfungstermin-Berechnung
+  const fruehPruef = fruehesterPruefungstermin(ende, false);
+  const fruehPruefVorzeitig = fruehesterPruefungstermin(ende, true);
+
+  const zpAutoDate = zpTerminAuto(start, dauer);
+  const apAutoDate = apTerminAuto(ende, cfg.vorzeitige_zulassung);
+
+  const zpManuell = !!cfg.zp_monat;
+  const apManuell = !!cfg.ap_monat;
+  const zpDate = zpManuell ? parseISO(cfg.zp_monat + "-15") : zpAutoDate;
+  const apDate = apManuell ? parseISO(cfg.ap_monat + "-15") : apAutoDate;
+
+  let naechsterMeilenstein = null;
+  if (zpDate > heute) naechsterMeilenstein = { titel: "Zwischenprüfung", datum: zpDate, tage: daysBetween(heute, zpDate), auto: !zpManuell };
+  else if (apDate > heute) naechsterMeilenstein = { titel: "Abschlussprüfung", datum: apDate, tage: daysBetween(heute, apDate), auto: !apManuell };
+  else if (ende > heute) naechsterMeilenstein = { titel: "Ende der Ausbildung", datum: ende, tage: daysBetween(heute, ende), auto: false };
+
+  return {
+    tz, tzMittel, dauerFaktor, dauer, effektiveDauer, wochenstunden,
+    start, ende, heute, kTageGes, kTageVorbei, progress,
+    atVollzeit, atGes, fehltageSoft, fehltageHart, ausbildungsTageGes,
+    counts, krank, urlaubGenommen, anwesend, pauschalFehltage: pf,
+    aktLehrjahr, naechsterMeilenstein,
+    perioden, verguetungGesamt, urlaubGesamt, aktVerg, aktPeriode,
+    fruehPruef, fruehPruefVorzeitig,
+    zpDate, apDate, zpManuell, apManuell,
+    phasenMit, aktPhase,
+  };
+}
+
+// ============================================================
+//  APP
+// ============================================================
+function App() {
+  const [loaded, setLoaded] = useState(false);
+  const [dbError, setDbError] = useState(null);
+  const [dbStatus, setDbStatus] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [tage, setTage] = useState({});
+  const [berichte, setBerichte] = useState([]);
+  const [phasen, setPhasen] = useState([]);
+  const [tab, setTab] = useState("uebersicht");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [pendingNav, setPendingNav] = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [statusBannerVisible, setStatusBannerVisible] = useState(false);
+  const [persistInfo, setPersistInfo] = useState({ backend: "unknown", state: null, modified: null });
+
+  async function ladeDaten() {
+    setConfig(dbGetConfig());
+    setTage(dbGetTage());
+    setBerichte(dbGetBerichte());
+    setPhasen(dbGetPhasen());
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const status = await initDatabase();
+        setDbStatus(status);
+        setPersistInfo(p => ({ ...p, backend: status.backend, modified: status.meta?.modified || null }));
+        await ladeDaten();
+        // Wenn keine Daten vorhanden sind → Willkommens-Screen mit Import-Option
+        if (!status.hatDaten) {
+          setShowWelcome(true);
+        } else {
+          // Bestehende DB → Status-Banner kurz einblenden
+          setStatusBannerVisible(true);
+          setTimeout(() => setStatusBannerVisible(false), 4500);
+        }
+      } catch (e) {
+        console.error(e);
+        setDbError(e.message || "Datenbank konnte nicht geladen werden");
+      }
+      setLoaded(true);
+    })();
+
+    const unsub = onPersistStatus(s => {
+      setPersistInfo(p => ({
+        ...p,
+        state: s.state,
+        message: s.message || null,
+        modified: s.modified || p.modified,
+      }));
+    });
+    const onBeforeUnload = (e) => {
+      if (_pendingSave || _storageBackend === "none") {
+        e.preventDefault();
+        e.returnValue = "Es gibt ungespeicherte Änderungen.";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => { unsub(); window.removeEventListener("beforeunload", onBeforeUnload); };
+  }, []);
+
+  const flash = () => { setSaveStatus("saved"); setTimeout(() => setSaveStatus("idle"), 1400); };
+
+  function saveConfig(c) {
+    setSaveStatus("saving");
+    dbSaveConfig(c);
+    setConfig(c);
+    // Wenn dies das Ersterstellen einer Config ist, lege gleich eine erste Phase an
+    const existingPhasen = dbGetPhasen();
+    if (!existingPhasen.length && c.start_datum) {
+      dbAddPhase({
+        von: c.start_datum, bis: null, typ: "ausbildung",
+        teilzeit_prozent: c.teilzeit_prozent || 100,
+        anmerkung: "Initial-Phase aus Onboarding",
+      });
+    }
+    setPhasen(dbGetPhasen());
+    flash();
+  }
+  function reloadPhasen() { setPhasen(dbGetPhasen()); flash(); }
+  function savePhase(id, p) { setSaveStatus("saving"); dbUpdatePhase(id, p); reloadPhasen(); }
+  function addPhase(p) { setSaveStatus("saving"); dbAddPhase(p); reloadPhasen(); }
+  function deletePhase(id) { dbDeletePhase(id); setPhasen(dbGetPhasen()); }
+
+  function saveTag(datum, data) {
+    setSaveStatus("saving");
+    const e = { datum, ...data };
+    dbSaveTag(datum, data);
+    setTage(p => ({ ...p, [datum]: e }));
+    flash();
+  }
+  function deleteTag(datum) {
+    dbDeleteTag(datum);
+    setTage(p => { const n = { ...p }; delete n[datum]; return n; });
+  }
+  function saveBericht(b) {
+    setSaveStatus("saving");
+    dbSaveBericht(b);
+    setBerichte(p => [...p.filter(x => x.datum !== b.datum), b].sort((a, b) => b.datum.localeCompare(a.datum)));
+    flash();
+  }
+  function deleteBericht(datum) {
+    dbDeleteBericht(datum);
+    setBerichte(p => p.filter(b => b.datum !== datum));
+  }
+
+  function openBerichtForDate(datum) { setPendingNav({ target: "berichte", datum }); setTab("berichte"); }
+  function openTagForDate(datum) { setPendingNav({ target: "kalender", datum }); setTab("kalender"); }
+  const berichteByDatum = useMemo(() => {
+    const m = {}; berichte.forEach(b => (m[b.datum] = b)); return m;
+  }, [berichte]);
+
+  const k = useMemo(() => computeKennzahlen(config, tage, phasen), [config, tage, phasen]);
+  const beratungsModus = config?.modus === "beratung";
+
+  if (!loaded) return <Loading />;
+  if (dbError) return <DbError message={dbError} />;
+  if (showWelcome && !config) return <WelcomeScreen status={dbStatus}
+    onNeu={() => setShowWelcome(false)}
+    onImport={async (file) => {
+      try {
+        await importDbFromFile(file);
+        window.location.reload();
+      } catch (e) {
+        alert("Import fehlgeschlagen: " + (e.message || e));
+      }
+    }} />;
+  if (!config) return <Onboarding onSave={saveConfig} />;
+
+  return (
+    <div className="min-h-screen" style={{ background: "#f7f4ec", fontFamily: "'IBM Plex Sans', system-ui, sans-serif", color: "#1a1a1a" }}>
+      <Fonts />
+      <PrintStyles />
+      {statusBannerVisible && dbStatus && <DbStatusBanner status={dbStatus} onClose={() => setStatusBannerVisible(false)} />}
+      <Header config={config} saveStatus={saveStatus} persistInfo={persistInfo} />
+      <Nav tab={tab} setTab={setTab} beratungsModus={beratungsModus} />
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pb-16">
+        {tab === "uebersicht"    && <Uebersicht config={config} tage={tage} k={k} berichte={berichte} phasen={phasen} />}
+        {tab === "kalender"      && !beratungsModus && <Kalender config={config} tage={tage} berichteByDatum={berichteByDatum}
+                                              saveTag={saveTag} deleteTag={deleteTag}
+                                              pendingNav={pendingNav} clearPendingNav={() => setPendingNav(null)}
+                                              onOpenBericht={openBerichtForDate} />}
+        {tab === "berichte"      && !beratungsModus && <Berichte config={config} berichte={berichte} tage={tage}
+                                              saveBericht={saveBericht} deleteBericht={deleteBericht}
+                                              pendingNav={pendingNav} clearPendingNav={() => setPendingNav(null)}
+                                              onOpenTag={openTagForDate} />}
+        {tab === "statistik"     && <Statistik config={config} tage={tage} k={k} berichte={berichte} phasen={phasen} />}
+        {tab === "einstellungen" && <Einstellungen config={config} saveConfig={saveConfig}
+                                                   phasen={phasen} addPhase={addPhase}
+                                                   savePhase={savePhase} deletePhase={deletePhase} />}
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+function DbError({ message }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f4ec" }}>
+      <Fonts />
+      <div className="paper max-w-md p-6">
+        <div className="flex items-center gap-2 mb-3 text-[#b04545]">
+          <AlertTriangle size={20} />
+          <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>Datenbank-Fehler</h2>
+        </div>
+        <p className="text-sm text-[#4a4a4a] mb-4">{message}</p>
+        <button className="btn-primary" onClick={() => window.location.reload()}>Neu laden</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  WILLKOMMEN (leere DB)
+// ============================================================
+function WelcomeScreen({ status, onNeu, onImport }) {
+  const fileInput = useRef(null);
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f4ec" }}>
+      <Fonts />
+      <div className="paper max-w-xl w-full p-8 sm:p-10">
+        <div className="flex items-center gap-2 mb-6">
+          <Sprout className="text-[#2d5a3d]" size={22} />
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Willkommen</div>
+        </div>
+        <h1 className="font-display text-3xl mb-3" style={{ fontWeight: 600 }}>Ausbildungs-Dashboard</h1>
+        <p className="text-sm text-[#4a4a4a] mb-6 leading-relaxed">
+          Es wurde keine bestehende Datenbank gefunden. Du kannst neu anfangen oder eine zuvor
+          exportierte SQLite-Datei wieder einlesen.
+        </p>
+
+        <div className="p-3 rounded-sm text-xs mb-6 flex items-start gap-2" style={{ background: "#f0ece0", color: "#4a4a4a" }}>
+          <Database size={14} style={{ color: "#2d5a3d", marginTop: 1 }} />
+          <div>
+            <div className="font-medium mb-0.5">Datenhaltung</div>
+            Deine Eingaben werden lokal im Browser in einer SQLite-Datenbank gespeichert (via IndexedDB).
+            Nichts wird an einen Server gesendet. Zur Sicherung kannst du die DB jederzeit als
+            <code className="font-mono mx-1 px-1 rounded" style={{ background: "#e5e0d4" }}>.db</code>-Datei
+            herunterladen.
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          <button onClick={onNeu}
+            className="text-left p-4 rounded-sm transition-all hover:bg-[#e8f0e0]"
+            style={{ background: "#fff", border: "2px solid #2d5a3d" }}>
+            <div className="flex items-start gap-3">
+              <Plus size={22} style={{ color: "#2d5a3d", marginTop: 2 }} />
+              <div>
+                <div className="font-medium text-base mb-1" style={{ color: "#2d5a3d" }}>Neu anlegen</div>
+                <div className="text-sm text-[#6b6b6b] leading-snug">
+                  Eigene Ausbildung dokumentieren oder einen Beratungsfall modellieren.
+                </div>
+              </div>
+            </div>
+          </button>
+
+          <button onClick={() => fileInput.current?.click()}
+            className="text-left p-4 rounded-sm transition-all hover:bg-[#f0ece0]"
+            style={{ background: "#fff", border: "1px solid #d0cabc" }}>
+            <div className="flex items-start gap-3">
+              <Upload size={22} style={{ color: "#6b6b6b", marginTop: 2 }} />
+              <div>
+                <div className="font-medium text-base mb-1">Bestehende .db-Datei importieren</div>
+                <div className="text-sm text-[#6b6b6b] leading-snug">
+                  Eine zuvor exportierte SQLite-Datei einlesen (z. B. von einem anderen Gerät).
+                </div>
+              </div>
+            </div>
+          </button>
+          <input ref={fileInput} type="file" accept=".db,.sqlite,.sqlite3,application/x-sqlite3" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) onImport(f); }} />
+        </div>
+
+        <div className="mt-6 pt-4 border-t text-[10px] text-[#9a9a9a] font-mono" style={{ borderColor: "#efece2" }}>
+          DB-Status: leer · sql.js {status?.bytes != null ? `(${status.bytes} Bytes erkannt, aber keine Daten)` : "(keine DB in IndexedDB)"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  STATUS-BANNER (DB wurde gefunden)
+// ============================================================
+function DbStatusBanner({ status, onClose }) {
+  const { counts, meta, bytes } = status;
+  const geaendert = meta?.modified ? new Date(meta.modified) : null;
+  const minAgo = geaendert ? Math.round((Date.now() - geaendert.getTime()) / 60000) : null;
+  const zeit = !geaendert ? "neu" :
+    minAgo < 1 ? "gerade eben" :
+    minAgo < 60 ? `vor ${minAgo} Min.` :
+    minAgo < 1440 ? `vor ${Math.round(minAgo / 60)} Std.` :
+    geaendert.toLocaleDateString("de-DE");
+  const parts = [];
+  if (counts.phasen > 0) parts.push(`${counts.phasen} Phase${counts.phasen !== 1 ? "n" : ""}`);
+  if (counts.berichte > 0) parts.push(`${counts.berichte} Bericht${counts.berichte !== 1 ? "e" : ""}`);
+  if (counts.tage > 0) parts.push(`${counts.tage} Kalendertag${counts.tage !== 1 ? "e" : ""}`);
+  const zusammenfassung = parts.length ? parts.join(" · ") : "Stammdaten vorhanden";
+  const kb = Math.round(bytes / 1024);
+  return (
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 no-print" style={{ animation: "slideDown 0.3s ease-out" }}>
+      <div className="flex items-center gap-2 px-4 py-2 rounded-sm shadow-sm text-sm"
+           style={{ background: "#e8f0e0", border: "1px solid #c9dcc1", color: "#2d5a3d" }}>
+        <Database size={14} />
+        <span className="font-medium">SQLite-DB geladen</span>
+        <span className="text-[#6b6b6b] text-xs">· {zusammenfassung}</span>
+        <span className="text-[#9a9a9a] text-xs font-mono">· {kb} KB · {zeit}</span>
+        <button onClick={onClose} className="ml-2 p-0.5 hover:bg-[#d0e0c0] rounded-sm"><X size={11} /></button>
+      </div>
+      <style>{`@keyframes slideDown { from { opacity: 0; transform: translate(-50%, -12px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
+    </div>
+  );
+}
+
+// ============================================================
+//  STYLES
+// ============================================================
+function Fonts() {
+  return <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    .font-display { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; letter-spacing: -0.01em; }
+    .font-mono    { font-family: 'IBM Plex Mono', monospace; }
+    .paper { background: #fff; border: 1px solid #e5e0d4; border-radius: 4px; box-shadow: 0 1px 0 rgba(60,40,20,0.03), 0 4px 16px -8px rgba(60,40,20,0.06); }
+    .btn-primary { background: #2d5a3d; color: #f7f4ec; padding: 0.55rem 1.1rem; border-radius: 3px; font-weight: 500; font-size: 0.9rem; transition: background 0.15s; }
+    .btn-primary:hover { background: #1e4028; }
+    .btn-primary:disabled { background: #9aa89a; cursor: not-allowed; }
+    .btn-ghost { padding: 0.5rem 1rem; border-radius: 3px; font-size: 0.9rem; color: #1a1a1a; border: 1px solid #d0cabc; background: #fff; transition: all 0.15s; }
+    .btn-ghost:hover { border-color: #2d5a3d; color: #2d5a3d; }
+    .input-base { background: #fff; border: 1px solid #d0cabc; border-radius: 3px; padding: 0.55rem 0.75rem; font-size: 0.92rem; font-family: inherit; width: 100%; transition: border 0.15s; }
+    .input-base:focus { outline: none; border-color: #2d5a3d; box-shadow: 0 0 0 3px rgba(45,90,61,0.1); }
+    .label-base { font-size: 0.7rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: #6b6b6b; margin-bottom: 0.35rem; display: block; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.5s ease-out both; }
+  `}</style>;
+}
+
+function PrintStyles() {
+  return <style>{`
+    @media print {
+      body { background: #fff !important; }
+      nav, header, footer, .no-print { display: none !important; }
+      .print-area { display: block !important; }
+      .print-page { page-break-after: always; padding: 1.5cm 1.2cm; background: #fff !important; }
+      .print-page:last-child { page-break-after: auto; }
+      @page { size: A4; margin: 0; }
+    }
+    @media screen {
+      .print-area { display: none; }
+    }
+  `}</style>;
+}
+
+function Loading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f4ec" }}>
+      <Fonts />
+      <div className="flex items-center gap-3 text-[#2d5a3d]">
+        <Sprout className="animate-pulse" size={28} />
+        <span className="font-display text-xl">Lade Ausbildungsdaten …</span>
+      </div>
+    </div>
+  );
+}
+
+function Header({ config, saveStatus, persistInfo }) {
+  const beruf = BERUFE.find(b => b.id === config.beruf_id);
+  const backend = persistInfo?.backend || "unknown";
+  const istFehler = persistInfo?.state === "error";
+  const istInMemory = backend === "none";
+
+  return (
+    <header className="border-b no-print" style={{ borderColor: "#e0dac8", background: "#fff" }}>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-2 rounded-sm" style={{ background: "#2d5a3d" }}>
+            <Sprout size={22} className="text-[#f7f4ec]" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl sm:text-3xl truncate" style={{ fontWeight: 600 }}>Ausbildungs-Dashboard</h1>
+            <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mt-0.5 truncate">
+              {beruf?.label || "Gärtner/in"}{config.name && <> &nbsp;·&nbsp; {config.name}</>}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {(istInMemory || istFehler) && (
+            <div className="text-xs px-2 py-1 rounded-sm flex items-center gap-1"
+                 style={{ background: "#fce8e0", border: "1px solid #e8b890", color: "#8a4a1a" }}
+                 title={istFehler ? persistInfo.message : "Änderungen werden NICHT gespeichert – bitte regelmäßig .db exportieren!"}>
+              <AlertTriangle size={12} />
+              <span className="hidden sm:inline">{istFehler ? "Speicherfehler" : "Nicht gespeichert"}</span>
+            </div>
+          )}
+          <div className="text-xs text-[#6b6b6b] font-mono min-h-[1rem]" title={backend === "indexeddb" ? "IndexedDB" : backend === "localstorage" ? "LocalStorage" : "Kein persistenter Speicher"}>
+            {saveStatus === "saving" && "speichere …"}
+            {saveStatus === "saved" && !istInMemory && "✓ gespeichert"}
+            {saveStatus === "idle" && persistInfo?.modified && (
+              <span className="hidden sm:inline">zuletzt: {new Date(persistInfo.modified).toLocaleTimeString("de-DE", { hour:"2-digit", minute:"2-digit" })}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Nav({ tab, setTab, beratungsModus }) {
+  const tabs = [
+    { id: "uebersicht",    label: "Übersicht",     icon: Flag },
+    { id: "kalender",      label: "Kalender",      icon: Calendar, vollOnly: true },
+    { id: "berichte",      label: "Berichtsheft",  icon: NotebookPen, vollOnly: true },
+    { id: "statistik",     label: "Statistik",     icon: BarChart3 },
+    { id: "einstellungen", label: "Einstellungen", icon: Settings },
+  ].filter(t => !beratungsModus || !t.vollOnly);
+  return (
+    <nav className="border-b sticky top-0 z-10 backdrop-blur no-print" style={{ borderColor: "#e0dac8", background: "rgba(247,244,236,0.92)" }}>
+      <div className="max-w-6xl mx-auto px-2 sm:px-6 flex overflow-x-auto items-center">
+        {tabs.map(t => {
+          const Ic = t.icon, a = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className="flex items-center gap-2 px-3 sm:px-5 py-3.5 text-sm whitespace-nowrap relative"
+              style={{ color: a ? "#2d5a3d" : "#6b6b6b", fontWeight: a ? 600 : 400 }}>
+              <Ic size={16} />{t.label}
+              {a && <span className="absolute bottom-0 left-2 right-2 sm:left-5 sm:right-5 h-[2px]" style={{ background: "#2d5a3d" }} />}
+            </button>
+          );
+        })}
+        {beratungsModus && (
+          <span className="ml-auto mr-3 text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm whitespace-nowrap"
+                style={{ background: "#fdf7e3", color: "#7a5a1a", border: "1px solid #e8d9a8" }}>
+            Beratungsmodus
+          </span>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function Footer() {
+  return <footer className="text-center text-xs text-[#6b6b6b] py-8 font-mono no-print">
+    Ausbildungs-Dashboard · §§ 7a, 17, 43, 45 BBiG · § 19 JArbSchG · Tarif + Mindestvergütung
+  </footer>;
+}
+
+function Field({ label, children, hint }) {
+  return (
+    <div>
+      <label className="label-base">{label}</label>
+      {children}
+      {hint && <div className="text-xs text-[#6b6b6b] mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  ONBOARDING
+// ============================================================
+function ModusAuswahl({ form, upd }) {
+  const optionen = [
+    { id: "vollstaendig", titel: "Eigene Ausbildung dokumentieren",
+      beschr: "Vollständig: Stammdaten, Berichtsheft, Kalender, Fehltage, Wetter, Vergütung & Prüfungen.",
+      icon: GraduationCap },
+    { id: "beratung", titel: "Beratungsfall prüfen",
+      beschr: "Reduziert: nur Stammdaten, Phasen-/Verlaufsmodellierung & Zulassungsvoraussetzungen. Kein Berichtsheft, kein Tageskalender.",
+      icon: FileText },
+  ];
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-[#4a4a4a] leading-relaxed">
+        Diese Auswahl bestimmt, welche Funktionen dir angezeigt werden. Du kannst sie später
+        in den Einstellungen ändern.
+      </p>
+      {optionen.map(o => {
+        const Ic = o.icon, akt = form.modus === o.id;
+        return (
+          <button key={o.id} onClick={() => upd("modus", o.id)}
+            className="w-full text-left p-4 rounded-sm transition-all"
+            style={{
+              background: akt ? "#e8f0e0" : "#fff",
+              border: akt ? "2px solid #2d5a3d" : "1px solid #d0cabc",
+            }}>
+            <div className="flex items-start gap-3">
+              <Ic size={24} style={{ color: akt ? "#2d5a3d" : "#6b6b6b", marginTop: 2 }} />
+              <div>
+                <div className="font-medium text-base mb-1" style={{ color: akt ? "#2d5a3d" : "#1a1a1a" }}>{o.titel}</div>
+                <div className="text-sm text-[#6b6b6b] leading-snug">{o.beschr}</div>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Onboarding({ onSave }) {
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState({
+    ...DEFAULT_CONFIG,
+    start_datum: naechsterSeptember(),
+    modus: "vollstaendig",
+  });
+  const upd = (p, v) => setForm(prev => {
+    const c = JSON.parse(JSON.stringify(prev));
+    const parts = p.split("."); let cur = c;
+    for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
+    cur[parts[parts.length - 1]] = v;
+    return c;
+  });
+
+  const istBeratung = form.modus === "beratung";
+
+  const allSteps = [
+    { id: "modus", title: "Wie möchtest du das Tool nutzen?", body: <ModusAuswahl form={form} upd={upd} /> },
+    { id: "name", title: istBeratung ? "Beratungsfall anlegen" : "Willkommen", body: (
+      <div className="space-y-4">
+        <p className="text-[#4a4a4a] leading-relaxed">
+          {istBeratung
+            ? "Lege einen Namen oder eine Bezeichnung für diesen Fall an (z. B. Aktenzeichen oder Initialen)."
+            : "Dieses Dashboard begleitet durch die Gärtner-Ausbildung. Vergütung und Urlaub werden automatisch nach den aktuellen Tarifen und dem gesetzlichen Rahmen berechnet."
+          }
+        </p>
+        <Field label={istBeratung ? "Bezeichnung / Name" : "Name (optional)"}>
+          <input className="input-base" value={form.name} onChange={e => upd("name", e.target.value)} />
+        </Field>
+      </div>
+    )},
+    { id: "fachrichtung", title: "Fachrichtung & Start", body: (
+      <div className="space-y-4">
+        <Field label="Fachrichtung">
+          <select className="input-base" value={form.beruf_id} onChange={e => upd("beruf_id", e.target.value)}>
+            {BERUFE.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Ausbildungsbeginn">
+          <input type="date" className="input-base" value={form.start_datum} onChange={e => upd("start_datum", e.target.value)} />
+        </Field>
+        <Field label="Geburtsdatum (optional)" hint="Für exakte Urlaubsberechnung nach § 19 JArbSchG bei Jugendlichen.">
+          <input type="date" className="input-base" value={form.geburtsdatum} onChange={e => upd("geburtsdatum", e.target.value)} />
+        </Field>
+        {istBeratung && (
+          <div className="text-xs p-2.5 rounded-sm leading-relaxed" style={{ background: "#f7f4ec", border: "1px solid #e5e0d4", color: "#4a4a4a" }}>
+            Im nächsten Schritt nach dem Speichern kannst du in den Einstellungen Phasen
+            (Teilzeit ab x, Unterbrechungen, Betriebswechsel) und bisherige Fehltage eintragen.
+          </div>
+        )}
+      </div>
+    )},
+    { id: "anpassung", title: "Anpassungen", body: <AnpassungsPanel form={form} upd={upd} />, voll: true },
+    { id: "pruefung", title: "Berufsschule & Prüfungen", body: <PruefungsPanel form={form} upd={upd} />, voll: true },
+    { id: "standort", title: "Standort (optional)", body: (
+      <div className="space-y-4">
+        <p className="text-xs text-[#6b6b6b] leading-relaxed">
+          Der Standort wird für den automatischen Wetter-Connector im Berichtsheft verwendet (Open-Meteo,
+          keine Anmeldung nötig). Kann auch später ergänzt werden.
+        </p>
+        <StandortFeld form={form} upd={upd} />
+      </div>
+    ), voll: true },
+  ];
+  const steps = allSteps.filter(s => !s.voll || !istBeratung);
+
+  // Wenn der Modus-Wechsel die Schrittliste verkürzt hat, kappe den step-Index
+  const safeStep = Math.min(step, steps.length - 1);
+  const cur = steps[safeStep], last = safeStep === steps.length - 1;
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f4ec" }}>
+      <Fonts />
+      <div className="paper max-w-xl w-full p-8 sm:p-10">
+        <div className="flex items-center gap-2 mb-6">
+          <Sprout className="text-[#2d5a3d]" size={22} />
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Schritt {safeStep + 1} von {steps.length}</div>
+        </div>
+        <h2 className="font-display text-3xl mb-6" style={{ fontWeight: 600 }}>{cur.title}</h2>
+        {cur.body}
+        <div className="flex justify-between items-center gap-3 mt-8 pt-6" style={{ borderTop: "1px solid #e5e0d4" }}>
+          {safeStep > 0 ? <button className="btn-ghost" onClick={() => setStep(safeStep - 1)}>Zurück</button> : <span />}
+          {last ? <button className="btn-primary" onClick={() => onSave(form)}>Dashboard starten →</button>
+                : <button className="btn-primary" onClick={() => setStep(safeStep + 1)}>Weiter →</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnpassungsPanel({ form, upd }) {
+  const tz = form.teilzeit_prozent / 100;
+  const dauerFaktor = Math.min(1 / tz, 1.5);
+  const effektiveDauer = Math.max(6, form.regulaer_dauer_monate - (form.verkuerzung_monate || 0));
+  const dauer = Math.round(effektiveDauer * dauerFaktor);
+  const wochenstunden = +(form.vollzeit_wochenstunden * tz).toFixed(1);
+
+  // Live-Vorschau der Prüfungstermine
+  let ende = null, zpDate = null, apDate = null;
+  if (form.start_datum) {
+    const start = parseISO(form.start_datum);
+    ende = addMonths(start, dauer);
+    zpDate = zpTerminAuto(start, dauer);
+    apDate = apTerminAuto(ende, form.vorzeitige_zulassung);
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Verkürzung § 8 BBiG */}
+      <div>
+        <label className="label-base">Verkürzung (§ 8 BBiG)</label>
+        <select className="input-base" value={form.verkuerzung_monate}
+          onChange={e => upd("verkuerzung_monate", parseInt(e.target.value))}>
+          <option value="0">Keine Verkürzung</option>
+          <option value="6">6 Monate (z. B. Realschulabschluss)</option>
+          <option value="12">12 Monate (z. B. Fachhochschulreife / Abitur)</option>
+          <option value="18">18 Monate (in Ausnahmefällen)</option>
+        </select>
+        <p className="text-xs text-[#6b6b6b] mt-1">
+          Auf gemeinsamen Antrag von Betrieb und Azubi. Die Kammer bzw. das RP entscheidet im Einzelfall.
+        </p>
+      </div>
+
+      {/* Teilzeit § 7a BBiG */}
+      <div>
+        <label className="label-base">Teilzeit (§ 7a BBiG)</label>
+        <div className="flex items-center gap-4">
+          <input type="range" min="50" max="100" step="5" value={form.teilzeit_prozent}
+            onChange={e => upd("teilzeit_prozent", parseInt(e.target.value))} className="flex-1 accent-[#2d5a3d]" />
+          <div className="font-display text-2xl w-20 text-right" style={{ color: "#2d5a3d", fontWeight: 600 }}>
+            {form.teilzeit_prozent}%
+          </div>
+        </div>
+        <p className="text-xs text-[#6b6b6b] mt-1">
+          100 % = Vollzeit. Dauer verlängert sich umgekehrt proportional (50 % = doppelt), max. 1,5-fach (§ 7a BBiG).
+        </p>
+      </div>
+
+      {/* Vorzeitige Zulassung § 45 BBiG */}
+      <label className="flex items-start gap-3 p-3 rounded-sm cursor-pointer" style={{ background: "#fcfaf3", border: "1px solid #e5e0d4" }}>
+        <input type="checkbox" checked={form.vorzeitige_zulassung}
+          onChange={e => upd("vorzeitige_zulassung", e.target.checked)}
+          className="mt-0.5 accent-[#2d5a3d]" />
+        <div>
+          <div className="text-sm font-medium">Vorzeitige Zulassung zur Abschlussprüfung (§ 45 BBiG)</div>
+          <div className="text-xs text-[#6b6b6b] mt-0.5">
+            Nur bei guter Prognose: Zwischenprüfung&nbsp;Ø <strong>mindestens überdurchschnittlich</strong>.
+            AP findet dann einen Prüfungstermin früher (≈ 6 Monate) statt.
+          </div>
+        </div>
+      </label>
+
+      {/* Live-Vorschau */}
+      <div className="p-4 rounded-sm" style={{ background: "#f7f4ec", border: "1px solid #e5e0d4" }}>
+        <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-3">Live-Vorschau</div>
+        <div className="grid grid-cols-2 gap-y-2 text-sm">
+          <div className="text-[#6b6b6b]">Effektive Dauer</div>
+          <div className="font-mono text-right">{dauer} Monate{form.verkuerzung_monate > 0 && ` (−${form.verkuerzung_monate})`}{tz < 1 && ` (×${dauerFaktor.toFixed(2)})`}</div>
+          <div className="text-[#6b6b6b]">Wochenstunden</div>
+          <div className="font-mono text-right">{wochenstunden} h</div>
+          {ende && <>
+            <div className="text-[#6b6b6b]">Vertragsende</div>
+            <div className="font-mono text-right">{fmtDE(ende)}</div>
+            <div className="text-[#6b6b6b]">Zwischenprüfung</div>
+            <div className="font-mono text-right">{zpDate ? `${DE_MONTHS_SHORT[zpDate.getMonth()]} ${zpDate.getFullYear()}` : "–"}</div>
+            <div className="text-[#6b6b6b]">Abschlussprüfung</div>
+            <div className="font-mono text-right">{apDate ? `${DE_MONTHS_SHORT[apDate.getMonth()]} ${apDate.getFullYear()}` : "–"}</div>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PruefungsPanel({ form, upd }) {
+  // Effektive Dauer für ZP-Mitte-Schätzung (vor Teilzeit-Strecken)
+  const tz = form.teilzeit_prozent / 100;
+  const dauerFaktor = Math.min(1 / tz, 1.5);
+  const effektiveDauer = Math.max(6, form.regulaer_dauer_monate - (form.verkuerzung_monate || 0));
+  const dauer = Math.round(effektiveDauer * dauerFaktor);
+  const start = form.start_datum ? parseISO(form.start_datum) : null;
+  const ende = start ? addMonths(start, dauer) : null;
+  // ZP: nächstgelegener Feb/Juli-Termin zur Ausbildungs-Mitte.
+  // AP: letzter Feb/Juli-Termin ≤ Vertragsende + 14 Tage. Mit vorzeitiger Zulassung:
+  // ein Termin zuvor (~6 Monate früher).
+  const zpAuto = zpTerminAuto(start, dauer);
+  const apAuto = apTerminAuto(ende, form.vorzeitige_zulassung);
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+
+  // Auto-Vorbelegung: setzt Vorschlag als Wert, merkt sich den zuletzt gesetzten
+  // Vorschlag per Ref. Wenn der User manuell einen anderen Wert einträgt,
+  // wird nicht mehr überschrieben. Beim Mount wird der Ref initialisiert, falls
+  // der bestehende Wert dem aktuellen Auto-Vorschlag entspricht.
+  const prevZpRef = useRef(zpAuto && form.zp_monat === fmt(zpAuto) ? form.zp_monat : null);
+  const prevApRef = useRef(apAuto && form.ap_monat === fmt(apAuto) ? form.ap_monat : null);
+  useEffect(() => {
+    const zpNeu = zpAuto ? fmt(zpAuto) : null;
+    const apNeu = apAuto ? fmt(apAuto) : null;
+    if (zpNeu && (!form.zp_monat || form.zp_monat === prevZpRef.current)) {
+      if (form.zp_monat !== zpNeu) upd("zp_monat", zpNeu);
+    }
+    prevZpRef.current = zpNeu;
+    if (apNeu && (!form.ap_monat || form.ap_monat === prevApRef.current)) {
+      if (form.ap_monat !== apNeu) upd("ap_monat", apNeu);
+    }
+    prevApRef.current = apNeu;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zpAuto?.getTime(), apAuto?.getTime()]);
+
+  return (
+    <div className="space-y-4">
+      <Field label="Berufsschul-Modus">
+        <select className="input-base" value={form.berufsschule_modus} onChange={e => upd("berufsschule_modus", e.target.value)}>
+          <option value="regulaer">Regulärer Berufsschulbesuch</option>
+          <option value="lerntag">Lerntag statt Berufsschule (§ 14 BBiG)</option>
+          <option value="keine">Keine Berufsschule</option>
+        </select>
+      </Field>
+      {form.berufsschule_modus === "keine" && (
+        <div className="text-xs p-2.5 rounded-sm leading-relaxed" style={{ background: "#fdf7e3", border: "1px solid #e8d9a8", color: "#7a5a1a" }}>
+          <AlertTriangle size={12} className="inline mr-1 -mt-0.5" />
+          Auch ohne Berufsschulbesuch sind Zwischen- und Abschlussprüfung (jeweils schriftlich&nbsp;+&nbsp;praktisch) für alle Auszubildenden verpflichtend.
+        </div>
+      )}
+      <p className="text-xs text-[#6b6b6b] leading-relaxed">
+        Prüfungstermine sind immer entweder <strong>Winter (Februar)</strong> oder <strong>Sommer (Juli)</strong>.
+        Die Vorschläge orientieren sich am Verlauf und der 2-Wochen-Regel vor Vertragsende. Sobald der
+        konkrete Termin von der zuständigen Stelle bekannt ist, einfach überschreiben.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Zwischenprüfung" hint={form.zp_monat === (zpAuto && fmt(zpAuto)) ? "aus Verlauf berechnet" : "manuell gesetzt"}>
+          <input type="month" className="input-base" value={form.zp_monat || ""}
+            onChange={e => upd("zp_monat", e.target.value)} />
+        </Field>
+        <Field label="Abschlussprüfung" hint={form.ap_monat === (apAuto && fmt(apAuto)) ? "aus Verlauf berechnet" : "manuell gesetzt"}>
+          <input type="month" className="input-base" value={form.ap_monat || ""}
+            onChange={e => upd("ap_monat", e.target.value)} />
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+// (alte Kompatibilität – wird nicht mehr genutzt, bleibt aber für evtl. Referenzen)
+function TeilzeitPanel({ form, upd }) { return <AnpassungsPanel form={form} upd={upd} />; }
+
+function StandortFeld({ form, upd }) {
+  const [suche, setSuche] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [treffer, setTreffer] = useState([]);
+
+  async function geocode() {
+    if (!suche.trim()) return;
+    setLoading(true); setError(""); setTreffer([]);
+    try {
+      const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(suche)}&count=8&language=de&format=json`);
+      const data = await r.json();
+      const res = data.results || [];
+      if (!res.length) setError("Ort nicht gefunden");
+      else if (res.length === 1) waehle(res[0]);
+      else setTreffer(res);
+    } catch { setError("Suche fehlgeschlagen"); }
+    setLoading(false);
+  }
+
+  function waehle(g) {
+    const teile = [g.name];
+    if (g.admin2 && g.admin2 !== g.name) teile.push(g.admin2);
+    if (g.admin1) teile.push(g.admin1);
+    if (g.country_code && g.country_code !== "DE") teile.push(g.country_code);
+    const label = teile.join(", ");
+    upd("standort_name", label);
+    upd("standort_lat", g.latitude);
+    upd("standort_lng", g.longitude);
+    setSuche("");
+    setTreffer([]);
+  }
+
+  function entfernen() {
+    upd("standort_name", null);
+    upd("standort_lat", null);
+    upd("standort_lng", null);
+    setTreffer([]);
+    setSuche("");
+  }
+
+  return (
+    <div className="space-y-3">
+      <Field label="Ort suchen">
+        <div className="flex gap-2">
+          <input className="input-base flex-1" value={suche} onChange={e => setSuche(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && (e.preventDefault(), geocode())} placeholder="z. B. Ihringen" />
+          <button className="btn-primary" onClick={geocode} disabled={loading}>
+            {loading ? "…" : "Suchen"}
+          </button>
+        </div>
+      </Field>
+      {error && <div className="text-xs text-[#b04545]">{error}</div>}
+
+      {/* Mehrere Treffer zur Auswahl */}
+      {treffer.length > 0 && (
+        <div className="rounded-sm overflow-hidden" style={{ border: "1px solid #e5e0d4", background: "#fff" }}>
+          <div className="px-3 py-2 text-xs uppercase tracking-widest text-[#6b6b6b]" style={{ background: "#fcfaf3", borderBottom: "1px solid #e5e0d4" }}>
+            {treffer.length} Treffer – bitte auswählen
+          </div>
+          {treffer.map((g, i) => {
+            const subtitle = [g.admin2, g.admin1, g.country].filter(Boolean).join(" · ");
+            return (
+              <button key={i} onClick={() => waehle(g)}
+                className="w-full text-left px-3 py-2.5 hover:bg-[#f7f4ec] transition-colors"
+                style={{ borderBottom: i < treffer.length - 1 ? "1px solid #efece2" : "none" }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{g.name}{g.postcodes?.[0] && <span className="text-[#6b6b6b] font-normal"> · {g.postcodes[0]}</span>}</div>
+                    <div className="text-xs text-[#6b6b6b] truncate">{subtitle || "—"}</div>
+                  </div>
+                  <div className="text-[10px] font-mono text-[#9a9a9a] whitespace-nowrap">
+                    {g.latitude.toFixed(3)}, {g.longitude.toFixed(3)}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Aktueller Standort */}
+      {form.standort_lat != null && (
+        <div className="p-3 rounded-sm" style={{ background: "#e8f0e0", border: "1px solid #c9dcc1" }}>
+          <div className="flex items-start gap-2">
+            <MapPin size={16} style={{ color: "#2d5a3d", marginTop: 2 }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">{form.standort_name}</div>
+              <div className="text-xs text-[#6b6b6b] font-mono mt-0.5">
+                {(+form.standort_lat).toFixed(4)}, {(+form.standort_lng).toFixed(4)}
+                {" · "}
+                <a href={`https://www.openstreetmap.org/?mlat=${form.standort_lat}&mlon=${form.standort_lng}&zoom=13`}
+                   target="_blank" rel="noopener noreferrer"
+                   className="underline hover:text-[#2d5a3d]">
+                  auf Karte prüfen
+                </a>
+              </div>
+            </div>
+            <button onClick={entfernen} className="btn-ghost text-xs px-2 py-1" title="Standort entfernen">
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+//  ÜBERSICHT
+// ============================================================
+function Uebersicht({ config, tage, k, berichte, phasen }) {
+  if (!k) return null;
+  const beratungsModus = config?.modus === "beratung";
+  return (
+    <div className="py-6 sm:py-8 space-y-6">
+      <HeroStatus config={config} k={k} />
+      <PhasenStreifen k={k} phasen={phasen} config={config} />
+      <PhasenFlow k={k} />
+      <TimelineErweitert config={config} k={k} />
+      <div className="grid md:grid-cols-3 gap-4">
+        <GaugeCard titel="Urlaubs-Budget" verbraucht={k.urlaubGenommen} maximum={k.urlaubGesamt}
+          einheit="Tage" farbe="#2e7d5a" subtitel="Gesamt über Ausbildungszeit" icon={Heart} />
+        <GaugeCard titel="Fehltage (krank)" verbraucht={k.krank} maximum={k.fehltageSoft}
+          einheit="Tage" warnAb={0.6} kritischAb={1.0}
+          subtitel={`10 % von ${k.atGes} Ausbildungstagen${k.pauschalFehltage?.summe > 0 ? ` · davon ${k.pauschalFehltage.summe} pauschal aus Phasen` : ""}`}
+          icon={AlertTriangle} invertiert />
+        <GaugeCard titel="Zeit vergangen" verbraucht={k.kTageVorbei} maximum={k.kTageGes}
+          einheit="Tage" farbe="#4a6b3a" subtitel={`${k.dauer} Monate gesamt`} icon={Clock} />
+      </div>
+      <RisikoRadar k={k} berichte={berichte} />
+      <VerguetungsPerioden k={k} config={config} />
+      {!beratungsModus && <Heatmap tage={tage} k={k} />}
+    </div>
+  );
+}
+
+function PhasenStreifen({ k, phasen, config }) {
+  if (!phasen?.length) {
+    return (
+      <section className="paper p-5 fade-up">
+        <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-2">Verlauf</div>
+        <p className="text-sm text-[#6b6b6b]">
+          Noch keine Phasen angelegt. Lege in den <strong>Einstellungen → Phasen</strong> Vollzeit-,
+          Teilzeit- oder Unterbrechungsphasen an, um den Verlauf abzubilden.
+        </p>
+      </section>
+    );
+  }
+  const phasenMit = k.phasenMit;
+  const start = k.start;
+  const ende = k.ende;
+  const totalMs = ende - start;
+  const heute = new Date();
+  const heuteAnteil = Math.max(0, Math.min(1, (heute - start) / totalMs));
+
+  // Phase als Bar
+  const bars = phasenMit.map(p => {
+    const pVon = parseISO(p.von);
+    const pBis = parseISO(p.bis || p._berechnetesEnde);
+    if (!pBis) return null;
+    const left = Math.max(0, (pVon - start) / totalMs) * 100;
+    const width = Math.max(0.5, ((pBis - pVon) / totalMs) * 100);
+    const isAusb = p.typ === "ausbildung";
+    const tz = (p.teilzeit_prozent || 100) / 100;
+    const farbe = isAusb ? (tz < 1 ? "#7a9a5a" : "#2d5a3d") : "#9a8a6a";
+    return { p, pVon, pBis, left, width, isAusb, tz, farbe };
+  }).filter(Boolean);
+
+  return (
+    <section className="paper p-5 sm:p-6 fade-up">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Verlauf in Phasen</div>
+        {k.aktPhase && (
+          <div className="text-xs text-[#6b6b6b]">
+            Aktuell: <span className="font-medium" style={{ color: k.aktPhase.typ === "ausbildung" ? "#2d5a3d" : "#9a8a6a" }}>
+              {k.aktPhase.typ === "ausbildung" ? `${k.aktPhase.teilzeit_prozent || 100}%${k.aktPhase.betrieb ? ` · ${k.aktPhase.betrieb}` : ""}` : (k.aktPhase.grund || "Unterbrechung")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Horizontale Bars */}
+      <div className="relative" style={{ height: 64 }}>
+        {/* Hintergrund-Achse */}
+        <div className="absolute left-0 right-0 rounded-sm" style={{ top: 12, height: 40, background: "#f0ece0", border: "1px solid #e5e0d4" }} />
+
+        {/* Phasen */}
+        {bars.map((b, i) => {
+          const tzHeight = b.isAusb ? 28 + 12 * b.tz : 28;
+          return (
+            <div key={i} className="absolute group cursor-default" title={`${b.p.typ === "ausbildung" ? `${b.p.teilzeit_prozent || 100}%` : (b.p.grund || "Unterbrechung")} · ${fmtDE(b.pVon)} – ${fmtDE(b.pBis)}`}
+                 style={{
+                   left: `${b.left}%`, width: `${b.width}%`,
+                   top: 12 + (40 - tzHeight),
+                   height: tzHeight,
+                   background: b.isAusb ? b.farbe : `repeating-linear-gradient(45deg, ${b.farbe}, ${b.farbe} 4px, ${b.farbe}aa 4px, ${b.farbe}aa 8px)`,
+                   borderTop: `1px solid ${b.farbe}`,
+                   borderBottom: `1px solid ${b.farbe}`,
+                 }}>
+              {b.width > 5 && b.isAusb && b.p.teilzeit_prozent < 100 && (
+                <div className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-medium" style={{ color: "#fff" }}>
+                  {b.p.teilzeit_prozent}%
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Betriebs-Wechsel-Marker */}
+        {bars.map((b, i) => {
+          if (i === 0) return null;
+          const prev = bars[i - 1];
+          if (!b.isAusb || !prev.isAusb) return null;
+          if ((b.p.betrieb || null) === (prev.p.betrieb || null)) return null;
+          return (
+            <div key={`bw-${i}`} className="absolute" title={`Betriebswechsel zu ${b.p.betrieb || "—"}`}
+              style={{ left: `${b.left}%`, top: 0, height: 64, transform: "translateX(-50%)" }}>
+              <div className="w-0.5 h-full" style={{ background: "#c9a23a" }} />
+              <div className="absolute -top-1 left-1/2 -translate-x-1/2 text-[10px]" style={{ color: "#c9a23a" }}>🏢</div>
+            </div>
+          );
+        })}
+
+        {/* Heute-Marker */}
+        {heute >= start && heute <= ende && (
+          <div className="absolute" style={{ left: `${heuteAnteil * 100}%`, top: 0, height: 64 }}>
+            <div className="w-0.5 h-full" style={{ background: "#b04545" }} />
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 text-[10px] font-medium" style={{ color: "#b04545" }}>heute</div>
+          </div>
+        )}
+      </div>
+
+      {/* Achsen-Labels */}
+      <div className="flex justify-between text-[10px] text-[#6b6b6b] font-mono mt-1">
+        <span>{fmtDE(start)}</span>
+        <span>{fmtDE(ende)}</span>
+      </div>
+
+      {/* Legende */}
+      <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t text-xs" style={{ borderColor: "#efece2" }}>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm" style={{ background: "#2d5a3d" }} />
+          <span className="text-[#6b6b6b]">Vollzeit</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm" style={{ background: "#7a9a5a" }} />
+          <span className="text-[#6b6b6b]">Teilzeit</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm" style={{ background: "repeating-linear-gradient(45deg, #9a8a6a, #9a8a6a 3px, #d0c8b0 3px, #d0c8b0 5px)" }} />
+          <span className="text-[#6b6b6b]">Unterbrechung</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#c9a23a" }}>🏢</span>
+          <span className="text-[#6b6b6b]">Betriebswechsel</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroStatus({ config, k }) {
+  const ym = k.naechsterMeilenstein;
+  return (
+    <section className="paper p-6 sm:p-8 fade-up">
+      <div className="grid md:grid-cols-3 gap-6 md:gap-8 items-center">
+        <div>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-2">Fortschritt</div>
+          <div className="flex items-baseline gap-2">
+            <div className="font-display text-6xl" style={{ fontWeight: 600, color: "#2d5a3d" }}>{k.progress}</div>
+            <div className="font-display text-2xl text-[#6b6b6b]">%</div>
+          </div>
+          <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "#e5e0d4" }}>
+            <div className="h-full" style={{ width: `${k.progress}%`, background: "linear-gradient(90deg, #4a6b3a, #2d5a3d)" }} />
+          </div>
+          <div className="text-xs text-[#6b6b6b] mt-2 font-mono">Tag {k.kTageVorbei} von {k.kTageGes}</div>
+        </div>
+
+        <div className="md:border-l md:border-r md:px-6" style={{ borderColor: "#e5e0d4" }}>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-2">Aktuell</div>
+          <div className="font-display text-3xl" style={{ fontWeight: 600 }}>{k.aktLehrjahr}. Lehrjahr</div>
+          <div className="text-sm text-[#4a4a4a] mt-1">{LEHRJAHR_PHASEN[k.aktLehrjahr - 1]?.fokus}</div>
+          <div className="flex items-center gap-2 mt-3 text-xs text-[#6b6b6b]">
+            <Zap size={13} style={{ color: "#2d5a3d" }} />
+            <span>{config.teilzeit_prozent}% · {k.wochenstunden} h/Woche · {k.aktVerg} €/Mon.</span>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-2">Nächster Meilenstein</div>
+          {ym ? (
+            <>
+              <div className="font-display text-xl flex items-center gap-2" style={{ fontWeight: 600 }}>
+                {ym.titel}
+                {ym.auto && <span className="text-[10px] font-sans font-normal px-1.5 py-0.5 rounded-sm" style={{ background: "#f5ecd0", color: "#8a6a20" }}>auto</span>}
+              </div>
+              <div className="flex items-baseline gap-2 mt-1">
+                <div className="font-display text-4xl" style={{ fontWeight: 600, color: "#2d5a3d" }}>{ym.tage}</div>
+                <div className="text-sm text-[#6b6b6b]">Tage</div>
+              </div>
+              <div className="text-xs text-[#6b6b6b] mt-1 font-mono">ca. {fmtDE(ym.datum)}</div>
+            </>
+          ) : <div className="text-sm text-[#9a9a9a]">Keine Termine eingetragen</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PhasenFlow({ k }) {
+  return (
+    <section className="paper p-6 sm:p-8 fade-up" style={{ animationDelay: "0.1s" }}>
+      <h2 className="font-display text-xl mb-5" style={{ fontWeight: 600 }}>Ausbildungs-Phasen</h2>
+      <div className="grid md:grid-cols-3 gap-3 md:gap-4">
+        {LEHRJAHR_PHASEN.map((phase, i) => {
+          const Ic = phase.icon;
+          const aktiv = k.aktLehrjahr === i + 1;
+          const vorbei = k.aktLehrjahr > i + 1;
+          const zukunft = k.aktLehrjahr < i + 1;
+          return (
+            <div key={i} className="bg-white rounded-sm p-4" style={{
+              border: aktiv ? "2px solid #2d5a3d" : "1px solid #e5e0d4",
+              boxShadow: aktiv ? "0 4px 16px -6px rgba(45,90,61,0.2)" : "none",
+              opacity: zukunft ? 0.65 : 1,
+            }}>
+              <div className="flex items-start gap-3 mb-3">
+                <div className="p-2 rounded-sm flex-shrink-0" style={{
+                  background: vorbei || aktiv ? "#2d5a3d" : "#f0ece0",
+                  color: vorbei || aktiv ? "#fff" : "#6b6b6b",
+                }}>
+                  {vorbei ? <CheckCircle2 size={18} /> : <Ic size={18} />}
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">{phase.titel}</div>
+                  <div className="font-display text-base" style={{ fontWeight: 600 }}>{phase.fokus}</div>
+                </div>
+              </div>
+              <ul className="space-y-1 text-xs text-[#4a4a4a]">
+                {phase.inhalte.map((x, j) => (
+                  <li key={j} className="flex items-start gap-1.5">
+                    <span className="mt-1.5 w-1 h-1 rounded-full flex-shrink-0" style={{ background: aktiv || vorbei ? "#2d5a3d" : "#c0b8a8" }} />
+                    <span>{x}</span>
+                  </li>
+                ))}
+              </ul>
+              {aktiv && (
+                <div className="mt-3 pt-3 border-t flex items-center gap-1.5 text-xs" style={{ borderColor: "#e5e0d4", color: "#2d5a3d" }}>
+                  <Activity size={12} /> <span>Aktuelles Lehrjahr</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TimelineErweitert({ config, k }) {
+  const start = k.start, ende = k.ende, heute = k.heute;
+  const pctAt = d => Math.max(0, Math.min(100, ((d.getTime() - start.getTime()) / (ende.getTime() - start.getTime())) * 100));
+  const heutePct = pctAt(heute);
+
+  return (
+    <section className="paper p-6 sm:p-8 fade-up" style={{ animationDelay: "0.15s" }}>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>Zeitstrahl</h2>
+        <div className="text-xs text-[#6b6b6b] font-mono">{fmtDE(start)} – {fmtDE(ende)}</div>
+      </div>
+
+      <div className="relative pt-16 pb-14">
+        <div className="absolute left-0 right-0 top-1/2 h-8 -translate-y-1/2 flex">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="h-full relative" style={{ width: `${100/3}%` }}>
+              <div className="absolute inset-y-0 left-0 right-1" style={{
+                background: i === 0 ? "#f0f4ea" : i === 1 ? "#ebf0e2" : "#e5ebdb",
+                borderRadius: "2px",
+              }} />
+              <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium uppercase tracking-widest"
+                style={{ color: k.aktLehrjahr === i + 1 ? "#2d5a3d" : "#9aa89a" }}>
+                {i + 1}. LJ
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="absolute left-0 right-0 top-1/2 h-1 mt-[14px] -translate-y-1/2">
+          <div className="h-1 rounded-full" style={{ background: "#2d5a3d", width: `${heutePct}%` }} />
+        </div>
+
+        <MS pct={0} top label="Start" sub={fmtDE(start)} kind="filled" />
+        <MS pct={pctAt(k.zpDate)} bottom label={`ZP${!k.zpManuell ? " ~" : ""}`} sub={`${DE_MONTHS_SHORT[k.zpDate.getMonth()]} ${k.zpDate.getFullYear()}`} kind="mid" icon={GraduationCap} />
+        <MS pct={pctAt(k.apDate)} top label={`AP${!k.apManuell ? " ~" : ""}`} sub={`${DE_MONTHS_SHORT[k.apDate.getMonth()]} ${k.apDate.getFullYear()}`} kind="mid" icon={Target} />
+        <MS pct={100} bottom label="Ende" sub={fmtDE(ende)} kind="outline" />
+
+        <div className="absolute" style={{ left: `${heutePct}%`, top: "50%" }}>
+          <div className="-translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white animate-pulse"
+            style={{ border: "3px solid #2d5a3d", boxShadow: "0 0 0 4px rgba(45,90,61,0.12)" }} />
+        </div>
+      </div>
+
+      <div className="mt-2 pt-4 border-t text-xs text-[#6b6b6b] space-y-1" style={{ borderColor: "#e5e0d4" }}>
+        {(!k.zpManuell || !k.apManuell) && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "#c9a23a" }} />
+            <span>~ = automatisch aus Verlauf berechnet · kann in den Einstellungen überschrieben werden</span>
+          </div>
+        )}
+        {k.fruehPruef && (
+          <div>
+            Frühester Prüfungstermin (§ 43 BBiG): <span className="font-mono text-[#1a1a1a]">{fmtDE(k.fruehPruef)}</span>
+            {config.vorzeitige_zulassung
+              ? <> &nbsp;· Vorzeitige Zulassung (§ 45 BBiG) aktiv: <span className="font-mono text-[#2d5a3d]">{fmtDE(k.fruehPruefVorzeitig)}</span></>
+              : <> &nbsp;· Bei vorzeitiger Zulassung (§ 45 BBiG): <span className="font-mono text-[#1a1a1a]">{fmtDE(k.fruehPruefVorzeitig)}</span></>
+            }
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MS({ pct, top, bottom, label, sub, kind, icon: Icon }) {
+  const style = {
+    filled:  { background: "#2d5a3d", border: "3px solid #2d5a3d" },
+    mid:     { background: "#fff",    border: "3px solid #2d5a3d" },
+    outline: { background: "#fff",    border: "3px solid #9aa89a" },
+  }[kind];
+  return (
+    <div className="absolute" style={{ left: `${pct}%`, top: "50%" }}>
+      <div className="-translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full relative z-10" style={style} />
+      <div className={`-translate-x-1/2 absolute left-0 ${top ? "bottom-8" : "top-8"} text-center whitespace-nowrap`}>
+        <div className="flex items-center gap-1 justify-center">
+          {Icon && <Icon size={13} style={{ color: "#2d5a3d" }} />}
+          <span className="text-xs font-medium">{label}</span>
+        </div>
+        <div className="text-[10px] text-[#6b6b6b] font-mono mt-0.5">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+function GaugeCard({ titel, verbraucht, maximum, einheit, farbe, warnAb = 0.85, kritischAb = 1.0, subtitel, icon: Icon, invertiert }) {
+  const pct = maximum > 0 ? verbraucht / maximum : 0;
+  const pctDisplay = Math.min(pct, 1);
+  const isWarn = pct >= warnAb;
+  const isKrit = pct >= kritischAb;
+  const activeColor = invertiert
+    ? (isKrit ? "#b04545" : isWarn ? "#c9a23a" : "#2e7d5a")
+    : (farbe || "#2d5a3d");
+  const rest = Math.max(0, maximum - verbraucht);
+  const R = 42, C = 2 * Math.PI * R;
+  const dash = pctDisplay * C;
+
+  return (
+    <div className="paper p-5 fade-up">
+      <div className="flex items-start justify-between mb-2">
+        <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">{titel}</div>
+        {Icon && <Icon size={16} style={{ color: activeColor }} />}
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="relative w-[110px] h-[110px] flex-shrink-0">
+          <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+            <circle cx="50" cy="50" r={R} fill="none" stroke="#e5e0d4" strokeWidth="8" />
+            <circle cx="50" cy="50" r={R} fill="none" stroke={activeColor} strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={`${dash} ${C}`} style={{ transition: "stroke-dasharray 0.8s ease-out, stroke 0.3s" }} />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="font-display text-2xl leading-none" style={{ fontWeight: 600, color: activeColor }}>{verbraucht}</div>
+            <div className="text-[10px] text-[#6b6b6b] font-mono">von {maximum}</div>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">{Math.round(pct * 100)}%</div>
+          <div className="text-xs mt-0.5" style={{ color: (isWarn || isKrit) && invertiert ? activeColor : "#6b6b6b" }}>
+            {invertiert && isKrit ? "Einzelfallprüfung" : `${rest} ${einheit} übrig`}
+          </div>
+          {subtitel && <div className="text-[11px] text-[#6b6b6b] mt-1.5 pt-1.5 border-t" style={{ borderColor: "#efece2" }}>{subtitel}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RisikoRadar({ k, berichte }) {
+  const wochenVorbei = Math.max(1, Math.floor(k.kTageVorbei / 7));
+  const berichtScore = Math.min(1, berichte.length / wochenVorbei);
+  const metrics = [
+    { label: "Fehltage", wert: k.krank, max: k.fehltageSoft,
+      pct: k.fehltageSoft > 0 ? k.krank / k.fehltageSoft : 0, invertiert: true,
+      hinweis: k.krank >= k.fehltageSoft ? "10 %-Grenze erreicht" : k.krank >= k.fehltageSoft * 0.6 ? "Vorsicht" : "Im grünen Bereich" },
+    { label: "Urlaub", wert: k.urlaubGenommen, max: k.urlaubGesamt,
+      pct: k.urlaubGesamt > 0 ? k.urlaubGenommen / k.urlaubGesamt : 0,
+      hinweis: k.urlaubGenommen >= k.urlaubGesamt ? "Aufgebraucht" : `${k.urlaubGesamt - k.urlaubGenommen} Tage verfügbar` },
+    { label: "Berichte", wert: berichte.length, max: wochenVorbei,
+      pct: berichtScore, gutWennVoll: true,
+      hinweis: berichtScore < 0.5 ? "Rückstand" : berichtScore < 0.9 ? "Ein paar fehlen" : "Aktuell" },
+    { label: "Zeit", wert: k.kTageVorbei, max: k.kTageGes, pct: k.progress / 100,
+      hinweis: `${k.progress}% absolviert` },
+  ];
+
+  return (
+    <section className="paper p-6 sm:p-8 fade-up">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>Problemzonen & Grenzen</h2>
+        <div className="flex items-center gap-1 text-xs text-[#6b6b6b]"><TrendingUp size={13} /> Ampel</div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {metrics.map((m, i) => {
+          let stufe;
+          if (m.gutWennVoll) stufe = m.pct >= 0.9 ? "gruen" : m.pct >= 0.5 ? "gelb" : "rot";
+          else if (m.invertiert) stufe = m.pct >= 1.0 ? "rot" : m.pct >= 0.6 ? "gelb" : "gruen";
+          else stufe = m.pct >= 1.0 ? "rot" : m.pct >= 0.85 ? "gelb" : "gruen";
+          const ampel = { gruen: "#2e7d5a", gelb: "#c9a23a", rot: "#b04545" }[stufe];
+          return (
+            <div key={i} className="rounded-sm p-3.5" style={{ background: "#fcfaf3", border: "1px solid #e5e0d4" }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">{m.label}</div>
+                <div className="w-2 h-2 rounded-full" style={{ background: ampel, boxShadow: `0 0 0 3px ${ampel}20` }} />
+              </div>
+              <div className="font-display text-xl mb-1" style={{ fontWeight: 600 }}>
+                {m.wert}<span className="text-sm text-[#9a9a9a] font-sans font-normal"> / {m.max}</span>
+              </div>
+              <div className="h-1 rounded-full overflow-hidden mb-2" style={{ background: "#e5e0d4" }}>
+                <div className="h-full" style={{ width: `${Math.min(100, m.pct * 100)}%`, background: ampel }} />
+              </div>
+              <div className="text-[11px]" style={{ color: ampel }}>{m.hinweis}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function VerguetungsPerioden({ k, config }) {
+  const beruf = BERUFE.find(b => b.id === config.beruf_id);
+  if (!k.perioden.length) return null;
+
+  return (
+    <section className="paper p-6 sm:p-8 fade-up">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>Vergütungs- & Urlaubsübersicht</h2>
+          <p className="text-xs text-[#6b6b6b] mt-0.5">{beruf?.tarifInfo}</p>
+        </div>
+        <div className="text-right">
+          <div className="font-display text-2xl" style={{ fontWeight: 600, color: "#2d5a3d" }}>
+            {Math.round(k.verguetungGesamt).toLocaleString("de-DE")} €
+          </div>
+          <div className="text-xs text-[#6b6b6b]">Gesamt brutto · {k.urlaubGesamt} Urlaubstage</div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto -mx-6 sm:mx-0">
+        <table className="w-full text-sm" style={{ minWidth: 560 }}>
+          <thead>
+            <tr className="text-xs uppercase tracking-widest text-[#6b6b6b]" style={{ borderBottom: "1px solid #e5e0d4" }}>
+              <th className="text-left py-2 px-2">Zeitraum</th>
+              <th className="text-center py-2 px-2">LJ</th>
+              <th className="text-right py-2 px-2">Monate</th>
+              <th className="text-right py-2 px-2">€/Mon.</th>
+              <th className="text-right py-2 px-2">Urlaub</th>
+            </tr>
+          </thead>
+          <tbody>
+            {k.perioden.map((p, i) => {
+              if (p.unterbrechung) {
+                return (
+                  <tr key={i} style={{ borderBottom: "1px solid #efece2", background: "#fcfaf3" }}>
+                    <td className="py-2 px-2">
+                      <div className="font-mono text-xs text-[#9a8a6a]">{fmtDE(p.von)} – {fmtDE(p.bis)}</div>
+                      <div className="text-[10px] text-[#9a8a6a] italic">⏸ {p.grund}</div>
+                    </td>
+                    <td className="text-center py-2 px-2 font-mono text-[#9a8a6a]">—</td>
+                    <td className="text-right py-2 px-2 font-mono text-[#9a8a6a]">{p.monateDauer.toFixed(1)}</td>
+                    <td className="text-right py-2 px-2 font-mono text-[#9a8a6a]">0 €</td>
+                    <td className="text-right py-2 px-2 font-mono text-[#9a8a6a]">0</td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={i} style={{ borderBottom: "1px solid #efece2" }}>
+                  <td className="py-2 px-2">
+                    <div className="font-mono text-xs">{fmtDE(p.von)} – {fmtDE(p.bis)}</div>
+                    {p.quote < 100 && <div className="text-[10px] text-[#2d5a3d]">Teilzeit {p.quote}%</div>}
+                    {p.betrieb && <div className="text-[10px] text-[#6b6b6b]">🏢 {p.betrieb}</div>}
+                  </td>
+                  <td className="text-center py-2 px-2 font-mono">{p.lehrjahr}</td>
+                  <td className="text-right py-2 px-2 font-mono">{p.monateDauer.toFixed(1)}</td>
+                  <td className="text-right py-2 px-2 font-mono font-medium">{p.vergEff} €</td>
+                  <td className="text-right py-2 px-2 font-mono">{p.urlaubAnteilig.toFixed(1)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Heatmap({ tage, k }) {
+  const heute = new Date(); heute.setHours(0, 0, 0, 0);
+  const weeks = 26;
+  const anfang = new Date(heute); anfang.setDate(anfang.getDate() - weeks * 7);
+  const offset = (anfang.getDay() + 6) % 7;
+  anfang.setDate(anfang.getDate() - offset);
+
+  const cols = [];
+  let cur = new Date(anfang);
+  for (let w = 0; w < weeks + 1; w++) {
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const iso = fmtISO(cur);
+      const entry = tage[iso];
+      days.push({ iso, d: cur.getDate(), m: cur.getMonth(), status: entry?.status,
+        inFuture: cur > heute, inPast: cur < k.start });
+      cur = new Date(cur); cur.setDate(cur.getDate() + 1);
+    }
+    cols.push(days);
+  }
+  const monthLabels = [];
+  let lastM = -1;
+  cols.forEach((col, i) => { const m = col[0].m; if (m !== lastM) { monthLabels.push({ i, m }); lastM = m; } });
+
+  return (
+    <section className="paper p-6 sm:p-8 fade-up">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
+        <div>
+          <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>Aktivität</h2>
+          <p className="text-xs text-[#6b6b6b] mt-0.5">Letzte 26 Wochen · jedes Quadrat = ein Tag</p>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-[#6b6b6b]">
+          <span>weniger</span>
+          {["#f0ece0", "#c8d6b4", "#8caf78", "#4a6b3a", "#2d5a3d"].map((c, i) => (
+            <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c }} />
+          ))}
+          <span>mehr</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: "fit-content" }}>
+          <div className="flex gap-[3px] mb-1 pl-8">
+            {cols.map((_, i) => {
+              const lab = monthLabels.find(l => l.i === i);
+              return <div key={i} className="w-[12px] text-[10px] text-[#6b6b6b] font-mono">{lab ? DE_MONTHS_SHORT[lab.m] : ""}</div>;
+            })}
+          </div>
+          <div className="flex gap-[3px]">
+            <div className="flex flex-col gap-[3px] mr-1 pt-[1px]">
+              {DE_WD.map((wd, i) => (
+                <div key={i} className="w-6 h-[12px] text-[9px] text-[#9a9a9a] font-mono leading-[12px]">{i % 2 === 0 ? wd : ""}</div>
+              ))}
+            </div>
+            {cols.map((col, ci) => (
+              <div key={ci} className="flex flex-col gap-[3px]">
+                {col.map((day, di) => {
+                  let bg = "#f0ece0"; let opacity = 1;
+                  if (day.inFuture) { bg = "#f7f4ec"; opacity = 0.4; }
+                  else if (day.inPast) { bg = "#f7f4ec"; opacity = 0.3; }
+                  else if (day.status) bg = STATUS[day.status]?.heat || "#f0ece0";
+                  return <div key={di} className="w-[12px] h-[12px] rounded-[2px]" style={{ background: bg, opacity }}
+                    title={`${day.iso}${day.status ? ` · ${STATUS[day.status]?.label}` : ""}`} />;
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================================
+//  KALENDER
+// ============================================================
+function Kalender({ config, tage, berichteByDatum, saveTag, deleteTag, pendingNav, clearPendingNav, onOpenBericht }) {
+  const [cursor, setCursor] = useState(new Date());
+  const [selected, setSelected] = useState(null);
+
+  // Cross-Navigation: Berichtsheft → Kalender
+  useEffect(() => {
+    if (pendingNav?.target === "kalender" && pendingNav.datum) {
+      setCursor(parseISO(pendingNav.datum));
+      setSelected(pendingNav.datum);
+      clearPendingNav();
+    }
+  }, [pendingNav]);
+
+  const startMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const startDay = (startMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(cursor.getFullYear(), cursor.getMonth(), d));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const stdStunden = +(config.vollzeit_wochenstunden * (config.teilzeit_prozent / 100) / 5).toFixed(2);
+
+  return (
+    <div className="py-6 sm:py-8 space-y-6">
+      <div className="paper p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-display text-xl" style={{ fontWeight: 600 }}>{DE_MONTHS[cursor.getMonth()]} {cursor.getFullYear()}</h2>
+          <div className="flex gap-1">
+            <button className="btn-ghost p-2" onClick={() => setCursor(addMonths(cursor, -1))}><ChevronLeft size={16} /></button>
+            <button className="btn-ghost px-3 py-2 text-xs" onClick={() => setCursor(new Date())}>Heute</button>
+            <button className="btn-ghost p-2" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight size={16} /></button>
+          </div>
+        </div>
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {DE_WD.map(d => <div key={d} className="text-xs uppercase tracking-widest text-[#6b6b6b] text-center py-1.5">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((d, i) => {
+            if (!d) return <div key={i} />;
+            const iso = fmtISO(d), entry = tage[iso];
+            const hasBericht = !!berichteByDatum[iso];
+            const isWE = d.getDay() === 0 || d.getDay() === 6;
+            const isToday = iso === fmtISO(new Date());
+            const st = entry ? STATUS[entry.status] : null;
+            return (
+              <button key={i} onClick={() => setSelected(iso)}
+                className="aspect-square rounded-sm p-1.5 sm:p-2 text-left relative"
+                style={{ background: st?.bg || (isWE ? "#efece2" : "#fff"), border: isToday ? "2px solid #2d5a3d" : "1px solid #e5e0d4" }}>
+                <div className="text-xs font-mono font-medium" style={{ color: st?.color || "#6b6b6b" }}>{d.getDate()}</div>
+                {st && <div className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: st.color }}>{st.label}</div>}
+                {hasBericht && (
+                  <div className="absolute bottom-1 right-1 p-0.5 rounded-sm" style={{ background: "#2d5a3d" }} title="Tagesbericht vorhanden">
+                    <NotebookPen size={9} style={{ color: "#f7f4ec" }} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-3 mt-5 pt-4 border-t text-xs" style={{ borderColor: "#e5e0d4" }}>
+          {Object.entries(STATUS).map(([k, s]) => (
+            <div key={k} className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm" style={{ background: s.bg, border: `1px solid ${s.color}` }} />
+              <span className="text-[#6b6b6b]">{s.label}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-1.5 ml-2 pl-3 border-l" style={{ borderColor: "#e5e0d4" }}>
+            <div className="p-0.5 rounded-sm" style={{ background: "#2d5a3d" }}>
+              <NotebookPen size={9} style={{ color: "#f7f4ec" }} />
+            </div>
+            <span className="text-[#6b6b6b]">= Bericht vorhanden</span>
+          </div>
+        </div>
+      </div>
+      {selected && <TagDialog
+        datum={selected} entry={tage[selected]} bericht={berichteByDatum[selected]}
+        onClose={() => setSelected(null)}
+        onSave={d => { saveTag(selected, d); setSelected(null); }}
+        onDelete={() => { deleteTag(selected); setSelected(null); }}
+        onOpenBericht={() => { const d = selected; setSelected(null); onOpenBericht(d); }}
+        stdStunden={stdStunden} />}
+    </div>
+  );
+}
+
+function TagDialog({ datum, entry, bericht, onClose, onSave, onDelete, onOpenBericht, stdStunden }) {
+  const [status, setStatus] = useState(entry?.status || "anwesend");
+  const [stunden, setStunden] = useState(entry?.stunden ?? stdStunden);
+  const [bemerkung, setBemerkung] = useState(entry?.bemerkung || "");
+  const d = parseISO(datum);
+  const fmt = d.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40" onClick={onClose}>
+      <div className="paper w-full sm:max-w-md p-6 rounded-t-lg sm:rounded" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Tag erfassen</div>
+            <div className="font-display text-xl" style={{ fontWeight: 600 }}>{fmt}</div>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-[#f0ece0] rounded-sm"><X size={18} /></button>
+        </div>
+        <div className="mb-4">
+          <label className="label-base">Status</label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(STATUS).map(([k, s]) => (
+              <button key={k} onClick={() => setStatus(k)} className="p-2.5 text-sm rounded-sm text-left"
+                style={{
+                  background: status === k ? s.bg : "#fff",
+                  border: status === k ? `2px solid ${s.color}` : "1px solid #d0cabc",
+                  color: status === k ? s.color : "#1a1a1a", fontWeight: status === k ? 500 : 400,
+                }}>{s.label}</button>
+            ))}
+          </div>
+        </div>
+        {["anwesend", "berufsschule", "lerntag", "ueba"].includes(status) && (
+          <Field label="Stunden"><input type="number" step="0.25" className="input-base" value={stunden} onChange={e => setStunden(parseFloat(e.target.value) || 0)} /></Field>
+        )}
+        <Field label="Notiz (optional)"><textarea rows={2} className="input-base" value={bemerkung} onChange={e => setBemerkung(e.target.value)} /></Field>
+
+        {/* Verknüpfung zum Berichtsheft */}
+        <div className="mt-4 pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <button onClick={onOpenBericht}
+            className="w-full flex items-center justify-between gap-2 p-3 rounded-sm text-sm transition-colors hover:bg-[#e8f0e0]"
+            style={{ background: bericht ? "#f0ece0" : "#fcfaf3", border: "1px solid #e5e0d4", color: "#2d5a3d" }}>
+            <div className="flex items-center gap-2">
+              <NotebookPen size={15} />
+              <span className="font-medium">{bericht ? "Tagesbericht bearbeiten" : "Tagesbericht verfassen"}</span>
+            </div>
+            {bericht && <span className="text-xs text-[#6b6b6b] truncate max-w-[50%]">{bericht.titel || "(Ohne Titel)"}</span>}
+            <LinkIcon size={13} />
+          </button>
+        </div>
+
+        <div className="flex gap-2 justify-between mt-4">
+          {entry ? (
+            <button onClick={onDelete} className="btn-ghost" style={{ color: "#b04545", borderColor: "#e8c0c0" }}>
+              <Trash2 size={14} className="inline mr-1" />Löschen
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-ghost">Abbrechen</button>
+            <button onClick={() => onSave({ status, stunden, bemerkung })} className="btn-primary">Speichern</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  BERICHTSHEFT
+// ============================================================
+function Berichte({ config, berichte, tage, saveBericht, deleteBericht, pendingNav, clearPendingNav, onOpenTag }) {
+  const [editing, setEditing] = useState(null);
+  const [printWeek, setPrintWeek] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
+
+  // Cross-Navigation: Kalender → Berichtsheft
+  useEffect(() => {
+    if (pendingNav?.target === "berichte" && pendingNav.datum) {
+      const existing = berichte.find(b => b.datum === pendingNav.datum);
+      if (existing) setEditing(existing);
+      else setEditing({
+        datum: pendingNav.datum, titel: "", taetigkeiten: "", lerninhalte: "",
+        unterweisung: "", wetter: null, temperatur: "", temp_min: "", temp_max: "", niederschlag: "", ort: "", personen: "",
+        werkzeuge: "", besonderheiten: "", stundenvon: "", stundenbis: "", bilder: [],
+      });
+      clearPendingNav();
+    }
+  }, [pendingNav]);
+
+  // Gruppiere Berichte nach KW
+  const nachKW = useMemo(() => {
+    const m = new Map();
+    berichte.forEach(b => {
+      const d = parseISO(b.datum);
+      const key = `${d.getFullYear()}-KW${String(getKW(d)).padStart(2, "0")}`;
+      if (!m.has(key)) m.set(key, { key, jahr: d.getFullYear(), kw: getKW(d), berichte: [] });
+      m.get(key).berichte.push(b);
+    });
+    return [...m.values()].sort((a, b) => b.key.localeCompare(a.key));
+  }, [berichte]);
+
+  return (
+    <div className="py-6 sm:py-8 space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="font-display text-2xl" style={{ fontWeight: 600 }}>Berichtsheft</h2>
+          <p className="text-sm text-[#6b6b6b] mt-1">Ausbildungsnachweis · Wochenweise nach KW gruppiert</p>
+        </div>
+        <button className="btn-primary flex items-center gap-2"
+          onClick={() => setEditing({
+            datum: fmtISO(new Date()), titel: "", taetigkeiten: "", lerninhalte: "",
+            unterweisung: "", wetter: null, temperatur: "", temp_min: "", temp_max: "", niederschlag: "", ort: "", personen: "",
+            werkzeuge: "", besonderheiten: "", stundenvon: "", stundenbis: "", bilder: [],
+          })}>
+          <Plus size={16} /> Neuer Bericht
+        </button>
+      </div>
+
+      {nachKW.length === 0 ? (
+        <div className="paper p-10 text-center">
+          <NotebookPen className="mx-auto mb-3 text-[#9aa89a]" size={32} />
+          <p className="text-[#6b6b6b]">Noch keine Tagesberichte erfasst.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {nachKW.map(grp => (
+            <WocheGruppe key={grp.key} grp={grp} onEdit={b => setEditing(b)}
+              onDelete={deleteBericht} onLightbox={setLightbox}
+              onPrintWeek={() => setPrintWeek(grp)} />
+          ))}
+        </div>
+      )}
+
+      {editing && <BerichtDialog bericht={editing} config={config} tag={tage[editing.datum]}
+        onClose={() => setEditing(null)}
+        onOpenTag={() => { const d = editing.datum; setEditing(null); onOpenTag(d); }}
+        onSave={b => { saveBericht(b); setEditing(null); }} />}
+
+      {printWeek && <PrintWoche config={config} grp={printWeek} onClose={() => setPrintWeek(null)} />}
+      {lightbox && <Lightbox bildId={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+function WocheGruppe({ grp, onEdit, onDelete, onLightbox, onPrintWeek }) {
+  const montag = mondayOfKW(grp.jahr, grp.kw);
+  const sonntag = new Date(montag); sonntag.setDate(montag.getDate() + 6);
+  return (
+    <div className="paper p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b] font-mono">KW {grp.kw} · {grp.jahr}</div>
+          <div className="font-display text-lg" style={{ fontWeight: 600 }}>
+            {montag.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – {sonntag.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}
+          </div>
+        </div>
+        <button className="btn-ghost flex items-center gap-2" onClick={onPrintWeek}>
+          <Printer size={14} /> Woche als PDF
+        </button>
+      </div>
+      <div className="space-y-2">
+        {grp.berichte.sort((a, b) => a.datum.localeCompare(b.datum)).map(b => (
+          <BerichtZeile key={b.datum} bericht={b} onEdit={() => onEdit(b)}
+            onDelete={() => onDelete(b.datum)} onLightbox={onLightbox} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BerichtZeile({ bericht, onEdit, onDelete, onLightbox }) {
+  const d = parseISO(bericht.datum);
+  return (
+    <div className="p-3 rounded-sm flex items-start gap-3" style={{ background: "#fcfaf3", border: "1px solid #efece2" }}>
+      <div className="flex-shrink-0 w-16 text-center">
+        <div className="text-xs text-[#6b6b6b] uppercase tracking-widest">{DE_WD[(d.getDay()+6)%7]}</div>
+        <div className="font-display text-2xl" style={{ fontWeight: 600 }}>{d.getDate()}</div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <h4 className="font-medium">{bericht.titel || "(Ohne Titel)"}</h4>
+          {bericht.wetter && <WetterBadge wetter={bericht.wetter} temp={bericht.temperatur} tempMin={bericht.temp_min} tempMax={bericht.temp_max} niederschlag={bericht.niederschlag} />}
+        </div>
+        {bericht.taetigkeiten && <p className="text-xs text-[#4a4a4a] line-clamp-2">{bericht.taetigkeiten}</p>}
+        {bericht.bilder?.length > 0 && (
+          <div className="flex gap-1.5 mt-2">
+            {bericht.bilder.slice(0, 4).map(bId => (
+              <BildThumb key={bId} bildId={bId} onClick={() => onLightbox(bId)} />
+            ))}
+            {bericht.bilder.length > 4 && (
+              <div className="w-12 h-12 rounded-sm flex items-center justify-center text-xs text-[#6b6b6b]"
+                style={{ background: "#f0ece0", border: "1px solid #e5e0d4" }}>
+                +{bericht.bilder.length - 4}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        <button className="btn-ghost p-1.5" onClick={onEdit}><Edit3 size={13} /></button>
+        <button className="btn-ghost p-1.5 hover:text-[#b04545]" onClick={() => { if (confirm("Löschen?")) onDelete(); }}><Trash2 size={13} /></button>
+      </div>
+    </div>
+  );
+}
+
+function BildThumb({ bildId, onClick }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  useEffect(() => {
+    const v = dbGetBild(bildId);
+    if (v) setDataUrl(v.thumb || v.data);
+  }, [bildId]);
+  if (!dataUrl) return <div className="w-12 h-12 rounded-sm" style={{ background: "#f0ece0" }} />;
+  return (
+    <button onClick={onClick} className="w-12 h-12 rounded-sm overflow-hidden relative group" style={{ border: "1px solid #e5e0d4" }}>
+      <img src={dataUrl} alt="" className="w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+        <Eye size={14} className="text-white opacity-0 group-hover:opacity-100" />
+      </div>
+    </button>
+  );
+}
+
+function Lightbox({ bildId, onClose }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  useEffect(() => {
+    const v = dbGetBild(bildId);
+    if (v) setDataUrl(v.data);
+  }, [bildId]);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={onClose}>
+      <button className="absolute top-4 right-4 text-white p-2"><X size={24} /></button>
+      {dataUrl ? <img src={dataUrl} alt="" className="max-w-full max-h-full object-contain" /> : <div className="text-white">Lade …</div>}
+    </div>
+  );
+}
+
+// Wetter-Code-Mapping (Open-Meteo WMO-Codes)
+function wetterInfo(code) {
+  if (code == null) return null;
+  if (code === 0) return { label: "Klar", icon: Sun, color: "#c9a23a" };
+  if (code === 1) return { label: "Heiter", icon: Sun, color: "#c9a23a" };
+  if (code === 2) return { label: "Teils bewölkt", icon: Cloud, color: "#6088a3" };
+  if (code === 3) return { label: "Bedeckt", icon: Cloud, color: "#6088a3" };
+  if (code <= 48) return { label: "Nebel", icon: Cloud, color: "#8a8a8a" };
+  if (code === 51) return { label: "Leichter Niesel", icon: CloudRain, color: "#6088a3" };
+  if (code === 53) return { label: "Niesel", icon: CloudRain, color: "#6088a3" };
+  if (code === 55) return { label: "Starker Niesel", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 61) return { label: "Leichter Regen", icon: CloudRain, color: "#6088a3" };
+  if (code === 63) return { label: "Regen", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 65) return { label: "Starker Regen", icon: CloudRain, color: "#3a5a6b" };
+  if (code <= 67) return { label: "Regen", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 71) return { label: "Leichter Schnee", icon: CloudSnow, color: "#8a9aa3" };
+  if (code === 73) return { label: "Schnee", icon: CloudSnow, color: "#8a9aa3" };
+  if (code === 75) return { label: "Starker Schnee", icon: CloudSnow, color: "#8a9aa3" };
+  if (code <= 77) return { label: "Schnee", icon: CloudSnow, color: "#8a9aa3" };
+  if (code === 80) return { label: "Leichte Schauer", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 81) return { label: "Schauer", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 82) return { label: "Heftige Schauer", icon: CloudRain, color: "#3a5a6b" };
+  if (code === 96 || code === 99) return { label: "Gewitter mit Hagel", icon: CloudRain, color: "#4a3a6b" };
+  if (code <= 99) return { label: "Gewitter", icon: CloudRain, color: "#4a3a6b" };
+  return null;
+}
+
+function WetterBadge({ wetter, temp, tempMin, tempMax, niederschlag }) {
+  const info = wetterInfo(wetter);
+  if (!info) return null;
+  const Ic = info.icon;
+  const hasRain = niederschlag != null && niederschlag !== "" && +niederschlag > 0;
+  const hasMinMax = tempMin != null && tempMin !== "" && tempMax != null && tempMax !== "";
+  const hasSingle = !hasMinMax && temp !== null && temp !== "" && temp !== undefined;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: "#f0ece0", color: info.color }}>
+      <Ic size={11} />
+      <span>{info.label}</span>
+      {hasMinMax && <span className="font-mono">· {tempMin}…{tempMax}°C</span>}
+      {hasSingle && <span className="font-mono">· {temp}°C</span>}
+      {hasRain && <span className="font-mono">· {(+niederschlag).toFixed(1)}mm</span>}
+    </span>
+  );
+}
+
+// Wetter-Fetch (Open-Meteo Historical / Forecast)
+async function fetchWetter(lat, lng, datum) {
+  const d = parseISO(datum);
+  const heute = new Date(); heute.setHours(0, 0, 0, 0);
+  const isFuture = d > heute;
+  const isPast = d < heute;
+  try {
+    // daily liefert Min/Max/Niederschlag zuverlässig. Für den Wetter-Code nutzen wir
+    // hourly statt daily, denn der daily-weather_code ist laut Open-Meteo-Doku der
+    // "schwerste" Code des Tages — ein 1h-Gewitter morgens würde so den ganzen Tag
+    // als "Gewitter" markieren. Der stündliche Modus (6-20 Uhr) ergibt den
+    // dominanten Tageszustand.
+    const daily = "temperature_2m_max,temperature_2m_min,precipitation_sum";
+    const hourly = "weather_code";
+    const base = isPast || d.getTime() === heute.getTime()
+      ? "https://archive-api.open-meteo.com/v1/archive"
+      : "https://api.open-meteo.com/v1/forecast";
+    const url = `${base}?latitude=${lat}&longitude=${lng}&start_date=${datum}&end_date=${datum}&daily=${daily}&hourly=${hourly}&timezone=Europe%2FBerlin`;
+
+    const r = await fetch(url);
+    const data = await r.json();
+
+    // Dominanter weather_code aus den Stunden 6-20 Uhr (Modus)
+    let dominantCode = null;
+    if (data.hourly?.weather_code && data.hourly?.time) {
+      const counts = {};
+      data.hourly.time.forEach((t, i) => {
+        const hour = parseInt(t.slice(11, 13)); // "2024-09-15T08:00" → 8
+        if (hour >= 6 && hour <= 20) {
+          const code = data.hourly.weather_code[i];
+          if (code != null) counts[code] = (counts[code] || 0) + 1;
+        }
+      });
+      let maxCount = 0;
+      for (const [code, count] of Object.entries(counts)) {
+        if (count > maxCount) { maxCount = count; dominantCode = parseInt(code); }
+      }
+    }
+
+    if (data.daily) {
+      const tMax = data.daily.temperature_2m_max[0];
+      const tMin = data.daily.temperature_2m_min[0];
+      const niederschlag = data.daily.precipitation_sum?.[0];
+      const round1 = v => v == null ? null : Math.round(v * 10) / 10;
+      return {
+        wetter: dominantCode,
+        temp_min: round1(tMin),
+        temp_max: round1(tMax),
+        temperatur: tMax != null && tMin != null ? Math.round((tMax + tMin) / 2) : null,
+        niederschlag: round1(niederschlag),
+      };
+    }
+  } catch (e) { console.error(e); }
+  return null;
+}
+
+// Thumbnail-Erzeugung (Canvas)
+async function erzeugeThumbnail(file, maxSize = 300) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve({ full: e.target.result, thumb: canvas.toDataURL("image/jpeg", 0.75) });
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function BerichtDialog({ bericht, config, tag, onClose, onSave, onOpenTag }) {
+  const [form, setForm] = useState({ ...bericht, bilder: bericht.bilder || [] });
+  const [wetterLoading, setWetterLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const fileInput = useRef(null);
+  const upd = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  async function holeWetter() {
+    if (!config.standort_lat) return;
+    setWetterLoading(true);
+    const w = await fetchWetter(config.standort_lat, config.standort_lng, form.datum);
+    if (w) {
+      upd("wetter", w.wetter);
+      upd("temperatur", w.temperatur);
+      upd("temp_min", w.temp_min);
+      upd("temp_max", w.temp_max);
+      upd("niederschlag", w.niederschlag);
+    }
+    setWetterLoading(false);
+  }
+
+  async function handleFiles(files) {
+    setUploadLoading(true);
+    const neueBilder = [...(form.bilder || [])];
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      try {
+        const { full, thumb } = await erzeugeThumbnail(file);
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        dbSaveBild({ id, data: full, thumb, name: file.name }, form.datum);
+        neueBilder.push(id);
+      } catch (e) { console.error(e); }
+    }
+    upd("bilder", neueBilder);
+    setUploadLoading(false);
+  }
+
+  function removeBild(bildId) {
+    dbDeleteBild(bildId);
+    upd("bilder", form.bilder.filter(id => id !== bildId));
+  }
+
+  const tagStatus = tag ? STATUS[tag.status] : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40" onClick={onClose}>
+      <div className="paper w-full sm:max-w-3xl p-6 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-5">
+          <h3 className="font-display text-xl" style={{ fontWeight: 600 }}>Tagesbericht</h3>
+          <button onClick={onClose} className="p-1"><X size={18} /></button>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4 mb-4">
+          <Field label="Datum"><input type="date" className="input-base" value={form.datum} onChange={e => upd("datum", e.target.value)} /></Field>
+          <Field label="Titel / Thema"><input className="input-base" placeholder="z. B. Pflanzung Staudenbeet" value={form.titel} onChange={e => upd("titel", e.target.value)} /></Field>
+        </div>
+
+        {/* Kalender-Verknüpfung */}
+        <button onClick={onOpenTag}
+          className="w-full flex items-center justify-between gap-2 p-2.5 rounded-sm text-sm mb-4 hover:bg-[#f0ece0] transition-colors"
+          style={{ background: tagStatus?.bg || "#fcfaf3", border: "1px solid #e5e0d4" }}>
+          <div className="flex items-center gap-2">
+            <Calendar size={14} style={{ color: tagStatus?.color || "#6b6b6b" }} />
+            <span className="text-xs text-[#6b6b6b]">Im Kalender:</span>
+            {tagStatus ? (
+              <>
+                <span className="font-medium" style={{ color: tagStatus.color }}>{tagStatus.label}</span>
+                {tag.stunden != null && <span className="font-mono text-xs text-[#6b6b6b]">· {tag.stunden}h</span>}
+              </>
+            ) : (
+              <span className="text-[#9a9a9a]">noch nicht erfasst</span>
+            )}
+          </div>
+          <LinkIcon size={12} style={{ color: "#2d5a3d" }} />
+        </button>
+
+        {/* Wetter */}
+        <div className="mb-4 p-3 rounded-sm" style={{ background: "#fcfaf3", border: "1px solid #efece2" }}>
+          <div className="flex items-center justify-between mb-3">
+            <label className="label-base mb-0">Wetter</label>
+            {config.standort_lat && (
+              <button className="btn-ghost text-xs flex items-center gap-1" onClick={holeWetter} disabled={wetterLoading}>
+                <Cloud size={12} /> {wetterLoading ? "lade …" : "Wetter automatisch holen"}
+              </button>
+            )}
+          </div>
+          {config.standort_lat && (
+            <div className="text-[10px] text-[#9a9a9a] mb-2 flex items-center gap-1">
+              <MapPin size={9} />
+              <span>Quelle: {config.standort_name} ({(+config.standort_lat).toFixed(3)}, {(+config.standort_lng).toFixed(3)})</span>
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <select className="input-base sm:col-span-1" value={form.wetter ?? ""} onChange={e => upd("wetter", e.target.value === "" ? null : parseInt(e.target.value))}>
+              <option value="">Bedingung –</option>
+              <option value="0">Klar</option>
+              <option value="1">Heiter</option>
+              <option value="2">Teils bewölkt</option>
+              <option value="3">Bedeckt</option>
+              <option value="45">Nebel</option>
+              <option value="51">Leichter Niesel</option>
+              <option value="53">Niesel</option>
+              <option value="55">Starker Niesel</option>
+              <option value="61">Leichter Regen</option>
+              <option value="63">Regen</option>
+              <option value="65">Starker Regen</option>
+              <option value="71">Leichter Schnee</option>
+              <option value="73">Schnee</option>
+              <option value="75">Starker Schnee</option>
+              <option value="80">Leichte Schauer</option>
+              <option value="81">Schauer</option>
+              <option value="82">Heftige Schauer</option>
+              <option value="95">Gewitter</option>
+              <option value="96">Gewitter mit Hagel</option>
+            </select>
+            <div className="relative">
+              <input type="number" step="0.5" className="input-base pr-14" placeholder="Min" value={form.temp_min ?? ""} onChange={e => upd("temp_min", e.target.value)} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#6b6b6b]">°C min</span>
+            </div>
+            <div className="relative">
+              <input type="number" step="0.5" className="input-base pr-14" placeholder="Max" value={form.temp_max ?? ""} onChange={e => upd("temp_max", e.target.value)} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#6b6b6b]">°C max</span>
+            </div>
+            <div className="relative">
+              <input type="number" step="0.1" min="0" className="input-base pr-12" placeholder="Nieder." value={form.niederschlag ?? ""} onChange={e => upd("niederschlag", e.target.value)} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#6b6b6b]">mm</span>
+            </div>
+          </div>
+          {!config.standort_lat && (
+            <p className="text-xs text-[#9a9a9a] mt-2">Standort in den Einstellungen eintragen für automatisches Wetter.</p>
+          )}
+        </div>
+
+        {/* Haupt-Felder */}
+        <Field label="Tätigkeiten"><textarea rows={4} className="input-base" placeholder="Was wurde heute gemacht?" value={form.taetigkeiten} onChange={e => upd("taetigkeiten", e.target.value)} /></Field>
+        <Field label="Lerninhalte / Erkenntnisse"><textarea rows={3} className="input-base" placeholder="Was wurde gelernt?" value={form.lerninhalte} onChange={e => upd("lerninhalte", e.target.value)} /></Field>
+
+        {/* Zusatzfelder (Berichtsheft-typisch) */}
+        <div className="grid sm:grid-cols-2 gap-4 mb-4 mt-4 pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <Field label={<span className="flex items-center gap-1"><Clock size={11} /> Einsatzzeit</span>}>
+            <div className="flex items-center gap-2">
+              <input type="time" className="input-base" value={form.stundenvon || ""} onChange={e => upd("stundenvon", e.target.value)} />
+              <span className="text-[#6b6b6b]">–</span>
+              <input type="time" className="input-base" value={form.stundenbis || ""} onChange={e => upd("stundenbis", e.target.value)} />
+            </div>
+          </Field>
+          <Field label={<span className="flex items-center gap-1"><MapPin size={11} /> Einsatzort / Baustelle</span>}>
+            <input className="input-base" placeholder="Firma, Kunde, Objekt" value={form.ort || ""} onChange={e => upd("ort", e.target.value)} />
+          </Field>
+          <Field label={<span className="flex items-center gap-1"><Users size={11} /> Beteiligte Personen</span>}>
+            <input className="input-base" placeholder="Ausbilder, Kollegen …" value={form.personen || ""} onChange={e => upd("personen", e.target.value)} />
+          </Field>
+          <Field label={<span className="flex items-center gap-1"><Wrench size={11} /> Werkzeuge & Maschinen</span>}>
+            <input className="input-base" placeholder="z. B. Motorsäge, Radlader …" value={form.werkzeuge || ""} onChange={e => upd("werkzeuge", e.target.value)} />
+          </Field>
+        </div>
+
+        <Field label="Besondere Vorkommnisse / Unterweisungen">
+          <textarea rows={2} className="input-base" value={form.besonderheiten || ""} onChange={e => upd("besonderheiten", e.target.value)} />
+        </Field>
+
+        <Field label="Unterweisung durch Ausbilder*in">
+          <textarea rows={2} className="input-base" value={form.unterweisung} onChange={e => upd("unterweisung", e.target.value)} />
+        </Field>
+
+        {/* Fotos-Upload */}
+        <div className="mt-4 pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <div className="flex items-center justify-between mb-2">
+            <label className="label-base mb-0"><Camera size={11} className="inline mr-1" /> Fotos / Bilder</label>
+            <button className="btn-ghost text-xs flex items-center gap-1" onClick={() => fileInput.current?.click()} disabled={uploadLoading}>
+              <Plus size={12} /> {uploadLoading ? "lade …" : "Hinzufügen"}
+            </button>
+          </div>
+          <input ref={fileInput} type="file" accept="image/*" multiple className="hidden"
+            onChange={e => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ""; }} />
+          {form.bilder?.length > 0 ? (
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              {form.bilder.map(bId => (
+                <div key={bId} className="relative group">
+                  <BildThumbLarge bildId={bId} />
+                  <button className="absolute top-0.5 right-0.5 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => removeBild(bId)}>
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-[#9a9a9a] py-3 text-center rounded-sm" style={{ background: "#fcfaf3", border: "1px dashed #d0cabc" }}>
+              Keine Bilder · klicke auf „Hinzufügen"
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <button className="btn-ghost" onClick={onClose}>Abbrechen</button>
+          <button className="btn-primary" onClick={() => onSave(form)}>Speichern</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BildThumbLarge({ bildId }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  useEffect(() => {
+    const v = dbGetBild(bildId);
+    if (v) setDataUrl(v.thumb || v.data);
+  }, [bildId]);
+  return (
+    <div className="aspect-square rounded-sm overflow-hidden" style={{ background: "#f0ece0", border: "1px solid #e5e0d4" }}>
+      {dataUrl ? <img src={dataUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><ImageIcon size={20} className="text-[#c0b8a8]" /></div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  PDF-EXPORT (A4-Wochenansicht via Browser-Print)
+// ============================================================
+function PrintWoche({ config, grp, onClose }) {
+  const beruf = BERUFE.find(b => b.id === config.beruf_id);
+  const montag = mondayOfKW(grp.jahr, grp.kw);
+  const sonntag = new Date(montag); sonntag.setDate(montag.getDate() + 6);
+  const [bilderDaten, setBilderDaten] = useState({});
+
+  useEffect(() => {
+    const alle = {};
+    for (const b of grp.berichte) {
+      if (b.bilder?.length) {
+        for (const bId of b.bilder) {
+          const v = dbGetBild(bId);
+          if (v) alle[bId] = v.thumb || v.data;
+        }
+      }
+    }
+    setBilderDaten(alle);
+  }, [grp]);
+
+  useEffect(() => {
+    const h = e => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  function doPrint() {
+    window.print();
+  }
+
+  const sortiert = [...grp.berichte].sort((a, b) => a.datum.localeCompare(b.datum));
+
+  return (
+    <>
+      {/* Modal-Overlay (nur Screen) */}
+      <div className="fixed inset-0 z-40 bg-black/40 no-print" onClick={onClose}>
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <div className="paper max-w-2xl w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Wochen-Druckansicht</div>
+                <div className="font-display text-xl" style={{ fontWeight: 600 }}>
+                  KW {grp.kw} / {grp.jahr}
+                </div>
+              </div>
+              <button onClick={onClose} className="p-1"><X size={18} /></button>
+            </div>
+            <p className="text-sm text-[#4a4a4a] mb-4">
+              Die Druckansicht wird im A4-Format erzeugt. Im folgenden Druckdialog kannst du
+              „Als PDF speichern" wählen. Bitte Kopf-/Fußzeilen ggf. im Druckdialog deaktivieren
+              (schickere Optik).
+            </p>
+            <div className="flex justify-end gap-2">
+              <button className="btn-ghost" onClick={onClose}>Abbrechen</button>
+              <button className="btn-primary flex items-center gap-2" onClick={doPrint}>
+                <Printer size={14} /> Drucken / als PDF speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Print-Area (nur im Druck sichtbar) */}
+      <div className="print-area">
+        <div className="print-page" style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif", color: "#1a1a1a", fontSize: "10pt" }}>
+          {/* Kopf */}
+          <div style={{ borderBottom: "2px solid #2d5a3d", paddingBottom: "0.5cm", marginBottom: "0.8cm" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+              <div>
+                <div style={{ fontSize: "8pt", letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b6b" }}>
+                  Ausbildungsnachweis · Berichtsheft
+                </div>
+                <div style={{ fontFamily: "'Fraunces', serif", fontSize: "22pt", fontWeight: 600, marginTop: "0.1cm" }}>
+                  Kalenderwoche {grp.kw} / {grp.jahr}
+                </div>
+                <div style={{ fontSize: "10pt", color: "#4a4a4a", marginTop: "0.1cm" }}>
+                  {montag.toLocaleDateString("de-DE", { day:"2-digit", month:"long", year:"numeric" })} –
+                  {" "}{sonntag.toLocaleDateString("de-DE", { day:"2-digit", month:"long", year:"numeric" })}
+                </div>
+              </div>
+              <div style={{ textAlign: "right", fontSize: "9pt", color: "#4a4a4a" }}>
+                <div style={{ fontWeight: 600, color: "#1a1a1a" }}>{config.name || "—"}</div>
+                <div>{beruf?.label}</div>
+                <div style={{ fontSize: "8pt", color: "#6b6b6b", marginTop: "0.1cm" }}>
+                  Beginn: {fmtDE(parseISO(config.start_datum))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Berichte */}
+          {sortiert.map(b => {
+            const d = parseISO(b.datum);
+            const winfo = wetterInfo(b.wetter);
+            return (
+              <div key={b.datum} style={{ marginBottom: "0.7cm", pageBreakInside: "avoid" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.5cm", borderBottom: "1px solid #e5e0d4", paddingBottom: "0.15cm", marginBottom: "0.3cm" }}>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: "14pt", fontWeight: 600, color: "#2d5a3d" }}>
+                    {DE_WD_LONG[(d.getDay()+6)%7]}, {d.getDate().toString().padStart(2,"0")}.{(d.getMonth()+1).toString().padStart(2,"0")}.
+                  </div>
+                  <div style={{ flex: 1, fontSize: "11pt", fontWeight: 500 }}>
+                    {b.titel || "(Ohne Titel)"}
+                  </div>
+                  {winfo && (
+                    <div style={{ fontSize: "8pt", color: "#6b6b6b" }}>
+                      {winfo.label}
+                      {b.temp_min != null && b.temp_min !== "" && b.temp_max != null && b.temp_max !== ""
+                        ? ` · ${b.temp_min}…${b.temp_max}°C`
+                        : (b.temperatur != null && b.temperatur !== "" && ` · ${b.temperatur}°C`)}
+                      {b.niederschlag != null && b.niederschlag !== "" && +b.niederschlag > 0 && ` · ${(+b.niederschlag).toFixed(1)}mm`}
+                    </div>
+                  )}
+                </div>
+
+                {/* Meta-Grid */}
+                {(b.stundenvon || b.ort || b.personen || b.werkzeuge) && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.2cm 0.6cm", fontSize: "8.5pt", marginBottom: "0.3cm", color: "#4a4a4a" }}>
+                    {(b.stundenvon || b.stundenbis) && <div><strong style={{ color: "#1a1a1a" }}>Zeit:</strong> {b.stundenvon} – {b.stundenbis}</div>}
+                    {b.ort && <div><strong style={{ color: "#1a1a1a" }}>Ort:</strong> {b.ort}</div>}
+                    {b.personen && <div><strong style={{ color: "#1a1a1a" }}>Personen:</strong> {b.personen}</div>}
+                    {b.werkzeuge && <div><strong style={{ color: "#1a1a1a" }}>Werkzeuge:</strong> {b.werkzeuge}</div>}
+                  </div>
+                )}
+
+                {b.taetigkeiten && (
+                  <div style={{ marginBottom: "0.2cm" }}>
+                    <div style={{ fontSize: "8pt", letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b6b", marginBottom: "0.1cm" }}>Tätigkeiten</div>
+                    <div style={{ fontSize: "10pt", lineHeight: 1.4 }}>{b.taetigkeiten}</div>
+                  </div>
+                )}
+                {b.lerninhalte && (
+                  <div style={{ marginBottom: "0.2cm" }}>
+                    <div style={{ fontSize: "8pt", letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b6b", marginBottom: "0.1cm" }}>Lerninhalte</div>
+                    <div style={{ fontSize: "10pt", lineHeight: 1.4 }}>{b.lerninhalte}</div>
+                  </div>
+                )}
+                {b.besonderheiten && (
+                  <div style={{ marginBottom: "0.2cm" }}>
+                    <div style={{ fontSize: "8pt", letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b6b", marginBottom: "0.1cm" }}>Besondere Vorkommnisse</div>
+                    <div style={{ fontSize: "10pt", lineHeight: 1.4 }}>{b.besonderheiten}</div>
+                  </div>
+                )}
+                {b.unterweisung && (
+                  <div style={{ marginBottom: "0.2cm" }}>
+                    <div style={{ fontSize: "8pt", letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b6b", marginBottom: "0.1cm" }}>Unterweisung</div>
+                    <div style={{ fontSize: "10pt", lineHeight: 1.4 }}>{b.unterweisung}</div>
+                  </div>
+                )}
+
+                {/* Fotos */}
+                {b.bilder?.length > 0 && (
+                  <div style={{ marginTop: "0.25cm", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.15cm" }}>
+                    {b.bilder.slice(0, 4).map(bId => (
+                      bilderDaten[bId] && (
+                        <img key={bId} src={bilderDaten[bId]} alt="" style={{ width: "100%", height: "3cm", objectFit: "cover", borderRadius: "2px", border: "1px solid #e5e0d4" }} />
+                      )
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Fuß */}
+          <div style={{ marginTop: "1.2cm", paddingTop: "0.4cm", borderTop: "1px solid #e5e0d4", fontSize: "8pt", color: "#6b6b6b", display: "flex", justifyContent: "space-between" }}>
+            <div>Ausbildungsnachweis gem. § 13 Abs. 1 Nr. 7 BBiG</div>
+            <div>Erstellt {new Date().toLocaleDateString("de-DE")}</div>
+          </div>
+
+          {/* Unterschrift-Kasten */}
+          <div style={{ marginTop: "1cm", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5cm", fontSize: "9pt" }}>
+            <div>
+              <div style={{ borderBottom: "1px solid #1a1a1a", height: "1.2cm" }} />
+              <div style={{ marginTop: "0.15cm", color: "#6b6b6b" }}>Auszubildende/r</div>
+            </div>
+            <div>
+              <div style={{ borderBottom: "1px solid #1a1a1a", height: "1.2cm" }} />
+              <div style={{ marginTop: "0.15cm", color: "#6b6b6b" }}>Ausbilder/in</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
+//  STATISTIK
+// ============================================================
+function Statistik({ config, tage, k, berichte, phasen }) {
+  const proMonat = useMemo(() => {
+    const m = {};
+    Object.values(tage).forEach(t => {
+      const key = t.datum.slice(0, 7);
+      if (!m[key]) m[key] = { monat: fmtMonYear(key), krank: 0, urlaub: 0, anwesend: 0 };
+      if (t.status === "krank") m[key].krank++;
+      else if (t.status === "urlaub") m[key].urlaub++;
+      else if (["anwesend","berufsschule","lerntag","ueba"].includes(t.status)) m[key].anwesend++;
+    });
+    return Object.values(m);
+  }, [tage]);
+
+  const dl = (c, f, m) => { const b = new Blob([c], { type: m }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = f; a.click(); URL.revokeObjectURL(u); };
+  const sqlEsc = v => v == null ? "NULL" : typeof v === "number" ? v.toString() : `'${String(v).replace(/'/g, "''")}'`;
+
+  function exportJSON() {
+    dl(JSON.stringify({ config, tage: Object.values(tage), berichte }, null, 2), "ausbildung_export.json", "application/json");
+  }
+  function exportSQL() {
+    let s = `-- Gärtnerausbildung Export · ${new Date().toISOString()}\n\n`;
+    s += `CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK (id=1), name TEXT, beruf_id TEXT, geburtsdatum TEXT, start_datum TEXT, regulaer_dauer_monate INTEGER, teilzeit_prozent INTEGER, vollzeit_wochenstunden REAL, berufsschule_modus TEXT, zp_monat TEXT, ap_monat TEXT, standort_name TEXT, standort_lat REAL, standort_lng REAL);\n`;
+    s += `CREATE TABLE IF NOT EXISTS arbeitstage (datum TEXT PRIMARY KEY, status TEXT, stunden REAL, bemerkung TEXT);\n`;
+    s += `CREATE TABLE IF NOT EXISTS tagesberichte (datum TEXT PRIMARY KEY, titel TEXT, taetigkeiten TEXT, lerninhalte TEXT, unterweisung TEXT, wetter INTEGER, temperatur REAL, temp_min REAL, temp_max REAL, niederschlag REAL, ort TEXT, personen TEXT, werkzeuge TEXT, besonderheiten TEXT, stundenvon TEXT, stundenbis TEXT);\n\n`;
+    s += `INSERT OR REPLACE INTO config VALUES (1, ${sqlEsc(config.name)}, ${sqlEsc(config.beruf_id)}, ${sqlEsc(config.geburtsdatum || null)}, ${sqlEsc(config.start_datum)}, ${config.regulaer_dauer_monate}, ${config.teilzeit_prozent}, ${config.vollzeit_wochenstunden}, ${sqlEsc(config.berufsschule_modus)}, ${sqlEsc(config.zp_monat || null)}, ${sqlEsc(config.ap_monat || null)}, ${sqlEsc(config.standort_name || null)}, ${config.standort_lat ?? "NULL"}, ${config.standort_lng ?? "NULL"});\n\n`;
+    Object.values(tage).forEach(t => { s += `INSERT OR REPLACE INTO arbeitstage VALUES (${sqlEsc(t.datum)}, ${sqlEsc(t.status)}, ${t.stunden ?? "NULL"}, ${sqlEsc(t.bemerkung || null)});\n`; });
+    s += "\n";
+    berichte.forEach(b => {
+      s += `INSERT OR REPLACE INTO tagesberichte VALUES (${sqlEsc(b.datum)}, ${sqlEsc(b.titel)}, ${sqlEsc(b.taetigkeiten)}, ${sqlEsc(b.lerninhalte)}, ${sqlEsc(b.unterweisung)}, ${b.wetter ?? "NULL"}, ${b.temperatur ?? "NULL"}, ${b.temp_min ?? "NULL"}, ${b.temp_max ?? "NULL"}, ${b.niederschlag ?? "NULL"}, ${sqlEsc(b.ort || null)}, ${sqlEsc(b.personen || null)}, ${sqlEsc(b.werkzeuge || null)}, ${sqlEsc(b.besonderheiten || null)}, ${sqlEsc(b.stundenvon || null)}, ${sqlEsc(b.stundenbis || null)});\n`;
+    });
+    dl(s, "ausbildung.sql", "text/plain");
+  }
+
+  return (
+    <div className="py-6 sm:py-8 space-y-6">
+      <div className="paper p-6">
+        <h2 className="font-display text-xl mb-4" style={{ fontWeight: 600 }}>Monatsverlauf</h2>
+        {proMonat.length === 0 ? (
+          <p className="text-sm text-[#6b6b6b] py-8 text-center">Noch keine Daten.</p>
+        ) : (
+          <div className="h-[280px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={proMonat}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e0d4" />
+                <XAxis dataKey="monat" stroke="#6b6b6b" fontSize={11} />
+                <YAxis stroke="#6b6b6b" fontSize={11} />
+                <RTooltip contentStyle={{ background: "#fff", border: "1px solid #e5e0d4", borderRadius: 3 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="anwesend" name="Anwesend" stackId="a" fill="#4a6b3a" />
+                <Bar dataKey="urlaub" name="Urlaub" stackId="a" fill="#2e7d5a" />
+                <Bar dataKey="krank" name="Krank" stackId="a" fill="#b04545" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <div className="paper p-6">
+        <h2 className="font-display text-xl mb-4" style={{ fontWeight: 600 }}>Kennzahlen</h2>
+        <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+          <Row label="Ausbildungstage (Teilzeit-angepasst)" value={k.atGes.toString()} />
+          <Row label="Abgeleistet (erfasst)" value={k.anwesend.toString()} />
+          <Row label="Krankheitstage" value={k.krank.toString()} warn={k.krank >= k.fehltageSoft} />
+          <Row label="10 %-Grenze" value={k.fehltageSoft.toString()} />
+          <Row label="Urlaub gesamt" value={`${k.urlaubGenommen} / ${k.urlaubGesamt}`} />
+          <Row label="Tagesberichte" value={berichte.length.toString()} />
+          <Row label="Vergütung gesamt" value={`${Math.round(k.verguetungGesamt).toLocaleString("de-DE")} €`} />
+          <Row label="Aktuelle Vergütung" value={`${k.aktVerg} €/Mon.`} />
+        </div>
+      </div>
+
+      <div className="paper p-6">
+        <h2 className="font-display text-xl mb-1" style={{ fontWeight: 600 }}>Datenbank</h2>
+        <p className="text-xs text-[#6b6b6b] mb-4">Die gesamte Ausbildung wird lokal in einer SQLite-Datenbank gespeichert. Export zur Sicherung oder für DB-Browser (z. B. DB Browser for SQLite).</p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button className="btn-primary flex items-center gap-2" onClick={exportDbAsFile}>
+            <Database size={14} /> Als .db-Datei speichern
+          </button>
+          <label className="btn-ghost flex items-center gap-2 cursor-pointer">
+            <Upload size={14} /> .db-Datei importieren
+            <input type="file" accept=".db,.sqlite,.sqlite3,application/x-sqlite3" className="hidden"
+              onChange={async e => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                if (!confirm("Bestehende Daten werden durch die importierte Datei ersetzt. Fortfahren?")) return;
+                await importDbFromFile(f);
+                window.location.reload();
+              }} />
+          </label>
+          <button className="btn-ghost flex items-center gap-2" style={{ color: "#b04545", borderColor: "#e8c0c0" }}
+            onClick={async () => {
+              if (!confirm("Wirklich alle Daten unwiderruflich zurücksetzen?")) return;
+              await resetDatabase();
+              window.location.reload();
+            }}>
+            <RefreshCw size={14} /> Zurücksetzen
+          </button>
+        </div>
+        <div className="text-xs text-[#6b6b6b] border-t pt-3" style={{ borderColor: "#efece2" }}>
+          <div>Datenbank erstellt: <span className="font-mono">{_dbMeta.created ? new Date(_dbMeta.created).toLocaleString("de-DE") : "–"}</span></div>
+          <div>Zuletzt gespeichert: <span className="font-mono">{_dbMeta.modified ? new Date(_dbMeta.modified).toLocaleString("de-DE") : "–"}</span></div>
+        </div>
+      </div>
+
+      <div className="paper p-6">
+        <h2 className="font-display text-xl mb-1" style={{ fontWeight: 600 }}>JSON-Export</h2>
+        <p className="text-xs text-[#6b6b6b] mb-4">Menschenlesbarer Snapshot ohne Bilder (für Archiv/Prüfung)</p>
+        <button className="btn-ghost flex items-center gap-2" onClick={exportJSON}><Download size={14} /> JSON</button>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, warn }) {
+  return (
+    <div className="flex justify-between py-1.5 border-b" style={{ borderColor: "#efece2" }}>
+      <span className="text-[#6b6b6b]">{label}</span>
+      <span className="font-mono" style={{ color: warn ? "#b04545" : "#1a1a1a", fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+// ============================================================
+//  EINSTELLUNGEN
+// ============================================================
+function Einstellungen({ config, saveConfig, phasen, addPhase, savePhase, deletePhase }) {
+  const [form, setForm] = useState(config);
+  const [dirty, setDirty] = useState(false);
+  const upd = (p, v) => {
+    setForm(prev => {
+      const c = JSON.parse(JSON.stringify(prev));
+      const parts = p.split("."); let cur = c;
+      for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
+      cur[parts[parts.length - 1]] = v;
+      return c;
+    });
+    setDirty(true);
+  };
+  const tz = form.teilzeit_prozent / 100;
+  const dauerFaktor = Math.min(1 / tz, 1.5);
+  const effektiveDauer = Math.max(6, form.regulaer_dauer_monate - (form.verkuerzung_monate || 0));
+  const dauer = Math.round(effektiveDauer * dauerFaktor);
+  const start = form.start_datum ? parseISO(form.start_datum) : null;
+  const ende = start ? addMonths(start, dauer) : null;
+  const zpAuto = zpTerminAuto(start, dauer);
+  const apAuto = apTerminAuto(ende, form.vorzeitige_zulassung);
+  const fmtMon = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+
+  // Auto-Vorbelegung der Prüfungstermine, analog zu PruefungsPanel.
+  // Nutzt setForm direkt, damit kein dirty-Flag gesetzt wird.
+  // Beim Mount wird der Ref auf den gespeicherten Wert initialisiert, wenn er dem
+  // aktuellen Auto-Vorschlag entspricht – damit der Tracking-Mechanismus greift.
+  const prevZpRef = useRef(zpAuto && form.zp_monat === fmtMon(zpAuto) ? form.zp_monat : null);
+  const prevApRef = useRef(apAuto && form.ap_monat === fmtMon(apAuto) ? form.ap_monat : null);
+  useEffect(() => {
+    const zpNeu = zpAuto ? fmtMon(zpAuto) : null;
+    const apNeu = apAuto ? fmtMon(apAuto) : null;
+    setForm(prev => {
+      let changed = false;
+      const next = { ...prev };
+      if (zpNeu && (!prev.zp_monat || prev.zp_monat === prevZpRef.current)) {
+        if (prev.zp_monat !== zpNeu) { next.zp_monat = zpNeu; changed = true; }
+      }
+      if (apNeu && (!prev.ap_monat || prev.ap_monat === prevApRef.current)) {
+        if (prev.ap_monat !== apNeu) { next.ap_monat = apNeu; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+    prevZpRef.current = zpNeu;
+    prevApRef.current = apNeu;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zpAuto?.getTime(), apAuto?.getTime()]);
+
+  return (
+    <div className="py-6 sm:py-8 max-w-3xl space-y-6">
+      <div className="paper p-6 sm:p-8">
+        <h2 className="font-display text-2xl mb-1" style={{ fontWeight: 600 }}>Einstellungen</h2>
+        <p className="text-sm text-[#6b6b6b] mb-6">Anpassungen wirken sich automatisch auf Dauer, Vergütung, Urlaub und Prüfungstermine aus.</p>
+
+        {/* Modus-Umschalter */}
+        <div className="p-4 rounded-sm mb-6" style={{ background: "#fcfaf3", border: "1px solid #e5e0d4" }}>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b] mb-3">Nutzungsmodus</div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: "vollstaendig", label: "Vollständig", desc: "mit Berichtsheft & Kalender" },
+              { id: "beratung", label: "Beratungsmodus", desc: "nur Stamm- & Phasendaten" },
+            ].map(o => {
+              const akt = (form.modus || "vollstaendig") === o.id;
+              return (
+                <button key={o.id} onClick={() => upd("modus", o.id)}
+                  className="text-left p-3 rounded-sm transition-colors"
+                  style={{
+                    background: akt ? "#e8f0e0" : "#fff",
+                    border: akt ? "2px solid #2d5a3d" : "1px solid #d0cabc",
+                    color: akt ? "#2d5a3d" : "#1a1a1a",
+                  }}>
+                  <div className="font-medium text-sm">{o.label}</div>
+                  <div className="text-xs text-[#6b6b6b] mt-0.5">{o.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Anpassungs-Block: Verkürzung + Teilzeit + Vorzeitig */}
+        <div className="p-5 rounded-sm mb-6 space-y-4" style={{ background: "#f7f4ec", border: "1px solid #e5e0d4" }}>
+          <div className="text-xs uppercase tracking-widest text-[#6b6b6b]">Ausbildungsanpassungen</div>
+
+          <div>
+            <label className="label-base">Verkürzung (§ 8 BBiG)</label>
+            <select className="input-base" value={form.verkuerzung_monate}
+              onChange={e => upd("verkuerzung_monate", parseInt(e.target.value))}>
+              <option value="0">Keine Verkürzung</option>
+              <option value="6">6 Monate (Realschulabschluss)</option>
+              <option value="12">12 Monate (FHR / Abitur)</option>
+              <option value="18">18 Monate</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="label-base flex items-center justify-between">
+              <span>Teilzeit (§ 7a BBiG)</span>
+              <span className="font-display text-lg" style={{ color: "#2d5a3d", fontWeight: 600 }}>{form.teilzeit_prozent}%</span>
+            </label>
+            <input type="range" min="50" max="100" step="5" value={form.teilzeit_prozent}
+              onChange={e => upd("teilzeit_prozent", parseInt(e.target.value))}
+              className="w-full accent-[#2d5a3d]" />
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={form.vorzeitige_zulassung}
+              onChange={e => upd("vorzeitige_zulassung", e.target.checked)}
+              className="mt-0.5 accent-[#2d5a3d]" />
+            <div>
+              <div className="text-sm font-medium">Vorzeitige Zulassung (§ 45 BBiG)</div>
+              <div className="text-xs text-[#6b6b6b]">ZP Ø mind. überdurchschnittlich · AP einen Prüfungstermin früher</div>
+            </div>
+          </label>
+
+          {/* Live-Vorschau */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "#e5e0d4" }}>
+            <PreviewCell label="Dauer" value={`${dauer} Mon.`} />
+            <PreviewCell label="Wochenstd." value={`${(form.vollzeit_wochenstunden * tz).toFixed(1)} h`} />
+            {ende && <PreviewCell label="Ende" value={fmtDE(ende)} />}
+            {apAuto && <PreviewCell label="AP" value={`${DE_MONTHS_SHORT[apAuto.getMonth()]} ${apAuto.getFullYear()}`} />}
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <Field label="Name"><input className="input-base" value={form.name} onChange={e => upd("name", e.target.value)} /></Field>
+          <Field label="Fachrichtung">
+            <select className="input-base" value={form.beruf_id} onChange={e => upd("beruf_id", e.target.value)}>
+              {BERUFE.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Beginn"><input type="date" className="input-base" value={form.start_datum} onChange={e => upd("start_datum", e.target.value)} /></Field>
+            <Field label="Geburtsdatum" hint="Optional · für § 19 JArbSchG"><input type="date" className="input-base" value={form.geburtsdatum || ""} onChange={e => upd("geburtsdatum", e.target.value)} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Reguläre Dauer (Monate)" hint="bei Vollzeit, ohne Verkürzung">
+              <input type="number" className="input-base" value={form.regulaer_dauer_monate} onChange={e => upd("regulaer_dauer_monate", parseInt(e.target.value) || 36)} />
+            </Field>
+            <Field label="Wochenstunden" hint="bei Vollzeit · 100 %">
+              <input type="number" step="0.5" className="input-base" value={form.vollzeit_wochenstunden} onChange={e => upd("vollzeit_wochenstunden", parseFloat(e.target.value) || 39)} />
+            </Field>
+          </div>
+
+          <div className="pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+            <Field label="Berufsschul-Modus">
+              <select className="input-base" value={form.berufsschule_modus} onChange={e => upd("berufsschule_modus", e.target.value)}>
+                <option value="regulaer">Regulärer Berufsschulbesuch</option>
+                <option value="lerntag">Lerntag statt Berufsschule (§ 14 BBiG)</option>
+                <option value="keine">Keine Berufsschule</option>
+              </select>
+            </Field>
+            {form.berufsschule_modus === "keine" && (
+              <div className="text-xs p-2.5 rounded-sm leading-relaxed mt-2" style={{ background: "#fdf7e3", border: "1px solid #e8d9a8", color: "#7a5a1a" }}>
+                <AlertTriangle size={12} className="inline mr-1 -mt-0.5" />
+                Auch ohne Berufsschulbesuch sind Zwischen- und Abschlussprüfung (je schriftlich&nbsp;+&nbsp;praktisch) verpflichtend.
+              </div>
+            )}
+            <p className="text-xs text-[#6b6b6b] mt-3 mb-2">
+              Prüfungstermine sind immer Winter (<strong>Februar</strong>) oder Sommer (<strong>Juli</strong>).
+              Vorbelegung aus dem Verlauf; sobald der konkrete Termin von der zuständigen Stelle bekannt
+              ist, einfach überschreiben.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Zwischenprüfung" hint={form.zp_monat === (zpAuto && fmtMon(zpAuto)) ? "aus Verlauf berechnet" : "manuell gesetzt"}>
+                <input type="month" className="input-base" value={form.zp_monat || ""}
+                  onChange={e => upd("zp_monat", e.target.value)} />
+              </Field>
+              <Field label="Abschlussprüfung" hint={form.ap_monat === (apAuto && fmtMon(apAuto)) ? "aus Verlauf berechnet" : "manuell gesetzt"}>
+                <input type="month" className="input-base" value={form.ap_monat || ""}
+                  onChange={e => upd("ap_monat", e.target.value)} />
+              </Field>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+            <div className="label-base mb-2"><MapPin size={11} className="inline mr-1" /> Standort für Wetter-Connector</div>
+            <StandortFeld form={form} upd={upd} />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-8 pt-6 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <button className="btn-primary" onClick={async () => { await saveConfig(form); setDirty(false); }} disabled={!dirty}>
+            {dirty ? "Änderungen speichern" : "Gespeichert"}
+          </button>
+        </div>
+      </div>
+
+      {/* Phasen-Editor */}
+      <PhasenEditor phasen={phasen} addPhase={addPhase} savePhase={savePhase} deletePhase={deletePhase} config={config} />
+    </div>
+  );
+}
+
+function PhasenEditor({ phasen, addPhase, savePhase, deletePhase, config }) {
+  const [editing, setEditing] = useState(null);
+  const [undoSnapshot, setUndoSnapshot] = useState(null); // {aktion, vorher: [...]} für Rückgängig
+  const sorted = phasenSortiert(phasen || []);
+  const probleme = phasenValidieren(sorted);
+  const phasenMit = phasen?.length
+    ? phasenMitEnden(phasen, config.regulaer_dauer_monate, config.verkuerzung_monate)
+    : [];
+  const vertragsende = vertragsendeAusPhasen(phasenMit);
+
+  function neuePhase() {
+    // Schlauer Default: anhängen an letzte Phase
+    const letzte = sorted[sorted.length - 1];
+    const heute = fmtISO(new Date());
+    const von = letzte?.bis || heute;
+    setEditing({
+      von, bis: "", typ: "ausbildung", betrieb: letzte?.betrieb || "",
+      teilzeit_prozent: letzte?.teilzeit_prozent || 100,
+      grund: "", pauschal_fehltage_e: 0, pauschal_fehltage_u: 0, anmerkung: "",
+    });
+  }
+
+  function handleSpeichern(formPhase, konfliktInfo) {
+    // Snapshot für Undo: alle Phasen kopieren
+    const snapshot = phasen.map(p => ({ ...p }));
+    const aktion = formPhase.id ? "bearbeitet" : "neu";
+
+    if (konfliktInfo && konfliktInfo.aufloesung && konfliktInfo.aufloesung !== "ueberlappen") {
+      const k = konfliktInfo.konflikt;
+      if (konfliktInfo.aufloesung === "kuerzen") {
+        // Alte Phase auf (neu.von - 1 Tag) kürzen
+        const neuVon = parseISO(formPhase.von);
+        const neuesBis = fmtISO(new Date(neuVon.getTime() - 86400000));
+        savePhase(k.id, { ...k, bis: neuesBis });
+      } else if (konfliktInfo.aufloesung === "splitten") {
+        // Alte Phase kürzen (erster Teil)
+        const neuVon = parseISO(formPhase.von);
+        const neuesBis = fmtISO(new Date(neuVon.getTime() - 86400000));
+        savePhase(k.id, { ...k, bis: neuesBis });
+        // Zweiter Teil: neue Phase mit den gleichen Eigenschaften der alten,
+        // startet ab (neu.bis + 1 Tag) bis zum alten bis
+        if (formPhase.bis) {
+          const neuEnde = parseISO(formPhase.bis);
+          const teil2Von = fmtISO(new Date(neuEnde.getTime() + 86400000));
+          addPhase({
+            von: teil2Von, bis: k.bis, typ: k.typ,
+            betrieb: k.betrieb, teilzeit_prozent: k.teilzeit_prozent,
+            grund: k.grund, anmerkung: (k.anmerkung || "") + " (Fortsetzung nach Phaseneinschub)",
+            pauschal_fehltage_e: 0, pauschal_fehltage_u: 0,
+          });
+        }
+      }
+    }
+    // Eigentliche neue/bearbeitete Phase speichern
+    if (formPhase.id) savePhase(formPhase.id, formPhase);
+    else addPhase(formPhase);
+
+    setUndoSnapshot({ aktion, vorher: snapshot });
+    setEditing(null);
+  }
+
+  function handleUndo() {
+    if (!undoSnapshot) return;
+    if (!confirm("Letzte Phasen-Änderung wirklich rückgängig machen? Alle jetzt bestehenden Phasen werden durch den Zustand davor ersetzt.")) return;
+    // Alle aktuellen Phasen löschen, Snapshot-Phasen wieder anlegen
+    const aktuelleIds = phasen.map(p => p.id);
+    aktuelleIds.forEach(id => deletePhase(id));
+    undoSnapshot.vorher.forEach(p => {
+      addPhase({
+        von: p.von, bis: p.bis, typ: p.typ, betrieb: p.betrieb,
+        teilzeit_prozent: p.teilzeit_prozent, grund: p.grund,
+        pauschal_fehltage_e: p.pauschal_fehltage_e, pauschal_fehltage_u: p.pauschal_fehltage_u,
+        anmerkung: p.anmerkung,
+      });
+    });
+    setUndoSnapshot(null);
+  }
+
+  return (
+    <div className="paper p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h2 className="font-display text-2xl" style={{ fontWeight: 600 }}>Phasen / Verlauf</h2>
+        <div className="flex gap-2">
+          {undoSnapshot && (
+            <button className="btn-ghost text-xs flex items-center gap-1" onClick={handleUndo} title="Letzte Phasenänderung rückgängig">
+              <RefreshCw size={12} /> Rückgängig
+            </button>
+          )}
+          <button className="btn-primary flex items-center gap-2" onClick={neuePhase}>
+            <Plus size={14} /> Phase
+          </button>
+        </div>
+      </div>
+      <p className="text-sm text-[#6b6b6b] mb-4 leading-relaxed">
+        Zerlege die Ausbildung in zeitliche Phasen — z. B. Vollzeit, danach Teilzeit ab Geburt eines Kindes,
+        Unterbrechung wegen Krankheit oder Wechsel des Ausbildungsbetriebs. Vergütung, Urlaub und Restzeit
+        werden phasenbasiert berechnet.
+      </p>
+
+      {sorted.length === 0 && (
+        <div className="text-center text-sm text-[#6b6b6b] py-8 rounded-sm" style={{ background: "#fcfaf3", border: "1px dashed #d0cabc" }}>
+          Noch keine Phasen angelegt. Klicke oben auf „Phase".
+        </div>
+      )}
+
+      {/* Validierungs-Hinweise */}
+      {probleme.length > 0 && (
+        <div className="mb-3 p-3 rounded-sm space-y-1" style={{ background: "#fdf0e3", border: "1px solid #e8b890" }}>
+          {probleme.map((p, i) => (
+            <div key={i} className="text-xs flex items-start gap-1.5" style={{ color: "#8a4a1a" }}>
+              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+              <span>{p.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Phasen-Liste */}
+      <div className="space-y-2">
+        {sorted.map(p => <PhasenZeile key={p.id} phase={p} onEdit={() => setEditing({ ...p })} onDelete={() => {
+          if (confirm(`Phase "${p.typ}" vom ${p.von} wirklich löschen?`)) deletePhase(p.id);
+        }} />)}
+      </div>
+
+      {/* Bottom-Info */}
+      {sorted.length > 0 && vertragsende && (
+        <div className="mt-4 pt-4 border-t flex justify-between items-center text-sm" style={{ borderColor: "#e5e0d4" }}>
+          <span className="text-[#6b6b6b]">Berechnetes Vertragsende:</span>
+          <span className="font-mono font-medium">{fmtDE(vertragsende)}</span>
+        </div>
+      )}
+
+      {/* Dialog */}
+      {editing && <PhasenDialog phase={editing} alleDerPhasen={phasen || []}
+        onClose={() => setEditing(null)}
+        onSave={handleSpeichern} />}
+    </div>
+  );
+}
+
+function PhasenZeile({ phase, onEdit, onDelete }) {
+  const isAusb = phase.typ === "ausbildung";
+  const farbe = isAusb
+    ? (phase.teilzeit_prozent < 100 ? "#7a9a5a" : "#2d5a3d")
+    : "#9a8a6a";
+  const bg = isAusb
+    ? (phase.teilzeit_prozent < 100 ? "#eaf0e0" : "#e8f0e0")
+    : "#f0ece0";
+  const von = parseISO(phase.von);
+  const bis = phase.bis ? parseISO(phase.bis) : null;
+  const monate = bis ? Math.round(diffMonths(von, bis) * 10) / 10 : null;
+  return (
+    <div className="rounded-sm p-3 flex items-start gap-3" style={{ background: bg, border: `1px solid ${farbe}40` }}>
+      <div className="w-1 self-stretch rounded-full" style={{ background: farbe }} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs uppercase tracking-widest font-medium" style={{ color: farbe }}>
+            {isAusb ? (phase.teilzeit_prozent < 100 ? `Teilzeit ${phase.teilzeit_prozent}%` : "Vollzeit") : "Unterbrechung"}
+          </span>
+          {phase.betrieb && <span className="text-xs text-[#6b6b6b]">· 🏢 {phase.betrieb}</span>}
+          {phase.grund && <span className="text-xs text-[#6b6b6b]">· {phase.grund}</span>}
+        </div>
+        <div className="text-sm mt-1 font-mono">
+          {fmtDE(von)} → {bis ? fmtDE(bis) : <span className="text-[#9a9a9a]">läuft</span>}
+          {monate != null && <span className="text-[#6b6b6b] text-xs ml-2">({monate} Mon.)</span>}
+        </div>
+        {(phase.pauschal_fehltage_e > 0 || phase.pauschal_fehltage_u > 0) && (
+          <div className="text-xs text-[#6b6b6b] mt-1">
+            Pauschale Fehltage: {phase.pauschal_fehltage_e} entsch. / {phase.pauschal_fehltage_u} unentsch.
+          </div>
+        )}
+        {phase.anmerkung && <div className="text-xs text-[#6b6b6b] mt-1 italic">„{phase.anmerkung}"</div>}
+      </div>
+      <div className="flex gap-1 flex-shrink-0">
+        <button onClick={onEdit} className="btn-ghost p-2" title="Bearbeiten"><Edit3 size={13} /></button>
+        <button onClick={onDelete} className="btn-ghost p-2" style={{ color: "#b04545" }} title="Löschen"><Trash2 size={13} /></button>
+      </div>
+    </div>
+  );
+}
+
+// Konflikt-Erkennung beim Anlegen/Bearbeiten einer Phase:
+// Gibt Informationen zurück, welche bestehende Phase von der neuen Phase
+// „geschnitten" wird — und welche Auflösungs-Strategien sinnvoll sind.
+function phasenKonflikt(alle, neu) {
+  if (!neu.von) return null;
+  const eigeneId = neu.id ?? null;
+  const neuVon = neu.von;
+  const neuBis = neu.bis || null;
+  // Phasen, die am neu.von-Datum aktiv sind (ohne die eigene ID)
+  const betroffen = alle.filter(p => {
+    if (p.id === eigeneId) return false;
+    // aktiv am neuVon? p.von <= neuVon && (p.bis >= neuVon || p.bis leer)
+    const aktivDortAn = p.von <= neuVon && (!p.bis || p.bis >= neuVon);
+    return aktivDortAn;
+  });
+  if (!betroffen.length) return null;
+  // Nimm die zeitlich relevanteste: die zuletzt beginnende
+  const konflikt = betroffen.sort((a, b) => b.von.localeCompare(a.von))[0];
+  const konfliktLaeuft = !konflikt.bis;
+  const konfliktEndeNachNeuBis = konflikt.bis && neuBis && konflikt.bis > neuBis;
+  // Auflösungs-Optionen
+  const optionen = [];
+  if (konflikt.von < neuVon) {
+    // Kürzen: alte Phase auf (neuVon - 1 Tag) setzen
+    optionen.push({ id: "kuerzen", label: `„${beschreibPhase(konflikt)}" am ${fmtDE(parseISO(neuVon))} beenden (empfohlen)`, empfohlen: true });
+  }
+  if (konfliktEndeNachNeuBis) {
+    // Splitten: alte Phase wird in zwei Teile geteilt, neue dazwischen
+    optionen.push({ id: "splitten", label: `„${beschreibPhase(konflikt)}" in zwei Teile teilen (vor & nach neuer Phase)` });
+  }
+  optionen.push({ id: "ueberlappen", label: "Nichts ändern — Überlappung akzeptieren (wird als Warnung markiert)" });
+  return { konflikt, konfliktLaeuft, optionen };
+}
+
+function beschreibPhase(p) {
+  if (p.typ === "unterbrechung") return `Unterbrechung${p.grund ? `: ${p.grund}` : ""}`;
+  const tz = p.teilzeit_prozent || 100;
+  return tz < 100 ? `Teilzeit ${tz}%` : "Vollzeit";
+}
+
+function PhasenDialog({ phase, alleDerPhasen, onClose, onSave }) {
+  const [f, setF] = useState({ ...phase });
+  const [aufloesung, setAufloesung] = useState(null); // "kuerzen" | "splitten" | "ueberlappen"
+  const upd = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const isAusb = f.typ === "ausbildung";
+  const fehler = !f.von ? "Beginn fehlt" : (f.bis && f.bis < f.von ? "Ende liegt vor dem Beginn" : null);
+
+  // Konflikt mit bestehenden Phasen prüfen
+  const konfliktInfo = phasenKonflikt(alleDerPhasen || [], f);
+  // Default-Auflösung: "kuerzen" wenn angeboten, sonst "ueberlappen"
+  useEffect(() => {
+    if (konfliktInfo) {
+      const empf = konfliktInfo.optionen.find(o => o.empfohlen);
+      setAufloesung(prev => prev && konfliktInfo.optionen.some(o => o.id === prev) ? prev : (empf?.id || konfliktInfo.optionen[0].id));
+    } else {
+      setAufloesung(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [konfliktInfo?.konflikt?.id, f.von, f.bis]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40" onClick={onClose}>
+      <div className="paper w-full sm:max-w-lg p-6 max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-5">
+          <h3 className="font-display text-xl" style={{ fontWeight: 600 }}>{phase.id ? "Phase bearbeiten" : "Neue Phase"}</h3>
+          <button onClick={onClose} className="p-1"><X size={18} /></button>
+        </div>
+
+        {/* Typ */}
+        <div className="mb-4">
+          <label className="label-base">Phasentyp</label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: "ausbildung", label: "Ausbildung", icon: GraduationCap, color: "#2d5a3d" },
+              { id: "unterbrechung", label: "Unterbrechung", icon: Clock, color: "#9a8a6a" },
+            ].map(t => {
+              const Ic = t.icon, akt = f.typ === t.id;
+              return (
+                <button key={t.id} onClick={() => upd("typ", t.id)}
+                  className="p-3 rounded-sm flex items-center gap-2 transition-colors"
+                  style={{
+                    background: akt ? `${t.color}15` : "#fff",
+                    border: akt ? `2px solid ${t.color}` : "1px solid #d0cabc",
+                    color: akt ? t.color : "#1a1a1a", fontWeight: akt ? 500 : 400,
+                  }}>
+                  <Ic size={15} /> {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Datum */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <Field label="Beginn">
+            <input type="date" className="input-base" value={f.von} onChange={e => upd("von", e.target.value)} />
+          </Field>
+          <Field label="Ende" hint="leer = läuft">
+            <input type="date" className="input-base" value={f.bis || ""} onChange={e => upd("bis", e.target.value)} />
+          </Field>
+        </div>
+        {fehler && <div className="text-xs text-[#b04545] mb-3 flex items-center gap-1"><AlertTriangle size={12} /> {fehler}</div>}
+
+        {/* Konflikt mit bestehender Phase */}
+        {konfliktInfo && !fehler && (
+          <div className="mb-4 p-3 rounded-sm" style={{ background: "#fdf7e3", border: "1px solid #e8d9a8" }}>
+            <div className="flex items-start gap-2 mb-2">
+              <AlertTriangle size={13} style={{ color: "#7a5a1a", marginTop: 2 }} className="flex-shrink-0" />
+              <div className="text-xs leading-relaxed" style={{ color: "#7a5a1a" }}>
+                Am <strong>{fmtDE(parseISO(f.von))}</strong> ist aktuell die Phase
+                „<strong>{beschreibPhase(konfliktInfo.konflikt)}</strong>
+                {konfliktInfo.konflikt.betrieb && <> · {konfliktInfo.konflikt.betrieb}</>}" aktiv
+                ({fmtDE(parseISO(konfliktInfo.konflikt.von))}{" – "}
+                {konfliktInfo.konfliktLaeuft ? "läuft" : fmtDE(parseISO(konfliktInfo.konflikt.bis))}).
+                Wie soll vorgegangen werden?
+              </div>
+            </div>
+            <div className="space-y-1.5 pl-5">
+              {konfliktInfo.optionen.map(o => (
+                <label key={o.id} className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "#4a4a4a" }}>
+                  <input type="radio" name="konfliktAufl" value={o.id} checked={aufloesung === o.id}
+                    onChange={() => setAufloesung(o.id)} className="mt-0.5 accent-[#7a5a1a]" />
+                  <span>{o.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Ausbildungs-spezifisch */}
+        {isAusb && (
+          <>
+            <Field label="Ausbildungsbetrieb">
+              <input className="input-base" placeholder="z. B. Gartenbau Müller GmbH" value={f.betrieb || ""} onChange={e => upd("betrieb", e.target.value)} />
+            </Field>
+            <div className="mb-4">
+              <label className="label-base">
+                Beschäftigungsumfang ({f.teilzeit_prozent}%)
+              </label>
+              <input type="range" min="50" max="100" step="5" value={f.teilzeit_prozent || 100}
+                onChange={e => upd("teilzeit_prozent", parseInt(e.target.value))}
+                className="w-full accent-[#2d5a3d]" />
+              <div className="flex justify-between text-[10px] text-[#9a9a9a] font-mono">
+                <span>50%</span><span>75%</span><span>100% Vollzeit</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <Field label="Pauschale Fehltage entschuldigt" hint="z. B. krank">
+                <input type="number" min="0" className="input-base" value={f.pauschal_fehltage_e || 0} onChange={e => upd("pauschal_fehltage_e", parseInt(e.target.value) || 0)} />
+              </Field>
+              <Field label="Pauschale Fehltage unentschuldigt">
+                <input type="number" min="0" className="input-base" value={f.pauschal_fehltage_u || 0} onChange={e => upd("pauschal_fehltage_u", parseInt(e.target.value) || 0)} />
+              </Field>
+            </div>
+            <p className="text-xs text-[#6b6b6b] mb-4 leading-relaxed">
+              Pauschale Fehltage werden zur Übersichtskennzahl hinzugerechnet — nützlich, wenn der Verlauf
+              nicht im Tageskalender erfasst wird (Beratungsmodus) oder rückwirkend dokumentiert wurde.
+            </p>
+          </>
+        )}
+
+        {/* Unterbrechung-spezifisch */}
+        {!isAusb && (
+          <Field label="Grund der Unterbrechung">
+            <select className="input-base" value={f.grund || ""} onChange={e => upd("grund", e.target.value)}>
+              <option value="">– bitte wählen –</option>
+              <option>Krankheit (Langzeit)</option>
+              <option>Mutterschutz</option>
+              <option>Elternzeit</option>
+              <option>Pflegezeit</option>
+              <option>Auslandsaufenthalt (nicht angerechnet)</option>
+              <option>Ruhensvereinbarung</option>
+              <option>Sonstiges</option>
+            </select>
+          </Field>
+        )}
+
+        <Field label="Anmerkung (optional)">
+          <textarea rows={2} className="input-base" value={f.anmerkung || ""} onChange={e => upd("anmerkung", e.target.value)} />
+        </Field>
+
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t" style={{ borderColor: "#e5e0d4" }}>
+          <button className="btn-ghost" onClick={onClose}>Abbrechen</button>
+          <button className="btn-primary" onClick={() => onSave(f, konfliktInfo ? { aufloesung, konflikt: konfliktInfo.konflikt } : null)} disabled={!!fehler || !f.von || !f.typ}>
+            Speichern
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewCell({ label, value, hint }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest text-[#6b6b6b]">{label}</div>
+      <div className="font-mono font-medium text-[#1a1a1a]">{value} {hint && <span className="text-[#9a9a9a] text-xs">{hint}</span>}</div>
+    </div>
+  );
+}
+
+
+// Render App
+createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

@@ -119,7 +119,7 @@ const SchuelerView = {
     if (!count) return App.toast('Keine aktiven Schüler in diesem Jahrgang', 'warning');
     if (!confirm(`${count} Schüler im Jahrgang "${jgName}" als AP-bestanden markieren und inaktiv setzen?`)) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr();
     App.run(`UPDATE schueler SET aktiv=0, status='ap_bestanden', ap_bestanden=1, inaktiv_datum=?, inaktiv_grund='Jahrgang abgeschlossen' WHERE jahrgang_id=? AND aktiv=1`, [today, jgId]);
     // Also close open Wiedervorlagen
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Jahrgang abgeschlossen' WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?) AND status IN ('offen','ueberfaellig')`, [today, jgId]);
@@ -205,6 +205,7 @@ const SchuelerView = {
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
           <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
+          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">📋 Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
         </div>
@@ -245,6 +246,7 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">&#127891;</button>`:''}
               <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">&#128209;</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
@@ -263,7 +265,7 @@ const SchuelerView = {
             <button class="btn btn-sm btn-secondary" ${this.page>=totalPages-1?'disabled':''} onclick="SchuelerView.page=${totalPages-1};SchuelerView.render()">»</button>
           </div>
         </div>` : `<div style="padding:4px;font-size:12px;color:var(--clr-text-light)">${filtered} Schüler</div>`}
-        ` : '<div class="empty-state"><h3>Keine Schüler gefunden</h3><p>Keine Treffer. <br><button class=&quot;btn btn-sm btn-secondary&quot; style=&quot;margin-top:8px&quot; onclick=&quot;SchuelerView.clearFilters()&quot;>Filter zurücksetzen</button></p></div>'}
+        ` : `<div class="empty-state"><h3>Keine Schüler gefunden</h3><p>Keine Treffer.<br><button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="SchuelerView.clearFilters()">Filter zurücksetzen</button></p></div>`}
       </div>`;
   }
 };

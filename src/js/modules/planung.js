@@ -28,7 +28,7 @@ const PlanungHandler = {
       WHERE 1=1${gfK}
       ORDER BY bs.name, k.klassenbezeichnung`);
     const pruefer = App.query('SELECT * FROM pruefer WHERE aktiv=1 ORDER BY name');
-    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
+    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE ${App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1'}${gfS} ORDER BY s.nachname, s.vorname`);
 
     // Filter options – reguläre Schulen + aktuelle LFK-Schulen
     const lfkSchulen = App.query("SELECT DISTINCT landesfachklasse FROM schueler WHERE aktiv=1 AND landesfachklasse != ''").map(r => r.landesfachklasse);
@@ -131,7 +131,7 @@ const PlanungHandler = {
       <div class="form-row">
         <div class="form-group"><label>Datum</label>
           <div style="display:flex;gap:8px;align-items:center">
-            <input type="date" class="form-control" id="mKtDatum" value="${new Date().toISOString().split('T')[0]}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
+            <input type="date" class="form-control" id="mKtDatum" value="${todayStr()}" onchange="PlanungHandler._updateKwHighlight()" style="flex:1">
             <span id="mKtKwLabel" style="font-size:12px;color:var(--clr-forest);font-weight:600;white-space:nowrap"></span>
           </div>
         </div>
@@ -451,7 +451,7 @@ const PlanungHandler = {
     const dt = document.getElementById('mKtDatum')?.value;
     const label = document.getElementById('mKtKwLabel');
     if (!dt || !label) return;
-    const d = new Date(dt);
+    const d = new Date(dt + 'T00:00:00');
     // ISO week number
     const tmp = new Date(d.getTime()); tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
     const kw = Math.ceil(((tmp - new Date(tmp.getFullYear(), 0, 4)) / 86400000 + ((new Date(tmp.getFullYear(), 0, 4).getDay() + 6) % 7) + 1) / 7);
@@ -533,6 +533,10 @@ const PlanungHandler = {
         allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
         });
+        if (!bem) {
+          const autoTitel = App.generateTerminTitel(newId);
+          if (autoTitel) App.run('UPDATE kontrolltermine SET bemerkung=? WHERE id=?', [autoTitel, newId]);
+        }
       }
     }
     App.invalidateTerminCache();
@@ -563,7 +567,7 @@ const PlanungHandler = {
 
     // Load already-linked individual students
     const linkedSchuelerIds = App.query('SELECT schueler_id FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]).map(r => r.schueler_id);
-    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.aktiv=1${gfS} ORDER BY s.nachname, s.vorname`);
+    const allSchueler = App.query(`SELECT s.*, COALESCE(b.name, s.ausbildungsstaette) as betrieb_display FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE ${App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1'}${gfS} ORDER BY s.nachname, s.vorname`);
     const isEinsendung = t.typ === 'einsendung';
 
     // Filter options – reguläre Schulen + aktuelle LFK-Schulen
@@ -827,13 +831,13 @@ const PlanungHandler = {
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
       if (d > end) d.setTime(end.getTime());
 
-      const dateStr = d.toISOString().split('T')[0];
+      const dStr = dateStr(d);
       const pr = prueferNames || '';
       const klasse = App.query('SELECT jahrgang_id FROM klassen WHERE id=?', [klasseId])[0];
       const jgId = klasse?.jahrgang_id || 1;
 
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, geplant_datum, pruefer, status) VALUES (?,?,?,?,?)',
-        [klasseId, jgId, dateStr, pr, 'geplant']);
+        [klasseId, jgId, dStr, pr, 'geplant']);
       const terminId = App.scalar('SELECT last_insert_rowid()');
       App.run('INSERT INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klasseId]);
       count++;

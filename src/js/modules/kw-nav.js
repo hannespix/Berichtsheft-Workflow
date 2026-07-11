@@ -2,10 +2,141 @@ const KWNav = {
   CODES: ['A','B','C','D','E','F','G','H','I'],
   CODE_LABELS: {A:'Unterschr. Azubi',B:'Unterschr. Ausbilder',C:'BS-Themen',D:'Wetter',E:'Lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'},
   activePopover: null,
+  _selectedCells: new Set(),
+  _anchorCell: null,
 
-  // Focus a cell (called on click)
-  focusCell(cell) {
+  focusCell(cell, e) {
+    if (e && e.shiftKey && this._anchorCell) {
+      e.preventDefault();
+      this._selectRange(this._anchorCell, cell);
+      cell.focus();
+      return;
+    }
+    this.clearSelection();
+    this._anchorCell = cell;
     cell.focus();
+  },
+
+  _selectRange(fromCell, toCell) {
+    const cells = this.getAllCells();
+    const fromIdx = cells.indexOf(fromCell);
+    const toIdx = cells.indexOf(toCell);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    this.clearSelection();
+    for (let i = lo; i <= hi; i++) {
+      if (!cells[i].classList.contains('kw-inactive')) {
+        this._selectedCells.add(cells[i]);
+        cells[i].classList.add('kw-selected');
+      }
+    }
+    this._updateSelectionCount();
+  },
+
+  _extendSelection(cell) {
+    if (!cell || cell.classList.contains('kw-inactive')) return;
+    this._selectedCells.add(cell);
+    cell.classList.add('kw-selected');
+    this._updateSelectionCount();
+  },
+
+  clearSelection() {
+    this._selectedCells.forEach(c => c.classList.remove('kw-selected'));
+    this._selectedCells.clear();
+    const badge = document.getElementById('kwSelCount');
+    if (badge) badge.style.display = 'none';
+  },
+
+  _updateSelectionCount() {
+    let badge = document.getElementById('kwSelCount');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'kwSelCount';
+      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--clr-forest);color:white;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+      document.body.appendChild(badge);
+    }
+    const n = this._selectedCells.size;
+    if (n > 0) {
+      badge.innerHTML = `${n} KW${n > 1 ? 's' : ''} ausgewählt <span style="opacity:0.7;font-weight:400;margin-left:8px">Taste drücken zum Bearbeiten · Esc = Abwählen</span>`;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  },
+
+  _getSelectedOrFocused() {
+    if (this._selectedCells.size > 0) return [...this._selectedCells];
+    const cell = document.activeElement;
+    if (cell && cell.classList.contains('kw-cell') && cell.dataset.ke) return [cell];
+    return [];
+  },
+
+  _bulkToggleCode(cells, code) {
+    if (!cells.length) return;
+    const addToAll = !cells.every(c => (c.dataset.codes || '').split(',').includes(code));
+    // Vorher- UND Nachher-Zustand JETZT einfrieren (nicht erst im Redo-Closure lesen —
+    // nach Re-Render sind die Zell-Referenzen detached mit veralteten dataset-Werten)
+    const undoData = cells.map(c => {
+      const oldCodes = c.dataset.codes || '';
+      let codes = oldCodes.split(',').filter(Boolean);
+      if (addToAll) { if (!codes.includes(code)) { codes.push(code); codes.sort(); } }
+      else { codes = codes.filter(x => x !== code); }
+      return { keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+               oldCodes, newCodes: codes.join(','), fehltage: +c.dataset.fehltage || 0 };
+    });
+    cells.forEach((c, i) => {
+      const d = undoData[i];
+      this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, d.fehltage, d.sid);
+      this.updateCellVisual(c, d.newCodes, d.fehltage);
+    });
+    UndoManager.push(`${cells.length} KWs ${addToAll ? '+' : '−'}${code}`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.fehltage, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, d.fehltage, d.sid)); KontrolleHandler.renderSchueler(); }
+    );
+    this.showFeedback(cells[0], `${cells.length}× ${addToAll ? '+' : '−'}${code}`);
+  },
+
+  _bulkSetFehltage(cells, val) {
+    const undoData = cells.map(c => {
+      let codes = (c.dataset.codes || '').split(',').filter(Boolean);
+      if (val > 0 && !codes.includes('H')) { codes.push('H'); codes.sort(); }
+      if (val === 0) codes = codes.filter(x => x !== 'H');
+      return { keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+               oldCodes: c.dataset.codes || '', oldFehl: +c.dataset.fehltage || 0, newCodes: codes.join(',') };
+    });
+    cells.forEach((c, i) => {
+      const d = undoData[i];
+      this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, val, d.sid);
+      this.updateCellVisual(c, d.newCodes, val);
+    });
+    UndoManager.push(`${cells.length} KWs H:${val}`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.oldFehl, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, val, d.sid)); KontrolleHandler.renderSchueler(); }
+    );
+    this.showFeedback(cells[0], `${cells.length}× H:${val}`);
+  },
+
+  _bulkClear(cells) {
+    // Ein aggregierter Undo-Eintrag statt N einzelne
+    const undoData = cells.map(c => ({ keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+      oldCodes: c.dataset.codes || '', oldFehl: +c.dataset.fehltage || 0 }));
+    cells.forEach(c => this.clearCell(c, true)); // skipUndo=true
+    UndoManager.push(`${cells.length} KWs geleert`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.oldFehl, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, '', 0, d.sid)); KontrolleHandler.renderSchueler(); }
+    );
+    this.showFeedback(cells[0], `${cells.length}× gelöscht`);
+  },
+
+  _bulkOk(cells) {
+    cells.forEach(c => {
+      // keepGeprueft=true: geprueft=1 setzen statt Zeile löschen
+      this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, '', 0, +c.dataset.sid, true);
+      this.updateCellVisual(c, '', 0);
+      c.classList.add('kw-ok', 'kw-session');
+      c.classList.remove('kw-issue');
+    });
+    this.showFeedback(cells[0], `${cells.length}× ✓ OK`);
   },
 
   // Get all navigable cells in order
@@ -25,13 +156,13 @@ const KWNav = {
         targetCol = col + 1;
         if (targetCol > 12) { targetCol = 0; targetRow++; }
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return; // past end
+        if (targetAj > 3) return null;
         break;
       case 'left':
         targetCol = col - 1;
         if (targetCol < 0) { targetCol = 12; targetRow--; }
         if (targetRow < 0) { targetRow = 3; targetAj--; }
-        if (targetAj < 1) return;
+        if (targetAj < 1) return null;
         break;
       case 'down':
         targetRow = row + 1;
@@ -41,12 +172,13 @@ const KWNav = {
       case 'up':
         targetRow = row - 1;
         if (targetRow < 0) { targetRow = 3; targetAj--; }
-        if (targetAj < 1) return;
+        if (targetAj < 1) return null;
         break;
     }
 
     const target = document.querySelector(`.kw-cell[data-aj="${targetAj}"][data-row="${targetRow}"][data-col="${targetCol}"]`);
     if (target) target.focus();
+    return target || null;
   },
 
   // Toggle a code on the focused cell (A-G, I)
@@ -54,6 +186,7 @@ const KWNav = {
     const keId = parseInt(cell.dataset.ke);
     const aj = parseInt(cell.dataset.aj);
     const kw = parseInt(cell.dataset.kw);
+    const sid = parseInt(cell.dataset.sid); // im Closure einfrieren — currentIndex kann sich ändern!
     const oldCodes = cell.dataset.codes || '';
     const fehltage = parseInt(cell.dataset.fehltage) || 0;
     let currentCodes = oldCodes.split(',').filter(Boolean);
@@ -73,11 +206,11 @@ const KWNav = {
 
     // Push undo
     UndoManager.push(`KW ${kw} ${action}`,
-      () => { this.persistCodes(keId, aj, kw, oldCodes, fehltage); KontrolleHandler.renderSchueler(); },
-      () => { this.persistCodes(keId, aj, kw, codesStr, fehltage); KontrolleHandler.renderSchueler(); }
+      () => { this.persistCodes(keId, aj, kw, oldCodes, fehltage, sid); KontrolleHandler.renderSchueler(); },
+      () => { this.persistCodes(keId, aj, kw, codesStr, fehltage, sid); KontrolleHandler.renderSchueler(); }
     );
 
-    this.persistCodes(keId, aj, kw, codesStr, fehltage);
+    this.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
     this.updateCellVisual(cell, codesStr, fehltage);
     this.showFeedback(cell, action);
   },
@@ -116,7 +249,7 @@ const KWNav = {
         currentCodes = currentCodes.filter(c => c !== 'H');
       }
       const codesStr = currentCodes.join(',');
-      this.persistCodes(keId, aj, kw, codesStr, val);
+      this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
       this.updateCellVisual(cell, codesStr, val);
       this.closePopover();
       cell.focus();
@@ -144,8 +277,8 @@ const KWNav = {
     }
   },
 
-  // Clear all codes from a cell
-  clearCell(cell) {
+  // Clear all codes from a cell (skipUndo: bei Bulk-Operationen wird ein aggregierter Eintrag gepusht)
+  clearCell(cell, skipUndo) {
     const sid = parseInt(cell.dataset.sid);
     const keId = parseInt(cell.dataset.ke);
     const aj = parseInt(cell.dataset.aj);
@@ -154,10 +287,10 @@ const KWNav = {
     const oldFehltage = parseInt(cell.dataset.fehltage) || 0;
 
     // Push undo (restore old state)
-    if (oldCodes || oldFehltage) {
+    if (!skipUndo && (oldCodes || oldFehltage)) {
       UndoManager.push(`KW ${kw} geleert`,
-        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage); KontrolleHandler.renderSchueler(); },
-        () => { this.persistCodes(keId, aj, kw, '', 0); KontrolleHandler.renderSchueler(); }
+        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid); KontrolleHandler.renderSchueler(); },
+        () => { this.persistCodes(keId, aj, kw, '', 0, sid); KontrolleHandler.renderSchueler(); }
       );
     }
 
@@ -178,19 +311,24 @@ const KWNav = {
   },
 
   // Persist codes to DB (kw_status = cumulative, kw_maengel = per-session backward compat)
-  persistCodes(keId, aj, kw, codesStr, fehltage) {
-    // Get schuelerId from the focused cell or from KontrolleHandler
-    const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
-    const sid = s ? s.id : null;
+  // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
+  // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
+  // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
+  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft) {
+    let sid = sidOpt ? parseInt(sidOpt) : null;
+    if (!sid) {
+      const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
+      sid = s ? s.id : null;
+    }
 
     // ── kw_status (cumulative per student) ──
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
       if (existing.length) {
         if (!codesStr && !fehltage) {
-          // Nothing left — but keep if there were behobene_codes
-          if (existing[0].behobene_codes) {
-            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0 WHERE id=?', [existing[0].id]);
+          if (keepGeprueft || existing[0].behobene_codes) {
+            // "Keine Beanstandungen" (O) bzw. behobene Codes: Zeile erhalten
+            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
           } else {
             App.run('DELETE FROM kw_status WHERE id=?', [existing[0].id]);
           }
@@ -198,7 +336,7 @@ const KWNav = {
           App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
             [codesStr, fehltage, keId, existing[0].id]);
         }
-      } else if (codesStr || fehltage) {
+      } else if (codesStr || fehltage || keepGeprueft) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?)',
           [sid, aj, kw, codesStr, fehltage, keId]);
       }
@@ -238,9 +376,19 @@ const KWNav = {
     const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
     const newlyFilled = [];
 
+    // Inaktive KWs (vor AV-Beginn / nach AV-Ende / Unterbrechung) nicht auto-füllen
+    let currentInactive = new Set();
+    if (s) {
+      try {
+        const bounds = App.getAJKWBounds(s.id);
+        currentInactive = new Set((bounds[aj] || {}).inactiveKWs || []);
+      } catch(e) {}
+    }
+
     // Auto-fill: mark ALL KWs from start up to and including the clicked KW
     for (let i = 0; i <= clickedIdx; i++) {
       const fillKW = kwOrder[i];
+      if (currentInactive.has(fillKW)) continue;
       if (!data[aj].includes(fillKW)) {
         data[aj].push(fillKW);
         newlyFilled.push({aj, kw: fillKW});
@@ -353,7 +501,7 @@ const KWNav = {
       currentCodes.sort();
       const codesStr = currentCodes.join(',');
       const fehltage = parseInt(cell.dataset.fehltage) || 0;
-      this.persistCodes(keId, aj, kw, codesStr, fehltage);
+      this.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
       this.updateCellVisual(cell, codesStr, fehltage);
     }
 
@@ -400,6 +548,7 @@ const KWNav = {
     else if (hasBehoben) cls += ' kw-behoben';
     if (fehl > 0 && !hasCodes) cls += ' kw-fehltage-only';
     cls += ' kw-session'; // currently being edited = in session
+    if (this._selectedCells.has(cell)) cls += ' kw-selected'; // Selektion nicht verlieren
     cell.className = cls;
     const fehlHtml = fehl > 0 ? `<span class="kw-fehltage">${fehl}</span>` : '';
     cell.innerHTML = `<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${codesStr.replace(/,/g,' ')}</span>` : ''}${fehlHtml}`;
@@ -427,11 +576,22 @@ const KWNav = {
 
     const key = e.key.toUpperCase();
 
-    // Arrow key navigation
-    if (e.key === 'ArrowRight') { e.preventDefault(); this.navigate(cell, 'right'); return; }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); this.navigate(cell, 'left'); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); this.navigate(cell, 'down'); return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); this.navigate(cell, 'up'); return; }
+    // Shift+Arrow: extend selection; Arrow: navigate
+    if (['ArrowRight','ArrowLeft','ArrowDown','ArrowUp'].includes(e.key)) {
+      e.preventDefault();
+      const dir = e.key.replace('Arrow','').toLowerCase();
+      if (e.shiftKey) {
+        if (!this._anchorCell) this._anchorCell = cell;
+        if (this._selectedCells.size === 0) { this._selectedCells.add(cell); cell.classList.add('kw-selected'); }
+        const next = this.navigate(cell, dir);
+        if (next) { this._extendSelection(next); next.focus(); }
+      } else {
+        this.clearSelection();
+        this._anchorCell = null;
+        this.navigate(cell, dir);
+      }
+      return;
+    }
 
     // Tab: move to next cell (default browser behavior + across grids)
     if (e.key === 'Tab') {
@@ -439,10 +599,12 @@ const KWNav = {
       return;
     }
 
-    // Delete / Backspace: clear cell
+    // Delete / Backspace: clear cell(s)
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
-      this.clearCell(cell);
+      const targets = this._getSelectedOrFocused();
+      if (targets.length > 1) { this._bulkClear(targets); this.clearSelection(); }
+      else { this.clearCell(cell); }
       return;
     }
 
@@ -456,16 +618,19 @@ const KWNav = {
       return;
     }
 
-    // Escape: close popover if open
+    // Escape: close popover or clear selection
     if (e.key === 'Escape') {
       if (this.activePopover) { this.closePopover(); cell.focus(); e.preventDefault(); }
+      else if (this._selectedCells.size > 0) { this.clearSelection(); e.preventDefault(); }
       return;
     }
 
-    // Letter codes A-G: toggle directly
+    // Letter codes A-G: toggle (bulk if selected)
     if ('ABCDEFG'.includes(key)) {
       e.preventDefault();
-      this.toggleCode(cell, key);
+      const targets = this._getSelectedOrFocused();
+      if (targets.length > 1) { this._bulkToggleCode(targets, key); }
+      else { this.toggleCode(cell, key); }
       return;
     }
 
@@ -483,48 +648,60 @@ const KWNav = {
       return;
     }
 
-    // O: "Keine Beanstandungen" – mark as geprüft with no issues
+    // O: "Keine Beanstandungen" (bulk if selected)
     if (key === 'O') {
       e.preventDefault();
-      const keId = parseInt(cell.dataset.ke);
-      const aj = parseInt(cell.dataset.aj);
-      const kw = parseInt(cell.dataset.kw);
-      this.persistCodes(keId, aj, kw, '', 0);
-      this.updateCellVisual(cell, '', 0);
-      // Force-add kw-ok class
-      cell.classList.add('kw-ok', 'kw-session');
-      cell.classList.remove('kw-issue');
-      this.showFeedback(cell, '✓ OK');
+      const targets = this._getSelectedOrFocused();
+      if (targets.length > 1) { this._bulkOk(targets); this.clearSelection(); }
+      else {
+        const keId = parseInt(cell.dataset.ke);
+        const aj = parseInt(cell.dataset.aj);
+        const kw = parseInt(cell.dataset.kw);
+        // keepGeprueft=true: geprueft-Zeile bleibt erhalten (kein DELETE)
+        this.persistCodes(keId, aj, kw, '', 0, cell.dataset.sid, true);
+        this.updateCellVisual(cell, '', 0);
+        cell.classList.add('kw-ok', 'kw-session');
+        cell.classList.remove('kw-issue');
+        this.showFeedback(cell, '✓ OK');
+      }
       return;
     }
 
-    // Number keys 1-5 as shortcut for H (Fehltage)
+    // Number keys 1-5 as shortcut for H (Fehltage) — bulk if selected
     if ('12345'.includes(e.key) && !this.activePopover) {
       e.preventDefault();
-      const keId = parseInt(cell.dataset.ke);
-      const aj = parseInt(cell.dataset.aj);
-      const kw = parseInt(cell.dataset.kw);
       const val = parseInt(e.key);
-      let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
-      if (!currentCodes.includes('H')) { currentCodes.push('H'); currentCodes.sort(); }
-      const codesStr = currentCodes.join(',');
-      this.persistCodes(keId, aj, kw, codesStr, val);
-      this.updateCellVisual(cell, codesStr, val);
-      this.showFeedback(cell, `H:${val}`);
+      const targets = this._getSelectedOrFocused();
+      if (targets.length > 1) { this._bulkSetFehltage(targets, val); this.clearSelection(); }
+      else {
+        const keId = parseInt(cell.dataset.ke);
+        const aj = parseInt(cell.dataset.aj);
+        const kw = parseInt(cell.dataset.kw);
+        let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
+        if (!currentCodes.includes('H')) { currentCodes.push('H'); currentCodes.sort(); }
+        const codesStr = currentCodes.join(',');
+        this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
+        this.updateCellVisual(cell, codesStr, val);
+        this.showFeedback(cell, `H:${val}`);
+      }
       return;
     }
 
-    // 0: remove Fehltage
+    // 0: remove Fehltage — bulk if selected
     if (e.key === '0' && !this.activePopover) {
       e.preventDefault();
-      const keId = parseInt(cell.dataset.ke);
-      const aj = parseInt(cell.dataset.aj);
-      const kw = parseInt(cell.dataset.kw);
-      let currentCodes = (cell.dataset.codes || '').split(',').filter(c => c && c !== 'H');
-      const codesStr = currentCodes.join(',');
-      this.persistCodes(keId, aj, kw, codesStr, 0);
-      this.updateCellVisual(cell, codesStr, 0);
-      this.showFeedback(cell, '−H');
+      const targets = this._getSelectedOrFocused();
+      if (targets.length > 1) { this._bulkSetFehltage(targets, 0); this.clearSelection(); }
+      else {
+        const keId = parseInt(cell.dataset.ke);
+        const aj = parseInt(cell.dataset.aj);
+        const kw = parseInt(cell.dataset.kw);
+        let currentCodes = (cell.dataset.codes || '').split(',').filter(c => c && c !== 'H');
+        const codesStr = currentCodes.join(',');
+        this.persistCodes(keId, aj, kw, codesStr, 0, cell.dataset.sid);
+        this.updateCellVisual(cell, codesStr, 0);
+        this.showFeedback(cell, '−H');
+      }
       return;
     }
   }

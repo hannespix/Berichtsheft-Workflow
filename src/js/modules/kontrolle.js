@@ -55,7 +55,7 @@ const KontrolleHandler = {
     const missingIds = extraIds.filter(id => !currentIds.has(id));
     if (missingIds.length) {
       const placeholders = missingIds.map(() => '?').join(',');
-      const extras = App.query(`SELECT * FROM schueler WHERE id IN (${placeholders}) AND aktiv=1 ORDER BY nachname`, missingIds);
+      const extras = App.query(`SELECT * FROM schueler WHERE id IN (${placeholders}) ORDER BY nachname`, missingIds);
       this.currentSchuelerList.push(...extras);
     }
 
@@ -125,7 +125,7 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
           f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           [terminId, s.id,
@@ -163,9 +163,13 @@ const KontrolleHandler = {
 
       // Auto-Zulassung: wenn < 10% Fehltage UND Pflichtteile OK UND keine Mängel/WV
       const autoZulassung = !fehlWarn && pflichtOK && offeneMaengel === 0 && !wvOffen && isDone && isOK;
-      // Auto-set only if field was never manually changed (still default 0 and conditions met)
-      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0) {
-        App._runSilent('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
+      // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
+      // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
+      // der Import es bei jedem Sync zurück und der Toast erscheint endlos).
+      if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
+      const overrideKey = this.currentTerminId + ':' + s.id;
+      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !this._manualZulassungOverride.has(overrideKey)) {
+        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
         ke.zulassung_ap = 1;
         autoZulCount++;
       }
@@ -182,9 +186,9 @@ const KontrolleHandler = {
         <td>
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">&#127891;</a>`:''}</div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -352,6 +356,10 @@ const KontrolleHandler = {
   toggleZulassung(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
+    // Manuelles Abwählen merken — sonst setzt die Auto-Zulassung beim nächsten Render sofort wieder auf 1
+    if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
+    if (!checked) this._manualZulassungOverride.add(this.currentTerminId + ':' + schuelerId);
+    else this._manualZulassungOverride.delete(this.currentTerminId + ':' + schuelerId);
     if (checked && ke.pruefungsausschuss === 1) {
       // Unset PA when setting Zulassung
       App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=0, zulassung_ap=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
@@ -621,7 +629,7 @@ const KontrolleHandler = {
         FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
         WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [schuelerId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
         f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, schuelerId,
@@ -658,8 +666,9 @@ const KontrolleHandler = {
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
     App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
-    // Remove from in-memory list
+    // Remove from in-memory list + adjust index
     this.currentSchuelerList = this.currentSchuelerList.filter(s => s.id !== schuelerId);
+    if (this.currentIndex >= this.currentSchuelerList.length && this.currentIndex > 0) this.currentIndex--;
     this.renderUebersicht();
     App.toast(`${name} aus Kontrolle entfernt`, 'info');
   },
@@ -697,6 +706,12 @@ const KontrolleHandler = {
   },
 
   renderSchueler() {
+    // Null-safe: Undo/Redo-Closures rufen renderSchueler auch außerhalb der Kontrolle-View auf
+    if (!document.getElementById('kontrolleContent')) return;
+    // Stale KW-Selektion + Popover aufräumen (Re-Render macht Zell-Referenzen detached)
+    if (typeof KWNav !== 'undefined') {
+      try { KWNav.clearSelection(); KWNav.closePopover(); } catch(e) {}
+    }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     const total = this.currentSchuelerList.length;
@@ -712,7 +727,7 @@ const KontrolleHandler = {
         WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
         ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, this.currentTerminId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
         f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, s.id,
@@ -819,7 +834,7 @@ const KontrolleHandler = {
             return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
               data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
-              onclick="KWNav.focusCell(this)"
+              onclick="KWNav.focusCell(this,event)"
               title="${title}">
               ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
             </div>`;
@@ -922,9 +937,10 @@ const KontrolleHandler = {
             <strong style="font-size:18px;font-family:var(--font-display)">${esc(s.nachname)}, ${esc(s.vorname)}</strong>
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
-              ${App.getCurrentAJ(s.ausbildungsbeginn) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn)}</span>` : ''}
-              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
+              ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
+              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#127891; Dashboard</a>`:''}
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✏️ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
@@ -1313,7 +1329,7 @@ const KontrolleHandler = {
       if (value === 'in_ordnung') {
         const openWVs = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
         if (openWVs.length) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = todayStr();
           openWVs.forEach(wv => {
             App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [today, wv.id]);
           });
@@ -1360,12 +1376,15 @@ const KontrolleHandler = {
     const codes = ['A','B','C','D','E','F','G','H','I'];
     const labels = ['Unterschrift Azubi','Unterschrift Ausbilder','Berufsschulthemen','Wetter','Inhaltlich lückenhaft','Komplette Berichte fehlen','Datum/KW','Fehltage','Sonstiges'];
 
-    const existing = App.query(`SELECT * FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [keId, aj, kw]);
-    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
-    const currentFehltage = existing.length ? existing[0].fehltage : 0;
-
     const s = this.currentSchuelerList[this.currentIndex];
-    const sid = s ? s.id : null;
+    const sid = cellEl?.dataset?.sid ? parseInt(cellEl.dataset.sid) : (s ? s.id : null);
+
+    // WICHTIG: kumulative kw_status lesen (nicht kw_maengel der aktuellen Durchsicht!)
+    // Sonst erscheinen Mängel aus früheren Durchsichten unangehakt und werden
+    // beim Speichern still gelöscht.
+    const existing = sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [sid, aj, kw]) : [];
+    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
+    const currentFehltage = existing.length ? (existing[0].fehltage || 0) : 0;
     const kwBem = sid ? (App.query('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0]?.bemerkung || '') : '';
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
 
@@ -1429,12 +1448,16 @@ const KontrolleHandler = {
 
   saveKW(keId, aj, kw) {
     const codes = ['A','B','C','D','E','F','G','H','I'];
-    const selected = codes.filter(c => document.getElementById('kwc_' + c)?.checked);
-    const fehltage = parseInt(document.getElementById('kwFehltage').value) || 0;
+    let selected = codes.filter(c => document.getElementById('kwc_' + c)?.checked);
+    // Fehltage klemmen (0–7) + H↔Fehltage konsistent halten
+    let fehltage = Math.min(7, Math.max(0, parseInt(document.getElementById('kwFehltage').value) || 0));
+    if (fehltage > 0 && !selected.includes('H')) { selected.push('H'); selected.sort(); }
+    if (fehltage === 0) selected = selected.filter(c => c !== 'H');
     const codesStr = selected.join(',');
     const bem = document.getElementById('kwBemText')?.value?.trim() || '';
 
-    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage);
+    const sidCtx = this._kwModalContext?.cellEl?.dataset?.sid;
+    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sidCtx);
 
     // Save bemerkung
     const s = this.currentSchuelerList[this.currentIndex];
@@ -1466,7 +1489,7 @@ const KontrolleHandler = {
   },
 
   clearKW(keId, aj, kw) {
-    KWNav.persistCodes(keId, aj, kw, '', 0);
+    KWNav.persistCodes(keId, aj, kw, '', 0, this._kwModalContext?.cellEl?.dataset?.sid);
     App.closeModal();
     this._kwModalContext = null;
     this.renderSchueler();
@@ -2009,7 +2032,7 @@ const KontrolleHandler = {
         const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
           WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
           f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, (prev.durchsicht_nr||0)+1,
@@ -2024,7 +2047,7 @@ const KontrolleHandler = {
           App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
         });
         // Auto-erledige offene WVs
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayStr();
         App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [today, sid]);
         count++;
       }
@@ -2055,9 +2078,9 @@ const KontrolleHandler = {
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const plus4w = new Date(Date.now() + 28*86400000).toISOString().split('T')[0];
-    const plus2w = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
-    const plus3w = new Date(Date.now() + 21*86400000).toISOString().split('T')[0];
+    const plus4w = addDaysStr(28);
+    const plus2w = addDaysStr(14);
+    const plus3w = addDaysStr(21);
     const wvDefaults = {
       nachholung_naechste_durchsicht: nextTermin || plus4w,
       sachberichte_wetter_email: plus4w,
@@ -2111,7 +2134,7 @@ const KontrolleHandler = {
         </div>
       </div>
 
-      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="form-group"><label>Durchführungsdatum</label><input type="date" class="form-control" id="mAbschlDatum" value="${todayStr()}"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="KontrolleHandler.doAbschliessen()">✓ Abschließen + Nachbereitung starten</button>`);
   },

@@ -6,7 +6,27 @@ function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
   d.textContent = String(str);
-  return d.innerHTML;
+  // textContent→innerHTML escaped & < > — aber NICHT Anführungszeichen.
+  // Ohne diese bricht z.B. Betrieb `Gärtnerei "Grün" GmbH` aus Attributen aus (Injection).
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Lokales Datum als YYYY-MM-DD (KEIN UTC!) ──
+// Ersetzt das verbreitete .toISOString().slice(0,10) welches in Sommerzeit
+// einen Tag früher liefern kann (UTC vs. lokale Zeit Verschiebung).
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function dateStr(d) {
+  if (!d) return '';
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function addDaysStr(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function formatDate(d) {
@@ -82,12 +102,17 @@ window.addEventListener('DOMContentLoaded', () => { TableSort.init(); App.init()
 
 // ── Warn before closing with unsaved changes ──
 window.addEventListener('beforeunload', (e) => {
-  // Delete position file (non-blocking, no DB write needed)
   try {
     if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) {
       App._deletePositionFile(KontrolleHandler.activePruefer);
     }
   } catch(ex) {}
+  // Persist dirty ops to IndexedDB so they survive tab close
+  if (App._dirtyOps && App._dirtyOps.length > 0) {
+    try { App._persistDirtyOps(); } catch(ex) {}
+  }
+  // Release lock file
+  try { App._releaseLock(); } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';

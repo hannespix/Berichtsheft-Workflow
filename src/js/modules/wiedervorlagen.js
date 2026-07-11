@@ -18,7 +18,7 @@ const WiedervorlagenHandler = {
       App.toast('Bitte Ergebnis auf „In Ordnung" setzen – Wiedervorlage wird automatisch erledigt', 'info');
     } else {
       // Fallback: kein Kontrolltermin verknüpft → direkt erledigen
-      App.openModal('Wiedervorlage als erledigt markieren', '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + new Date().toISOString().split('T')[0] + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2"></textarea></div>',
+      App.openModal('Wiedervorlage als erledigt markieren', '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + todayStr() + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2"></textarea></div>',
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
