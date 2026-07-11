@@ -255,13 +255,17 @@ const AzubiRechner = {
   },
 
   // ── Tarif & Vergütung ──
+  // Maßgeblich ist der Tarifstand zum AUSBILDUNGSBEGINN (im BAV vereinbart):
+  // spätere Tariferhöhungen gelten nicht automatisch, nur bei freiwilliger
+  // Anpassung durch den Betrieb (dann individuellen Bruttolohn eintragen).
   getTarifVerguetung(berufId, datum, lehrjahr, ausbildungsBeginn) {
     const beruf = this.BERUFE.find(b => b.id === berufId);
     if (!beruf) return 0;
     const lj = Math.max(1, Math.min(3, lehrjahr)) - 1;
+    const tarifStichtag = ausbildungsBeginn || datum;
     let betrag = beruf.tarife[0].lj[lj];
     for (let i = beruf.tarife.length - 1; i >= 0; i--) {
-      if (datum >= this.parseISO(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
+      if (tarifStichtag >= this.parseISO(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
     }
     const miavStichtag = ausbildungsBeginn || datum;
     for (let i = this.MINDESTVERGUETUNG.length - 1; i >= 0; i--) {
@@ -366,14 +370,8 @@ const AzubiRechner = {
         const erbrPrev = erbrachtVZ + (m - 1) * tz + verk;
         if (Math.floor(erbrPunkt / 12) !== Math.floor(erbrPrev / 12)) breakpoints.add(this.fmtISO(dat));
       }
-      if (beruf) beruf.tarife.forEach(t => {
-        const d = this.parseISO(t.ab);
-        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
-      });
-      this.MINDESTVERGUETUNG.forEach(m => {
-        const d = this.parseISO(m.ab);
-        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
-      });
+      // Tarif-/MiAV-Änderungsdaten sind KEINE Breakpoints mehr: es gilt
+      // durchgehend der Tarifstand zum Ausbildungsbeginn (siehe getTarifVerguetung)
       for (let yr = phVon.getFullYear(); yr <= phBis.getFullYear() + 1; yr++) {
         const jan1 = new Date(yr, 0, 1);
         if (jan1 > phVon && jan1 < phBis) breakpoints.add(this.fmtISO(jan1));

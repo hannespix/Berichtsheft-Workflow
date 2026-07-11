@@ -1926,6 +1926,7 @@ const Views = {
             <p>• Mindestvergütung §17 BBiG – separat editierbar, jährlich aktualisiert</p>
             <p>• „Auf Standard zurücksetzen" – Tarife auf eingebaute Werte zurücksetzen</p>
             <p style="margin-top:8px"><strong>Sonderregelungen:</strong></p>
+            <p>• <strong>Tarifstand zum Ausbildungsbeginn</strong> – Die im BAV vereinbarte Vergütung gilt in der Regel für die gesamte Ausbildung. Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch; passt ein Betrieb aus Kulanz an, den individuellen Bruttolohn eintragen.</p>
             <p>• <strong>Fachwerker/Fachpraktiker (§66 BBiG)</strong> – Erhalten Ausbildungsgeld der Arbeitsagentur: 501 € (Elternhaushalt) / 822 € (eigene Wohnung), nicht tarifgebunden. Nur 1 ÜBA-Bescheinigung erforderlich (statt 2 bzw. 6).</p>
             <p>• <strong>Individueller Bruttolohn</strong> – Pro Azubi einstellbar, überschreibt Tarifberechnung. Vergütungsperioden werden trotzdem angezeigt (Lehrjahr-Wechsel, Urlaub).</p>
           </div>
@@ -2664,7 +2665,10 @@ const Views = {
     const lastMiav = miav[miav.length - 1];
     App.openModal('Tariflöhne bearbeiten', `
       <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
-        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.
+        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.<br>
+        <strong>Wichtig:</strong> Für jeden Azubi ist der Tarifstand zu seinem <strong>Ausbildungsbeginn</strong> maßgeblich
+        (im BAV vereinbart) – Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch.
+        Passt ein Betrieb freiwillig an, den individuellen Bruttolohn im Azubi-Dashboard eintragen.
       </div>
       <div style="overflow-x:auto;margin-bottom:16px">
         <table class="data-table" style="font-size:12px">

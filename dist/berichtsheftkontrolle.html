@@ -13893,6 +13893,7 @@ const Views = {
             <p>• Mindestvergütung §17 BBiG – separat editierbar, jährlich aktualisiert</p>
             <p>• „Auf Standard zurücksetzen" – Tarife auf eingebaute Werte zurücksetzen</p>
             <p style="margin-top:8px"><strong>Sonderregelungen:</strong></p>
+            <p>• <strong>Tarifstand zum Ausbildungsbeginn</strong> – Die im BAV vereinbarte Vergütung gilt in der Regel für die gesamte Ausbildung. Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch; passt ein Betrieb aus Kulanz an, den individuellen Bruttolohn eintragen.</p>
             <p>• <strong>Fachwerker/Fachpraktiker (§66 BBiG)</strong> – Erhalten Ausbildungsgeld der Arbeitsagentur: 501 € (Elternhaushalt) / 822 € (eigene Wohnung), nicht tarifgebunden. Nur 1 ÜBA-Bescheinigung erforderlich (statt 2 bzw. 6).</p>
             <p>• <strong>Individueller Bruttolohn</strong> – Pro Azubi einstellbar, überschreibt Tarifberechnung. Vergütungsperioden werden trotzdem angezeigt (Lehrjahr-Wechsel, Urlaub).</p>
           </div>
@@ -14631,7 +14632,10 @@ const Views = {
     const lastMiav = miav[miav.length - 1];
     App.openModal('Tariflöhne bearbeiten', `
       <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
-        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.
+        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.<br>
+        <strong>Wichtig:</strong> Für jeden Azubi ist der Tarifstand zu seinem <strong>Ausbildungsbeginn</strong> maßgeblich
+        (im BAV vereinbart) – Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch.
+        Passt ein Betrieb freiwillig an, den individuellen Bruttolohn im Azubi-Dashboard eintragen.
       </div>
       <div style="overflow-x:auto;margin-bottom:16px">
         <table class="data-table" style="font-size:12px">
@@ -24940,13 +24944,17 @@ const AzubiRechner = {
   },
 
   // ── Tarif & Vergütung ──
+  // Maßgeblich ist der Tarifstand zum AUSBILDUNGSBEGINN (im BAV vereinbart):
+  // spätere Tariferhöhungen gelten nicht automatisch, nur bei freiwilliger
+  // Anpassung durch den Betrieb (dann individuellen Bruttolohn eintragen).
   getTarifVerguetung(berufId, datum, lehrjahr, ausbildungsBeginn) {
     const beruf = this.BERUFE.find(b => b.id === berufId);
     if (!beruf) return 0;
     const lj = Math.max(1, Math.min(3, lehrjahr)) - 1;
+    const tarifStichtag = ausbildungsBeginn || datum;
     let betrag = beruf.tarife[0].lj[lj];
     for (let i = beruf.tarife.length - 1; i >= 0; i--) {
-      if (datum >= this.parseISO(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
+      if (tarifStichtag >= this.parseISO(beruf.tarife[i].ab)) { betrag = beruf.tarife[i].lj[lj]; break; }
     }
     const miavStichtag = ausbildungsBeginn || datum;
     for (let i = this.MINDESTVERGUETUNG.length - 1; i >= 0; i--) {
@@ -25051,14 +25059,8 @@ const AzubiRechner = {
         const erbrPrev = erbrachtVZ + (m - 1) * tz + verk;
         if (Math.floor(erbrPunkt / 12) !== Math.floor(erbrPrev / 12)) breakpoints.add(this.fmtISO(dat));
       }
-      if (beruf) beruf.tarife.forEach(t => {
-        const d = this.parseISO(t.ab);
-        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
-      });
-      this.MINDESTVERGUETUNG.forEach(m => {
-        const d = this.parseISO(m.ab);
-        if (d > phVon && d < phBis) breakpoints.add(this.fmtISO(d));
-      });
+      // Tarif-/MiAV-Änderungsdaten sind KEINE Breakpoints mehr: es gilt
+      // durchgehend der Tarifstand zum Ausbildungsbeginn (siehe getTarifVerguetung)
       for (let yr = phVon.getFullYear(); yr <= phBis.getFullYear() + 1; yr++) {
         const jan1 = new Date(yr, 0, 1);
         if (jan1 > phVon && jan1 < phBis) breakpoints.add(this.fmtISO(jan1));
@@ -25449,6 +25451,11 @@ const AzubiDashboard = {
                 ).join('')}
               </tbody>
             </table>
+          </div>
+          <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
+            Tarifstand zum Ausbildungsbeginn – gilt lt. BAV für die gesamte Ausbildung.
+            Spätere Tariferhöhungen greifen nur, wenn der Betrieb freiwillig anpasst
+            (dann individuellen Bruttolohn eintragen).
           </div>
         </div>` : ''}
 
