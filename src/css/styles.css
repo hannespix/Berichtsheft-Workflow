@@ -1,52 +1,66 @@
+/* ══════════════════════════════════════════════════════════════
+   Design: Landesdesign BW × Editorial (GEO)
+   - Farben: BaWü Warm-Schwarz #2A2623, BaWü Gelb #FFFC00,
+     BW-Grauskala (Grau 1-6), BW-Funktionsfarben
+   - Typo: Fraunces (Serif, Überschriften) + DM Sans (Fließtext)
+     — analog zum BaWue-Serif/Sans-Prinzip
+   - Layout: viel Weißraum, dünne Linien, Gelb als Marker-Akzent
+   ══════════════════════════════════════════════════════════════ */
 :root {
-  --clr-forest: #2d5016;
-  --clr-forest-dark: #1a3a0a;
-  --clr-sage: #7c956b;
-  --clr-sage-light: #a8bd9a;
-  --clr-leaf: #4a7c2e;
-  --clr-leaf-light: #e8f0e2;
-  --clr-cream: #faf8f4;
-  --clr-warm: #f5f0e8;
-  --clr-sand: #e8dfd3;
-  --clr-sand-light: #f0ebe4;
-  --clr-text: #2c2c2c;
-  --clr-text-light: #6b6b6b;
+  --clr-forest: #2A2623;        /* BaWü Warm-Schwarz (Primär) */
+  --clr-forest-dark: #000000;
+  --clr-gelb: #FFFC00;          /* BaWü Gelb — Marker/Akzente */
+  --clr-sage: #918C8C;          /* Grau 4 */
+  --clr-sage-light: #BBB6B5;    /* Grau 3 */
+  --clr-leaf: #B79A1E;          /* Landesfarben-Gold (Hover/Fokus) */
+  --clr-leaf-light: #FBF8DC;    /* Blasses Gelb (Hover-Flächen) */
+  --clr-cream: #F4F3F3;         /* Grau 1 (App-Hintergrund) */
+  --clr-warm: #F4F3F3;          /* Grau 1 (Innenflächen) */
+  --clr-sand: #E4E0E0;          /* Grau 2 (Linien/Rahmen) */
+  --clr-sand-light: #EEECEC;
+  --clr-text: #2A2623;
+  --clr-text-light: #6D6766;    /* Grau 5 */
   --clr-white: #ffffff;
-  --clr-red: #c0392b;
-  --clr-red-light: #fdf0ef;
-  --clr-amber: #d4840a;
-  --clr-amber-light: #fef7ec;
-  --clr-green: #27ae60;
-  --clr-green-light: #edf9f0;
-  --clr-blue: #2980b9;
-  --clr-blue-light: #edf4fa;
+  --clr-red: #C6332E;           /* BW Rot (Hell/Dunkel-Mitte) */
+  --clr-red-light: #FBEDEC;
+  --clr-amber: #DD6F06;         /* BW Orange Hell */
+  --clr-amber-light: #FBF1E5;
+  --clr-green: #609D0F;         /* BW Grün Hell */
+  --clr-green-light: #EFF5E4;
+  --clr-blue: #0A3C90;          /* BW Blau Dunkel */
+  --clr-blue-light: #EAF0FA;
   --font-display: 'Fraunces', serif;
   --font-body: 'DM Sans', sans-serif;
-  --radius: 8px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.05);
+  --radius: 4px;                /* kantiger — editorial */
+  --shadow-sm: 0 1px 2px rgba(42,38,35,0.05);
+  --shadow-md: 0 3px 10px rgba(42,38,35,0.08), 0 1px 3px rgba(42,38,35,0.05);
+  --shadow-lg: 0 12px 32px rgba(42,38,35,0.12), 0 4px 8px rgba(42,38,35,0.06);
   --transition: 0.2s ease;
 }
 
 body.dark-mode {
-  --clr-forest: #5a9e3a; --clr-forest-dark: #7bc25a; --clr-sage: #8ca87e;
-  --clr-sage-light: #4a5a40; --clr-leaf: #6ab845; --clr-leaf-light: #2a3a22;
-  --clr-cream: #1a1a1a; --clr-warm: #242424; --clr-sand: #3a3a3a; --clr-sand-light: #2e2e2e;
-  --clr-text: #e0e0e0; --clr-text-light: #999; --clr-white: #1e1e1e;
-  --clr-red: #e74c3c; --clr-red-light: #3a2020; --clr-amber: #f0a030;
-  --clr-amber-light: #3a3020; --clr-green: #2ecc71; --clr-green-light: #1a3a22;
-  --clr-blue: #3498db; --clr-blue-light: #1a2a3a;
+  --clr-forest: #D9C22E; --clr-forest-dark: #EFE18C; --clr-gelb: #D9C22E; --clr-sage: #8C8884;
+  --clr-sage-light: #4A4744; --clr-leaf: #D9C22E; --clr-leaf-light: #33301E;
+  --clr-cream: #1B1917; --clr-warm: #242220; --clr-sand: #3A3733; --clr-sand-light: #2E2B29;
+  --clr-text: #E4E0DC; --clr-text-light: #999; --clr-white: #211F1D;
+  --clr-red: #F06560; --clr-red-light: #3A2020; --clr-amber: #F09040;
+  --clr-amber-light: #3A3020; --clr-green: #8CC63F; --clr-green-light: #26301A;
+  --clr-blue: #6FA0E8; --clr-blue-light: #1A2438;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.4); --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
 }
-body.dark-mode .topbar { background: #1a2a10; }
+body.dark-mode .topbar { background: #141210; color: #E4E0DC; }
 body.dark-mode .sidebar { background: #1a1a1a; border-color: #333; }
-body.dark-mode .card { background: #1e1e1e; border-color: #333; }
+body.dark-mode .card { background: #211F1D; border-color: #3A3733; }
 body.dark-mode .data-table th { background: #2a2a2a; }
 body.dark-mode .data-table td { border-color: #333; }
 body.dark-mode .form-control { background: #2a2a2a; border-color: #444; color: #e0e0e0; }
 body.dark-mode .btn-secondary { background: #333; border-color: #444; color: #ddd; }
-body.dark-mode .modal { background: #1e1e1e; }
+body.dark-mode .modal { background: #211F1D; }
+/* Gold-Flächen brauchen dunklen Text (Schwarz auf Gold = Landesfarben) */
+body.dark-mode .btn-primary { color: #1B1917; }
+body.dark-mode .btn-primary:hover { color: #1B1917; }
+body.dark-mode .sidebar-item.active { color: #1B1917; }
+body.dark-mode .filter-panel { background: #141210; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -69,8 +83,8 @@ body {
 
 /* ── Top Bar ── */
 .topbar {
-  background: var(--clr-forest);
-  color: var(--clr-white);
+  background: #2A2623; /* BaWü Warm-Schwarz — fix, nicht themenabhängig */
+  color: #ffffff;
   padding: 0 24px;
   height: 56px;
   display: flex;
@@ -78,6 +92,7 @@ body {
   justify-content: space-between;
   flex-shrink: 0;
   z-index: 100;
+  border-bottom: 3px solid var(--clr-gelb); /* Landesdesign-Signatur: gelbe Linie */
 }
 .topbar-brand {
   display: flex;
@@ -125,7 +140,7 @@ body {
 }
 .topbar-user-select:hover { border-color: rgba(255,255,255,0.5); }
 .topbar-user-select:focus { outline: none; border-color: rgba(255,255,255,0.6); box-shadow: 0 0 0 2px rgba(255,255,255,0.15); }
-.topbar-user-select option { background: var(--clr-forest-dark, #1a3a0a); color: white; font-size: 13px; padding: 4px 8px; }
+.topbar-user-select option { background: var(--clr-forest-dark, #000000); color: white; font-size: 13px; padding: 4px 8px; }
 .topbar-user-select.has-user { background-color: rgba(255,255,255,0.2); border-color: rgba(255,200,50,0.5); }
 .topbar-filter-toggle {
   padding: 4px 12px;
@@ -275,7 +290,8 @@ body {
 }
 .sidebar-item.active {
   background: var(--clr-forest);
-  color: var(--clr-white);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 var(--clr-gelb); /* gelber Marker (Landesdesign) */
 }
 .sidebar-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 .sidebar-item .badge {
@@ -300,19 +316,29 @@ body {
 .main-content > div:first-child,
 .main-content > .fade-in { padding-top: 28px; }
 .page-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 .page-header h2 {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 700;
   color: var(--clr-forest-dark);
   letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+/* GEO-Kicker: kurze gelbe Marker-Linie unter der Überschrift */
+.page-header h2::after {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 5px;
+  background: var(--clr-gelb);
+  margin-top: 10px;
 }
 .page-header p {
   color: var(--clr-text-light);
   font-size: 14px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 /* ── Cards ── */
@@ -325,10 +351,12 @@ body {
 }
 .card-header {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--clr-forest-dark);
   margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--clr-sand); /* editoriale Trennlinie (GEO) */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -404,7 +432,7 @@ body {
 }
 .data-table tbody td {
   padding: 10px 12px;
-  border-bottom: 1px solid #f0ece4;
+  border-bottom: 1px solid var(--clr-sand-light);
   vertical-align: middle;
 }
 .data-table tbody tr:hover {
@@ -436,8 +464,8 @@ body {
 }
 .form-control:focus {
   outline: none;
-  border-color: var(--clr-leaf);
-  box-shadow: 0 0 0 3px rgba(74,124,46,0.1);
+  border-color: var(--clr-forest);
+  box-shadow: 0 0 0 3px rgba(255,252,0,0.35); /* gelber Fokus-Ring (BW) */
 }
 select.form-control { cursor: pointer; }
 textarea.form-control { resize: vertical; min-height: 80px; }
@@ -468,23 +496,23 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   background: var(--clr-forest);
   color: var(--clr-white);
 }
-.btn-primary:hover { background: var(--clr-forest-dark); }
+.btn-primary:hover { background: var(--clr-forest-dark); box-shadow: inset 0 -3px 0 var(--clr-gelb); }
 .btn-secondary {
-  background: var(--clr-warm);
+  background: var(--clr-white);
   color: var(--clr-text);
   border: 1px solid var(--clr-sand);
 }
-.btn-secondary:hover { background: var(--clr-sand); }
+.btn-secondary:hover { background: var(--clr-warm); border-color: var(--clr-sage-light); }
 .btn-danger {
   background: var(--clr-red);
   color: var(--clr-white);
 }
-.btn-danger:hover { background: #a93226; }
+.btn-danger:hover { background: #85100C; } /* BW Rot Dunkel */
 .btn-success {
   background: var(--clr-green);
   color: var(--clr-white);
 }
-.btn-success:hover { background: #219a52; }
+.btn-success:hover { background: #4E7E0C; }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon {
   padding: 6px;
@@ -503,16 +531,17 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  border-radius: 12px;
+  padding: 3px 9px;
+  border-radius: 3px; /* eckige Editorial-Labels (GEO-Kicker) */
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
-.badge-ok { background: var(--clr-green-light); color: #1a7a42; }
-.badge-open { background: var(--clr-amber-light); color: #9a6100; }
-.badge-overdue { background: var(--clr-red-light); color: #a32a1e; }
-.badge-done { background: var(--clr-green-light); color: #1a7a42; }
-.badge-planned { background: var(--clr-blue-light); color: #1a5a8a; }
+.badge-ok { background: var(--clr-green-light); color: #2B4904; }      /* BW Grün Dunkel */
+.badge-open { background: var(--clr-amber-light); color: #6A3201; }    /* BW Orange Dunkel */
+.badge-overdue { background: var(--clr-red-light); color: #85100C; }   /* BW Rot Dunkel */
+.badge-done { background: var(--clr-green-light); color: #2B4904; }
+.badge-planned { background: var(--clr-blue-light); color: #0A3C90; }  /* BW Blau Dunkel */
 
 /* ── Modal ── */
 .modal-overlay {
@@ -599,7 +628,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 .kw-cell:hover { border-color: var(--clr-leaf); }
 .kw-cell:focus {
-  border-color: var(--clr-forest-dark, #1a3a0a);
+  border-color: var(--clr-forest-dark, #000000);
   box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white;
   z-index: 10;
   outline: 2px dashed var(--clr-forest);
@@ -613,7 +642,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 .kw-cell.kw-ok { background: var(--clr-green-light); border-color: #b8e0c5; }
 .kw-cell.kw-issue { background: var(--clr-red-light); border-color: #f0b8b3; color: var(--clr-red); }
-.kw-cell.kw-issue:focus { border-color: var(--clr-forest-dark, #1a3a0a); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
+.kw-cell.kw-issue:focus { border-color: var(--clr-forest-dark, #000000); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
 .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #fff5e6, #fff5e6 3px, #ffedcc 3px, #ffedcc 6px); border-color: #f0c878; }
 .kw-cell.kw-session { box-shadow: inset 0 0 0 2px var(--clr-leaf); }
 .kw-cell.kw-session:focus { box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; outline: 2px dashed var(--clr-forest); outline-offset: 3px; }
@@ -693,7 +722,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 .kw-inline-popover input:focus {
   border-color: var(--clr-forest);
-  box-shadow: 0 0 0 2px rgba(45,80,22,0.15);
+  box-shadow: 0 0 0 2px rgba(255,252,0,0.4);
 }
 @keyframes popIn { from { opacity:0; transform:translateX(-50%) translateY(4px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
