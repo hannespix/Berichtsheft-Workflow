@@ -751,13 +751,15 @@ const BerichteHandler = {
   },
 
   exportZulassungExcel() {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
     const f = this._zlFilter;
     const gf = App.gf('schueler');
     let sql = `SELECT s.nachname, s.vorname, COALESCE(b.name, s.ausbildungsstaette) as betrieb, b.ort,
       CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(fr.bezeichnung,'') as fachrichtung,
       j.bezeichnung as jahrgang, bs.name as schule, k.klassenbezeichnung,
       s.ausbildungsbeginn, s.ausbildungsende, s.zustaendiges_amt,
-      (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis
+      (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis,
+      (SELECT ke2.pruefungsausschuss FROM kontrollergebnisse ke2 JOIN kontrolltermine kt2 ON ke2.kontrolltermin_id=kt2.id WHERE ke2.schueler_id=s.id ORDER BY kt2.geplant_datum DESC LIMIT 1) as pa
       FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       WHERE s.ap_zugelassen=1 AND s.aktiv=1${gf}`;
@@ -766,6 +768,9 @@ const BerichteHandler = {
     if (f.fachrichtung) { sql += ' AND s.fachrichtung_id=?'; params.push(parseInt(f.fachrichtung)); }
     if (f.jahrgang) { sql += ' AND s.jahrgang_id=?'; params.push(parseInt(f.jahrgang)); }
     if (f.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(f.amt); }
+    // PA-Filter MUSS identisch zur Modal-Anzeige sein — sonst exportiert man andere Azubis als angezeigt!
+    if (f.pa === 'ja') sql += ' AND s.id IN (SELECT ke3.schueler_id FROM kontrollergebnisse ke3 WHERE ke3.pruefungsausschuss=1)';
+    if (f.pa === 'nein') sql += ' AND s.id NOT IN (SELECT ke3.schueler_id FROM kontrollergebnisse ke3 WHERE ke3.pruefungsausschuss=1)';
     sql += ' ORDER BY bs.name, fr.bezeichnung, s.nachname';
     const data = App.query(sql, params);
     if (!data.length) return App.toast('Keine Daten zum Exportieren', 'warning');
@@ -774,7 +779,8 @@ const BerichteHandler = {
       'Nachname': s.nachname, 'Vorname': s.vorname, 'Betrieb': s.betrieb, 'Ort': s.ort,
       'Fachrichtung': s.fachrichtung, 'Jahrgang': s.jahrgang, 'Schule': s.schule, 'Klasse': s.klassenbezeichnung,
       'AV-Beginn': s.ausbildungsbeginn, 'AV-Ende': s.ausbildungsende, 'Amt': s.zustaendiges_amt,
-      'Letztes Ergebnis': s.letztes_ergebnis || ''
+      'Letztes Ergebnis': s.letztes_ergebnis || '',
+      'Prüfungsausschuss': s.pa ? 'Ja' : ''
     })));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Zulassungsliste');
     XLSX.writeFile(wb, `Zulassungsliste_AP_${todayStr()}.xlsx`);
@@ -784,6 +790,7 @@ const BerichteHandler = {
   exportZulassungPDF() {
     const table = document.getElementById('zlTable');
     if (!table) return App.toast('Keine Tabelle gefunden', 'error');
+    if (!window.jspdf) return App.toast('PDF-Bibliothek nicht geladen', 'error');
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(45, 80, 22);
@@ -796,10 +803,15 @@ const BerichteHandler = {
     if (this._zlFilter.amt) filterParts.push('Amt: ' + this._zlFilter.amt);
     doc.text(`Stand: ${new Date().toLocaleDateString('de-DE')}${filterParts.length ? ' · Filter: ' + filterParts.join(', ') : ''}`, 20, 24);
 
+    // Ampel-Emojis → Text (jsPDF helvetica kann keine Emojis → Müll-Zeichen)
+    const ampelText = { '⚪': '–', '🟢': 'OK', '🔴': 'Mangel' };
     const rows = [...table.querySelectorAll('tbody tr')].map(tr =>
-      [...tr.querySelectorAll('td')].map(td => td.textContent.trim())
+      [...tr.querySelectorAll('td')].map((td, i) => {
+        const t = td.textContent.trim();
+        return i === 0 ? (ampelText[t] ?? t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}]/gu, '')) : t;
+      })
     );
-    const head = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    const head = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim() || 'Status');
 
     doc.autoTable({
       startY: 30, margin: { left: 14, right: 14 },

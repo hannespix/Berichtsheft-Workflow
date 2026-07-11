@@ -162,7 +162,8 @@ const NacherfassungHandler = {
     const klId = document.getElementById('neKlasse')?.value;
     const klasseIds = klId ? [parseInt(klId)] : App.query("SELECT DISTINCT k.id FROM klassen k WHERE k.berufsschule_id=?", [bsId]).map(r => r.id);
 
-    App.run("INSERT INTO kontrolltermine (geplant_datum, pruefer, status, typ, bemerkung) VALUES (?,?,'durchgefuehrt','nacherfassung','Nacherfasst am ' || date('now'))",
+    // typ 'einsendung' — 'nacherfassung' würde den CHECK-Constraint verletzen (SCHEMA erlaubt nur schulkontrolle/einsendung)
+    App.run("INSERT INTO kontrolltermine (geplant_datum, pruefer, status, typ, bemerkung) VALUES (?,?,'durchgefuehrt','einsendung','Nacherfasst am ' || date('now'))",
       [datum, pruefer]);
     const terminId = App.scalar("SELECT last_insert_rowid()");
     klasseIds.forEach(kId => {
@@ -172,32 +173,42 @@ const NacherfassungHandler = {
     // Save results
     let saved = 0;
     toSave.forEach(row => {
+     try {
       const s = row.schueler;
       // Kontrollergebnis (with fehltage)
-      App.run("INSERT INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, fehltage_gesamt, erstellt_am, geaendert_von) VALUES (?,?,?,?,?,datetime('now'),?)",
+      App.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, fehltage_gesamt, erstellt_am, geaendert_von) VALUES (?,?,?,?,?,datetime('now'),?)",
         [terminId, s.id, row.ergebnis, row.bemerkung, row.fehltage || 0, pruefer]);
       const keId = App.scalar("SELECT last_insert_rowid()");
 
-      // Wiedervorlage
+      // Wiedervorlage (Tabelle hat KEINE kontrolltermin_id-Spalte!)
       if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
-        App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, kontrolltermin_id, art, frist_datum, status) VALUES (?,?,?,?,?,'offen')",
-          [s.id, keId, terminId, row.ergebnis, row.wvDate]);
+        App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
+          [s.id, keId, row.ergebnis, row.wvDate]);
       }
 
-      // KW-Status: Mark last checked KW + store fehltage + codes
+      // KW-Status: Upsert der behobene_codes/bemerkung NICHT zerstört (kein REPLACE!)
+      const upsertKw = (kw, codes, fehl) => {
+        const ex = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
+        if (ex.length) {
+          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
+            [codes, fehl, keId, ex[0].id]);
+        } else {
+          App.run('INSERT INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, fehltage, erstellt_bei) VALUES (?,?,?,?,1,?,?)',
+            [s.id, aj, kw, codes, fehl, keId]);
+        }
+      };
       const aj = App.getSchuelerAJs(s.id).pop() || 1;
       const kw = row.lastKW || 0;
       if (kw > 0) {
-        // Mark all KWs up to lastKW as checked (geprueft=1) for this AJ
-        App.run("INSERT OR REPLACE INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, fehltage, erstellt_bei) VALUES (?,?,?,?,1,?,?)",
-          [s.id, aj, kw, row.codes || '', row.fehltage || 0, terminId]);
+        upsertKw(kw, row.codes || '', row.fehltage || 0);
       } else if (row.codes) {
-        // No KW entered but codes → use rough KW from date
         const roughKw = parseInt(document.getElementById('neTerminDatum').value.substring(5,7)) <= 6 ? 1 : 36;
-        App.run("INSERT OR REPLACE INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, erstellt_bei) VALUES (?,?,?,?,1,?)",
-          [s.id, aj, roughKw, row.codes, terminId]);
+        upsertKw(roughKw, row.codes, 0);
       }
       saved++;
+     } catch(rowErr) {
+      console.warn('Nacherfassung Zeile:', rowErr.message);
+     }
     });
 
     App.toast(`✅ ${saved} Kontrollergebnisse nacherfasst (Termin ${formatDate(datum)})`, 'success');

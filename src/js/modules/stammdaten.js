@@ -1474,6 +1474,7 @@ const StammdatenTab = {
             ${a.email ? '<br>📧 <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
           </div>`).join('')}
         </div>` : ''}
+      </div>
       ${!azubis.length ? '<p style="color:var(--clr-text-light);font-size:13px">Keine Azubis gefunden.</p>' : `
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>FR / JG</th><th>Letzte Kontrolle</th><th>Kontakt</th><th></th></tr></thead>

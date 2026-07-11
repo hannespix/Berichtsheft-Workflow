@@ -265,7 +265,7 @@ const SchuelerView = {
             <button class="btn btn-sm btn-secondary" ${this.page>=totalPages-1?'disabled':''} onclick="SchuelerView.page=${totalPages-1};SchuelerView.render()">»</button>
           </div>
         </div>` : `<div style="padding:4px;font-size:12px;color:var(--clr-text-light)">${filtered} Schüler</div>`}
-        ` : '<div class="empty-state"><h3>Keine Schüler gefunden</h3><p>Keine Treffer. <br><button class=&quot;btn btn-sm btn-secondary&quot; style=&quot;margin-top:8px&quot; onclick=&quot;SchuelerView.clearFilters()&quot;>Filter zurücksetzen</button></p></div>'}
+        ` : `<div class="empty-state"><h3>Keine Schüler gefunden</h3><p>Keine Treffer.<br><button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="SchuelerView.clearFilters()">Filter zurücksetzen</button></p></div>`}
       </div>`;
   }
 };

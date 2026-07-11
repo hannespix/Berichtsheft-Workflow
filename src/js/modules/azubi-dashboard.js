@@ -209,21 +209,31 @@ const AzubiDashboard = {
     App.toast('Gespeichert', 'success');
     if (field === 'ausbildungsende' && value) {
       this._checkJahrgangAnpassung(schuelerId, value);
+    } else {
+      // Dashboard neu rendern — sonst zeigen KPIs/Termine/Vergütungstabelle veraltete Werte
+      this.open(schuelerId);
     }
   },
 
   _lohnTimer: null,
+  _lohnLogOldVal: null,
   _liveUpdateLohn(schuelerId, rawValue) {
     const val = parseFloat(rawValue) || 0;
+    // Alten Wert beim ERSTEN Tastendruck merken (fürs Änderungs-Logbuch)
+    if (this._lohnLogOldVal === null) {
+      this._lohnLogOldVal = App.scalar('SELECT brutto_lohn FROM schueler WHERE id=?', [schuelerId]);
+    }
     App.run("UPDATE schueler SET brutto_lohn=? WHERE id=?", [val, schuelerId]);
     clearTimeout(this._lohnTimer);
     this._lohnTimer = setTimeout(() => {
-      const inputEl = document.getElementById('adBrutto');
-      const cursorPos = inputEl?.selectionStart;
+      // Einmal loggen (nicht pro Tastendruck)
+      App.logChange(schuelerId, 'brutto_lohn', this._lohnLogOldVal, val, 'dashboard_bearbeitet');
+      this._lohnLogOldVal = null;
       this.open(schuelerId);
       requestAnimationFrame(() => {
         const restored = document.getElementById('adBrutto');
-        if (restored) { restored.focus(); restored.setSelectionRange(cursorPos, cursorPos); }
+        // setSelectionRange wirft InvalidStateError auf type="number" — nur focus()
+        if (restored) { try { restored.focus(); } catch(e) {} }
       });
     }, 400);
   },
@@ -509,6 +519,10 @@ const AzubiDashboard = {
         const vorTag = AzubiRechner.parseISO(von);
         vorTag.setDate(vorTag.getDate() - 1);
         AzubiRechner.updatePhase(konflikt.konflikt.id, { ...konflikt.konflikt, bis: AzubiRechner.fmtISO(vorTag) });
+        // User informieren — die bestehende Phase wurde automatisch angepasst!
+        App.toast(`Bestehende Phase (${AzubiRechner.beschreibPhase(konflikt.konflikt)}) automatisch am ${AzubiRechner.fmtDE(vorTag)} beendet`, 'warning');
+      } else {
+        App.toast('Achtung: Phasen überlappen sich — bitte im Editor prüfen', 'warning');
       }
     }
 

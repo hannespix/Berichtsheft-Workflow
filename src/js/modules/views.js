@@ -78,11 +78,13 @@ const Views = {
     const jfkt = App.jgWhere('kt.jahrgang_id');
     const aktivClause = App._extraFilterSql().overrideAktiv ? '1=1' : 's.aktiv=1';
 
+    // kontrolliert: gleicher aktiv-Filter wie totalSchueler (sonst "Abdeckung" > 100% möglich)
     const totalSchueler = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${aktivClause}${jf.where}`, jf.params) || 0;
-    const kontrolliertIds = App.query(`SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke JOIN schueler s ON ke.schueler_id=s.id WHERE ke.ergebnis != ''${jf.where}`, jf.params);
+    const kontrolliertIds = App.query(`SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke JOIN schueler s ON ke.schueler_id=s.id WHERE ke.ergebnis != '' AND ${aktivClause}${jf.where}`, jf.params);
     const kontrolliert = kontrolliertIds.length;
-    const offeneWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen'${jf.where}`, jf.params) || 0;
-    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum < ?${jf.where}`, [today, ...jf.params]) || 0;
+    const offeneWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig')${jf.where}`, jf.params) || 0;
+    // 'ueberfaellig' mitzählen — der Status-Flip passiert erst beim Öffnen der WV-View
+    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
 
 
     const naechsteTermine = App.query(`SELECT kt.*, kt.id as termin_id
@@ -94,7 +96,7 @@ const Views = {
     const ueberfaelligeWV = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette
       FROM wiedervorlagen w
       JOIN schueler s ON w.schueler_id=s.id
-      WHERE w.status='offen' AND w.frist_datum < ?${jf.where}
+      WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}
       ORDER BY w.frist_datum LIMIT 10`, [today, ...jf.params]);
 
     // Betrieb-Ranking: Betriebe mit den meisten Mängeln
@@ -2315,6 +2317,7 @@ const Views = {
         entries.forEach(e => {
           if (e.isIntersecting) {
             const id = e.target.id.replace('help_','');
+            if (id === 'warning') return; // Warnbox hat keinen Nav-Eintrag — Highlight nicht löschen
             links.forEach(l => {
               const isActive = l.dataset.section === id;
               l.style.background = isActive ? 'var(--clr-green-light)' : '';
@@ -2324,7 +2327,7 @@ const Views = {
           }
         });
       }, { root: mc, rootMargin: '-5% 0px -85% 0px', threshold: 0 });
-      sections.forEach(s => observer.observe(s));
+      sections.forEach(s => { if (s.id !== 'help_warning') observer.observe(s); });
     }, 200);
   },
 
@@ -2401,7 +2404,8 @@ const Views = {
   exportHilfePDF() {
     const content = document.querySelector('#mainContent .fade-in');
     if (!content) return App.toast('Hilfe-Seite nicht gefunden', 'error');
-    const cards = [...content.querySelectorAll('.card[id^="help_"]')].filter(c => c.style.display !== 'none');
+    // help_warning ausschließen — wird als eigene rote Warnseite gerendert, nicht als Kapitel
+    const cards = [...content.querySelectorAll('.card[id^="help_"]')].filter(c => c.style.display !== 'none' && c.id !== 'help_warning');
     if (!cards.length) return App.toast('Keine Hilfe-Sektionen gefunden', 'error');
 
     if (!window.jspdf) return App.toast('jsPDF-Bibliothek nicht geladen', 'error');
@@ -2416,8 +2420,8 @@ const Views = {
 
     const addPage = () => { doc.addPage(); y = tm; };
     const checkSpace = (need) => { if (y + need > 272) addPage(); };
-    // Emojis und nicht-druckbare Zeichen entfernen (jsPDF helvetica unterstützt sie nicht)
-    const clean = (s) => (s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}←-⇿\u{1F100}-\u{1F1FF}]/gu, '').replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim();
+    // Emojis, Variation-Selectors (U+FE0F!) und nicht-druckbare Zeichen entfernen
+    const clean = (s) => (s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}←-⇿\u{1F100}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{20E3}]/gu, '').replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim();
     const splitText = (text, maxW) => doc.splitTextToSize(clean(text), maxW || pw);
 
     // Titel-Seite
@@ -2444,8 +2448,9 @@ const Views = {
       if (y > 270) addPage();
       const cleanTitle = clean(title);
       doc.setTextColor(45, 80, 22);
-      doc.textWithLink(`${i + 1}.  ${cleanTitle}`, lm + 4, y, { pageNumber: 1 }); // Platzhalter
-      // Klickfläche für späteren Sprung speichern
+      // Nur Text — der echte Link wird NACH dem Kapitel-Render via doc.link() gesetzt.
+      // (textWithLink mit Platzhalter würde eine zweite, konkurrierende Annotation zu Seite 1 erzeugen)
+      doc.text(`${i + 1}.  ${cleanTitle}`, lm + 4, y);
       tocEntries.push({ x: lm + 4, y: y - 4, w: pw - 30, h: 6, page: doc.getCurrentPageInfo().pageNumber, ySlot: y });
       y += 6;
     });
@@ -2524,13 +2529,21 @@ const Views = {
       // Alle <p>, <div>, <strong>, Listen etc. als Text
       const blocks = tempDiv.querySelectorAll('p, div[style], li');
       const seen = new Set();
+      const printed = new Set(); // bereits gedruckte Container — Kinder überspringen (sonst doppelt!)
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
 
       blocks.forEach(block => {
+        // Kind eines schon gedruckten Containers? → Inhalt wurde bereits ausgegeben
+        for (let anc = block.parentElement; anc && anc !== tempDiv; anc = anc.parentElement) {
+          if (printed.has(anc)) return;
+        }
+        // Container mit Block-Kindern nicht als Ganzes drucken — nur seine Kinder einzeln
+        if (block.tagName === 'DIV' && block.querySelector('p, li, div[style]')) return;
         const rawText = block.textContent.trim();
         const text = clean(rawText);
         if (!text || seen.has(text)) return;
         seen.add(text);
+        printed.add(block);
         const lines = splitText(rawText);
         const blockH = lines.length * 5;
         checkSpace(blockH + 3);

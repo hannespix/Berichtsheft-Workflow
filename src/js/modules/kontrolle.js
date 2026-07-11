@@ -125,7 +125,7 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
           f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           [terminId, s.id,
@@ -163,9 +163,13 @@ const KontrolleHandler = {
 
       // Auto-Zulassung: wenn < 10% Fehltage UND Pflichtteile OK UND keine Mängel/WV
       const autoZulassung = !fehlWarn && pflichtOK && offeneMaengel === 0 && !wvOffen && isDone && isOK;
-      // Auto-set only if field was never manually changed (still default 0 and conditions met)
-      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0) {
-        App._runSilent('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
+      // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
+      // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
+      // der Import es bei jedem Sync zurück und der Toast erscheint endlos).
+      if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
+      const overrideKey = this.currentTerminId + ':' + s.id;
+      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !this._manualZulassungOverride.has(overrideKey)) {
+        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
         ke.zulassung_ap = 1;
         autoZulCount++;
       }
@@ -352,6 +356,10 @@ const KontrolleHandler = {
   toggleZulassung(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
+    // Manuelles Abwählen merken — sonst setzt die Auto-Zulassung beim nächsten Render sofort wieder auf 1
+    if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
+    if (!checked) this._manualZulassungOverride.add(this.currentTerminId + ':' + schuelerId);
+    else this._manualZulassungOverride.delete(this.currentTerminId + ':' + schuelerId);
     if (checked && ke.pruefungsausschuss === 1) {
       // Unset PA when setting Zulassung
       App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=0, zulassung_ap=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
@@ -621,7 +629,7 @@ const KontrolleHandler = {
         FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
         WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [schuelerId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
         f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, schuelerId,
@@ -698,6 +706,12 @@ const KontrolleHandler = {
   },
 
   renderSchueler() {
+    // Null-safe: Undo/Redo-Closures rufen renderSchueler auch außerhalb der Kontrolle-View auf
+    if (!document.getElementById('kontrolleContent')) return;
+    // Stale KW-Selektion + Popover aufräumen (Re-Render macht Zell-Referenzen detached)
+    if (typeof KWNav !== 'undefined') {
+      try { KWNav.clearSelection(); KWNav.closePopover(); } catch(e) {}
+    }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     const total = this.currentSchuelerList.length;
@@ -713,7 +727,7 @@ const KontrolleHandler = {
         WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
         ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, this.currentTerminId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
         f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, s.id,
@@ -1362,12 +1376,15 @@ const KontrolleHandler = {
     const codes = ['A','B','C','D','E','F','G','H','I'];
     const labels = ['Unterschrift Azubi','Unterschrift Ausbilder','Berufsschulthemen','Wetter','Inhaltlich lückenhaft','Komplette Berichte fehlen','Datum/KW','Fehltage','Sonstiges'];
 
-    const existing = App.query(`SELECT * FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [keId, aj, kw]);
-    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
-    const currentFehltage = existing.length ? existing[0].fehltage : 0;
-
     const s = this.currentSchuelerList[this.currentIndex];
-    const sid = s ? s.id : null;
+    const sid = cellEl?.dataset?.sid ? parseInt(cellEl.dataset.sid) : (s ? s.id : null);
+
+    // WICHTIG: kumulative kw_status lesen (nicht kw_maengel der aktuellen Durchsicht!)
+    // Sonst erscheinen Mängel aus früheren Durchsichten unangehakt und werden
+    // beim Speichern still gelöscht.
+    const existing = sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [sid, aj, kw]) : [];
+    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
+    const currentFehltage = existing.length ? (existing[0].fehltage || 0) : 0;
     const kwBem = sid ? (App.query('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0]?.bemerkung || '') : '';
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
 
@@ -1431,12 +1448,16 @@ const KontrolleHandler = {
 
   saveKW(keId, aj, kw) {
     const codes = ['A','B','C','D','E','F','G','H','I'];
-    const selected = codes.filter(c => document.getElementById('kwc_' + c)?.checked);
-    const fehltage = parseInt(document.getElementById('kwFehltage').value) || 0;
+    let selected = codes.filter(c => document.getElementById('kwc_' + c)?.checked);
+    // Fehltage klemmen (0–7) + H↔Fehltage konsistent halten
+    let fehltage = Math.min(7, Math.max(0, parseInt(document.getElementById('kwFehltage').value) || 0));
+    if (fehltage > 0 && !selected.includes('H')) { selected.push('H'); selected.sort(); }
+    if (fehltage === 0) selected = selected.filter(c => c !== 'H');
     const codesStr = selected.join(',');
     const bem = document.getElementById('kwBemText')?.value?.trim() || '';
 
-    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage);
+    const sidCtx = this._kwModalContext?.cellEl?.dataset?.sid;
+    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sidCtx);
 
     // Save bemerkung
     const s = this.currentSchuelerList[this.currentIndex];
@@ -1468,7 +1489,7 @@ const KontrolleHandler = {
   },
 
   clearKW(keId, aj, kw) {
-    KWNav.persistCodes(keId, aj, kw, '', 0);
+    KWNav.persistCodes(keId, aj, kw, '', 0, this._kwModalContext?.cellEl?.dataset?.sid);
     App.closeModal();
     this._kwModalContext = null;
     this.renderSchueler();
@@ -2011,7 +2032,7 @@ const KontrolleHandler = {
         const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
           WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
           f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, (prev.durchsicht_nr||0)+1,

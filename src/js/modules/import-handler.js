@@ -235,6 +235,7 @@ const ImportHandler = {
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
+   try { // Sicherstellen dass _bulkImport IMMER zurückgesetzt wird (sonst Dirty-Tracking dauerhaft aus!)
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
     let schulen = App.query('SELECT * FROM berufsschulen');
@@ -401,9 +402,13 @@ const ImportHandler = {
       const berufCode = (row[getMap('beruf_code')]||'').trim();
       const abegRaw   = (row[getMap('ausbildungsbeginn')]||'').trim();
       const aendRaw   = (row[getMap('ausbildungsende')]||'').trim();
-      // Convert DD.MM.YYYY to ISO YYYY-MM-DD for correct Date parsing everywhere
-      const abeg = (() => { const d = parseD(abegRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : abegRaw; })();
-      const aend = (() => { const d = parseD(aendRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : aendRaw; })();
+      // Convert DD.MM.YYYY to ISO YYYY-MM-DD. Unparsbares Datum → '' (NICHT den Rohtext
+      // in eine Datums-Spalte schreiben — der zerstört KW-Mathematik + Phasen-Berechnung)
+      const abeg = (() => { const d = parseD(abegRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
+      const aend = (() => { const d = parseD(aendRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
+      if ((abegRaw && !abeg) || (aendRaw && !aend)) {
+        errorRows.push({ zeile: rowIdx + 2, fehler: `Unlesbares Datum: "${abegRaw && !abeg ? abegRaw : aendRaw}"`, name: nachname + ', ' + vorname });
+      }
       const ibyk      = (row[getMap('ibykus_id')]||'').trim();
       const apCode    = (row[getMap('pruefungstermin')]||'').trim();
       const schulName = (row[getMap('berufsschule')]||'').trim();
@@ -449,7 +454,8 @@ const ImportHandler = {
       // 6) Duplikatsprüfung: Update statt Skip bei Änderungen
       let existingId = null;
       if (ibyk) existingId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != ""', [ibyk]);
-      if (!existingId && nachname && vorname) existingId = App.scalar('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname,vorname,jgId]);
+      // "jahrgang_id IS ?" statt "=?": bei jgId=null matcht "= NULL" nie → Massenduplikate bei Re-Import
+      if (!existingId && nachname && vorname) existingId = App.scalar('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id IS ?', [nachname,vorname,jgId]);
 
       if (existingId) {
         // Check if data changed → update
@@ -537,7 +543,9 @@ const ImportHandler = {
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
     if (imported > 0) {
-      const mostUsedJgId = Object.entries(jgCounter).sort((a,b) => b[1]-a[1])[0]?.[0];
+      // Zeilen ohne Jahrgang landen unter dem String-Key "null" — der darf NICHT
+      // gewinnen, sonst werden ALLE Jahrgänge deaktiviert und keiner wieder aktiviert
+      const mostUsedJgId = Object.entries(jgCounter).filter(([k]) => k !== 'null' && k !== 'undefined').sort((a,b) => b[1]-a[1])[0]?.[0];
       if (mostUsedJgId) {
         // Set as active (MUST use App.run for dirty-tracking + auto-save!)
         App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
@@ -579,6 +587,9 @@ const ImportHandler = {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('import_history',?)", [JSON.stringify(history)]);
 
     const pKonf = stats.phasenKonflikte || [];
+    // Konflikte NICHT als JSON ins onclick-Attribut serialisieren (Escaping-Falle bei
+    // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
+    this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
@@ -586,9 +597,9 @@ const ImportHandler = {
       ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
         <strong>⚠️ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
-          ${pKonf.map(k => `<div style="padding:4px 0;border-bottom:1px solid #eee">
-            <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${f}: ${alt||'–'} → ${neu}`).join(', ')}
-            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',${JSON.stringify(k.changes).replace(/"/g,'&quot;')});this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
+          ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
+            <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${esc(f)}: ${esc(alt||'–')} → ${esc(neu)}`).join(', ')}
+            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',ImportHandler._pendingKonflikte[${ki}].changes);this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
           </div>`).join('')}
         </div>
       </div>` : ''}
@@ -597,6 +608,13 @@ const ImportHandler = {
         <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
+   } catch(importErr) {
+    console.error('Import fehlgeschlagen:', importErr);
+    App.toast('Import-Fehler: ' + importErr.message, 'error');
+   } finally {
+    App._bulkImport = false;
+    App.hideLoading();
+   }
   },
 
   _resolveKonflikt(schuelerId, action, changes) {

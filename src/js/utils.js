@@ -6,7 +6,9 @@ function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
   d.textContent = String(str);
-  return d.innerHTML;
+  // textContent→innerHTML escaped & < > — aber NICHT Anführungszeichen.
+  // Ohne diese bricht z.B. Betrieb `Gärtnerei "Grün" GmbH` aus Attributen aus (Injection).
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ── Lokales Datum als YYYY-MM-DD (KEIN UTC!) ──

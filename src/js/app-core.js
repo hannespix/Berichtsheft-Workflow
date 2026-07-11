@@ -2053,7 +2053,7 @@ const App = {
 
     // ── Sync marker polling: adaptive interval based on connection speed ──
     this._syncMarkerHandle = null;
-    this._lastSyncVersion = this.saveCount || 0;
+    this._lastSyncVersion = null; // eindeutiges Token, wird beim ersten Marker-Write gesetzt
 
     this._schedulePoll = () => {
       // Adapt polling interval: 3s (good), 10s (slow), 30s (very-slow)
@@ -2111,6 +2111,8 @@ const App = {
   },
 
   // Write sync marker after each save (~50 bytes, fast even on network)
+  // v ist ein eindeutiges Token (nicht der per-Client saveCount!) – zwei Clients
+  // mit gleichem Zählerstand würden sonst gegenseitige Saves übersehen.
   async _writeSyncMarker() {
     if (!this.dirHandle) return;
     try {
@@ -2118,15 +2120,17 @@ const App = {
       const syncName = 'sync' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
       const handle = await syncDir.getFileHandle(syncName, { create: true });
       const writable = await handle.createWritable();
-      const marker = { v: this.saveCount, t: new Date().toISOString(), u: KontrolleHandler?.activePruefer || '?' };
+      const token = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const marker = { v: token, t: new Date().toISOString(), u: KontrolleHandler?.activePruefer || '?' };
       await writable.write(JSON.stringify(marker));
       await writable.close();
-      this._lastSyncVersion = this.saveCount;
+      this._lastSyncVersion = token;
     } catch(e) { /* non-critical – polling still works via DB file */ }
   },
 
   // ── Lock file: prevents concurrent writes on slow connections ──
   _lockFileName: null,
+  _lockNonce: null,
   async _acquireLock() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
@@ -2137,15 +2141,25 @@ const App = {
         const file = await existing.getFile();
         const text = await file.text();
         const lock = JSON.parse(text);
-        if (Date.now() - new Date(lock.t).getTime() < 45000) {
+        // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
+        // sonst wird ein legitimer langsamer Save als "stale" übernommen.
+        if (Date.now() - new Date(lock.t).getTime() < 150000) {
           return false;
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
+      const nonce = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const handle = await syncDir.getFileHandle(lockName, { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString() }));
+      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: nonce }));
       await writable.close();
+      // Verify: hat UNSER Write gewonnen? (check-then-create ist nicht atomar)
+      try {
+        const verify = await syncDir.getFileHandle(lockName, { create: false });
+        const vLock = JSON.parse(await (await verify.getFile()).text());
+        if (vLock.n && vLock.n !== nonce) return false; // anderer User war schneller
+      } catch(e) {}
       this._lockFileName = lockName;
+      this._lockNonce = nonce;
       return true;
     } catch(e) {
       return true; // lock mechanism failure → proceed without lock
@@ -2155,9 +2169,21 @@ const App = {
     if (!this._lockFileName) return;
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
-      if (syncDir) await syncDir.removeEntry(this._lockFileName);
+      if (syncDir) {
+        // Nur löschen wenn der Lock noch UNS gehört (Ownership-Check)
+        try {
+          const h = await syncDir.getFileHandle(this._lockFileName, { create: false });
+          const lock = JSON.parse(await (await h.getFile()).text());
+          if (!lock.n || lock.n === this._lockNonce) {
+            await syncDir.removeEntry(this._lockFileName);
+          }
+        } catch(e) {
+          try { await syncDir.removeEntry(this._lockFileName); } catch(e2) {}
+        }
+      }
     } catch(e) { /* ignore */ }
     this._lockFileName = null;
+    this._lockNonce = null;
   },
 
   // ── Pre-write version check (closes TOCTOU window) ──
@@ -2577,29 +2603,51 @@ const App = {
       const SQL = await App._getSqlJs();
       const diskDb = new SQL.Database(new Uint8Array(buf));
 
+      // 1b) Sanity-Check: Wenn die Disk-DB leer/korrupt gelesen wurde (SMB-Glitch),
+      // NIEMALS die gute Datei damit überschreiben.
+      try {
+        const diskTables = diskDb.exec("SELECT COUNT(*) FROM sqlite_master WHERE type='table'");
+        const tableCount = diskTables.length ? diskTables[0].values[0][0] : 0;
+        const memSchueler = this.scalar('SELECT COUNT(*) FROM schueler') || 0;
+        if (tableCount < 3 && memSchueler > 0) {
+          diskDb.close();
+          this._mergeInProgress = false;
+          await this._releaseLock();
+          console.error('[Save] Disk-DB unlesbar/leer gelesen – Save abgebrochen (Schutz vor Überschreiben)');
+          this.toast('Netzlaufwerk-Lesefehler – Speichern übersprungen, wird erneut versucht', 'warning');
+          setTimeout(() => this.scheduleAutoSave(), 5000);
+          return;
+        }
+      } catch(e) {
+        diskDb.close();
+        this._mergeInProgress = false;
+        await this._releaseLock();
+        this.toast('Disk-DB nicht lesbar – Speichern übersprungen', 'warning');
+        setTimeout(() => this.scheduleAutoSave(), 5000);
+        return;
+      }
+
       // 2) Ensure diskDb has the same schema
       this._migrateDiskDb(diskDb);
 
       // 3) Replay our dirty ops onto diskDb
       const ops = [...this._dirtyOps];
       let replayErrors = 0;
-      const failedIndices = [];
-      ops.forEach((op, idx) => {
+      let permanentlyDropped = 0;
+      const retryOps = []; // fehlgeschlagen, aber < 3 Versuche → beim nächsten Save erneut
+      ops.forEach((op) => {
         try {
           diskDb.run(op.sql, op.params);
         } catch(e) {
           op._retries = (op._retries || 0) + 1;
           replayErrors++;
           console.warn('Merge-replay skip:', e.message, op.sql.substring(0, 60));
-          if (op._retries >= 3) failedIndices.push(idx);
+          if (op._retries >= 3) permanentlyDropped++;
+          else retryOps.push(op);
         }
       });
-      if (failedIndices.length) {
-        const removed = failedIndices.length;
-        for (let i = failedIndices.length - 1; i >= 0; i--) {
-          this._dirtyOps.splice(failedIndices[i], 1);
-        }
-        console.error(`Permanently dropped ${removed} ops after 3 failed replays`);
+      if (permanentlyDropped) {
+        console.error(`Permanently dropped ${permanentlyDropped} ops after 3 failed replays`);
       }
 
       // 3b) Pre-write version check: detect if another user saved between our read and now
@@ -2632,7 +2680,9 @@ const App = {
       // 6) Update timestamp + clear tracking
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size;
-      this._dirtyOps = this._dirtyOps.slice(ops.length);
+      // Behalte: fehlgeschlagene Ops (mit Retry-Budget) + Ops die WÄHREND des Saves dazukamen
+      const opsSet = new Set(ops);
+      this._dirtyOps = [...retryOps, ...this._dirtyOps.filter(o => !opsSet.has(o))];
       this.unsavedChanges = this._dirtyOps.length > 0;
       this.saveCount++;
       this._saveRetryCount = 0;
@@ -2654,8 +2704,8 @@ const App = {
       this._writeSyncMarker();
       this._persistDirtyOps();
 
-      if (failedIndices.length) {
-        this.toast(`⚠️ ${failedIndices.length} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
+      if (permanentlyDropped) {
+        this.toast(`⚠️ ${permanentlyDropped} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
       } else if (replayErrors > 0) {
         console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped (will retry)`);
       }
@@ -2810,19 +2860,23 @@ const App = {
       schueler_id INTEGER REFERENCES schueler(id),
       UNIQUE(kontrolltermin_id, schueler_id)
     )`);
-    // Durchsichtsbögen-Archiv
+    // Durchsichtsbögen-Archiv (Definition identisch zu SCHEMA halten!)
     run(`CREATE TABLE IF NOT EXISTS durchsicht_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
       schueler_id INTEGER REFERENCES schueler(id),
-      kontrolltermin_id INTEGER,
       snapshot_datum TEXT DEFAULT (datetime('now','localtime')),
-      pruefer TEXT DEFAULT '',
-      ergebnis TEXT DEFAULT '',
-      bemerkung TEXT DEFAULT '',
       kw_daten_json TEXT DEFAULT '{}',
       geprueft_kws_json TEXT DEFAULT '{}',
-      pflichtteile_json TEXT DEFAULT '{}'
+      pflichtteile_json TEXT DEFAULT '{}',
+      ergebnis TEXT DEFAULT '',
+      bemerkung TEXT DEFAULT '',
+      pruefer TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
     )`);
+    // Fehlende Spalten auf Bestands-DBs nachrüsten (ältere _migrateDiskDb-Version hatte andere Definition)
+    run("ALTER TABLE durchsicht_snapshots ADD COLUMN kontrollergebnis_id INTEGER");
+    run("ALTER TABLE durchsicht_snapshots ADD COLUMN erstellt_am TEXT DEFAULT ''");
     // Blockplan table
     run(`CREATE TABLE IF NOT EXISTS blockplan (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2858,6 +2912,53 @@ const App = {
       zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
       ibykus_relevant INTEGER DEFAULT 1, exportiert INTEGER DEFAULT 0
     )`);
+    // kw_maengel table (legacy, aber Replay-Ziel)
+    run(`CREATE TABLE IF NOT EXISTS kw_maengel (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
+      maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+      UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    )`);
+    // UNIQUE-Index gegen doppelte Kontrollergebnisse bei gleichzeitiger Auto-Erstellung
+    try {
+      diskDb.run("DELETE FROM kontrollergebnisse WHERE id NOT IN (SELECT MIN(id) FROM kontrollergebnisse GROUP BY kontrolltermin_id, schueler_id)");
+      diskDb.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_ke_termin_schueler ON kontrollergebnisse(kontrolltermin_id, schueler_id)");
+    } catch(e) {}
+    // ── CHECK-Constraint-Rebuilds (spiegeln migrateDB) ──
+    // Ohne diese schlagen Replays auf alten Disk-DBs still fehl (AJ 4, neue Berufe, F/H-Jahrgänge)
+    const rebuild = (name, checkSig, createSql, copySql) => {
+      try {
+        const res = diskDb.exec(`SELECT sql FROM sqlite_master WHERE name='${name}'`);
+        const chk = res.length && res[0].values.length ? (res[0].values[0][0] || '') : '';
+        if (chk.includes(checkSig)) {
+          diskDb.run(`CREATE TABLE ${name}_new AS SELECT * FROM ${name}`);
+          diskDb.run(`DROP TABLE ${name}`);
+          diskDb.run(createSql);
+          diskDb.run(copySql);
+          diskDb.run(`DROP TABLE ${name}_new`);
+        }
+      } catch(e) { console.warn(`DiskDB rebuild ${name}:`, e.message); }
+    };
+    rebuild('kw_status', 'IN (1,2,3)',
+      `CREATE TABLE kw_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
+        maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+        geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
+        erstellt_bei INTEGER DEFAULT NULL, behoben_bei INTEGER DEFAULT NULL,
+        UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche))`,
+      `INSERT OR IGNORE INTO kw_status (id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) SELECT id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,COALESCE(behobene_codes,''),fehltage,geprueft,COALESCE(bemerkung,''),erstellt_bei,behoben_bei FROM kw_status_new`);
+    rebuild('fachrichtungen', "IN ('Gärtner','Fachwerker')",
+      `CREATE TABLE fachrichtungen (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL DEFAULT '', bezeichnung TEXT NOT NULL, typ TEXT DEFAULT 'Gärtner', UNIQUE(code))`,
+      `INSERT OR IGNORE INTO fachrichtungen SELECT * FROM fachrichtungen_new`);
+    rebuild('abschlussjahrgaenge', "IN ('Sommer','Winter')",
+      `CREATE TABLE abschlussjahrgaenge (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, bezeichnung TEXT NOT NULL UNIQUE,
+        typ TEXT NOT NULL DEFAULT '', jahr INTEGER, pruefungstermin TEXT DEFAULT '', aktiv INTEGER DEFAULT 1)`,
+      `INSERT OR IGNORE INTO abschlussjahrgaenge SELECT * FROM abschlussjahrgaenge_new`);
   },
 
   _importFromDisk(diskDb) {
@@ -3023,25 +3124,28 @@ const App = {
       } catch(e) { /* kw_maengel table may not exist */ }
 
       // ── 4) kontrolltermine: import new + update status/pruefer ──
+      try {
       const diskKT = this._readTable(diskDb, 'kontrolltermine');
       const localKTIds = new Set(this.query('SELECT id FROM kontrolltermine').map(r => r.id));
       diskKT.forEach(dkt => {
         if (!localKTIds.has(dkt.id)) {
-          this._runSilent('INSERT INTO kontrolltermine (id,klasse_id,jahrgang_id,geplant_datum,pruefer,status,typ,notizen,erstellt_am) VALUES (?,?,?,?,?,?,?,?,?)',
-            [dkt.id,dkt.klasse_id,dkt.jahrgang_id,dkt.geplant_datum,dkt.pruefer,dkt.status,dkt.typ||'schulkontrolle',dkt.notizen||'',dkt.erstellt_am||'']);
+          this._runSilent('INSERT INTO kontrolltermine (id,betrieb_id,klasse_id,jahrgang_id,geplant_datum,durchgefuehrt_datum,pruefer,status,typ,bemerkung) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [dkt.id,dkt.betrieb_id??null,dkt.klasse_id??null,dkt.jahrgang_id??null,dkt.geplant_datum,dkt.durchgefuehrt_datum||'',dkt.pruefer||'',dkt.status||'geplant',dkt.typ||'schulkontrolle',dkt.bemerkung||'']);
           this._importChangeCount++;
         } else {
           // Update status + pruefer if disk is newer
           const lkt = this.query('SELECT * FROM kontrolltermine WHERE id=?', [dkt.id])[0];
           if (lkt && dkt.status !== lkt.status) {
-            this._runSilent('UPDATE kontrolltermine SET status=?,pruefer=?,notizen=? WHERE id=?',
-              [dkt.status, dkt.pruefer||lkt.pruefer, dkt.notizen||lkt.notizen, dkt.id]);
+            this._runSilent('UPDATE kontrolltermine SET status=?,pruefer=?,bemerkung=? WHERE id=?',
+              [dkt.status, dkt.pruefer||lkt.pruefer, dkt.bemerkung||lkt.bemerkung, dkt.id]);
             this._importChangeCount++;
           }
         }
       });
+      } catch(e) { console.warn('Sync kontrolltermine:', e.message); }
 
       // ── 5) kontrolltermin_klassen: additive sync ──
+      try {
       const diskTKK = this._readTable(diskDb, 'kontrolltermin_klassen');
       const localTKK = new Set(this.query('SELECT kontrolltermin_id||"_"||klasse_id as k FROM kontrolltermin_klassen').map(r => r.k));
       diskTKK.forEach(d => {
@@ -3052,6 +3156,7 @@ const App = {
           this._importChangeCount++;
         }
       });
+      } catch(e) { console.warn('Sync kontrolltermin_klassen:', e.message); }
 
       // ── 6) kontrolltermin_schueler: additive sync ──
       try {
@@ -3068,12 +3173,13 @@ const App = {
       } catch(e) {} // table may not exist in older DBs
 
       // ── 7) wiedervorlagen: import new + update status ──
+      try {
       const diskWV = this._readTable(diskDb, 'wiedervorlagen');
       const localWVIds = new Set(this.query('SELECT id FROM wiedervorlagen').map(r => r.id));
       diskWV.forEach(d => {
         if (!localWVIds.has(d.id)) {
-          this._runSilent('INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status,erstellt_am) VALUES (?,?,?,?,?,?,?)',
-            [d.id,d.kontrollergebnis_id,d.schueler_id,d.art,d.frist_datum,d.status,d.erstellt_am||'']);
+          this._runSilent('INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,erinnerung_datum,status,erledigt_datum,erledigt_bemerkung,erstellt_am) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [d.id,d.kontrollergebnis_id,d.schueler_id,d.art||'',d.frist_datum,d.erinnerung_datum||'',d.status||'offen',d.erledigt_datum||'',d.erledigt_bemerkung||'',d.erstellt_am||'']);
           this._importChangeCount++;
         } else {
           const lw = this.query('SELECT status FROM wiedervorlagen WHERE id=?', [d.id])[0];
@@ -3083,30 +3189,36 @@ const App = {
           }
         }
       });
+      } catch(e) { console.warn('Sync wiedervorlagen:', e.message); }
 
       // ── 8) wiedervorlage_notizen: additive ──
+      try {
       const diskWN = this._readTable(diskDb, 'wiedervorlage_notizen');
       const localWNIds = new Set(this.query('SELECT id FROM wiedervorlage_notizen').map(r => r.id));
       diskWN.forEach(d => {
         if (!localWNIds.has(d.id)) {
-          this._runSilent('INSERT INTO wiedervorlage_notizen (id,wiedervorlage_id,text,erstellt_am,erstellt_von) VALUES (?,?,?,?,?)',
-            [d.id,d.wiedervorlage_id,d.text,d.erstellt_am||'',d.erstellt_von||'']);
+          this._runSilent('INSERT INTO wiedervorlage_notizen (id,wiedervorlage_id,notiz,erstellt_am,erstellt_von) VALUES (?,?,?,?,?)',
+            [d.id,d.wiedervorlage_id,d.notiz||'',d.erstellt_am||'',d.erstellt_von||'']);
           this._importChangeCount++;
         }
       });
+      } catch(e) { console.warn('Sync wv_notizen:', e.message); }
 
       // ── 9) durchsicht_snapshots: additive ──
+      try {
       const diskDS = this._readTable(diskDb, 'durchsicht_snapshots');
       const localDSIds = new Set(this.query('SELECT id FROM durchsicht_snapshots').map(r => r.id));
       diskDS.forEach(d => {
         if (!localDSIds.has(d.id)) {
-          this._runSilent('INSERT INTO durchsicht_snapshots (id,kontrollergebnis_id,schueler_id,snapshot_datum,snapshot_data) VALUES (?,?,?,?,?)',
-            [d.id,d.kontrollergebnis_id,d.schueler_id,d.snapshot_datum||'',d.snapshot_data||'']);
+          this._runSilent('INSERT INTO durchsicht_snapshots (id,kontrollergebnis_id,schueler_id,snapshot_datum,kw_daten_json,geprueft_kws_json,pflichtteile_json,ergebnis,bemerkung,pruefer,erstellt_am) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [d.id,d.kontrollergebnis_id??null,d.schueler_id,d.snapshot_datum||'',d.kw_daten_json||'{}',d.geprueft_kws_json||'{}',d.pflichtteile_json||'{}',d.ergebnis||'',d.bemerkung||'',d.pruefer||'',d.erstellt_am||'']);
           this._importChangeCount++;
         }
       });
+      } catch(e) { console.warn('Sync snapshots:', e.message); }
 
       // ── 10) schueler: import new students ──
+      try {
       const diskS = this._readTable(diskDb, 'schueler');
       const localSIds = new Set(this.query('SELECT id FROM schueler').map(r => r.id));
       diskS.forEach(d => {
@@ -3116,6 +3228,7 @@ const App = {
           this._importChangeCount++;
         }
       });
+      } catch(e) { console.warn('Sync schueler:', e.message); }
 
       // ── 11) Show conflicts if any ──
       if (this._conflicts.length > 0) {
@@ -3717,7 +3830,7 @@ const App = {
     const bearbeiter = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
     const ibykusRelevant = this.IBYKUS_FELDER.includes(feld) ? 1 : 0;
     this.run("INSERT INTO aenderungslog (schueler_id, schueler_name, feld, alter_wert, neuer_wert, aktion, bearbeiter, ibykus_relevant) VALUES (?,?,?,?,?,?,?,?)",
-      [schuelerId, name, feld, String(alterWert || ''), String(neuerWert || ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
+      [schuelerId, name, feld, String(alterWert ?? ''), String(neuerWert ?? ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
   },
 
   // ── Ampel-System: Schüler-Status auf Basis der letzten Kontrolle ──
@@ -4284,6 +4397,11 @@ const App = {
       try { this.db.run("ALTER TABLE schueler ADD COLUMN zp_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN ap_termin TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN brutto_lohn REAL DEFAULT 0"); } catch(e) {}
+      // UNIQUE-Index gegen doppelte Kontrollergebnisse (2 Prüfer öffnen denselben Termin)
+      try {
+        this.db.run("DELETE FROM kontrollergebnisse WHERE id NOT IN (SELECT MIN(id) FROM kontrollergebnisse GROUP BY kontrolltermin_id, schueler_id)");
+        this.db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_ke_termin_schueler ON kontrollergebnisse(kontrolltermin_id, schueler_id)");
+      } catch(e) { console.warn('KE-Unique-Index:', e.message); }
       this.db.run(`CREATE TABLE IF NOT EXISTS aenderungslog (
         id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER, schueler_name TEXT DEFAULT '',
         feld TEXT NOT NULL, alter_wert TEXT DEFAULT '', neuer_wert TEXT DEFAULT '',
@@ -4357,6 +4475,10 @@ const App = {
     // Stop live sync when leaving kontrolle
     if (view !== 'kontrolle' && typeof KontrolleHandler !== 'undefined') {
       KontrolleHandler.stopLiveSync();
+    }
+    // KW-Selektion + Popover aufräumen (verhindert stale DOM-Referenzen)
+    if (typeof KWNav !== 'undefined') {
+      try { KWNav.clearSelection(); KWNav.closePopover(); } catch(e) {}
     }
     // Close sidebar on mobile after navigation
     if (window.innerWidth <= 768) this.closeSidebar();

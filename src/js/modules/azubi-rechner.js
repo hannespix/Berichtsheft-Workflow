@@ -338,9 +338,12 @@ const AzubiRechner = {
     let erbrachtVZ = 0;
 
     for (const phase of phasenMit) {
+      // Offene Unterbrechung (bis UND _berechnetesEnde null) → Invalid Date wäre truthy
+      // und NaN-Vergleiche greifen nicht → NaN-Periode in der Tabelle. Explizit überspringen.
+      if (!phase.bis && !phase._berechnetesEnde) continue;
       const phVon = this.parseISO(phase.von);
       const phBis = this.parseISO(phase.bis || phase._berechnetesEnde);
-      if (!phBis || phBis <= phVon) continue;
+      if (!phBis || isNaN(phBis) || phBis <= phVon) continue;
 
       if (phase.typ === "unterbrechung") {
         perioden.push({
@@ -468,8 +471,11 @@ const AzubiRechner = {
     const pf = this.pauschaleFehltage(phasen);
 
     // Aktuelles Lehrjahr
+    // WICHTIG: Filter auf von <= heute — eine LAUFENDE Phase mit gesetztem Zukunfts-Ende
+    // (der Normalfall: bis = ausbildungsende) darf NICHT ausgeschlossen werden,
+    // sonst ist erbrachtVZ=0 und jeder Azubi steht im "1. Lehrjahr".
     const erbrachtVZ = phasenMit
-      .filter(p => p.typ === "ausbildung" && (p.bis ? this.parseISO(p.bis) <= heute : true))
+      .filter(p => p.typ === "ausbildung" && this.parseISO(p.von) <= heute)
       .reduce((sum, p) => {
         const von = this.parseISO(p.von);
         const bis = p.bis ? this.parseISO(p.bis) : heute;
@@ -494,7 +500,8 @@ const AzubiRechner = {
     }
     let aktVerg, aktPeriode = null;
     if (isFachwerker) {
-      aktVerg = this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
+      // Individueller Lohn (z.B. 822€ eigene Wohnung) überschreibt Pauschale
+      aktVerg = s.brutto_lohn > 0 ? s.brutto_lohn : this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
       aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung) || perioden.filter(p => !p.unterbrechung).pop();
       aktVerg = aktPeriode ? aktPeriode.vergEff : (hatIndividuellenLohn ? s.brutto_lohn : 0);
@@ -554,13 +561,37 @@ const AzubiRechner = {
 
   _loadCustomTarife() {
     try {
+      // Pristine-Kopien der ausgelieferten Standards einmalig sichern —
+      // sonst ist "Auf Standard zurücksetzen" wirkungslos (Originale wurden in-place mutiert)
+      if (!this._defaultTarife) {
+        this._defaultTarife = JSON.parse(JSON.stringify(this.BERUFE.map(b => ({ id: b.id, tarife: b.tarife }))));
+        this._defaultMiav = JSON.parse(JSON.stringify(this.MINDESTVERGUETUNG));
+      }
+      // Erst auf Standard zurücksetzen, dann Custom anwenden (falls vorhanden)
+      this._defaultTarife.forEach(def => {
+        const beruf = this.BERUFE.find(b => b.id === def.id);
+        if (beruf) beruf.tarife = JSON.parse(JSON.stringify(def.tarife));
+      });
+      this.MINDESTVERGUETUNG = JSON.parse(JSON.stringify(this._defaultMiav));
+
       const ct = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'");
       if (ct) {
         const custom = JSON.parse(ct);
-        custom.forEach((cb, i) => { if (this.BERUFE[i]) this.BERUFE[i].tarife = cb.tarife; });
+        // Match per Beruf-ID (nicht per Index — Reihenfolge kann sich zwischen Versionen ändern)
+        custom.forEach(cb => {
+          const beruf = cb.id ? this.BERUFE.find(b => b.id === cb.id) : null;
+          if (beruf && cb.tarife && cb.tarife.length) beruf.tarife = cb.tarife;
+        });
+        // Fallback für alte index-basierte Speicherungen (ohne id-Feld)
+        if (custom.length && !custom[0].id) {
+          custom.forEach((cb, i) => { if (this.BERUFE[i] && cb.tarife && cb.tarife.length) this.BERUFE[i].tarife = cb.tarife; });
+        }
       }
       const cm = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'");
-      if (cm) this.MINDESTVERGUETUNG = JSON.parse(cm);
+      if (cm) {
+        const miav = JSON.parse(cm);
+        if (Array.isArray(miav) && miav.length) this.MINDESTVERGUETUNG = miav;
+      }
     } catch(e) { console.warn('Custom Tarife laden:', e); }
   },
 };

@@ -74,42 +74,64 @@ const KWNav = {
   _bulkToggleCode(cells, code) {
     if (!cells.length) return;
     const addToAll = !cells.every(c => (c.dataset.codes || '').split(',').includes(code));
-    const undoData = cells.map(c => ({ keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, oldCodes: c.dataset.codes || '', fehltage: +c.dataset.fehltage || 0 }));
-    cells.forEach(c => {
-      let codes = (c.dataset.codes || '').split(',').filter(Boolean);
+    // Vorher- UND Nachher-Zustand JETZT einfrieren (nicht erst im Redo-Closure lesen —
+    // nach Re-Render sind die Zell-Referenzen detached mit veralteten dataset-Werten)
+    const undoData = cells.map(c => {
+      const oldCodes = c.dataset.codes || '';
+      let codes = oldCodes.split(',').filter(Boolean);
       if (addToAll) { if (!codes.includes(code)) { codes.push(code); codes.sort(); } }
       else { codes = codes.filter(x => x !== code); }
-      const codesStr = codes.join(',');
-      const fehl = +c.dataset.fehltage || 0;
-      this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, codesStr, fehl);
-      this.updateCellVisual(c, codesStr, fehl);
+      return { keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+               oldCodes, newCodes: codes.join(','), fehltage: +c.dataset.fehltage || 0 };
+    });
+    cells.forEach((c, i) => {
+      const d = undoData[i];
+      this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, d.fehltage, d.sid);
+      this.updateCellVisual(c, d.newCodes, d.fehltage);
     });
     UndoManager.push(`${cells.length} KWs ${addToAll ? '+' : '−'}${code}`,
-      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.fehltage)); KontrolleHandler.renderSchueler(); },
-      () => { cells.forEach(c => { const codes = (c.dataset.codes||'').split(',').filter(Boolean); this.persistCodes(+c.dataset.ke,+c.dataset.aj,+c.dataset.kw,codes.join(','),+c.dataset.fehltage||0); }); KontrolleHandler.renderSchueler(); }
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.fehltage, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, d.fehltage, d.sid)); KontrolleHandler.renderSchueler(); }
     );
     this.showFeedback(cells[0], `${cells.length}× ${addToAll ? '+' : '−'}${code}`);
   },
 
   _bulkSetFehltage(cells, val) {
-    cells.forEach(c => {
+    const undoData = cells.map(c => {
       let codes = (c.dataset.codes || '').split(',').filter(Boolean);
       if (val > 0 && !codes.includes('H')) { codes.push('H'); codes.sort(); }
       if (val === 0) codes = codes.filter(x => x !== 'H');
-      this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, codes.join(','), val);
-      this.updateCellVisual(c, codes.join(','), val);
+      return { keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+               oldCodes: c.dataset.codes || '', oldFehl: +c.dataset.fehltage || 0, newCodes: codes.join(',') };
     });
+    cells.forEach((c, i) => {
+      const d = undoData[i];
+      this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, val, d.sid);
+      this.updateCellVisual(c, d.newCodes, val);
+    });
+    UndoManager.push(`${cells.length} KWs H:${val}`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.oldFehl, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.newCodes, val, d.sid)); KontrolleHandler.renderSchueler(); }
+    );
     this.showFeedback(cells[0], `${cells.length}× H:${val}`);
   },
 
   _bulkClear(cells) {
-    cells.forEach(c => this.clearCell(c));
+    // Ein aggregierter Undo-Eintrag statt N einzelne
+    const undoData = cells.map(c => ({ keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+      oldCodes: c.dataset.codes || '', oldFehl: +c.dataset.fehltage || 0 }));
+    cells.forEach(c => this.clearCell(c, true)); // skipUndo=true
+    UndoManager.push(`${cells.length} KWs geleert`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.oldFehl, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, '', 0, d.sid)); KontrolleHandler.renderSchueler(); }
+    );
     this.showFeedback(cells[0], `${cells.length}× gelöscht`);
   },
 
   _bulkOk(cells) {
     cells.forEach(c => {
-      this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, '', 0);
+      // keepGeprueft=true: geprueft=1 setzen statt Zeile löschen
+      this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, '', 0, +c.dataset.sid, true);
       this.updateCellVisual(c, '', 0);
       c.classList.add('kw-ok', 'kw-session');
       c.classList.remove('kw-issue');
@@ -164,6 +186,7 @@ const KWNav = {
     const keId = parseInt(cell.dataset.ke);
     const aj = parseInt(cell.dataset.aj);
     const kw = parseInt(cell.dataset.kw);
+    const sid = parseInt(cell.dataset.sid); // im Closure einfrieren — currentIndex kann sich ändern!
     const oldCodes = cell.dataset.codes || '';
     const fehltage = parseInt(cell.dataset.fehltage) || 0;
     let currentCodes = oldCodes.split(',').filter(Boolean);
@@ -183,11 +206,11 @@ const KWNav = {
 
     // Push undo
     UndoManager.push(`KW ${kw} ${action}`,
-      () => { this.persistCodes(keId, aj, kw, oldCodes, fehltage); KontrolleHandler.renderSchueler(); },
-      () => { this.persistCodes(keId, aj, kw, codesStr, fehltage); KontrolleHandler.renderSchueler(); }
+      () => { this.persistCodes(keId, aj, kw, oldCodes, fehltage, sid); KontrolleHandler.renderSchueler(); },
+      () => { this.persistCodes(keId, aj, kw, codesStr, fehltage, sid); KontrolleHandler.renderSchueler(); }
     );
 
-    this.persistCodes(keId, aj, kw, codesStr, fehltage);
+    this.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
     this.updateCellVisual(cell, codesStr, fehltage);
     this.showFeedback(cell, action);
   },
@@ -226,7 +249,7 @@ const KWNav = {
         currentCodes = currentCodes.filter(c => c !== 'H');
       }
       const codesStr = currentCodes.join(',');
-      this.persistCodes(keId, aj, kw, codesStr, val);
+      this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
       this.updateCellVisual(cell, codesStr, val);
       this.closePopover();
       cell.focus();
@@ -254,8 +277,8 @@ const KWNav = {
     }
   },
 
-  // Clear all codes from a cell
-  clearCell(cell) {
+  // Clear all codes from a cell (skipUndo: bei Bulk-Operationen wird ein aggregierter Eintrag gepusht)
+  clearCell(cell, skipUndo) {
     const sid = parseInt(cell.dataset.sid);
     const keId = parseInt(cell.dataset.ke);
     const aj = parseInt(cell.dataset.aj);
@@ -264,10 +287,10 @@ const KWNav = {
     const oldFehltage = parseInt(cell.dataset.fehltage) || 0;
 
     // Push undo (restore old state)
-    if (oldCodes || oldFehltage) {
+    if (!skipUndo && (oldCodes || oldFehltage)) {
       UndoManager.push(`KW ${kw} geleert`,
-        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage); KontrolleHandler.renderSchueler(); },
-        () => { this.persistCodes(keId, aj, kw, '', 0); KontrolleHandler.renderSchueler(); }
+        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid); KontrolleHandler.renderSchueler(); },
+        () => { this.persistCodes(keId, aj, kw, '', 0, sid); KontrolleHandler.renderSchueler(); }
       );
     }
 
@@ -288,19 +311,24 @@ const KWNav = {
   },
 
   // Persist codes to DB (kw_status = cumulative, kw_maengel = per-session backward compat)
-  persistCodes(keId, aj, kw, codesStr, fehltage) {
-    // Get schuelerId from the focused cell or from KontrolleHandler
-    const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
-    const sid = s ? s.id : null;
+  // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
+  // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
+  // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
+  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft) {
+    let sid = sidOpt ? parseInt(sidOpt) : null;
+    if (!sid) {
+      const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
+      sid = s ? s.id : null;
+    }
 
     // ── kw_status (cumulative per student) ──
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
       if (existing.length) {
         if (!codesStr && !fehltage) {
-          // Nothing left — but keep if there were behobene_codes
-          if (existing[0].behobene_codes) {
-            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0 WHERE id=?', [existing[0].id]);
+          if (keepGeprueft || existing[0].behobene_codes) {
+            // "Keine Beanstandungen" (O) bzw. behobene Codes: Zeile erhalten
+            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
           } else {
             App.run('DELETE FROM kw_status WHERE id=?', [existing[0].id]);
           }
@@ -308,7 +336,7 @@ const KWNav = {
           App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
             [codesStr, fehltage, keId, existing[0].id]);
         }
-      } else if (codesStr || fehltage) {
+      } else if (codesStr || fehltage || keepGeprueft) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?)',
           [sid, aj, kw, codesStr, fehltage, keId]);
       }
@@ -348,9 +376,19 @@ const KWNav = {
     const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
     const newlyFilled = [];
 
+    // Inaktive KWs (vor AV-Beginn / nach AV-Ende / Unterbrechung) nicht auto-füllen
+    let currentInactive = new Set();
+    if (s) {
+      try {
+        const bounds = App.getAJKWBounds(s.id);
+        currentInactive = new Set((bounds[aj] || {}).inactiveKWs || []);
+      } catch(e) {}
+    }
+
     // Auto-fill: mark ALL KWs from start up to and including the clicked KW
     for (let i = 0; i <= clickedIdx; i++) {
       const fillKW = kwOrder[i];
+      if (currentInactive.has(fillKW)) continue;
       if (!data[aj].includes(fillKW)) {
         data[aj].push(fillKW);
         newlyFilled.push({aj, kw: fillKW});
@@ -463,7 +501,7 @@ const KWNav = {
       currentCodes.sort();
       const codesStr = currentCodes.join(',');
       const fehltage = parseInt(cell.dataset.fehltage) || 0;
-      this.persistCodes(keId, aj, kw, codesStr, fehltage);
+      this.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
       this.updateCellVisual(cell, codesStr, fehltage);
     }
 
@@ -510,6 +548,7 @@ const KWNav = {
     else if (hasBehoben) cls += ' kw-behoben';
     if (fehl > 0 && !hasCodes) cls += ' kw-fehltage-only';
     cls += ' kw-session'; // currently being edited = in session
+    if (this._selectedCells.has(cell)) cls += ' kw-selected'; // Selektion nicht verlieren
     cell.className = cls;
     const fehlHtml = fehl > 0 ? `<span class="kw-fehltage">${fehl}</span>` : '';
     cell.innerHTML = `<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${codesStr.replace(/,/g,' ')}</span>` : ''}${fehlHtml}`;
@@ -618,7 +657,8 @@ const KWNav = {
         const keId = parseInt(cell.dataset.ke);
         const aj = parseInt(cell.dataset.aj);
         const kw = parseInt(cell.dataset.kw);
-        this.persistCodes(keId, aj, kw, '', 0);
+        // keepGeprueft=true: geprueft-Zeile bleibt erhalten (kein DELETE)
+        this.persistCodes(keId, aj, kw, '', 0, cell.dataset.sid, true);
         this.updateCellVisual(cell, '', 0);
         cell.classList.add('kw-ok', 'kw-session');
         cell.classList.remove('kw-issue');
@@ -640,7 +680,7 @@ const KWNav = {
         let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
         if (!currentCodes.includes('H')) { currentCodes.push('H'); currentCodes.sort(); }
         const codesStr = currentCodes.join(',');
-        this.persistCodes(keId, aj, kw, codesStr, val);
+        this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
         this.updateCellVisual(cell, codesStr, val);
         this.showFeedback(cell, `H:${val}`);
       }
@@ -658,7 +698,7 @@ const KWNav = {
         const kw = parseInt(cell.dataset.kw);
         let currentCodes = (cell.dataset.codes || '').split(',').filter(c => c && c !== 'H');
         const codesStr = currentCodes.join(',');
-        this.persistCodes(keId, aj, kw, codesStr, 0);
+        this.persistCodes(keId, aj, kw, codesStr, 0, cell.dataset.sid);
         this.updateCellVisual(cell, codesStr, 0);
         this.showFeedback(cell, '−H');
       }

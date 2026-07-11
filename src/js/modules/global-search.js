@@ -148,7 +148,7 @@ const GlobalSearch = {
       html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder ('+ausbilder.length+')</div>';
       ausbilder.forEach(a => {
         const idx = this._results.length;
-        this._results.push({ type: 'ausbilder', id: a.id, action: () => { if (a.betrieb_id) { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } }});
+        this._results.push({ type: 'ausbilder', id: a.id, action: () => { App.navigate('stammdaten'); if (a.betrieb_id) { setTimeout(()=>StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } else { setTimeout(()=>StammdatenTab.show('betriebe'), 100); } }});
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span>👤</span>
           <div style="flex:1;min-width:0">
@@ -208,7 +208,7 @@ const GlobalSearch = {
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>
         <strong style="color:var(--clr-forest)">Ctrl+Z / Y</strong><span>Undo / Redo</span>
         <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Schüler</span>
-        <strong style="color:var(--clr-forest)">Alt+1–7</strong><span>Navigation (Dashboard…Berichte)</span>
+        <strong style="color:var(--clr-forest)">Alt+1–8</strong><span>Navigation (Dashboard…Einstellungen)</span>
         <strong style="color:var(--clr-forest)">F1 oder ?</strong><span>Diese Hilfe anzeigen</span>
         <strong style="color:var(--clr-forest)">F5</strong><span>Datenbank von Disk neu laden</span>
         <strong style="color:var(--clr-forest)">Escape</strong><span>Modal / Sidebar schließen</span>
