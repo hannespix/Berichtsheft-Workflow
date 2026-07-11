@@ -710,7 +710,7 @@ const BerichteHandler = {
     const ampelIcon = (e) => !e ? '<span style="color:var(--clr-sage-light)">○</span>' : e === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
     const ergebnisLabel = {in_ordnung:'OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
-    App.openModal(`◈ Zulassungsliste AP (${azubis.length} Azubis)`, `
+    App.openModal(`${svgIcon('abschluss', 17)} Zulassungsliste AP (${azubis.length} Azubis)`, `
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
         <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.schule=this.value;BerichteHandler._renderZulassungsliste()">
           <option value="">Alle Schulen</option>${schulen.map(s => `<option value="${esc(s.name)}" ${f.schule===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}

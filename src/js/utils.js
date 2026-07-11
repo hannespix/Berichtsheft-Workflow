@@ -2,6 +2,26 @@
 // ║  UTILITY FUNCTIONS                                           ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Monochrome Inline-SVG-Icons (Feather/Lucide-Stil, erben currentColor) ──
+// Für Aktionen mit eigener Bedeutung: Text-Glyphen wie ◈/▤ sind zu abstrakt,
+// Emojis tabu (unprofessionell + Plattform-abhängig bunt).
+function svgIcon(name, size = 14) {
+  const paths = {
+    // Azubi-Dashboard: Übersichtskacheln
+    dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    // Schüler-Akte: Ordner
+    akte: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    // Zulassung / Abschluss / Prüfung: Doktorhut
+    abschluss: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+    // Dateitypen (Schüler-Akte)
+    datei: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    bild: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+    tabelle: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>',
+    archiv: '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><line x1="10" y1="13" x2="14" y2="13"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}" style="vertical-align:-2px;flex-shrink:0">${paths[name] || paths.datei}</svg>`;
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
@@ -111,8 +131,10 @@ window.addEventListener('beforeunload', (e) => {
   if (App._dirtyOps && App._dirtyOps.length > 0) {
     try { App._persistDirtyOps(); } catch(ex) {}
   }
-  // Release lock file
-  try { App._releaseLock(); } catch(ex) {}
+  // Release lock file – aber NICHT während ein Save läuft: bricht der Nutzer
+  // das Tab-Schließen ab, liefe der Schreibvorgang sonst ungeschützt weiter
+  // (das finally von mergeAndSave gibt das Lock ohnehin frei).
+  try { if (!App._mergeInProgress) App._releaseLock(); } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';

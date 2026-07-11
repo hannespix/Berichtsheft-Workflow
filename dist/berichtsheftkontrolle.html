@@ -9376,6 +9376,7 @@ const App = {
   // ── Lock file: prevents concurrent writes on slow connections ──
   _lockFileName: null,
   _lockNonce: null,
+  _lockErrorCount: 0,
   async _acquireLock() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
@@ -9388,7 +9389,12 @@ const App = {
         const lock = JSON.parse(text);
         // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
         // sonst wird ein legitimer langsamer Save als "stale" übernommen.
-        if (Date.now() - new Date(lock.t).getTime() < 150000) {
+        // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
+        // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
+        const ageEmbedded = Date.now() - new Date(lock.t).getTime();
+        const ageMtime = Date.now() - file.lastModified;
+        if (Math.min(ageEmbedded, ageMtime) < 150000) {
+          this._lockErrorCount = 0;
           return false;
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
@@ -9398,17 +9404,46 @@ const App = {
       await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: nonce }));
       await writable.close();
       // Verify: hat UNSER Write gewonnen? (check-then-create ist nicht atomar)
-      try {
-        const verify = await syncDir.getFileHandle(lockName, { create: false });
-        const vLock = JSON.parse(await (await verify.getFile()).text());
-        if (vLock.n && vLock.n !== nonce) return false; // anderer User war schneller
-      } catch(e) {}
+      // Doppel-Verify mit Zufalls-Wartezeit: Verify #1 fängt "anderer schrieb vor uns",
+      // die Jitter-Pause + Verify #2 fängt "anderer schreibt gerade nach uns" –
+      // sonst können auf langsamem SMB BEIDE Nutzer das Lock gleichzeitig halten.
+      for (let v = 0; v < 2; v++) {
+        if (v === 1) await new Promise(r => setTimeout(r, 400 + Math.floor(Math.random() * 700)));
+        try {
+          const verify = await syncDir.getFileHandle(lockName, { create: false });
+          const vLock = JSON.parse(await (await verify.getFile()).text());
+          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; return false; } // anderer User war schneller
+        } catch(e) {}
+      }
       this._lockFileName = lockName;
       this._lockNonce = nonce;
+      this._lockErrorCount = 0;
       return true;
     } catch(e) {
-      return true; // lock mechanism failure → proceed without lock
+      // Fail-CLOSED: bei Fehlern im Lock-Mechanismus NICHT einfach ohne Lock
+      // schreiben (Datenverlust-Risiko). Erst nach 3 Fehlversuchen in Folge
+      // notfalls ohne Lock weitermachen, damit Speichern nie dauerhaft blockiert.
+      this._lockErrorCount++;
+      if (this._lockErrorCount >= 3) {
+        console.warn('[Lock] Mechanismus fehlgeschlagen (' + this._lockErrorCount + 'x) – fahre ohne Lock fort:', e.message);
+        return true;
+      }
+      console.warn('[Lock] Fehler beim Acquire – Save wird verschoben:', e.message);
+      return false;
     }
+  },
+  // Heartbeat: Lock-Timestamp auffrischen (vor langer Schreibphase), damit
+  // ein legitimer langsamer Save nicht durch die 150s-Staleness gestohlen wird.
+  async _refreshLock() {
+    if (!this._lockFileName || !this._lockNonce) return;
+    try {
+      const syncDir = this.bhkDirHandle || this.dirHandle;
+      if (!syncDir) return;
+      const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: this._lockNonce }));
+      await writable.close();
+    } catch(e) { /* best effort */ }
   },
   async _releaseLock() {
     if (!this._lockFileName) return;
@@ -9423,7 +9458,9 @@ const App = {
             await syncDir.removeEntry(this._lockFileName);
           }
         } catch(e) {
-          try { await syncDir.removeEntry(this._lockFileName); } catch(e2) {}
+          // Ownership nicht verifizierbar → NICHT löschen. Ein evtl. verwaistes
+          // eigenes Lock heilt die 150s-Staleness; ein fremdes Lock zu löschen
+          // würde dessen laufenden Save ungeschützt lassen.
         }
       }
     } catch(e) { /* ignore */ }
@@ -9432,16 +9469,20 @@ const App = {
   },
 
   // ── Pre-write version check (closes TOCTOU window) ──
-  async _checkMarkerChanged() {
+  async _readMarkerToken() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
-      if (!syncDir) return false;
+      if (!syncDir) return null;
       const syncName = 'sync' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
       const handle = await syncDir.getFileHandle(syncName, { create: false });
       const file = await handle.getFile();
       const marker = JSON.parse(await file.text());
-      return marker.v && marker.v !== this._lastSyncVersion;
-    } catch(e) { return false; }
+      return marker.v || null;
+    } catch(e) { return null; }
+  },
+  async _checkMarkerChanged() {
+    const token = await this._readMarkerToken();
+    return !!(token && token !== this._lastSyncVersion);
   },
 
   // ── Network quality tracking ──
@@ -9745,7 +9786,20 @@ const App = {
     // During bulk import: skip dirty-tracking, full-write happens at end
     if (this._bulkImport) return;
     // ── Dirty-Tracking: record the SQL + params for merge-save ──
-    this._dirtyOps.push({ sql, params: [...params] });
+    // datetime('now') EINFRIEREN: Beim Replay auf der Disk-DB (Sekunden bis
+    // Minuten später) würde SQLite den Ausdruck neu auswerten → geaendert_am
+    // divergiert zwischen Memory und Disk und kippt die LWW-Konfliktauflösung.
+    let opSql = sql;
+    if (opSql.includes("datetime('now'")) {
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, '0');
+      const localTs = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+      const utcTs = `${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+      opSql = opSql
+        .replace(/datetime\('now',\s*'localtime'\)/g, `'${localTs}'`)
+        .replace(/datetime\('now'\)/g, `'${utcTs}'`);
+    }
+    this._dirtyOps.push({ sql: opSql, params: [...params] });
     this.markDirty();
   },
   _bulkImport: false,
@@ -9753,11 +9807,26 @@ const App = {
   _runSilent(sql, params = []) {
     this.db.run(sql, params);
   },
-  // Full-write after bulk import: merge other users' changes first, then write
+  // Full-write after bulk import: merge other users' changes first, then write.
+  // Fährt dasselbe Schutzprotokoll wie mergeAndSave (Lock + Marker-Check) –
+  // sonst vernichten sich Bulk-Import und paralleler Save eines anderen
+  // Nutzers gegenseitig (Full-Write ersetzt die ganze Datei).
+  _fullSaveRetries: 0,
   async fullSave() {
     if (!this.dbFileHandle || !this.db) return;
+    if (this._mergeInProgress) { setTimeout(() => this.fullSave(), 2000); return; }
     this._mergeInProgress = true;
+    let writable = null;
     try {
+      // 0) Lock über die gesamte Read-Merge-Write-Sequenz
+      const lockAcquired = await this._acquireLock();
+      if (!lockAcquired) {
+        this._mergeInProgress = false;
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte (anderer User speichert)…';
+        setTimeout(() => this.fullSave(), 3000);
+        return;
+      }
+
       // 1) Read disk version to preserve other users' changes
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
@@ -9768,11 +9837,24 @@ const App = {
       this._importFromDisk(diskDb);
       diskDb.close();
 
+      // 2b) Marker-Check direkt vor dem Schreiben: hat jemand zwischen unserem
+      // Read und jetzt gespeichert? Dann mit frischem Disk-Stand neu ansetzen.
+      const freshToken = await this._readMarkerToken();
+      if (freshToken && freshToken !== this._lastSyncVersion && this._fullSaveRetries < 5) {
+        this._fullSaveRetries++;
+        this._lastSyncVersion = freshToken; // Retry liest die Disk sofort neu → Stand ist dann enthalten
+        console.log('[Save] Marker changed during fullSave → retry with fresh disk data');
+        setTimeout(() => this.fullSave(), 100);
+        return;
+      }
+      this._fullSaveRetries = 0;
+
       // 3) NOW export our merged in-memory DB (has both our import + others' edits)
       const data = this.db.export();
-      const writable = await this.dbFileHandle.createWritable();
+      writable = await this.dbFileHandle.createWritable();
       await writable.write(data);
       await writable.close();
+      writable = null;
 
       const f2 = await this.dbFileHandle.getFile();
       this.dbLastModified = f2.lastModified;
@@ -9786,12 +9868,14 @@ const App = {
       document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
       this._broadcastChange();
-      this._writeSyncMarker();
+      await this._writeSyncMarker(); // VOR Lock-Release, sonst maskiert ein späterer Marker fremde Saves
       console.log('[Save] Full-write nach Import abgeschlossen (mit Merge)');
     } catch(e) {
+      if (writable) { try { await writable.abort(); } catch(_) {} writable = null; }
       console.error('[Save] fullSave error:', e);
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
     } finally {
+      await this._releaseLock();
       this._mergeInProgress = false;
     }
   },
@@ -9896,28 +9980,53 @@ const App = {
       }
 
       // 3b) Pre-write version check: detect if another user saved between our read and now
-      const markerChanged = await this._checkMarkerChanged();
-      if (markerChanged) {
+      const freshToken = await this._readMarkerToken();
+      if (freshToken && freshToken !== this._lastSyncVersion) {
         diskDb.close();
-        await this._releaseLock();
-        this._mergeInProgress = false;
+        // Fremdes Token als gesehen übernehmen – der Retry liest die Disk sofort
+        // neu, damit ist der fremde Stand enthalten. Ohne das dreht der Retry
+        // endlos (Livelock), weil derselbe Marker immer wieder "neu" ist.
+        this._lastSyncVersion = freshToken;
         console.log('[Save] Marker changed during save → retry with fresh disk data');
-        return this.mergeAndSave(force);
+        // Retry NACH dem finally planen (nicht rekursiv im try!) – sonst gibt
+        // das finally dieses Aufrufs das frisch acquirierte Lock des Retries frei.
+        setTimeout(() => this.mergeAndSave(force), 100);
+        return;
       }
+
+      // 3c) Lock-Heartbeat: Timestamp auffrischen, damit ein langsamer Save
+      // (Lesen+Migrieren+Replay können >30s dauern) nicht als stale gestohlen wird.
+      await this._refreshLock();
 
       // 4) Write merged diskDb back to file (adaptive timeout based on connection speed)
       const data = diskDb.export();
       const timeoutMs = this._networkQuality === 'good' ? 30000
         : this._networkQuality === 'slow' ? 60000 : 120000;
+      let writable = null;
       const writeOp = async () => {
-        const writable = await this.dbFileHandle.createWritable();
+        writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
         await writable.close();
+        writable = null;
       };
-      await Promise.race([
-        writeOp(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Schreibvorgang Timeout (${timeoutMs/1000}s) – Netzlaufwerk reagiert nicht`)), timeoutMs))
-      ]);
+      try {
+        await Promise.race([
+          writeOp(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(`Schreibvorgang Timeout (${timeoutMs/1000}s) – Netzlaufwerk reagiert nicht`)), timeoutMs))
+        ]);
+      } catch(writeErr) {
+        // Zombie-Write verhindern: Der Timeout gewinnt nur das Race – der Write
+        // läuft im Hintergrund WEITER und würde beim späteren close() die Datei
+        // atomar ersetzen (überschreibt dann den Save eines anderen Nutzers,
+        // dessen Lock wir gleich freigeben). abort() verwirft die Swap-Datei.
+        if (writable) {
+          try {
+            await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]);
+          } catch(_) {}
+          writable = null;
+        }
+        throw writeErr;
+      }
 
       // 5) Import other prüfer's changes into our in-memory DB
       this._importFromDisk(diskDb);
@@ -9946,7 +10055,10 @@ const App = {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
 
       this._broadcastChange();
-      this._writeSyncMarker();
+      // Marker awaited und VOR dem Lock-Release (finally): ein fire-and-forget-
+      // Marker kann nach dem Release den frischen Marker eines anderen Nutzers
+      // überschreiben und dessen Save für alle maskieren.
+      await this._writeSyncMarker();
       this._persistDirtyOps();
 
       if (permanentlyDropped) {
@@ -9968,9 +10080,9 @@ const App = {
           const oldName = this.dbFileHandle?.name || 'berichtsheftkontrolle.sqlite';
           this.dbFileHandle = await this.dirHandle.getFileHandle(oldName, { create: false });
           console.log('[Save] retry ' + this._saveRetryCount + '/3');
-          this._mergeInProgress = false;
-          await this._releaseLock();
-          return this.mergeAndSave(force);
+          // Retry NACH dem finally planen (nicht rekursiv) – siehe Marker-Retry oben.
+          setTimeout(() => this.mergeAndSave(force), 100);
+          return;
         } catch(reacquireErr) {}
       }
 
@@ -10060,6 +10172,16 @@ const App = {
     run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
     // kontrolltermine columns
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
+    // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
+    // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
+    run(`CREATE TABLE IF NOT EXISTS kw_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
+      maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+      geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
+      erstellt_bei INTEGER DEFAULT NULL, behoben_bei INTEGER DEFAULT NULL,
+      UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche))`);
     // kw_status columns
     run("ALTER TABLE kw_status ADD COLUMN bemerkung TEXT DEFAULT ''");
     // Schueler-Bemerkungen + Dateien
@@ -10196,6 +10318,13 @@ const App = {
         erstellt_bei INTEGER DEFAULT NULL, behoben_bei INTEGER DEFAULT NULL,
         UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche))`,
       `INSERT OR IGNORE INTO kw_status (id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) SELECT id,schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,COALESCE(behobene_codes,''),fehltage,geprueft,COALESCE(bemerkung,''),erstellt_bei,behoben_bei FROM kw_status_new`);
+    rebuild('kw_maengel', 'IN (1,2,3)',
+      `CREATE TABLE kw_maengel (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kontrollergebnis_id INTEGER NOT NULL REFERENCES kontrollergebnisse(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER, maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
+        UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche))`,
+      `INSERT OR IGNORE INTO kw_maengel SELECT * FROM kw_maengel_new`);
     rebuild('fachrichtungen', "IN ('Gärtner','Fachwerker')",
       `CREATE TABLE fachrichtungen (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL DEFAULT '', bezeichnung TEXT NOT NULL, typ TEXT DEFAULT 'Gärtner', UNIQUE(code))`,
       `INSERT OR IGNORE INTO fachrichtungen SELECT * FROM fachrichtungen_new`);
@@ -10210,6 +10339,11 @@ const App = {
     const myPruefer = (KontrolleHandler?.activePruefer || '').toLowerCase();
     // Build set of schueler_ids with pending dirty ops (don't overwrite these!)
     const dirtySchuelerIds = new Set();
+    // kw_status-Zeilen mit pendenten lokalen Ops (Natural Key s_aj_kw) –
+    // deren Felder dürfen beim Import nicht überschrieben werden.
+    const dirtyKwKeys = new Set();
+    const dirtyKwIds = new Set();
+    const dirtyKeIds = new Set();
     this._dirtyOps.forEach(op => {
       const m = op.sql.match(/schueler_id[=,]\s*\?/i);
       if (m && op.params) {
@@ -10218,6 +10352,35 @@ const App = {
         const paramIdx = (sqlBefore.match(/\?/g) || []).length;
         if (op.params[paramIdx]) dirtySchuelerIds.add(op.params[paramIdx]);
       }
+      // Häufigste Op-Form ist "UPDATE <tabelle> ... WHERE id=?" – die id ist der
+      // letzte Parameter. Der schueler_id-Regex oben greift dort nicht.
+      if (/^\s*UPDATE\s+kontrollergebnisse\b/i.test(op.sql) && /WHERE\s+id\s*=\s*\?\s*$/i.test(op.sql)) {
+        const id = op.params[op.params.length - 1];
+        if (id != null) dirtyKeIds.add(id);
+      }
+      if (/kw_status/i.test(op.sql)) {
+        if (/WHERE\s+id\s*=\s*\?\s*$/i.test(op.sql)) {
+          const id = op.params[op.params.length - 1];
+          if (id != null) dirtyKwIds.add(id);
+        }
+        const mCols = op.sql.match(/INSERT\s+(?:OR\s+\w+\s+)?INTO\s+kw_status\s*\(([^)]*)\)/i);
+        if (mCols) {
+          const cols = mCols[1].split(',').map(c => c.trim().toLowerCase());
+          const si = cols.indexOf('schueler_id'), ai = cols.indexOf('ausbildungsjahr'), ki = cols.indexOf('kalenderwoche');
+          if (si >= 0 && ai >= 0 && ki >= 0 && op.params.length > Math.max(si, ai, ki)) {
+            dirtyKwKeys.add(op.params[si] + '_' + op.params[ai] + '_' + op.params[ki]);
+          }
+        }
+      }
+    });
+    // ids → natürliche Schlüssel auflösen (lokale DB kennt die Zeilen)
+    dirtyKwIds.forEach(id => {
+      const r = this.query('SELECT schueler_id,ausbildungsjahr,kalenderwoche FROM kw_status WHERE id=?', [id])[0];
+      if (r) dirtyKwKeys.add(r.schueler_id + '_' + r.ausbildungsjahr + '_' + r.kalenderwoche);
+    });
+    dirtyKeIds.forEach(id => {
+      const sid = this.scalar('SELECT schueler_id FROM kontrollergebnisse WHERE id=?', [id]);
+      if (sid != null) dirtySchuelerIds.add(sid);
     });
 
     try {
@@ -10230,7 +10393,7 @@ const App = {
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
-        'zulassung_ap','pruefungsausschuss','geaendert_von','geaendert_am'];
+        'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
         const local = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?',
@@ -10238,8 +10401,8 @@ const App = {
 
         if (!local.length) {
           // Row exists on disk but not locally → import fully
-          this._runSilent('INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb,fehltage_gesamt,anwesend,bemerkung,durchsicht_nr,geprueft_kws,geaendert_am,geaendert_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [dke.kontrolltermin_id,dke.schueler_id,dke.ergebnis,dke.p_1_1_ausbildungsplan,dke.p_1_4_auszubildende,dke.p_1_5_bescheinigungen,dke.bescheinigungen_anzahl,dke.f_1_2_vertragliche_regelungen,dke.f_1_6_ausbildungsbetrieb,dke.fehltage_gesamt,dke.anwesend,dke.bemerkung,dke.durchsicht_nr,dke.geprueft_kws,dke.geaendert_am||'',dke.geaendert_von||'']);
+          this._runSilent('INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb,fehltage_gesamt,anwesend,bemerkung,durchsicht_nr,geprueft_kws,zulassung_ap,pruefungsausschuss,sachberichte_anzahl,erstellt_am,geaendert_am,geaendert_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [dke.kontrolltermin_id,dke.schueler_id,dke.ergebnis,dke.p_1_1_ausbildungsplan,dke.p_1_4_auszubildende,dke.p_1_5_bescheinigungen,dke.bescheinigungen_anzahl,dke.f_1_2_vertragliche_regelungen,dke.f_1_6_ausbildungsbetrieb,dke.fehltage_gesamt,dke.anwesend,dke.bemerkung,dke.durchsicht_nr,dke.geprueft_kws,dke.zulassung_ap??0,dke.pruefungsausschuss??0,dke.sachberichte_anzahl??0,dke.erstellt_am||'',dke.geaendert_am||'',dke.geaendert_von||'']);
           this._importChangeCount++;
           return;
         }
@@ -10312,16 +10475,18 @@ const App = {
       stmtKw.free();
 
       diskKW.forEach(dkw => {
+        const kwKey = dkw.schueler_id + '_' + dkw.ausbildungsjahr + '_' + dkw.kalenderwoche;
+        const localDirty = dirtyKwKeys.has(kwKey);
         const local = this.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
           [dkw.schueler_id, dkw.ausbildungsjahr, dkw.kalenderwoche]);
         if (!local.length) {
-          // New KW data from disk → import
-          this._runSilent('INSERT OR IGNORE INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,erstellt_bei,behoben_bei) VALUES (?,?,?,?,?,?,?,?,?)',
-            [dkw.schueler_id,dkw.ausbildungsjahr,dkw.kalenderwoche,dkw.maengel_codes,dkw.behobene_codes,dkw.fehltage,dkw.geprueft,dkw.erstellt_bei,dkw.behoben_bei]);
+          // New KW data from disk → import (inkl. bemerkung – fehlte früher)
+          this._runSilent('INSERT OR IGNORE INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [dkw.schueler_id,dkw.ausbildungsjahr,dkw.kalenderwoche,dkw.maengel_codes,dkw.behobene_codes,dkw.fehltage,dkw.geprueft,dkw.bemerkung||'',dkw.erstellt_bei,dkw.behoben_bei]);
           this._importChangeCount++;
         } else {
           const lkw = local[0];
-          // If disk has more behobene_codes, merge them
+          // If disk has more behobene_codes, merge them (Union, immer sicher)
           if (dkw.behobene_codes && dkw.behobene_codes !== lkw.behobene_codes) {
             const localBehoben = (lkw.behobene_codes || '').split(',').filter(Boolean);
             const diskBehoben = (dkw.behobene_codes || '').split(',').filter(Boolean);
@@ -10330,9 +10495,21 @@ const App = {
               this._runSilent('UPDATE kw_status SET behobene_codes=? WHERE id=?', [merged, lkw.id]);
             }
           }
-          // If disk cleared maengel that we still have, take the cleared version
-          if (lkw.maengel_codes && !dkw.maengel_codes && dkw.behobene_codes) {
-            this._runSilent('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [dkw.behobene_codes, lkw.id]);
+          if (localDirty) return; // ungespeicherte lokale Eingaben nie überschreiben
+          // Zeile lokal NICHT dirty → geänderte Felder des anderen Prüfers übernehmen
+          // (früher wurden maengel_codes/fehltage/geprueft/bemerkung NIE importiert →
+          // Lost Update beim nächsten eigenen Schreiben auf dieselbe Zeile)
+          const fieldUpdates = [];
+          const fieldValues = [];
+          ['maengel_codes','fehltage','geprueft','bemerkung','erstellt_bei','behoben_bei'].forEach(col => {
+            const dv = dkw[col] ?? (col === 'fehltage' || col === 'geprueft' ? 0 : '');
+            const lv = lkw[col] ?? (col === 'fehltage' || col === 'geprueft' ? 0 : '');
+            if (String(dv) !== String(lv)) { fieldUpdates.push(col + '=?'); fieldValues.push(dkw[col] ?? null); }
+          });
+          if (fieldUpdates.length) {
+            fieldValues.push(lkw.id);
+            this._runSilent('UPDATE kw_status SET ' + fieldUpdates.join(',') + ' WHERE id=?', fieldValues);
+            this._importChangeCount++;
           }
         }
       });
@@ -10427,9 +10604,11 @@ const App = {
             [d.id,d.kontrollergebnis_id,d.schueler_id,d.art||'',d.frist_datum,d.erinnerung_datum||'',d.status||'offen',d.erledigt_datum||'',d.erledigt_bemerkung||'',d.erstellt_am||'']);
           this._importChangeCount++;
         } else {
-          const lw = this.query('SELECT status FROM wiedervorlagen WHERE id=?', [d.id])[0];
-          if (lw && d.status !== lw.status) {
-            this._runSilent('UPDATE wiedervorlagen SET status=?,frist_datum=? WHERE id=?', [d.status, d.frist_datum, d.id]);
+          const lw = this.query('SELECT status,frist_datum,erledigt_datum,erledigt_bemerkung FROM wiedervorlagen WHERE id=?', [d.id])[0];
+          if (lw && (d.status !== lw.status || d.frist_datum !== lw.frist_datum
+              || (d.erledigt_datum||'') !== (lw.erledigt_datum||'') || (d.erledigt_bemerkung||'') !== (lw.erledigt_bemerkung||''))) {
+            this._runSilent('UPDATE wiedervorlagen SET status=?,frist_datum=?,erledigt_datum=?,erledigt_bemerkung=? WHERE id=?',
+              [d.status, d.frist_datum, d.erledigt_datum||'', d.erledigt_bemerkung||'', d.id]);
             this._importChangeCount++;
           }
         }
@@ -10466,10 +10645,15 @@ const App = {
       try {
       const diskS = this._readTable(diskDb, 'schueler');
       const localSIds = new Set(this.query('SELECT id FROM schueler').map(r => r.id));
+      // Spaltenliste dynamisch (Schnittmenge Disk-Zeile / lokales Schema):
+      // eine feste 16-Spalten-Liste hat ~20 Felder (Beruf, Dauer, ZP/AP-Termine,
+      // Bruttolohn, Status …) verworfen – Folge-Saves löschten sie dauerhaft.
+      const schuelerCols = this.query('PRAGMA table_info(schueler)').map(c => c.name);
       diskS.forEach(d => {
         if (!localSIds.has(d.id)) {
-          this._runSilent('INSERT INTO schueler (id,nachname,vorname,ibykus_id,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,ausbildungsstaette,ausbildungsbeginn,ausbildungsende,email,telefon,aktiv,zustaendiges_amt,geschlecht) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [d.id,d.nachname,d.vorname,d.ibykus_id||'',d.klasse_id,d.jahrgang_id,d.fachrichtung_id,d.betrieb_id,d.ausbildungsstaette||'',d.ausbildungsbeginn||'',d.ausbildungsende||'',d.email||'',d.telefon||'',d.aktiv??1,d.zustaendiges_amt||'',d.geschlecht||'']);
+          const cols = schuelerCols.filter(c => c in d);
+          this._runSilent(`INSERT OR IGNORE INTO schueler (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
+            cols.map(c => d[c] ?? null));
           this._importChangeCount++;
         }
       });
@@ -11847,6 +12031,26 @@ const App = {
 // ║  UTILITY FUNCTIONS                                           ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Monochrome Inline-SVG-Icons (Feather/Lucide-Stil, erben currentColor) ──
+// Für Aktionen mit eigener Bedeutung: Text-Glyphen wie ◈/▤ sind zu abstrakt,
+// Emojis tabu (unprofessionell + Plattform-abhängig bunt).
+function svgIcon(name, size = 14) {
+  const paths = {
+    // Azubi-Dashboard: Übersichtskacheln
+    dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    // Schüler-Akte: Ordner
+    akte: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    // Zulassung / Abschluss / Prüfung: Doktorhut
+    abschluss: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+    // Dateitypen (Schüler-Akte)
+    datei: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    bild: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+    tabelle: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>',
+    archiv: '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><line x1="10" y1="13" x2="14" y2="13"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}" style="vertical-align:-2px;flex-shrink:0">${paths[name] || paths.datei}</svg>`;
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
@@ -11956,8 +12160,10 @@ window.addEventListener('beforeunload', (e) => {
   if (App._dirtyOps && App._dirtyOps.length > 0) {
     try { App._persistDirtyOps(); } catch(ex) {}
   }
-  // Release lock file
-  try { App._releaseLock(); } catch(ex) {}
+  // Release lock file – aber NICHT während ein Save läuft: bricht der Nutzer
+  // das Tab-Schließen ab, liefe der Schreibvorgang sonst ungeschützt weiter
+  // (das finally von mergeAndSave gibt das Lock ohnehin frei).
+  try { if (!App._mergeInProgress) App._releaseLock(); } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';
@@ -12384,7 +12590,7 @@ const Views = {
 
           <!-- Nächste Prüfungstermine -->
           <div class="card">
-            <div class="card-header">◈ Anstehende Prüfungen</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Anstehende Prüfungen</div>
             ${pruefTermine.length ? pruefTermine.map(p => `
               <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px">
                 <span><strong>${esc(p.bezeichnung)}</strong> <span style="color:var(--clr-text-light)">(${p.typ})</span></span>
@@ -12426,7 +12632,7 @@ const Views = {
 
         <div class="grid-2" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">◈ Schulabschlüsse</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Schulabschlüsse</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartSchulabschluss" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
@@ -12620,7 +12826,7 @@ const Views = {
           options: { ...chartOpts, cutout: '55%', onClick: (evt, elems) => {
             if (!elems.length) return;
             const sa = saKeys[elems[0].index];
-            App.drillDown("s.schulabschluss='" + sa + "'", '◈ ' + (saLabels[sa] || 'Code ' + sa));
+            App.drillDown("s.schulabschluss='" + sa + "'", 'Abschluss: ' + (saLabels[sa] || 'Code ' + sa));
           } }
         });
       }
@@ -13167,7 +13373,7 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
         <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
-          <div class="card-header">◈ Zulassungsliste AP</div>
+          <div class="card-header">${svgIcon('abschluss', 15)} Zulassungsliste AP</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
         </div>
       </div>
@@ -13763,7 +13969,7 @@ const Views = {
             <p>&nbsp;&nbsp;Kontrollfortschritt – OK / Beanstandet / Offen</p>
             <p>&nbsp;&nbsp;Geschlechterquote – Männlich / Weiblich / Divers</p>
             <p>&nbsp;&nbsp;Regionale Verteilung – Nach zuständigem Amt</p>
-            <p>&nbsp;&nbsp;◈ Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
+            <p>&nbsp;&nbsp;${svgIcon('abschluss', 12)} Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
             <p>&nbsp;&nbsp;▤ Prüfungserfolg – Bestanden / Nicht bestanden / WDH</p>
             <p>&nbsp;&nbsp;Fachrichtungen – Gärtner vs. Fachwerker (Balkendiagramm)</p>
             <p>&nbsp;&nbsp;Mängelverteilung – Häufigkeit der Mängelcodes A-I</p>
@@ -13869,8 +14075,8 @@ const Views = {
           </div>
 
           <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">◈ Azubi-Dashboard</div>
-            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ◈-Button in Stammdaten, SchuelerView und Kontrolle.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Azubi-Dashboard</div>
+            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ${svgIcon('dashboard', 12)}-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
             <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
             <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
@@ -13899,8 +14105,8 @@ const Views = {
           </div>
 
           <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">▤ Schüler-Akte</div>
-            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ▤-Button in Stammdaten und SchuelerView.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Schüler-Akte</div>
+            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
@@ -14867,7 +15073,7 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">◈</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">▤</button></td>
+          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">${svgIcon('dashboard', 13)}</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">${svgIcon('akte', 13)}</button></td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -17046,7 +17252,7 @@ const ImportHandler = {
         <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">▤ Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
@@ -19235,7 +19441,7 @@ const KontrolleHandler = {
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">◈</a>`:''}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -19317,7 +19523,7 @@ const KontrolleHandler = {
             <strong>${schueler.length - doneCount}</strong> noch offen
           </div>
           ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            ◈ <strong>${zulCount}</strong> zugelassen
+            ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> zugelassen
           </div>` : ''}
           ${paCount ? `<div style="padding:6px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--clr-red)">
             ⚠︎ <strong>${paCount}</strong> Prüfungsausschuss
@@ -19499,7 +19705,7 @@ const KontrolleHandler = {
       <span style="background:#e8f5e9">✓ ${ok} i.O.</span>
       <span style="background:${mg ? '#fde8e6' : '#f5f5f5'}">✗ ${mg} beanstandet</span>
       <span style="background:#f5f5f5">${anw}/${schueler.length} anwesend</span>
-      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">◈ ${zul} zugelassen</span>` : ''}
+      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">${svgIcon('abschluss', 12)} ${zul} zugelassen</span>` : ''}
       ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠︎ ${pa} Prüfungsausschuss</span>` : ''}
     </div>
     <table>
@@ -19987,7 +20193,7 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">◈ Dashboard</a>`:''}
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✎ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
@@ -20480,7 +20686,7 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
       } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes="", fehltage=0, geprueft=1',
           [s.id, aj, kw, keId]);
       }
       KWNav.trackSessionKW(keId, aj, kw);
@@ -20513,7 +20719,7 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
       } else if (bem) {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
           [s.id, aj, kw, bem, keId]);
       }
       if (bem) {
@@ -21870,7 +22076,7 @@ const KWNav = {
             [codesStr, fehltage, keId, existing[0].id]);
         }
       } else if (codesStr || fehltage || keepGeprueft) {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?)',
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1',
           [sid, aj, kw, codesStr, fehltage, keId]);
       }
 
@@ -21928,7 +22134,7 @@ const KWNav = {
         if (s) {
           const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
           if (!exists) {
-            App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+            App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
               [s.id, aj, fillKW, keId]);
           } else {
             App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
@@ -21953,7 +22159,7 @@ const KWNav = {
             newlyFilled.push({aj: prevAJ, kw: fillKW});
             const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
             if (!exists) {
-              App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?)',
+              App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
                 [s.id, prevAJ, fillKW, keId]);
             } else {
               App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
@@ -22043,7 +22249,7 @@ const KWNav = {
     if (existing.length) {
       App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
     } else if (bem) {
-      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?)',
+      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
         [sid, aj, kw, bem, keId]);
     }
 
@@ -24508,7 +24714,7 @@ const BerichteHandler = {
     const ampelIcon = (e) => !e ? '<span style="color:var(--clr-sage-light)">○</span>' : e === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
     const ergebnisLabel = {in_ordnung:'OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
-    App.openModal(`◈ Zulassungsliste AP (${azubis.length} Azubis)`, `
+    App.openModal(`${svgIcon('abschluss', 17)} Zulassungsliste AP (${azubis.length} Azubis)`, `
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
         <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.schule=this.value;BerichteHandler._renderZulassungsliste()">
           <option value="">Alle Schulen</option>${schulen.map(s => `<option value="${esc(s.name)}" ${f.schule===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}
@@ -26095,8 +26301,8 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">◈</button>`:''}
-              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">▤</button>
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})">${svgIcon('dashboard')}</button>`:''}
+              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})">${svgIcon('akte')}</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               </button>
@@ -26539,13 +26745,13 @@ const SchuelerAkte = {
 
   _fileIcon(ext) {
     const icons = {
-      pdf: '▤', doc: '▤', docx: '▤', odt: '▤',
+      pdf: svgIcon('datei', 13), doc: svgIcon('datei', 13), docx: svgIcon('datei', 13), odt: svgIcon('datei', 13),
       msg: '✉︎', eml: '✉︎',
-      jpg: '▤', jpeg: '▤', png: '▤', gif: '▤', bmp: '▤',
-      xlsx: '', xls: '', csv: '',
-      zip: '', rar: '', '7z': ''
+      jpg: svgIcon('bild', 13), jpeg: svgIcon('bild', 13), png: svgIcon('bild', 13), gif: svgIcon('bild', 13), bmp: svgIcon('bild', 13),
+      xlsx: svgIcon('tabelle', 13), xls: svgIcon('tabelle', 13), csv: svgIcon('tabelle', 13),
+      zip: svgIcon('archiv', 13), rar: svgIcon('archiv', 13), '7z': svgIcon('archiv', 13)
     };
-    return icons[ext] || '▤';
+    return icons[ext] || svgIcon('datei', 13);
   },
 
   // ── Zähler für Badge ──

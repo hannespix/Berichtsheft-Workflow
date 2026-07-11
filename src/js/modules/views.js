@@ -417,7 +417,7 @@ const Views = {
 
           <!-- Nächste Prüfungstermine -->
           <div class="card">
-            <div class="card-header">◈ Anstehende Prüfungen</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Anstehende Prüfungen</div>
             ${pruefTermine.length ? pruefTermine.map(p => `
               <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px">
                 <span><strong>${esc(p.bezeichnung)}</strong> <span style="color:var(--clr-text-light)">(${p.typ})</span></span>
@@ -459,7 +459,7 @@ const Views = {
 
         <div class="grid-2" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">◈ Schulabschlüsse</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Schulabschlüsse</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartSchulabschluss" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
@@ -653,7 +653,7 @@ const Views = {
           options: { ...chartOpts, cutout: '55%', onClick: (evt, elems) => {
             if (!elems.length) return;
             const sa = saKeys[elems[0].index];
-            App.drillDown("s.schulabschluss='" + sa + "'", '◈ ' + (saLabels[sa] || 'Code ' + sa));
+            App.drillDown("s.schulabschluss='" + sa + "'", 'Abschluss: ' + (saLabels[sa] || 'Code ' + sa));
           } }
         });
       }
@@ -1200,7 +1200,7 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
         <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
-          <div class="card-header">◈ Zulassungsliste AP</div>
+          <div class="card-header">${svgIcon('abschluss', 15)} Zulassungsliste AP</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
         </div>
       </div>
@@ -1796,7 +1796,7 @@ const Views = {
             <p>&nbsp;&nbsp;Kontrollfortschritt – OK / Beanstandet / Offen</p>
             <p>&nbsp;&nbsp;Geschlechterquote – Männlich / Weiblich / Divers</p>
             <p>&nbsp;&nbsp;Regionale Verteilung – Nach zuständigem Amt</p>
-            <p>&nbsp;&nbsp;◈ Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
+            <p>&nbsp;&nbsp;${svgIcon('abschluss', 12)} Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
             <p>&nbsp;&nbsp;▤ Prüfungserfolg – Bestanden / Nicht bestanden / WDH</p>
             <p>&nbsp;&nbsp;Fachrichtungen – Gärtner vs. Fachwerker (Balkendiagramm)</p>
             <p>&nbsp;&nbsp;Mängelverteilung – Häufigkeit der Mängelcodes A-I</p>
@@ -1902,8 +1902,8 @@ const Views = {
           </div>
 
           <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">◈ Azubi-Dashboard</div>
-            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ◈-Button in Stammdaten, SchuelerView und Kontrolle.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Azubi-Dashboard</div>
+            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ${svgIcon('dashboard', 12)}-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
             <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
             <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
@@ -1932,8 +1932,8 @@ const Views = {
           </div>
 
           <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">▤ Schüler-Akte</div>
-            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ▤-Button in Stammdaten und SchuelerView.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Schüler-Akte</div>
+            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>

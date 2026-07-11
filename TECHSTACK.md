@@ -196,6 +196,36 @@ _migrateDiskDb(diskDb) {
 - Schueler-spezifisch: Dirty-Ops eines Users werden nicht ueberschrieben wenn der User gerade den Schueler bearbeitet
 - Kein echtes Locking auf DB-Ebene (SQLite = Single-Writer, aber wir schreiben sequentiell)
 
+**Schutzmechanismen im Schreibpfad (Stand Audit Juli 2026):**
+- Lock-Datei mit Nonce + Doppel-Verify (Jitter) gegen gleichzeitigen Lock-Gewinn;
+  Staleness 150s bewertet Client-Timestamp UND Datei-mtime (Clock-Skew-Schutz);
+  Heartbeat frischt das Lock vor der Schreibphase auf; fail-closed bei Lock-Fehlern
+- Write-Timeout ruft `writable.abort()` auf (verwirft die Swap-Datei) — sonst
+  koennte ein haengender "Zombie-Write" spaeter den Save eines anderen Nutzers ersetzen
+- `fullSave()` (nach IBYKUS-Import) faehrt dasselbe Lock+Marker-Protokoll wie `mergeAndSave()`
+- Marker-Retry uebernimmt das fremde Token vor dem Neuversuch (kein Livelock);
+  Retries laufen via `setTimeout` NACH dem finally (Lock-Ownership bleibt konsistent)
+- Sync-Marker wird awaited VOR dem Lock-Release geschrieben
+- `datetime('now')` wird beim Erfassen von Dirty-Ops als Literal eingefroren
+  (Replay wuerde sonst abweichende Zeitstempel erzeugen und die LWW-Aufloesung kippen)
+- kw_status-Schreiber nutzen UPSERT (`ON CONFLICT ... DO UPDATE`) — Replay ist
+  idempotent gegen den UNIQUE-Index, auch wenn ein anderer Nutzer die Zeile zuerst anlegte
+
+**Bekannte Grenzen (dokumentiert, bewusst nicht behoben):**
+- AUTOINCREMENT-IDs koennen bei gleichzeitigen INSERTs zweier Nutzer divergieren;
+  Folge-Ops per `WHERE id=?` treffen auf der Disk-DB dann u.U. die falsche/keine Zeile.
+  Echte Loesung waere Adressierung ueber natuerliche Schluessel/UUIDs (groesserer Umbau)
+- Loeschungen propagieren nicht zu anderen Clients (rein additiver Sync);
+  ein Import kann lokal geloeschte, noch nicht gespeicherte Zeilen re-animieren
+- Stammdaten-Sync ist minimal: `schueler` nur als INSERT (neue Zeilen, alle Spalten),
+  UPDATEs an schueler/betriebe/klassen/berufsschulen/ausbilder werden nicht gemerged —
+  letzter Formular-Save gewinnt zeilenweise
+- Kein Replay-Idempotenz-Log: schlaegt ein Save NACH dem Disk-Write aber VOR dem
+  Queue-Clear fehl, koennen Ops doppelt angewendet werden (INSERTs sind via
+  UPSERT/OR IGNORE entschaerft, UPDATEs sind idempotent)
+- Zwei Tabs desselben Nutzers teilen sich den IndexedDB-Crash-Store (Key 'ops')
+- Einstellungs-JSONs (Textbausteine, Tarife) werden als Ganzes ersetzt (kein Feld-Merge)
+
 ### 3.7 Datei-Struktur auf dem Netzlaufwerk
 
 ```
