@@ -176,7 +176,7 @@ const App = {
     if (!sel || !this.db) return;
     const pruefer = this.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name');
     const u = this.currentUser;
-    sel.innerHTML = '<option value="">👤 Prüfer wählen</option>' + pruefer.map(p =>
+    sel.innerHTML = '<option value="">Prüfer wählen</option>' + pruefer.map(p =>
       `<option value="${esc(p.name)}" ${p.name === u ? 'selected' : ''}>${esc(p.name)}</option>`
     ).join('');
     sel.classList.toggle('has-user', !!u);
@@ -195,7 +195,7 @@ const App = {
         if (this.currentView === 'kontrolle') KontrolleHandler.renderSchueler();
       }
     }
-    this.toast(name ? `👤 ${name}` : 'Kein Benutzer', 'info');
+    this.toast(name ? `${name}` : 'Kein Benutzer', 'info');
   },
 
   _restoreUserSettings() {
@@ -219,7 +219,7 @@ const App = {
   setBavFilter(val) {
     this.filterBavStatus = val;
     const btn = document.getElementById('bavFilterBtn');
-    const labels = {aktiv:'📋 Aktive BAV ▾', alle:'📋 Alle BAV ▾', ende:'📋 Beendete BAV ▾'};
+    const labels = {aktiv:'▤ Aktive BAV ▾', alle:'▤ Alle BAV ▾', ende:'▤ Beendete BAV ▾'};
     if (btn) {
       btn.textContent = labels[val];
       btn.classList.toggle('active', val !== 'aktiv');
@@ -346,7 +346,7 @@ const App = {
     const jgActive = jg.length > 0;
     const zpActive = zp.length > 0;
     if (!jgActive && !zpActive) {
-      btn.textContent = '📅 Alle Jahrgänge ▾';
+      btn.textContent = 'Alle Jahrgänge ▾';
       btn.classList.remove('active');
     } else {
       const parts = [];
@@ -358,7 +358,7 @@ const App = {
       if (zpActive && zp[0] !== '---') {
         parts.push(zp.length === 1 ? zp[0] : zp.length + ' ZP');
       } else if (zp[0] === '---') { parts.push('Keine ZP'); }
-      btn.textContent = '📅 ' + parts.join(' + ') + ' ▾';
+      btn.textContent = '' + parts.join(' + ') + ' ▾';
       btn.classList.add('active');
     }
   },
@@ -505,10 +505,10 @@ const App = {
     if (!btn) return;
     const f = this.filterFachrichtungen;
     if (f.length === 0) {
-      btn.textContent = '🌿 Alle Berufe ▾';
+      btn.textContent = 'Alle Berufe ▾';
       btn.classList.remove('active');
     } else if (f.length === 1 && f[0] === -1) {
-      btn.textContent = '🌿 Keine Berufe ▾';
+      btn.textContent = 'Keine Berufe ▾';
       btn.classList.add('active');
     } else {
       const allFR = this.db ? this.query('SELECT * FROM fachrichtungen') : [];
@@ -524,7 +524,7 @@ const App = {
         label = names.join(', ');
         if (label.length > 22) label = f.length + ' Berufe';
       }
-      btn.textContent = '🌿 ' + (label || f.length + ' Berufe') + ' ▾';
+      btn.textContent = '' + (label || f.length + ' Berufe') + ' ▾';
       btn.classList.add('active');
     }
   },
@@ -582,16 +582,16 @@ const App = {
     if (!btn) return;
     const f = this.filterAmt;
     if (f.length === 0) {
-      btn.textContent = '🏛 Alle Ämter ▾';
+      btn.textContent = '§ Alle Ämter ▾';
       btn.classList.remove('active');
     } else if (f.length === 1 && f[0] === '-1') {
-      btn.textContent = '🏛 Kein Amt ▾';
+      btn.textContent = '§ Kein Amt ▾';
       btn.classList.add('active');
     } else if (f.length === 1) {
-      btn.textContent = '🏛 ' + this.amtLabel(f[0]) + ' ▾';
+      btn.textContent = '§ ' + this.amtLabel(f[0]) + ' ▾';
       btn.classList.add('active');
     } else {
-      btn.textContent = '🏛 ' + f.length + ' Ämter ▾';
+      btn.textContent = '§ ' + f.length + ' Ämter ▾';
       btn.classList.add('active');
     }
   },
@@ -750,28 +750,28 @@ const App = {
       }
       const hasNone = (this.filterJahrgang[0] === -1) || (this.filterZp[0] === '---');
       const bg = hasNone ? 'var(--clr-red-light)' : 'var(--clr-amber-light)';
-      parts.push(`<span style="padding:3px 8px;background:${bg};border-radius:8px;font-size:11px">📅 ${esc(subParts.join(' + '))} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterJahrgang=[];App.filterZp=[];App._updateJgButton();App._updateFilterCount();App.renderCurrentView();return false" title="Jahrgangs-Filter entfernen">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:${bg};border-radius:8px;font-size:11px">${esc(subParts.join(' + '))} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterJahrgang=[];App.filterZp=[];App._updateJgButton();App._updateFilterCount();App.renderCurrentView();return false" title="Jahrgangs-Filter entfernen">✕</span></span>`);
     }
     if (this.filterFachrichtungen.length) {
       if (this.filterFachrichtungen[0] === -1) {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">🌿 Keine Berufe <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">Keine Berufe <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
       } else {
         const btn = document.getElementById('bgFilterBtn');
-        const label = btn ? btn.textContent.replace(' ▾','').replace(/^(?:🌿|📅|🏛|📋|📝)\s*/,'').trim() : this.filterFachrichtungen.length + ' Berufe';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-amber-light);border-radius:8px;font-size:11px">🌿 ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
+        const label = btn ? btn.textContent.replace(' ▾','').replace(/^(?:||§|▤|✎)\s*/,'').trim() : this.filterFachrichtungen.length + ' Berufe';
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-amber-light);border-radius:8px;font-size:11px">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
       }
     }
     if (this.filterAmt.length) {
       if (this.filterAmt[0] === '-1') {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">🏛 Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
       } else {
         const label = this.filterAmt.length === 1 ? this.amtLabel(this.filterAmt[0]) : this.filterAmt.length + ' Ämter';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:11px">🏛 ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:11px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
       }
     }
     if (this.filterBavStatus !== 'aktiv') {
       const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
-      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">📋 ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV';bb.style.background='rgba(255,255,255,0.15)';bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.style.background='rgba(255,255,255,0.15)';bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
     }
     // Extra filter badges
     this.extraFilters.forEach((f, idx) => {
@@ -787,7 +787,7 @@ const App = {
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
       ${parts.join('')}
-      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='📋 Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
+      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
     </div>`;
   },
 
@@ -830,7 +830,7 @@ const App = {
     setTimeout(() => {
       StammdatenTab.show('azubis', document.querySelector('.tab-btn'));
     }, 50);
-    this.toast('🔍 ' + label, 'info');
+    this.toast('' + label, 'info');
   },
 
   // Returns SQL clause + params for filtering by jahrgang
@@ -873,7 +873,7 @@ const App = {
       </label>
     </div>`;
     if (mode !== 'all') {
-      html += `<div style="padding:3px 12px;font-size:10px;color:${mode==='zp'?'var(--clr-amber)':'var(--clr-forest)'};background:${mode==='zp'?'var(--clr-amber-light)':'var(--clr-green-light)'};border-bottom:1px solid var(--clr-sand)">⚡ ${mode==='ap'?'AP':'ZP'}-Filter aktiv – ${mode==='ap'?'ZP':'AP'} deaktiviert <span style="font-size:9px;color:var(--clr-text-light)">(entweder AP oder ZP, nicht beides)</span></div>`;
+      html += `<div style="padding:3px 12px;font-size:10px;color:${mode==='zp'?'var(--clr-amber)':'var(--clr-forest)'};background:${mode==='zp'?'var(--clr-amber-light)':'var(--clr-green-light)'};border-bottom:1px solid var(--clr-sand)">↯ ${mode==='ap'?'AP':'ZP'}-Filter aktiv – ${mode==='ap'?'ZP':'AP'} deaktiviert <span style="font-size:9px;color:var(--clr-text-light)">(entweder AP oder ZP, nicht beides)</span></div>`;
     }
 
     // ── AP Section ──
@@ -1283,12 +1283,12 @@ const App = {
             const dbLabel = lastDb?.dbName || '';
             document.getElementById('connectInfo').innerHTML = `
               <div style="padding:12px;background:var(--clr-green-light);border-radius:var(--radius);border-left:4px solid var(--clr-green);margin-bottom:12px">
-                ${dbLabel ? `<strong style="font-size:15px">🗄️ ${esc(dbLabel)}</strong>
+                ${dbLabel ? `<strong style="font-size:15px">${esc(dbLabel)}</strong>
                 <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">in ${esc(folderName)}${lastDb?.dbPath ? '/'+lastDb.dbPath : ''}</div>` :
-                `<strong>📁 Ordner: "${esc(folderName)}"</strong>`}
+                `<strong>Ordner: "${esc(folderName)}"</strong>`}
                 <div style="margin-top:6px">
                   <button class="btn btn-primary" onclick="App.reconnectStored()" style="padding:10px 24px;font-size:15px">
-                    🔗 Erneut verbinden
+                    Erneut verbinden
                   </button>
                 </div>
                 <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Chrome benötigt bei jedem Neustart eine einmalige Bestätigung.</div>
@@ -1387,19 +1387,19 @@ const App = {
       <p style="font-size:13px;margin-bottom:16px">Was möchten Sie tun?</p>
       <div style="display:flex;flex-direction:column;gap:10px">
         <button class="btn btn-primary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.switchToNewFolder()">
-          <span style="font-size:22px">📂</span>
+          <span style="font-size:22px"></span>
           <div><strong>Anderen Arbeitsordner wählen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Ordner mit Datenbanken auswählen</div></div>
         </button>
         <button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.promptNewDb()">
-          <span style="font-size:22px">✨</span>
+          <span style="font-size:22px"></span>
           <div><strong>Neue Datenbank erstellen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Leere DB im aktuellen Ordner anlegen</div></div>
         </button>
         <button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB()">
-          <span style="font-size:22px">🔌</span>
+          <span style="font-size:22px"></span>
           <div><strong>Verbindung trennen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Zurück zum Startbildschirm</div></div>
         </button>
         ${!this.demoMode ? '' : `<button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB();App.start()">
-          <span style="font-size:22px">💾</span>
+          <span style="font-size:22px"></span>
           <div><strong>Echte Datenbank verbinden</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Demo beenden und Ordner wählen</div></div>
         </button>`}
       </div>
@@ -1884,7 +1884,7 @@ const App = {
       try {
         const check = this.scalar("PRAGMA integrity_check");
         if (check !== 'ok') {
-          this.toast(`⚠️ Datenbank-Integritätsprüfung: ${check}. Backup wird empfohlen!`, 'warning');
+          this.toast(`⚠︎ Datenbank-Integritätsprüfung: ${check}. Backup wird empfohlen!`, 'warning');
           console.warn('DB integrity check failed:', check);
         }
       } catch(e) { console.warn('Integrity check error:', e); }
@@ -2221,9 +2221,9 @@ const App = {
       const dur = (this._lastSaveDurationMs / 1000).toFixed(0);
       const poll = (this._pollIntervalMs / 1000).toFixed(0);
       if (this._networkQuality === 'slow') {
-        el.innerHTML = `<span style="color:var(--clr-amber)">🐢 Langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 15 Min</span>`;
+        el.innerHTML = `<span style="color:var(--clr-amber)">Langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 15 Min</span>`;
       } else {
-        el.innerHTML = `<span style="color:var(--clr-red)">🐌 Sehr langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 30 Min</span>`;
+        el.innerHTML = `<span style="color:var(--clr-red)">Sehr langsame Verbindung (${dur}s) · Polling ${poll}s · Backup alle 30 Min</span>`;
       }
     }
   },
@@ -2260,7 +2260,7 @@ const App = {
         if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 3600000) {
           this._dirtyOps = record.ops;
           this.unsavedChanges = true;
-          this.toast(`🔄 ${record.ops.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
+          this.toast(`↻ ${record.ops.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
           this.scheduleAutoSave();
         }
       };
@@ -2705,7 +2705,7 @@ const App = {
       this._persistDirtyOps();
 
       if (permanentlyDropped) {
-        this.toast(`⚠️ ${permanentlyDropped} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
+        this.toast(`⚠︎ ${permanentlyDropped} Änderung(en) endgültig fehlgeschlagen und verworfen. Bitte Daten prüfen.`, 'error');
       } else if (replayErrors > 0) {
         console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped (will retry)`);
       }
@@ -3271,9 +3271,9 @@ const App = {
 
     if (entries.length === 1) {
       const c = entries[0];
-      this.toast(`⚠️ Sync-Konflikt: <strong>${c.disk_pruefer}</strong> hat ${c.schueler_name} ebenfalls bearbeitet. Neuerer Stand übernommen.`, 'warning');
+      this.toast(`⚠︎ Sync-Konflikt: <strong>${c.disk_pruefer}</strong> hat ${c.schueler_name} ebenfalls bearbeitet. Neuerer Stand übernommen.`, 'warning');
     } else {
-      this.toast(`⚠️ ${entries.length} Sync-Konflikte erkannt. Neuerer Stand wurde jeweils übernommen.`, 'warning');
+      this.toast(`⚠︎ ${entries.length} Sync-Konflikte erkannt. Neuerer Stand wurde jeweils übernommen.`, 'warning');
     }
 
     // Log details
@@ -3406,7 +3406,7 @@ const App = {
     const datum = (t.geplant_datum || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1');
     const parts = [`${kw} ${datum}`];
     if (isEins) {
-      parts.push('📬 Einsendung');
+      parts.push('✉︎ Einsendung');
     } else if (schule) {
       parts.push(schule);
     }
@@ -3834,7 +3834,7 @@ const App = {
   },
 
   // ── Ampel-System: Schüler-Status auf Basis der letzten Kontrolle ──
-  // Returns {color:'green'|'yellow'|'red'|'gray', icon:'🟢'|'🟡'|'🔴'|'⚪', label:'...', prevErgebnis:'...', wvOffen:bool}
+  // Returns {color:'green'|'yellow'|'red'|'gray', icon:'<span style="color:var(--clr-green)">●</span>'|'<span style="color:var(--clr-amber)">◐</span>'|'<span style="color:var(--clr-red)">◆</span>'|'<span style="color:var(--clr-sage-light)">○</span>', label:'...', prevErgebnis:'...', wvOffen:bool}
   getSchuelerAmpel(schuelerId) {
     const lastKE = this.query(`SELECT ke.ergebnis, ke.kontrolltermin_id, kt.geplant_datum
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
@@ -3842,18 +3842,18 @@ const App = {
     const wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [schuelerId]) > 0;
     const offeneMaengel = this.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [schuelerId]) || 0;
 
-    if (!lastKE.length) return { color: 'gray', icon: '⚪', label: 'Noch nie kontrolliert', prevErgebnis: '', wvOffen, offeneMaengel };
+    if (!lastKE.length) return { color: 'gray', icon: '<span style="color:var(--clr-sage-light)">○</span>', label: 'Noch nie kontrolliert', prevErgebnis: '', wvOffen, offeneMaengel };
     const e = lastKE[0].ergebnis;
     if (e === 'in_ordnung' && !wvOffen && offeneMaengel === 0) {
-      return { color: 'green', icon: '🟢', label: 'Letzte Kontrolle OK', prevErgebnis: e, wvOffen, offeneMaengel };
+      return { color: 'green', icon: '<span style="color:var(--clr-green)">●</span>', label: 'Letzte Kontrolle OK', prevErgebnis: e, wvOffen, offeneMaengel };
     }
     if (e === 'nachholung_naechste_durchsicht' || e === 'sachberichte_wetter_email' || e === 'berichte_bis_termin_email') {
-      return { color: 'yellow', icon: '🟡', label: 'Nachholung/E-Mail nötig', prevErgebnis: e, wvOffen, offeneMaengel };
+      return { color: 'yellow', icon: '<span style="color:var(--clr-amber)">◐</span>', label: 'Nachholung/E-Mail nötig', prevErgebnis: e, wvOffen, offeneMaengel };
     }
     if (e === 'persoenliche_vorlage_rp' || e === 'post_an_rp' || wvOffen) {
-      return { color: 'red', icon: '🔴', label: 'Eskalation / WV offen', prevErgebnis: e, wvOffen, offeneMaengel };
+      return { color: 'red', icon: '<span style="color:var(--clr-red)">◆</span>', label: 'Eskalation / WV offen', prevErgebnis: e, wvOffen, offeneMaengel };
     }
-    return { color: 'yellow', icon: '🟡', label: 'Mängel vorhanden', prevErgebnis: e, wvOffen, offeneMaengel };
+    return { color: 'yellow', icon: '<span style="color:var(--clr-amber)">◐</span>', label: 'Mängel vorhanden', prevErgebnis: e, wvOffen, offeneMaengel };
   },
 
   // ── Wiederholungstäter-Erkennung ──
@@ -4540,10 +4540,10 @@ const App = {
     }
     if (critical) {
       banner.style.background = '#fde8e8'; banner.style.color = '#991b1b';
-      banner.innerHTML = `🔴 Verbindung zur Datenbank getrennt – Änderungen werden lokal gehalten <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:11px" onclick="App.tryReconnect()">🔄 Erneut verbinden</button>`;
+      banner.innerHTML = `<span style="color:var(--clr-red)">◆</span> Verbindung zur Datenbank getrennt – Änderungen werden lokal gehalten <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:11px" onclick="App.tryReconnect()">↻ Erneut verbinden</button>`;
     } else {
       banner.style.background = '#fef7ec'; banner.style.color = '#92400e';
-      banner.innerHTML = '🟡 Verbindungsversuch…';
+      banner.innerHTML = '<span style="color:var(--clr-amber)">◐</span> Verbindungsversuch…';
     }
     banner.style.transform = 'translateY(0)';
   },

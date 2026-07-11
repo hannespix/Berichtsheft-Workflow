@@ -135,11 +135,11 @@ const Views = {
       <!-- Morgen-Briefing -->
       ${(naechste7Tage || bald_ueberfaellig || ueberfaellig) ? `
       <div class="card" style="margin-bottom:20px;border-left:4px solid var(--clr-forest);padding:14px 18px">
-        <strong style="font-size:14px;color:var(--clr-forest-dark)">📋 Was steht an?</strong>
+        <strong style="font-size:14px;color:var(--clr-forest-dark)">▤ Was steht an?</strong>
         <div class="dash-briefing" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:13px">
-          ${naechste7Tage ? `<span style="padding:5px 12px;background:var(--clr-blue-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('planung')">📅 <strong>${naechste7Tage}</strong> Termin${naechste7Tage>1?'e':''} in den nächsten 7 Tagen</span>` : ''}
-          ${ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-red-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">🔴 <strong>${ueberfaellig}</strong> Wiedervorlage${ueberfaellig>1?'n':''} überfällig!</span>` : ''}
-          ${bald_ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-amber-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">⚠ <strong>${bald_ueberfaellig}</strong> WV laufen in 3 Tagen ab</span>` : ''}
+          ${naechste7Tage ? `<span style="padding:5px 12px;background:var(--clr-blue-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('planung')"><strong>${naechste7Tage}</strong> Termin${naechste7Tage>1?'e':''} in den nächsten 7 Tagen</span>` : ''}
+          ${ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-red-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')"><span style="color:var(--clr-red)">◆</span> <strong>${ueberfaellig}</strong> Wiedervorlage${ueberfaellig>1?'n':''} überfällig!</span>` : ''}
+          ${bald_ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-amber-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">⚠︎ <strong>${bald_ueberfaellig}</strong> WV laufen in 3 Tagen ab</span>` : ''}
         </div>
       </div>` : ''}
 
@@ -170,9 +170,9 @@ const Views = {
       <!-- Datenpflege-Hinweise -->
       ${(ohneBetrieb || ohneEmail || betriebOhneEmail) ? `
       <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;font-size:12px">
-        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">🔗 ${ohneBetrieb} Schüler ohne Betrieb-Verknüpfung</span>` : ''}
-        ${ohneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('schulen'),100)">📧 ${ohneEmail} Schulen ohne E-Mail</span>` : ''}
-        ${betriebOhneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">📧 ${betriebOhneEmail} Betriebe ohne E-Mail</span>` : ''}
+        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">${ohneBetrieb} Schüler ohne Betrieb-Verknüpfung</span>` : ''}
+        ${ohneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('schulen'),100)">✉︎ ${ohneEmail} Schulen ohne E-Mail</span>` : ''}
+        ${betriebOhneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">✉︎ ${betriebOhneEmail} Betriebe ohne E-Mail</span>` : ''}
       </div>` : ''}
 
       <!-- Termine + Wiedervorlagen Side-by-Side -->
@@ -190,7 +190,7 @@ const Views = {
               const frAj = App.formatTerminFrAj(t.id);
               const schuelerCount = App.getTerminSchueler(t.id).length;
               return `<tr>
-              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '📬' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${klassen.length ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : '<em style="color:var(--clr-text-light)">Einsendung</em>'}</td>
+              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '✉︎' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${klassen.length ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : '<em style="color:var(--clr-text-light)">Einsendung</em>'}</td>
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
@@ -224,7 +224,7 @@ const Views = {
       <div class="grid-2" style="margin-bottom:20px">
         <!-- Kontrollstatus-Übersicht -->
         <div class="card" style="border-left:3px solid var(--clr-amber)">
-          <div class="card-header">📋 Kontrollstatus</div>
+          <div class="card-header">▤ Kontrollstatus</div>
           <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
             <label style="font-size:12px;white-space:nowrap">Nicht kontrolliert seit:
               <strong id="kontrollMonateLabel">–</strong>
@@ -237,7 +237,7 @@ const Views = {
 
         <!-- Betrieb-Ranking (erweitert) -->
         ${betriebRanking.length ? `<div class="card">
-          <div class="card-header">🏢 Betriebe mit Mängeln</div>
+          <div class="card-header">Betriebe mit Mängeln</div>
           <table class="data-table"><thead><tr><th>Betrieb</th><th>Azubis</th><th>Beanstandungen</th><th>Offene WV</th></tr></thead><tbody>
             ${betriebRanking.map(b => '<tr>'
               + '<td><strong>' + esc(b.betrieb) + '</strong></td>'
@@ -246,7 +246,7 @@ const Views = {
               + '<td>' + (b.offene_wv ? '<span class="badge-status badge-open">' + b.offene_wv + '</span>' : '–') + '</td>'
               + '</tr>').join('')}
           </tbody></table>
-        </div>` : '<div class="card"><div class="card-header">🏢 Betriebe</div><div class="empty-state"><p>Keine Beanstandungen</p></div></div>'}
+        </div>` : '<div class="card"><div class="card-header">Betriebe</div><div class="empty-state"><p>Keine Beanstandungen</p></div></div>'}
       </div>
 
       <!-- ═══════ STATISTIKEN ═══════ -->
@@ -327,19 +327,19 @@ const Views = {
 
         return `
       <div style="margin-bottom:20px">
-        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin-bottom:12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">📊 Statistiken</h3>
+        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin-bottom:12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">Statistiken</h3>
 
         <div class="grid-2" style="margin-bottom:16px">
           <!-- Azubis je Schule -->
           <div class="card">
-            <div class="card-header">🏫 Azubis je Berufsschule</div>
+            <div class="card-header">Azubis je Berufsschule</div>
             ${schulen.map(s => bar(s.cnt, maxSchule, total, 'var(--clr-leaf)', s.name + (s.ort?' ('+s.ort+')':''), `StammdatenTab.showSchuleKlassen(${s.id})`)).join('')}
             ${!schulen.length ? '<div style="padding:8px;color:var(--clr-text-light);font-size:12px">Keine Daten</div>' : ''}
           </div>
 
           <!-- Azubis je Fachrichtung -->
           <div class="card">
-            <div class="card-header">🌿 Azubis je Fachrichtung</div>
+            <div class="card-header">Azubis je Fachrichtung</div>
             ${frs.map(f => {
               const color = f.typ === 'Fachwerker' ? 'var(--clr-amber)' : 'var(--clr-forest)';
               return bar(f.cnt, maxFR, total, color, (f.typ==='Fachwerker'?'FW ':'') + f.bezeichnung, '');
@@ -351,7 +351,7 @@ const Views = {
         <div class="grid-2" style="margin-bottom:16px">
           <!-- Azubis je Amt -->
           <div class="card">
-            <div class="card-header">🏛 Azubis je zuständiges Amt</div>
+            <div class="card-header">§ Azubis je zuständiges Amt</div>
             ${aemter.map(a => {
               const color = a.code === '93' ? 'var(--clr-forest)' : 'var(--clr-sage)';
               return bar(a.cnt, maxAmt, total, color, App.amtLabel(a.code), '');
@@ -361,7 +361,7 @@ const Views = {
 
           <!-- Azubis je Jahrgang -->
           <div class="card">
-            <div class="card-header">📅 Azubis je Jahrgang</div>
+            <div class="card-header">Azubis je Jahrgang</div>
             ${jgs.map(j => {
               const pruef = j.pruefungstermin ? formatDate(j.pruefungstermin) : '';
               return `<div class="dash-jg-row" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">
@@ -385,7 +385,7 @@ const Views = {
         <div class="grid-3" style="margin-bottom:16px">
           <!-- Kennzahlen -->
           <div class="card" style="text-align:center">
-            <div class="card-header">🔢 Kennzahlen</div>
+            <div class="card-header">Kennzahlen</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-forest)">${total}</div>
@@ -408,7 +408,7 @@ const Views = {
 
           <!-- Mängel-Verteilung -->
           <div class="card">
-            <div class="card-header">⚠ Häufigste Mängel-Codes</div>
+            <div class="card-header">⚠︎ Häufigste Mängel-Codes</div>
             ${codeEntries.length ? codeEntries.map(([code, cnt]) => {
               const color = 'ABFG'.includes(code) ? 'var(--clr-red)' : 'CDEH'.includes(code) ? 'var(--clr-amber)' : 'var(--clr-sage)';
               return bar(cnt, maxCode, totalCodes, color, code + ' ' + (codeLabels[code]||''), '');
@@ -417,7 +417,7 @@ const Views = {
 
           <!-- Nächste Prüfungstermine -->
           <div class="card">
-            <div class="card-header">🎓 Anstehende Prüfungen</div>
+            <div class="card-header">◈ Anstehende Prüfungen</div>
             ${pruefTermine.length ? pruefTermine.map(p => `
               <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px">
                 <span><strong>${esc(p.bezeichnung)}</strong> <span style="color:var(--clr-text-light)">(${p.typ})</span></span>
@@ -430,28 +430,28 @@ const Views = {
 
         <!-- Top Betriebe -->
         <div class="card" style="margin-bottom:16px">
-          <div class="card-header">🏢 Betriebe mit den meisten Azubis (Top 10)</div>
+          <div class="card-header">Betriebe mit den meisten Azubis (Top 10)</div>
           <div class="dash-betriebe-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
             ${topBetriebe.map(b => bar(b.cnt, maxBetrieb, total, 'var(--clr-leaf)', b.name + (b.ort?' ('+b.ort+')':''), b.bid ? 'StammdatenTab.showBetriebAzubis('+b.bid+')' : '')).join('')}
           </div>
         </div>
 
         <!-- ═══ CHART.JS VISUALISIERUNGEN ═══ -->
-        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin:20px 0 12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">📈 Diagramme</h3>
+        <h3 style="font-size:16px;color:var(--clr-forest-dark);margin:20px 0 12px;border-bottom:2px solid var(--clr-forest);padding-bottom:6px">Diagramme</h3>
 
         <div class="grid-3" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">🍩 Kontrollfortschritt</div>
+            <div class="card-header">Kontrollfortschritt</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartKontrollfortschritt" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Berichte / Kontrolle</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">👫 Geschlechterquote</div>
+            <div class="card-header">Geschlechterquote</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartGeschlecht" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">🗺 Regionale Verteilung</div>
+            <div class="card-header">Regionale Verteilung</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartRegionen" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Amt-Filter setzen</div>
           </div>
@@ -459,12 +459,12 @@ const Views = {
 
         <div class="grid-2" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">🎓 Schulabschlüsse</div>
+            <div class="card-header">◈ Schulabschlüsse</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartSchulabschluss" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">📋 Prüfungserfolg</div>
+            <div class="card-header">▤ Prüfungserfolg</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartPruefungserfolg" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
@@ -472,13 +472,13 @@ const Views = {
 
         <div class="grid-2" style="margin-bottom:16px">
           <div class="card dash-chart-card">
-            <div class="card-header">🕸 Mängelverteilung</div>
+            <div class="card-header">Mängelverteilung</div>
             <div class="dash-chart-wrap dash-chart-wrap-md"><canvas id="chartMaengelRadar"></canvas></div>
           </div>
         </div>
 
         <div class="card dash-chart-card" style="margin-bottom:16px">
-          <div class="card-header">🌿 Fachrichtungen: Gärtner vs. Fachwerker</div>
+          <div class="card-header">Fachrichtungen: Gärtner vs. Fachwerker</div>
           <div class="dash-chart-wrap" style="height:${Math.max(140, Math.min(400, frs.length * 30))}px"><canvas id="chartFachrichtungen" style="cursor:pointer"></canvas></div>
           <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick auf Balken → Fachrichtung filtern</div>
         </div>
@@ -546,9 +546,9 @@ const Views = {
             onClick: (evt, elems) => {
               if (!elems.length) return;
               const idx = elems[0].index;
-              if (idx === 0) App.drillDown("s.id IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis='in_ordnung')", '✅ In Ordnung');
-              else if (idx === 1) App.drillDown("s.id IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis!='' AND ke2.ergebnis!='in_ordnung')", '❌ Mit Mängeln');
-              else App.drillDown("s.id NOT IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis!='')", '⏳ Noch offen');
+              if (idx === 0) App.drillDown("s.id IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis='in_ordnung')", '✓ In Ordnung');
+              else if (idx === 1) App.drillDown("s.id IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis!='' AND ke2.ergebnis!='in_ordnung')", '✕ Mit Mängeln');
+              else App.drillDown("s.id NOT IN (SELECT ke2.schueler_id FROM kontrollergebnisse ke2 WHERE ke2.ergebnis!='')", 'Noch offen');
             }
           }
         });
@@ -601,7 +601,7 @@ const Views = {
             if (!elems.length) return;
             const idx = elems[0].index;
             if (idx < top6.length) {
-              App.drillDown("s.zustaendiges_amt='" + top6[idx].code + "'", '🏛 ' + App.amtLabel(top6[idx].code));
+              App.drillDown("s.zustaendiges_amt='" + top6[idx].code + "'", '§ ' + App.amtLabel(top6[idx].code));
             }
           } }
         });
@@ -653,7 +653,7 @@ const Views = {
           options: { ...chartOpts, cutout: '55%', onClick: (evt, elems) => {
             if (!elems.length) return;
             const sa = saKeys[elems[0].index];
-            App.drillDown("s.schulabschluss='" + sa + "'", '🎓 ' + (saLabels[sa] || 'Code ' + sa));
+            App.drillDown("s.schulabschluss='" + sa + "'", '◈ ' + (saLabels[sa] || 'Code ' + sa));
           } }
         });
       }
@@ -677,12 +677,12 @@ const Views = {
         if (wdh1Fail) { labels.push('WDH1 nicht best. (' + wdh1Fail + ')'); data.push(wdh1Fail); colors.push(C.orange); }
         if (nochOffen > 0) { labels.push('Noch offen (' + nochOffen + ')'); data.push(nochOffen); colors.push(C.sand); }
         const peFilters = [];
-        if (bestanden) peFilters.push({ where: "s.pruefungserfolg='bestanden'", label: '✅ Prüfung bestanden' });
-        if (wdh1Best) peFilters.push({ where: "s.pruefungserfolg_wdh1='bestanden'", label: '✅ WDH1 bestanden' });
-        if (wdh2Best) peFilters.push({ where: "s.pruefungserfolg_wdh2='bestanden'", label: '✅ WDH2 bestanden' });
-        if (nichtBest) peFilters.push({ where: "s.pruefungserfolg='nicht_bestanden'", label: '❌ Prüfung nicht bestanden' });
-        if (wdh1Fail) peFilters.push({ where: "s.pruefungserfolg_wdh1='nicht_bestanden'", label: '❌ WDH1 nicht bestanden' });
-        if (nochOffen > 0) peFilters.push({ where: "s.pruefungserfolg='' OR s.pruefungserfolg IS NULL", label: '⏳ Prüfung noch offen' });
+        if (bestanden) peFilters.push({ where: "s.pruefungserfolg='bestanden'", label: '✓ Prüfung bestanden' });
+        if (wdh1Best) peFilters.push({ where: "s.pruefungserfolg_wdh1='bestanden'", label: '✓ WDH1 bestanden' });
+        if (wdh2Best) peFilters.push({ where: "s.pruefungserfolg_wdh2='bestanden'", label: '✓ WDH2 bestanden' });
+        if (nichtBest) peFilters.push({ where: "s.pruefungserfolg='nicht_bestanden'", label: '✕ Prüfung nicht bestanden' });
+        if (wdh1Fail) peFilters.push({ where: "s.pruefungserfolg_wdh1='nicht_bestanden'", label: '✕ WDH1 nicht bestanden' });
+        if (nochOffen > 0) peFilters.push({ where: "s.pruefungserfolg='' OR s.pruefungserfolg IS NULL", label: 'Prüfung noch offen' });
         this._chartInstances.pruefungserfolg = new Chart(ctxPE, {
           type: 'doughnut',
           data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: C.warm }] },
@@ -724,7 +724,7 @@ const Views = {
               if (!elems.length) return;
               const fr = frs[elems[0].index];
               if (fr) {
-                App.drillDown("s.fachrichtung_id=" + fr.id, '🌿 ' + (fr.typ === 'Fachwerker' ? 'FW: ' : '') + fr.bezeichnung);
+                App.drillDown("s.fachrichtung_id=" + fr.id, '' + (fr.typ === 'Fachwerker' ? 'FW: ' : '') + fr.bezeichnung);
               }
             }
           }
@@ -781,7 +781,7 @@ const Views = {
           <!-- IBYKUS Anleitung -->
           <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
             <div style="display:flex;align-items:start;gap:10px">
-              <span style="font-size:20px;line-height:1">📋</span>
+              <span style="font-size:20px;line-height:1">▤</span>
               <div style="font-size:13px;color:var(--clr-text)">
                 <strong style="color:var(--clr-forest-dark)">Anleitung: Daten aus IBYKUS exportieren</strong>
                 <ol style="margin:8px 0 0 0;padding-left:20px;line-height:1.7">
@@ -791,7 +791,7 @@ const Views = {
                   <li>Die gespeicherte Excel-Datei hier importieren (Drag & Drop oder Klick)</li>
                 </ol>
                 <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
-                  💡 <strong>Gut zu wissen:</strong> Der Import in eine bestehende Datenbank aktualisiert bestehende Ausbildungsverhältnisse automatisch (anhand BAV-Ident oder Name+Jahrgang) und fügt neue BAVs hinzu. Kontrolldaten und Wiedervorlagen werden dabei <strong>nicht</strong> zurückgesetzt oder verändert.
+                  <strong>Gut zu wissen:</strong> Der Import in eine bestehende Datenbank aktualisiert bestehende Ausbildungsverhältnisse automatisch (anhand BAV-Ident oder Name+Jahrgang) und fügt neue BAVs hinzu. Kontrolldaten und Wiedervorlagen werden dabei <strong>nicht</strong> zurückgesetzt oder verändert.
                 </div>
               </div>
             </div>
@@ -806,7 +806,7 @@ const Views = {
             <input type="file" id="csvFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleFile(this.files[0])">
           </div>
           <details style="margin-top:8px">
-            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">▤ Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
               <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
@@ -823,7 +823,7 @@ const Views = {
         <div id="lfkSection" style="display:none">
           <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
             <div style="display:flex;align-items:start;gap:10px">
-              <span style="font-size:20px;line-height:1">🏫</span>
+              <span style="font-size:20px;line-height:1"></span>
               <div style="font-size:13px;color:var(--clr-text)">
                 <strong style="color:var(--clr-forest-dark)">Landesfachklassen aus IBYKUS importieren</strong>
                 <p style="margin:8px 0 0;line-height:1.7">
@@ -837,7 +837,7 @@ const Views = {
                   <span><strong>Stauden:</strong> 3. AJ → Freiburg</span>
                 </div>
                 <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
-                  💡 <strong>IBYKUS-Export:</strong> Unter <em>Berichtsheftkontrolle-Export</em> die Spalten
+                  <strong>IBYKUS-Export:</strong> Unter <em>Berichtsheftkontrolle-Export</em> die Spalten
                   <code>Nr.</code>, <code>Besch-Person</code>, <code>Nummer der Klasse</code>, <code>Beschreibung Klasse</code>, <code>Landesfachklasse</code> exportieren.
                 </div>
               </div>
@@ -852,7 +852,7 @@ const Views = {
             <input type="file" id="lfkFileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="ImportHandler.handleLFKFile(this.files[0])">
           </div>
           <details style="margin-top:8px">
-            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">📋 Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
+            <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">▤ Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
               <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
@@ -869,7 +869,6 @@ const Views = {
         <div id="ausbilderSection" style="display:none">
           <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
             <div style="display:flex;align-items:start;gap:10px">
-              <span style="font-size:20px;line-height:1">👨‍🏫</span>
               <div style="font-size:13px;color:var(--clr-text)">
                 <strong style="color:var(--clr-forest-dark)">Ausbilder aus IBYKUS importieren</strong>
                 <p style="margin:8px 0 0;line-height:1.7">
@@ -877,7 +876,7 @@ const Views = {
                   (über Betriebsnummer oder Betriebsname).
                 </p>
                 <div style="margin-top:8px;padding:8px 12px;background:rgba(45,80,22,0.08);border-radius:6px;font-size:12px;color:var(--clr-sage)">
-                  💡 <strong>Spalten:</strong> Betriebsnummer, Betriebsname, Nachname, Vorname, Telefon, E-Mail, Mobil, Funktion
+                  <strong>Spalten:</strong> Betriebsnummer, Betriebsname, Nachname, Vorname, Telefon, E-Mail, Mobil, Funktion
                 </div>
               </div>
             </div>
@@ -928,12 +927,12 @@ const Views = {
             Neuer Termin
           </button>
           <button class="btn btn-secondary" onclick="PlanungHandler.jahresplanAssistent()">
-            📅 Jahresplanung
+            Jahresplanung
           </button>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-sm btn-secondary" id="planViewTbl" onclick="document.getElementById('planTable').style.display='';document.getElementById('planCalendar').style.display='none';this.style.fontWeight='700';document.getElementById('planViewCal').style.fontWeight='400'" style="font-weight:700">📋 Tabelle</button>
-          <button class="btn btn-sm btn-secondary" id="planViewCal" onclick="document.getElementById('planCalendar').style.display='';document.getElementById('planTable').style.display='none';this.style.fontWeight='700';document.getElementById('planViewTbl').style.fontWeight='400'">📅 Kalender</button>
+          <button class="btn btn-sm btn-secondary" id="planViewTbl" onclick="document.getElementById('planTable').style.display='';document.getElementById('planCalendar').style.display='none';this.style.fontWeight='700';document.getElementById('planViewCal').style.fontWeight='400'" style="font-weight:700">▤ Tabelle</button>
+          <button class="btn btn-sm btn-secondary" id="planViewCal" onclick="document.getElementById('planCalendar').style.display='';document.getElementById('planTable').style.display='none';this.style.fontWeight='700';document.getElementById('planViewTbl').style.fontWeight='400'">Kalender</button>
           <button class="btn btn-secondary" onclick="PlanungHandler.exportICS()">ICS-Export</button>
         </div>
       </div>
@@ -963,7 +962,7 @@ const Views = {
               const kl = App.getTerminKlassen(t.id);
               const frAj = App.formatTerminFrAj(t.id);
               const schule = kl.length ? kl[0].schule : '';
-              const calLabel = t.typ === 'einsendung' ? '📬 Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+'));
+              const calLabel = t.typ === 'einsendung' ? '✉︎ Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+'));
               terminDays[day] = { t, label: calLabel, detail: frAj, status: t.status, pruefer: t.pruefer };
             });
 
@@ -1007,7 +1006,7 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}">
-            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">📬</span>':''}</td>
+            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}</td>
             <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
             <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
             <td>${esc(klassenStr)}</td>
@@ -1018,10 +1017,10 @@ const Views = {
             <td data-sort="${t.status}">${statusBadge(t.status)}</td>
             <td class="btn-group" style="flex-wrap:wrap">
               ${t.status === 'geplant' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)">Starten</button>` : ''}
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">📧 Schule</button>
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${t.id})" title="Betriebe anschreiben (Brief/CSV)">📄 Betriebe</button>
-              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">📄 PDF</button>
-              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">🖨️</button>
+              <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
+              <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${t.id})" title="Betriebe anschreiben (Brief/CSV)">▤ Betriebe</button>
+              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">▤ PDF</button>
+              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
               <button class="btn-icon btn-sm" onclick="PlanungHandler.editTermin(${t.id})" title="Bearbeiten">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
@@ -1133,8 +1132,8 @@ const Views = {
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
             <td class="btn-group" style="flex-wrap:wrap">
               ${w.status !== 'erledigt' ? '<button class="btn btn-sm" style="background:var(--clr-warm);color:var(--clr-forest);border:1.5px solid var(--clr-sage);font-weight:600;font-size:11px" onclick="WiedervorlagenHandler.erledigen(' + w.id + ')" title="Durchsicht öffnen und als in Ordnung markieren">→ Durchsicht</button>' : ''}
-              ${w.kontrolltermin_id ? '<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(' + w.kontrolltermin_id + ',' + w.schueler_id + ')" title="Durchsichtsbogen PDF">📄</button>' : ''}
-              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${w.id})" title="E-Mail an Betrieb">📧</button>` : ''}
+              ${w.kontrolltermin_id ? '<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(' + w.kontrolltermin_id + ',' + w.schueler_id + ')" title="Durchsichtsbogen PDF">▤</button>' : ''}
+              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${w.id})" title="E-Mail an Betrieb">✉︎</button>` : ''}
               <button class="btn-icon btn-sm" onclick="WiedervorlagenHandler.details(${w.id})" title="Details + History">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
               </button>
@@ -1167,7 +1166,7 @@ const Views = {
       </div>
 
       <div class="card" style="margin-bottom:16px">
-        <div class="card-header">📄 Durchsichtsbögen exportieren (pro Kontrolltermin)</div>
+        <div class="card-header">▤ Durchsichtsbögen exportieren (pro Kontrolltermin)</div>
         ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Klasse(n)</th><th>Kontrolliert</th><th>Export</th></tr></thead><tbody>
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
@@ -1179,9 +1178,9 @@ const Views = {
             <td>${esc(klassenStr)}</td>
             <td>${t.kontrolliert} Schüler</td>
             <td>
-              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">🖨️</button>
-              <button class="btn btn-sm btn-primary" onclick="PlanungHandler.exportTerminPDF(${t.id})">📄 Alle Bögen (PDF)</button>
-              <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.gesamtpaket(${t.id})" title="PDFs + Seriendruck + E-Mail in einem Schritt">📦 Gesamtpaket</button>
+              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
+              <button class="btn btn-sm btn-primary" onclick="PlanungHandler.exportTerminPDF(${t.id})">▤ Alle Bögen (PDF)</button>
+              <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.gesamtpaket(${t.id})" title="PDFs + Seriendruck + E-Mail in einem Schritt">Gesamtpaket</button>
             </td>
           </tr>`;}).join('')}
         </tbody></table>` : '<p style="font-size:13px;color:var(--clr-text-light);padding:8px">Keine durchgeführten Kontrolltermine im aktuellen Jahrgang.</p>'}
@@ -1201,12 +1200,12 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
         <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
-          <div class="card-header">🎓 Zulassungsliste AP</div>
+          <div class="card-header">◈ Zulassungsliste AP</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
         </div>
       </div>
       ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
-        <div class="card-header">📊 Jahresbericht generieren</div>
+        <div class="card-header">Jahresbericht generieren</div>
         <p style="font-size:13px;color:var(--clr-text-light)">Gesamtstatistik als PDF: Anzahl kontrolliert, Mängelquote, Top-Codes, Betrieb-Ranking, Vergleich pro Schule.</p>
       </div>` : ''}
     </div>`;
@@ -1241,7 +1240,7 @@ const Views = {
       <div class="grid-2">
         <!-- DB Stats -->
         <div class="card">
-          <div class="card-header">📊 Datenbank-Statistik</div>
+          <div class="card-header">Datenbank-Statistik</div>
           <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;font-size:13px;padding:4px 0">
             ${stats.map(s => `<span>${s.name}</span><strong>${s.count}</strong>`).join('')}
             <span style="border-top:1px solid var(--clr-sand);padding-top:4px;margin-top:4px;font-weight:600">Gesamt</span>
@@ -1251,18 +1250,18 @@ const Views = {
             Integrität: ${integrity === 'ok' ? '✓ OK' : '✗ ' + integrity}
           </div>
           <div style="margin-top:8px;display:flex;gap:6px">
-            <button class="btn btn-sm btn-secondary" onclick="App.saveDatabase();App.toast('Gespeichert','success')">💾 Jetzt speichern</button>
-            <button class="btn btn-sm btn-secondary" onclick="App.reloadFromFile&&App.reloadFromFile();App.toast('Neu geladen','success')">🔄 Neu laden</button>
+            <button class="btn btn-sm btn-secondary" onclick="App.saveDatabase();App.toast('Gespeichert','success')">Jetzt speichern</button>
+            <button class="btn btn-sm btn-secondary" onclick="App.reloadFromFile&&App.reloadFromFile();App.toast('Neu geladen','success')">↻ Neu laden</button>
           </div>
         </div>
 
         <!-- Darstellung -->
         <div class="card">
-          <div class="card-header">🎨 Darstellung</div>
+          <div class="card-header">Darstellung</div>
           <div style="padding:8px 0">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:12px">
               <input type="checkbox" ${isDark?'checked':''} onchange="document.body.classList.toggle('dark-mode',this.checked);try{App.uSet('dark',this.checked?'1':'0')}catch(e){}" style="width:20px;height:20px;accent-color:var(--clr-forest)">
-              🌙 Dark Mode
+              ☾ Dark Mode
             </label>
             <p style="font-size:12px;color:var(--clr-text-light)">Tastenkürzel: <strong>F1</strong> oder <strong>?</strong> für Hilfe, <strong>Ctrl+K</strong> für Suche</p>
           </div>
@@ -1271,7 +1270,7 @@ const Views = {
 
       <!-- Sichtbare Menüpunkte -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header"><span onclick="Views._pinClicked()" style="cursor:default">📌</span> Sichtbare Menüpunkte</div>
+        <div class="card-header"><span onclick="Views._pinClicked()" style="cursor:default">⌖</span> Sichtbare Menüpunkte</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Menüpunkte ein-/ausblenden. Weniger genutzte Funktionen können ausgeblendet werden, um die Sidebar übersichtlich zu halten.
         </p>
@@ -1295,7 +1294,7 @@ const Views = {
 
       <!-- Kontaktdaten für E-Mails und PDFs -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">📧 Kontaktdaten (für E-Mails & PDFs)</div>
+        <div class="card-header">✉︎ Kontaktdaten (für E-Mails & PDFs)</div>
         <div class="form-group"><label>E-Mail Freisprechung</label>
           <input class="form-control" id="setEmailFreispr" value="${esc(emailFreisprechung)}" placeholder="Freisprechung.GB@rpf.bwl.de">
         </div>
@@ -1310,7 +1309,7 @@ const Views = {
 
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">📝 Textbausteine für Bemerkungen</div>
+        <div class="card-header">✎ Textbausteine für Bemerkungen</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Diese Textbausteine erscheinen als klickbare Auswahl im Bemerkungsfeld und im „I – Sonstiges"-Modal.
         </p>
@@ -1324,13 +1323,13 @@ const Views = {
 
       <!-- Word-Vorlage für Serienbriefe -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">📝 Word-Vorlage für Serienbriefe an Betriebe</div>
+        <div class="card-header">✎ Word-Vorlage für Serienbriefe an Betriebe</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Laden Sie eine .docx-Datei hoch, die als Vorlage für Serienbriefe an Betriebe verwendet wird. Verwenden Sie geschweifte Klammern für Platzhalter.
         </p>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
           <input type="file" id="wordTemplateUpload" accept=".docx" style="display:none" onchange="Views.uploadWordTemplate(this.files[0])">
-          <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">📎 Vorlage hochladen (.docx)</button>
+          <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">Vorlage hochladen (.docx)</button>
           ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") ? `<span style="font-size:12px;color:var(--clr-green)">✓ ${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") || '')}</span>
           <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen()">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
         </div>
@@ -1360,12 +1359,12 @@ const Views = {
             <div><code>{frist_datum}</code> – Wiedervorlage-Frist</div>
           </div>
         </details>
-        <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">📄 Beispiel-Vorlage herunterladen</button>
+        <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">▤ Beispiel-Vorlage herunterladen</button>
       </div>
 
       <!-- Tariflöhne -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">💰 Tariflöhne & Vergütung</div>
+        <div class="card-header">Tariflöhne & Vergütung</div>
         <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Tarifliche Ausbildungsvergütungen und Mindestvergütung nach §17 BBiG verwalten.</p>
         <div style="padding:8px 12px 12px"><button class="btn btn-primary btn-sm" onclick="Views.openTarifModal()">Tariflöhne bearbeiten</button></div>
       </div>
@@ -1375,11 +1374,11 @@ const Views = {
         const logCount = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE ibykus_relevant=1 AND exportiert=0") || 0;
         const logAll = App.scalar("SELECT COUNT(*) FROM aenderungslog") || 0;
         return `<div class="card" style="margin-top:16px">
-          <div class="card-header">📋 Änderungs-Logbuch ${logCount > 0 ? `<span style="background:var(--clr-red);color:white;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px">${logCount} offen</span>` : ''}</div>
+          <div class="card-header">▤ Änderungs-Logbuch ${logCount > 0 ? `<span style="background:var(--clr-red);color:white;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px">${logCount} offen</span>` : ''}</div>
           <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Datenänderungen an Azubi-Stammdaten für den Nachtrag in IBYKUS. ${logAll} Einträge gesamt, davon ${logCount} noch nicht exportiert.</p>
           <div style="padding:8px 12px 12px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm" onclick="Views.showLogbuch()">Logbuch anzeigen</button>
-            <button class="btn btn-secondary btn-sm" onclick="Views.exportLogbuch()">📄 Als CSV exportieren</button>
+            <button class="btn btn-secondary btn-sm" onclick="Views.exportLogbuch()">▤ Als CSV exportieren</button>
             ${logCount > 0 ? `<button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="App.run('UPDATE aenderungslog SET exportiert=1 WHERE exportiert=0');Views.einstellungen();App.toast(${logCount}+' Einträge als exportiert markiert','success')">✓ Alle als exportiert markieren</button>` : ''}
           </div>
         </div>`;
@@ -1390,7 +1389,7 @@ const Views = {
         const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
         if (!history.length) return '';
         return `<div class="card" style="margin-top:16px">
-          <div class="card-header">📥 Import-Verlauf (letzte ${history.length})</div>
+          <div class="card-header">Import-Verlauf (letzte ${history.length})</div>
           <table class="data-table"><thead><tr><th>Datum</th><th>Importiert</th><th>Übersprungen</th><th>CSV-Zeilen</th></tr></thead><tbody>
             ${history.map(h => `<tr>
               <td>${new Date(h.datum).toLocaleString('de-DE')}</td>
@@ -1413,7 +1412,7 @@ const Views = {
           ) LIMIT 10`);
         if (!dupes.length) return '';
         return `<div class="card" style="margin-top:16px;border-left:4px solid var(--clr-amber)">
-          <div class="card-header">🔍 Mögliche Betrieb-Duplikate (${dupes.length})</div>
+          <div class="card-header">Mögliche Betrieb-Duplikate (${dupes.length})</div>
           <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Diese Betriebe könnten identisch sein. Prüfen und ggf. unter Stammdaten → Betriebe zusammenführen.</div>
           <table class="data-table"><thead><tr><th>Betrieb A</th><th>Betrieb B</th><th>Aktion</th></tr></thead><tbody>
             ${dupes.map(d => `<tr>
@@ -1473,7 +1472,7 @@ const Views = {
     el.innerHTML = items.map((text, i) => `
       <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--clr-sand)">
         <span style="flex:1;font-size:12px">${esc(text)}</span>
-        <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="Views.editTextbaustein(${i})">✏️</button>
+        <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="Views.editTextbaustein(${i})">✎</button>
         <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;color:var(--clr-red)" onclick="Views.removeTextbaustein(${i})">✕</button>
       </div>
     `).join('');
@@ -1625,7 +1624,7 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in" style="padding-top:28px">
       <div class="page-header">
-        <h2>⏱️ Nacherfassung</h2>
+        <h2>Nacherfassung</h2>
         <p>Vergangene Berichtsheftdurchsichten schnell nacherfassen</p>
       </div>
       ${App.filterBadgeHtml()}
@@ -1699,7 +1698,7 @@ const Views = {
       <!-- Nicht erfasste Schüler -->
       <div class="card" style="margin-top:16px" id="neNichtErfasst">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('neNichtErfasstBody').style.display=document.getElementById('neNichtErfasstBody').style.display==='none'?'':'none'">
-          📋 Noch nicht kontrollierte Schüler <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
+          ▤ Noch nicht kontrollierte Schüler <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
           <span style="float:right;color:var(--clr-text-light)">▾</span>
         </div>
         <div id="neNichtErfasstBody" style="display:none"></div>
@@ -1720,12 +1719,12 @@ const Views = {
     <div class="fade-in">
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
-          <h2>📖 Hilfe</h2>
+          <h2>Hilfe</h2>
           <p>Version ${version} · Stand: ${buildDate}</p>
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" style="font-size:11px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="Views.exportWarnungPDF()" title="Wichtige Hinweise als PDF (Aushang)">⚠️ Hinweise PDF</button>
-          <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">📄 Komplett-PDF</button>
+          <button class="btn btn-sm" style="font-size:11px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="Views.exportWarnungPDF()" title="Wichtige Hinweise als PDF (Aushang)">⚠︎ Hinweise PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">▤ Komplett-PDF</button>
         </div>
       </div>
 
@@ -1740,7 +1739,7 @@ const Views = {
         <div style="flex:1;min-width:0;font-size:13px;line-height:1.7">
 
           <div id="help_0" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">🚀 Schnellstart</div>
+            <div class="card-header" style="font-size:15px">Schnellstart</div>
             <p>Die Berichtsheftkontrolle ist ein lokales Arbeitsinstrument zur Planung, Durchführung und Dokumentation von Berichtsheft-Durchsichten in den Ausbildungsberufen des Gartenbaus. Die Anwendung läuft vollständig im Browser (Chrome/Edge) – sämtliche Daten verbleiben auf dem lokalen Rechner bzw. dem Netzlaufwerk des Regierungspräsidiums.</p>
             <p style="margin-top:8px"><strong>Typischer Arbeitsablauf:</strong></p>
             <p>1. <strong>IBYKUS-Import</strong> → Stammdaten der Auszubildenden aus dem BAV-System übernehmen</p>
@@ -1750,7 +1749,7 @@ const Views = {
           </div>
 
           <div id="help_warning" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
-            <div class="card-header" style="font-size:15px;color:var(--clr-red)">⚠️ Wichtige Hinweise für neue Mitarbeiter</div>
+            <div class="card-header" style="font-size:15px;color:var(--clr-red)">⚠︎ Wichtige Hinweise für neue Mitarbeiter</div>
             <p><strong>Datenfluss:</strong> Die Datenstruktur ist eine <strong>Einbahnstraße</strong>: IBYKUS → Export (CSV) → Import in dieses Tool. Es gibt <strong>keine Rücksynchronisation</strong> zum IBYKUS-System!</p>
             <p style="margin-top:6px"><strong>Gefahrenquellen:</strong></p>
             <p>• <strong>Vor jeder neuen Kontrolle</strong> immer einen frischen IBYKUS-Export importieren → stellt sicher, dass Stammdaten (Status, Betrieb, etc.) aktuell sind</p>
@@ -1762,7 +1761,7 @@ const Views = {
           </div>
 
           <div id="help_1" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📁 Ordnerstruktur</div>
+            <div class="card-header" style="font-size:15px">Ordnerstruktur</div>
             <p>Die Anwendung erstellt beim ersten Start automatisch folgende Verzeichnisstruktur im gewählten Arbeitsordner:</p>
             <div style="background:var(--clr-sand-light);padding:12px;border-radius:var(--radius);font-family:monospace;font-size:12px;margin:8px 0">
               Berichtsheftkontrolle/<br>
@@ -1778,34 +1777,34 @@ const Views = {
           </div>
 
           <div id="help_2" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">🏠 Startbildschirm</div>
+            <div class="card-header" style="font-size:15px">Startbildschirm</div>
             <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
             <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
             <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
             <p>• <strong>Neue Datenbank erstellen</strong> – Leere DB mit wählbarem Namen anlegen</p>
             <p>• <strong>Demo-Modus</strong> – Testdaten im Arbeitsspeicher, ohne Speicherung</p>
-            <p style="margin-top:8px;color:var(--clr-amber)">⚠️ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
+            <p style="margin-top:8px;color:var(--clr-amber)">⚠︎ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
           </div>
 
           <div id="help_3" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📊 Dashboard</div>
+            <div class="card-header" style="font-size:15px">Dashboard</div>
             <p>Das Dashboard zeigt eine Übersicht der wichtigsten Kennzahlen des aktuellen Datenbestands:</p>
             <p>• <strong>Kontrollstatus-Regler</strong> – Zeigt Auszubildende an, deren letzte Durchsicht länger als X Monate zurückliegt. Regler auf 0 = noch nie kontrollierte Auszubildende.</p>
             <p>• <strong>Anstehende Prüfungstermine</strong> – Auflistung der nächsten Abschlussprüfungen mit Anzahl der betroffenen Auszubildenden.</p>
             <p>• <strong>Betriebsranking</strong> – Ausbildungsbetriebe mit den meisten Auszubildenden (Top 10).</p>
             <p>• <strong>Diagramme</strong>:</p>
-            <p>&nbsp;&nbsp;🍩 Kontrollfortschritt – OK / Beanstandet / Offen</p>
-            <p>&nbsp;&nbsp;👫 Geschlechterquote – Männlich / Weiblich / Divers</p>
-            <p>&nbsp;&nbsp;🗺 Regionale Verteilung – Nach zuständigem Amt</p>
-            <p>&nbsp;&nbsp;🎓 Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
-            <p>&nbsp;&nbsp;📋 Prüfungserfolg – Bestanden / Nicht bestanden / WDH</p>
-            <p>&nbsp;&nbsp;🌿 Fachrichtungen – Gärtner vs. Fachwerker (Balkendiagramm)</p>
-            <p>&nbsp;&nbsp;🕸 Mängelverteilung – Häufigkeit der Mängelcodes A-I</p>
+            <p>&nbsp;&nbsp;Kontrollfortschritt – OK / Beanstandet / Offen</p>
+            <p>&nbsp;&nbsp;Geschlechterquote – Männlich / Weiblich / Divers</p>
+            <p>&nbsp;&nbsp;Regionale Verteilung – Nach zuständigem Amt</p>
+            <p>&nbsp;&nbsp;◈ Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
+            <p>&nbsp;&nbsp;▤ Prüfungserfolg – Bestanden / Nicht bestanden / WDH</p>
+            <p>&nbsp;&nbsp;Fachrichtungen – Gärtner vs. Fachwerker (Balkendiagramm)</p>
+            <p>&nbsp;&nbsp;Mängelverteilung – Häufigkeit der Mängelcodes A-I</p>
             <p style="margin-top:6px">Alle Diagramme reagieren auf die <strong>globalen Filter</strong> (Jahrgang, Berufsgruppe, Amt, BAV-Status).</p>
           </div>
 
           <div id="help_4" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📋 Stammdaten</div>
+            <div class="card-header" style="font-size:15px">▤ Stammdaten</div>
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
             <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
@@ -1817,7 +1816,7 @@ const Views = {
           </div>
 
           <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">📥 IBYKUS-Import</div>
+            <div class="card-header" style="font-size:15px">IBYKUS-Import</div>
             <p>Der Import bildet die zentrale Schnittstelle zur Datenpflege. CSV-Exportdateien aus dem BAV-System IBYKUS werden eingelesen und mit dem lokalen Datenbestand abgeglichen.</p>
             <p style="margin-top:8px"><strong>Ablauf:</strong></p>
             <p>1. In IBYKUS: Datenexport als CSV-Datei (Semikolon-getrennt, Zeichenkodierung UTF-8)</p>
@@ -1840,7 +1839,7 @@ const Views = {
           </div>
 
           <div id="help_6" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📅 Kontrollplanung</div>
+            <div class="card-header" style="font-size:15px">Kontrollplanung</div>
             <p>Unter <em>Planung</em> werden Durchsichtstermine (Kontrolltermine) angelegt und Berufsschulklassen zugewiesen.</p>
             <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
@@ -1849,7 +1848,7 @@ const Views = {
           </div>
 
           <div id="help_7" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">🔍 Kontrolldurchführung</div>
+            <div class="card-header" style="font-size:15px">Kontrolldurchführung</div>
             <p>Das Kernmodul der Anwendung. Unter <em>Kontrolle</em> wird die eigentliche Durchsicht der Ausbildungsnachweise (Berichtshefte) dokumentiert.</p>
             <p style="margin-top:8px"><strong>Ablauf je Auszubildendem:</strong></p>
             <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
@@ -1867,7 +1866,7 @@ const Views = {
           </div>
 
           <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">📊 KW-Raster & Bulk-Editing</div>
+            <div class="card-header" style="font-size:15px">KW-Raster & Bulk-Editing</div>
             <p>Das KW-Raster bildet alle Kalenderwochen eines Ausbildungsjahres ab. Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
@@ -1903,8 +1902,8 @@ const Views = {
           </div>
 
           <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">🎓 Azubi-Dashboard</div>
-            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den 🎓-Button in Stammdaten, SchuelerView und Kontrolle.</p>
+            <div class="card-header" style="font-size:15px">◈ Azubi-Dashboard</div>
+            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ◈-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
             <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
             <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
@@ -1920,7 +1919,7 @@ const Views = {
           </div>
 
           <div id="help_10" class="card" style="margin-bottom:12px;">
-            <div class="card-header" style="font-size:15px">💰 Azubi-Rechner & Tarife</div>
+            <div class="card-header" style="font-size:15px">Azubi-Rechner & Tarife</div>
             <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
             <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
             <p>• 7 Gartenbau-Fachrichtungen mit Tarifsätzen je Lehrjahr (GaLaBau, Baumschule, Friedhof, Gemüse, Obst, Stauden, Zierpflanzen)</p>
@@ -1932,15 +1931,15 @@ const Views = {
           </div>
 
           <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📋 Schüler-Akte</div>
-            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den 📋-Button in Stammdaten und SchuelerView.</p>
+            <div class="card-header" style="font-size:15px">▤ Schüler-Akte</div>
+            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ▤-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
           <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">🔀 Phasen-Editor</div>
+            <div class="card-header" style="font-size:15px">Phasen-Editor</div>
             <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
             <p>• <strong>Ausbildung</strong> – Betrieb, Teilzeit-% (25–100%), pauschale Fehltage</p>
@@ -1955,7 +1954,7 @@ const Views = {
           </div>
 
           <div id="help_13" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">🔔 Wiedervorlagen</div>
+            <div class="card-header" style="font-size:15px">Wiedervorlagen</div>
             <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
             <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
             <p>• <strong>Manuelle Anlage</strong> – Zusätzliche Wiedervorlagen können je Auszubildendem manuell erstellt werden</p>
@@ -1965,7 +1964,7 @@ const Views = {
           </div>
 
           <div id="help_14" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📄 Berichte & Export</div>
+            <div class="card-header" style="font-size:15px">▤ Berichte & Export</div>
             <p>Folgende Exportfunktionen stehen zur Verfügung:</p>
             <p>• <strong>Jahresbericht (PDF)</strong> – Zusammenfassende Statistik mit Mängelverteilung, Berufsschulübersicht, Fachrichtungsauswertung, Betriebsranking und detaillierter Aufschlüsselung nach Fachrichtung und zuständigem Amt</p>
             <p>• <strong>Durchsichtsbogen (PDF)</strong> – Einzeldokument je Auszubildendem mit allen Prüfergebnissen, KW-Mängeln und Pflichtbestandteilen</p>
@@ -1975,7 +1974,7 @@ const Views = {
           </div>
 
           <div id="help_15" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">📊 Jahresbericht (PDF)</div>
+            <div class="card-header" style="font-size:15px">Jahresbericht (PDF)</div>
             <p>Der Jahresbericht wird unter <em>Berichte → Jahresbericht generieren</em> erstellt und enthält:</p>
             <p><strong>Seite 1 – Zusammenfassung:</strong></p>
             <p>• Kennzahlen (Azubis, Kontrolliert, In Ordnung, Beanstandungen, Termine, Wiedervorlagen)</p>
@@ -1991,13 +1990,13 @@ const Views = {
           </div>
 
           <div id="help_16" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">🔍 Globale Filter</div>
+            <div class="card-header" style="font-size:15px">Globale Filter</div>
             <p>Die Filter in der Topbar wirken auf <strong>alle Ansichten</strong> gleichzeitig (Dashboard, Stammdaten, Kontrolle etc.):</p>
-            <p>• <strong>📅 Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
-            <p>• <strong>🌿 Berufsgruppe</strong> (Mehrfachauswahl) – z.B. nur GaLaBau + Baumschule</p>
-            <p>• <strong>🏛 Zuständiges Amt</strong> (Mehrfachauswahl) – z.B. nur 93 RP Freiburg</p>
-            <p>• <strong>📝 Zwischenprüfung</strong> (Mehrfachauswahl) – Zwischenprüfungstermin (z.B. H2026, F2027)</p>
-            <p>• <strong>📋 BAV-Status</strong> – Aktive BAV / Alle BAV / Beendete BAV</p>
+            <p>• <strong>Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
+            <p>• <strong>Berufsgruppe</strong> (Mehrfachauswahl) – z.B. nur GaLaBau + Baumschule</p>
+            <p>• <strong>§ Zuständiges Amt</strong> (Mehrfachauswahl) – z.B. nur 93 RP Freiburg</p>
+            <p>• <strong>✎ Zwischenprüfung</strong> (Mehrfachauswahl) – Zwischenprüfungstermin (z.B. H2026, F2027)</p>
+            <p>• <strong>▤ BAV-Status</strong> – Aktive BAV / Alle BAV / Beendete BAV</p>
             <p style="margin-top:6px">Ein aktiver Filter wird als <strong>Badge</strong> unter der Topbar angezeigt. Klick auf ✕ entfernt einzelne Filter, "Alle zurücksetzen" setzt alles zurück.</p>
             <p style="margin-top:8px;font-weight:600;color:var(--clr-forest-dark)">Bezeichnungen Prüfungstermine:</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
@@ -2022,7 +2021,7 @@ const Views = {
           </div>
 
           <div id="help_17" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">🔎 Globale Suche (Strg+K)</div>
+            <div class="card-header" style="font-size:15px">Globale Suche (Strg+K)</div>
             <p>Die Volltextsuche durchsucht den <strong>gesamten Datenbestand</strong> nach folgenden Feldern:</p>
             <p>• Nachname, Vorname, Ausbildungsbetrieb, Berufsschule, Klasse, Jahrgang, Fachrichtung, BAV-Identnummer, E-Mail, Telefon</p>
             <p>• Es werden bis zu 50 Treffer mit Ampelstatus und Betriebsangabe angezeigt</p>
@@ -2031,7 +2030,7 @@ const Views = {
           </div>
 
           <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">⌨️ Tastenkürzel (vollständig)</div>
+            <div class="card-header" style="font-size:15px">⌨ Tastenkürzel (vollständig)</div>
             <p><strong>Allgemein:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
@@ -2065,7 +2064,7 @@ const Views = {
           </div>
 
           <div id="help_19" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">↩️ Undo / Redo</div>
+            <div class="card-header" style="font-size:15px">↩ Undo / Redo</div>
             <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
             <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
             <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederherstellen (Redo)</p>
@@ -2074,7 +2073,7 @@ const Views = {
           </div>
 
           <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">👥 Mehrbenutzer-Betrieb & Synchronisation</div>
+            <div class="card-header" style="font-size:15px">Mehrbenutzer-Betrieb & Synchronisation</div>
             <p>Mehrere Ausbildungsberater können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
             <p>1. Alle Sachbearbeiter öffnen dieselbe HTML-Datei und wählen denselben Arbeitsordner</p>
@@ -2082,7 +2081,7 @@ const Views = {
             <p>3. Änderungen werden automatisch im 8-Sekunden-Intervall mit der gemeinsamen Datenbankdatei synchronisiert</p>
             <p>4. Ein <strong>Synchronisationsmarker</strong> (<code>_bhk/sync_*</code>) signalisiert anderen Instanzen, dass Änderungen vorliegen</p>
             <p><strong>Sperrsystem (Locking):</strong></p>
-            <p>• Bearbeitet Sachbearbeiter A einen Auszubildenden, sehen andere Sachbearbeiter ein 🔒-Symbol (Datensatz gesperrt)</p>
+            <p>• Bearbeitet Sachbearbeiter A einen Auszubildenden, sehen andere Sachbearbeiter ein ⊘-Symbol (Datensatz gesperrt)</p>
             <p>• Sperren werden beim Speichern und Weiterschalten automatisch freigegeben</p>
             <p>• Sicherheits-Timeout: Sperren werden nach 15 Minuten Inaktivität automatisch aufgehoben</p>
             <p>• Beim Schließen des Browsers werden alle gehaltenen Sperren freigegeben</p>
@@ -2091,25 +2090,25 @@ const Views = {
           </div>
 
           <div id="help_21" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">💾 Datensicherung</div>
+            <div class="card-header" style="font-size:15px">Datensicherung</div>
             <p><strong>Automatisches Speichern:</strong> Jede Änderung wird nach 1,5 Sekunden automatisch in die Datenbankdatei geschrieben (verzögertes Speichern). Ein manuelles Speichern ist nicht erforderlich.</p>
             <p><strong>Automatische Backups:</strong> Sicherungskopien der Datenbank werden regelmäßig in <code>_bhk/backups/</code> erstellt. Ältere Sicherungen werden automatisch bereinigt.</p>
             <p><strong>Empfehlung:</strong> Der Arbeitsordner sollte auf einem regelmäßig gesicherten Netzlaufwerk liegen. Die SQLite-Datei im Unterordner <code>Datenbanken/</code> enthält den gesamten Datenbestand und kann zusätzlich manuell gesichert werden.</p>
           </div>
 
           <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">⏱️ Nacherfassung (Übernahme von Altdaten)</div>
+            <div class="card-header" style="font-size:15px">Nacherfassung (Übernahme von Altdaten)</div>
             <p>Beim Umstieg von der bisherigen papiergestützten Dokumentation auf die Berichtsheftkontrolle müssen vergangene Durchsichten nicht vollständig nacherfasst werden. Empfohlen wird folgender pragmatischer Ansatz:</p>
 
-            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">📌 Was lohnt sich nachzuerfassen?</p>
+            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">⌖ Was lohnt sich nachzuerfassen?</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
-              <p>🔴 <strong>Priorität 1 – Pflicht (~15 Min.):</strong> Offene Wiedervorlagen übernehmen – andernfalls gehen laufende Fristen verloren. Nur die aktuell offenen Wiedervorlagen eintragen (Auszubildender, Frist, Art der Wiedervorlage).</p>
-              <p>🟡 <strong>Priorität 2 – Empfohlen (~30 Min.):</strong> Letztes Durchsichtsergebnis je Auszubildendem erfassen. Damit arbeitet das Ampelsystem korrekt und das Dashboard zeigt zutreffende Kennzahlen.</p>
-              <p>🟢 <strong>Priorität 3 – Optional (~60 Min.):</strong> KW-Mängelcodes der letzten Durchsicht übernehmen, sofern der Mängelverlauf bei der nächsten Kontrolle sichtbar sein soll.</p>
-              <p>⚪ <strong>Weglassen:</strong> Ältere Durchsichten und Detail-KWs. Der Aufwand übersteigt den Nutzen – diese Daten sind auf den archivierten Papierbögen vorhanden.</p>
+              <p><span style="color:var(--clr-red)">◆</span> <strong>Priorität 1 – Pflicht (~15 Min.):</strong> Offene Wiedervorlagen übernehmen – andernfalls gehen laufende Fristen verloren. Nur die aktuell offenen Wiedervorlagen eintragen (Auszubildender, Frist, Art der Wiedervorlage).</p>
+              <p><span style="color:var(--clr-amber)">◐</span> <strong>Priorität 2 – Empfohlen (~30 Min.):</strong> Letztes Durchsichtsergebnis je Auszubildendem erfassen. Damit arbeitet das Ampelsystem korrekt und das Dashboard zeigt zutreffende Kennzahlen.</p>
+              <p><span style="color:var(--clr-green)">●</span> <strong>Priorität 3 – Optional (~60 Min.):</strong> KW-Mängelcodes der letzten Durchsicht übernehmen, sofern der Mängelverlauf bei der nächsten Kontrolle sichtbar sein soll.</p>
+              <p><span style="color:var(--clr-sage-light)">○</span> <strong>Weglassen:</strong> Ältere Durchsichten und Detail-KWs. Der Aufwand übersteigt den Nutzen – diese Daten sind auf den archivierten Papierbögen vorhanden.</p>
             </div>
 
-            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">🚀 Vorgehen mit der Schnellerfassung</p>
+            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">Vorgehen mit der Schnellerfassung</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Voraussetzung:</strong> In <em>Einstellungen → Sichtbare Menüpunkte</em> die <strong>Nacherfassung</strong> aktivieren.</p>
               <p style="margin-top:6px"><strong>Schritt 1:</strong> Sidebar → <em>Nacherfassung</em> öffnen</p>
@@ -2119,11 +2118,11 @@ const Views = {
               <p style="margin-left:16px">• <strong>WV-Frist:</strong> Erscheint automatisch bei Mängeln (+4 Wochen, anpassbar)</p>
               <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte</p>
               <p style="margin-left:16px">• <strong>Bemerkung:</strong> Optional, Freitext</p>
-              <p><strong>Schritt 4:</strong> "💾 Alle speichern" → Kontrolltermin + Ergebnisse + WV werden angelegt</p>
+              <p><strong>Schritt 4:</strong> "Alle speichern" → Kontrolltermin + Ergebnisse + WV werden angelegt</p>
               <p style="margin-top:6px"><strong>Tipp:</strong> Die aufklappbare Liste <em>„Noch nicht kontrollierte Auszubildende"</em> zeigt, welche Auszubildenden noch keine Durchsicht im Datenbestand haben – gruppiert nach Berufsschule.</p>
             </div>
 
-            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">⏱ Zeitschätzung für die Erstbefüllung</p>
+            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">Zeitschätzung für die Erstbefüllung</p>
             <div style="margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
               <div style="padding:8px;background:var(--clr-amber-light);border-radius:var(--radius)">
                 <div style="font-weight:700">Ohne Schnellerfassung</div>
@@ -2139,7 +2138,7 @@ const Views = {
               </div>
             </div>
 
-            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">💡 Wichtig: AP und ZP sind zwei getrennte Felder</p>
+            <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">Wichtig: AP und ZP sind zwei getrennte Felder</p>
             <div style="margin-top:4px;padding:10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7">
               <p>Für jeden Auszubildenden werden sowohl der Termin der <strong>Abschlussprüfung (AP)</strong> als auch der Termin der <strong>Zwischenprüfung (ZP)</strong> geführt. Beide Werte stammen aus dem IBYKUS-Export und werden als getrennte Felder gespeichert:</p>
               <p style="margin-top:4px">• <strong>AP</strong> (S2027, W2027): Bestimmt den Abschlussjahrgang → Klassen- und Termin-Zuordnung</p>
@@ -2150,7 +2149,7 @@ const Views = {
           </div>
 
           <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">⚙️ Einstellungen</div>
+            <div class="card-header" style="font-size:15px">⚙ Einstellungen</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
             <p>• <strong>Tariflöhne bearbeiten</strong> – Tarifliche Ausbildungsvergütung pro Beruf und Lehrjahr anpassen. Mindestvergütung §17 BBiG separat editierbar. „Auf Standard zurücksetzen" möglich.</p>
@@ -2162,7 +2161,7 @@ const Views = {
           </div>
 
           <div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">🔧 Wartung & Administration</div>
+            <div class="card-header" style="font-size:15px">Wartung & Administration</div>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
             <p>1. Neue Version der HTML-Datei in den Arbeitsordner kopieren (bestehende Datei überschreiben)</p>
@@ -2184,10 +2183,10 @@ const Views = {
           </div>
 
           <div id="help_25" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
-            <div class="card-header" style="font-size:15px">🔒 Datenschutz & Rechtskonformität</div>
+            <div class="card-header" style="font-size:15px">⊘ Datenschutz & Rechtskonformität</div>
             <p style="font-weight:600;color:var(--clr-forest-dark)">Datenschutzrechtliche Einordnung für Führungskräfte, Datenschutzbeauftragte und behördliche Prüfungen</p>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📌 Zweck und Rechtsgrundlage</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⌖ Zweck und Rechtsgrundlage</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p>Die Berichtsheftkontrolle dient der Durchführung und Dokumentation der Berichtsheft-Durchsichten gemäß den Aufgaben der zuständigen Stelle nach dem <strong>Berufsbildungsgesetz (BBiG)</strong>.</p>
               <p style="margin-top:6px"><strong>Rechtsgrundlage der Datenverarbeitung:</strong></p>
@@ -2197,7 +2196,7 @@ const Views = {
               <p style="margin-top:6px">Die Anwendung verarbeitet ausschließlich Daten, die zur Erfüllung dieser gesetzlichen Aufgabe erforderlich sind. Eine Einwilligung der Betroffenen ist nicht erforderlich, da die Verarbeitung auf einer gesetzlichen Grundlage beruht.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📋 Verarbeitete Datenkategorien</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">▤ Verarbeitete Datenkategorien</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p style="font-weight:700">Personenbezogene Daten der Auszubildenden:</p>
               <div style="display:grid;grid-template-columns:200px 1fr;gap:2px 12px;margin:4px 0 8px 0">
@@ -2219,7 +2218,7 @@ const Views = {
               <p>Es werden <strong>keine</strong> Sozialversicherungsnummern, Bankverbindungen, Gesundheitsdaten, biometrischen Daten oder besondere Kategorien personenbezogener Daten i.S.d. Art. 9 DSGVO verarbeitet.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">🔄 Datenherkunft und Datenfluss</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">↻ Datenherkunft und Datenfluss</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Datenquelle:</strong> Sämtliche personenbezogenen Stammdaten werden ausschließlich aus dem <strong>BAV-System IBYKUS</strong> importiert (CSV-Export). Es erfolgt keine eigenständige Datenerhebung bei den Betroffenen.</p>
               <p style="margin-top:6px"><strong>IBYKUS bleibt das führende System.</strong> Die Berichtsheftkontrolle ist ein nachgelagertes Arbeitsinstrument. Änderungen an Stammdaten erfolgen ausschließlich in IBYKUS. Beim Re-Import werden bestehende Datensätze anhand der BAV-Identnummer aktualisiert, nicht dupliziert.</p>
@@ -2227,7 +2226,7 @@ const Views = {
               <p style="margin-top:6px"><strong>Datenausgabe:</strong> PDF-Durchsichtsbögen und Berichte werden lokal erzeugt und vom Sachbearbeiter in den Verwaltungsvorgang (E-Akte/Papierakte) überführt. Es erfolgt kein automatisierter Datenversand.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">🖥️ Technische Architektur und Datensicherheit</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Technische Architektur und Datensicherheit</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Lokale Verarbeitung:</strong> Die gesamte Anwendung läuft als einzelne HTML-Datei (~6 MB) im Browser des Dienstrechners. Es existiert kein externer Server, kein Backend, keine Cloud-Komponente. Die Datenverarbeitung erfolgt vollständig im Arbeitsspeicher des Browsers (Chromium-basierte JavaScript-Engine).</p>
               <p style="margin-top:6px"><strong>Datenspeicherung:</strong> Die Datenbank (SQLite-Format, ca. 1–30 MB) liegt als einzelne Datei auf dem Netzlaufwerk des Regierungspräsidiums Freiburg. Der Speicherort unterliegt den bestehenden Zugriffs- und Berechtigungskonzepten der Windows-Domäne (Active Directory).</p>
@@ -2235,7 +2234,7 @@ const Views = {
               <p style="margin-top:6px"><strong>Zugriffsschutz:</strong> Der Zugriff auf die Datenbankdatei wird durch die NTFS-Berechtigungen des Netzlaufwerks gesteuert. Innerhalb der Anwendung identifizieren sich die Sachbearbeiter über ein Prüfer-Dropdown (Hannes Pix, Christoph Zilz, Eva Dronia). Diese Kennung dient der Nachvollziehbarkeit (wer hat wann welche Kontrolle durchgeführt), nicht der Authentifizierung im IT-Sicherheitssinne.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📡 Netzwerkverkehr und externe Verbindungen</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Netzwerkverkehr und externe Verbindungen</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Es findet keinerlei Netzwerkverkehr statt.</strong></p>
               <p style="margin-top:6px">Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind als Base64-codierte Daten direkt in die HTML-Datei eingebettet.</p>
@@ -2243,21 +2242,21 @@ const Views = {
               <p style="margin-top:6px">Zu keinem Zeitpunkt werden personenbezogene Daten – weder Azubi-Stammdaten noch Kontrollergebnisse noch Metadaten – an Dritte, externe Server oder den Hersteller übermittelt.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📂 Aufbewahrung und Löschung</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Aufbewahrung und Löschung</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Aufbewahrungsdauer:</strong> Die Aufbewahrungsfristen richten sich nach den für die Berufsbildung geltenden Fristen der Aktenordnung des Regierungspräsidiums. Die Anwendung enthält keinen automatischen Löschmechanismus.</p>
               <p style="margin-top:6px"><strong>Löschung:</strong> Die vollständige Datenlöschung erfolgt durch Löschen der SQLite-Datenbankdatei auf dem Netzlaufwerk. Einzelne Auszubildende können über den BAV-Status „Ende" gefiltert und anschließend manuell gelöscht werden. Eine Archivierung abgeschlossener Jahrgänge ist durch Anlage einer separaten Datenbank möglich.</p>
               <p style="margin-top:6px"><strong>Backup-Bereinigung:</strong> Automatische Backups in <code>_bhk/backups/</code> werden regelmäßig bereinigt. Bei endgültiger Löschung sollten auch Backup-Dateien geprüft und ggf. entfernt werden.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">🏗️ Keine Softwareinstallation – Einordnung als Arbeitsmittel</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Keine Softwareinstallation – Einordnung als Arbeitsmittel</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p>Die Anwendung erfordert <strong>keine Installation, keine Administratorrechte und keine Konfiguration durch die IT-Abteilung</strong>. Sie wird als einzelne HTML-Datei im Browser geöffnet – funktional vergleichbar mit einer Excel-Arbeitsmappe mit erweiterter Funktionalität.</p>
               <p style="margin-top:6px"><strong>Technische Einordnung:</strong> Es handelt sich nicht um eine Fachanwendung im Sinne der IT-Strategie, sondern um ein lokales Arbeitsinstrument der Sachbearbeitung. Die Datei nutzt ausschließlich Standardfunktionalitäten des Browsers (File System Access API, Web SQL via sql.js). Es werden keine Browser-Erweiterungen, Plugins oder Systemressourcen außerhalb der Browser-Sandbox beansprucht.</p>
               <p style="margin-top:6px"><strong>Kompatibilität:</strong> Lauffähig auf den vorhandenen Dienstrechnern (Windows 10/11, Zero-Trust-Umgebung) mit Google Chrome oder Microsoft Edge. Keine Abhängigkeit von bestimmten Betriebssystemversionen oder zusätzlicher Software.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⚖️ Datenschutz-Folgenabschätzung (DSFA)</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Datenschutz-Folgenabschätzung (DSFA)</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p>Eine Datenschutz-Folgenabschätzung nach Art. 35 DSGVO ist nach Einschätzung des Verantwortlichen <strong>nicht erforderlich</strong>, da:</p>
               <p style="margin-top:4px">• keine systematische und umfassende Bewertung persönlicher Aspekte natürlicher Personen stattfindet (kein Profiling, kein Scoring),</p>
@@ -2269,7 +2268,7 @@ const Views = {
               <p style="margin-top:6px"><strong>Risikobewertung: niedrig.</strong> Die Anwendung ändert weder Art noch Umfang der Datenverarbeitung gegenüber dem bestehenden Verfahren. Sie strukturiert lediglich die bereits vorhandene dienstliche Datenverarbeitung in einem effizienteren Format.</p>
             </div>
 
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">📎 Verzeichnis der Verarbeitungstätigkeiten (Kurzfassung)</p>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Verzeichnis der Verarbeitungstätigkeiten (Kurzfassung)</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <div style="display:grid;grid-template-columns:220px 1fr;gap:4px 12px">
                 <span><strong>Bezeichnung:</strong></span><span>Berichtsheftkontrolle – Durchsichten Gärtner</span>
@@ -2291,7 +2290,7 @@ const Views = {
             <p><strong>Die Diagramme im Dashboard werden unscharf dargestellt.</strong><br>
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
-            Prüfen Sie den BAV-Status-Filter in der Topbar (📋-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
+            Prüfen Sie den BAV-Status-Filter in der Topbar (▤-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
             <p style="margin-top:8px"><strong>Können mehrere Sachbearbeiter gleichzeitig mit der Anwendung arbeiten?</strong><br>
             Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen dieselbe HTML-Datei im Browser und wählen denselben Arbeitsordner. Das integrierte Synchronisationssystem gleicht Änderungen im 8-Sekunden-Intervall ab und verhindert durch ein Sperrsystem gleichzeitige Bearbeitung desselben Datensatzes.</p>
             <p style="margin-top:8px"><strong>Welche Browser werden unterstützt?</strong><br>
@@ -2421,7 +2420,7 @@ const Views = {
     const addPage = () => { doc.addPage(); y = tm; };
     const checkSpace = (need) => { if (y + need > 272) addPage(); };
     // Emojis, Variation-Selectors (U+FE0F!) und nicht-druckbare Zeichen entfernen
-    const clean = (s) => (s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}←-⇿\u{1F100}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{20E3}]/gu, '').replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim();
+    const clean = (s) => (s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}←-⇿\u{2200}-\u{23FF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}\u{1F100}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{20E3}]/gu, '').replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim();
     const splitText = (text, maxW) => doc.splitTextToSize(clean(text), maxW || pw);
 
     // Titel-Seite
@@ -2611,7 +2610,7 @@ const Views = {
   showLogbuch() {
     const logs = App.query("SELECT * FROM aenderungslog ORDER BY zeitpunkt DESC LIMIT 200");
     const feldLabel = {nachname:'Nachname',vorname:'Vorname',ausbildungsbeginn:'AV-Beginn',ausbildungsende:'AV-Ende',ausbildungsstaette:'Betrieb',status:'Status',aktiv:'Aktiv',ap_zugelassen:'AP-Zulassung',ap_bestanden:'AP-Bestanden',jahrgang_id:'Jahrgang',klasse_id:'Klasse',fachrichtung_id:'Fachrichtung',betrieb_id:'Betrieb-ID',zwischenpruefung:'ZP',zustaendiges_amt:'Amt',landesfachklasse:'LFK',inaktiv_datum:'Inaktiv-Datum',inaktiv_grund:'Inaktiv-Grund',beruf_id:'Beruf',geburtsdatum:'Geburtsdatum',regulaer_dauer_monate:'Dauer (Mon.)',verkuerzung_monate:'Verkürzung',vorzeitige_zulassung:'§45 Vorz.',brutto_lohn:'Bruttolohn',zp_termin:'ZP-Termin',ap_termin:'AP-Termin'};
-    App.openModal('📋 Änderungs-Logbuch', `
+    App.openModal('▤ Änderungs-Logbuch', `
       <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
         <table class="data-table" style="font-size:11px">
           <thead><tr><th>Zeitpunkt</th><th>Azubi</th><th>Feld</th><th>Alt</th><th>Neu</th><th>Aktion</th><th>Bearbeiter</th><th>IBYKUS</th></tr></thead>
@@ -2623,12 +2622,12 @@ const Views = {
             <td style="color:var(--clr-green);font-weight:600">${esc(l.neuer_wert||'–')}</td>
             <td style="font-size:10px">${esc(l.aktion||'')}</td>
             <td style="font-size:10px">${esc(l.bearbeiter||'')}</td>
-            <td style="text-align:center">${l.ibykus_relevant ? (l.exportiert ? '✓' : '⚠️') : '–'}</td>
+            <td style="text-align:center">${l.ibykus_relevant ? (l.exportiert ? '✓' : '⚠︎') : '–'}</td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-        <button class="btn btn-primary" onclick="Views.exportLogbuch();App.closeModal()">📄 CSV exportieren</button>`);
+        <button class="btn btn-primary" onclick="Views.exportLogbuch();App.closeModal()">▤ CSV exportieren</button>`);
     _makeModalWide();
   },
 

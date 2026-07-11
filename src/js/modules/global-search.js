@@ -98,9 +98,9 @@ const GlobalSearch = {
                 ${s.jahrgang ? '<span style="font-weight:600">'+esc(s.jahrgang)+'</span>' : ''}
               </div>
               <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-                ${s.telefon ? '<span>📞 '+esc(s.telefon)+'</span>' : ''}${s.email ? '<span>✉ '+esc(s.email)+'</span>' : ''}
-                ${!s.telefon && s.b_tel ? '<span>📞 '+esc(s.b_tel)+' (Betrieb)</span>' : ''}
-                ${!s.email && s.b_email ? '<span>✉ '+esc(s.b_email)+' (Betrieb)</span>' : ''}
+                ${s.telefon ? '<span>☎︎ '+esc(s.telefon)+'</span>' : ''}${s.email ? '<span>✉︎ '+esc(s.email)+'</span>' : ''}
+                ${!s.telefon && s.b_tel ? '<span>☎︎ '+esc(s.b_tel)+' (Betrieb)</span>' : ''}
+                ${!s.email && s.b_email ? '<span>✉︎ '+esc(s.b_email)+' (Betrieb)</span>' : ''}
                 ${s.ibykus_id ? '<span>ID:'+esc(s.ibykus_id)+'</span>' : ''}
                 ${s.zustaendiges_amt ? '<span>Amt:'+esc(s.zustaendiges_amt)+'</span>' : ''}
               </div>
@@ -125,12 +125,12 @@ const GlobalSearch = {
         const idx = this._results.length;
         this._results.push({ type: 'betrieb', id: b.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('betriebe'), 100); setTimeout(()=>StammdatenTab.showBetriebAzubis(b.id), 200); }});
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
-          <span>🏢</span>
+          <span></span>
           <div style="flex:1;min-width:0">
             <div><strong>${esc(b.name)}</strong>${b.vorname?' '+esc(b.vorname):''} <span style="color:var(--clr-text-light);font-size:12px">${esc(b.ort||'')} · ${b.cnt} Azubis</span></div>
             <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-              ${b.telefon ? '<span>📞 '+esc(b.telefon)+'</span>' : ''}
-              ${b.email ? '<span>✉ '+esc(b.email)+'</span>' : ''}
+              ${b.telefon ? '<span>☎︎ '+esc(b.telefon)+'</span>' : ''}
+              ${b.email ? '<span>✉︎ '+esc(b.email)+'</span>' : ''}
               ${b.betriebsnummer ? '<span>Nr:'+esc(b.betriebsnummer)+'</span>' : ''}
               ${b.strasse ? '<span>'+esc(b.strasse)+', '+esc(b.plz||'')+' '+esc(b.ort||'')+'</span>' : ''}
             </div>
@@ -150,14 +150,14 @@ const GlobalSearch = {
         const idx = this._results.length;
         this._results.push({ type: 'ausbilder', id: a.id, action: () => { App.navigate('stammdaten'); if (a.betrieb_id) { setTimeout(()=>StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } else { setTimeout(()=>StammdatenTab.show('betriebe'), 100); } }});
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
-          <span>👤</span>
+          <span></span>
           <div style="flex:1;min-width:0">
             <div><strong>${esc((a.vorname?a.vorname+' ':'')+a.nachname)}</strong>${a.funktion?' <span style="color:var(--clr-text-light);font-size:12px">('+esc(a.funktion)+')</span>':''}</div>
             <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-              ${a.betrieb_name ? '<span>🏢 '+esc(a.betrieb_name)+(a.betrieb_ort?' ('+esc(a.betrieb_ort)+')':'')+'</span>' : ''}
-              ${a.telefon ? '<span>📞 '+esc(a.telefon)+'</span>' : ''}
-              ${a.mobil ? '<span>📱 '+esc(a.mobil)+'</span>' : ''}
-              ${a.email ? '<span>✉ '+esc(a.email)+'</span>' : ''}
+              ${a.betrieb_name ? '<span>'+esc(a.betrieb_name)+(a.betrieb_ort?' ('+esc(a.betrieb_ort)+')':'')+'</span>' : ''}
+              ${a.telefon ? '<span>☎︎ '+esc(a.telefon)+'</span>' : ''}
+              ${a.mobil ? '<span>☎︎ '+esc(a.mobil)+'</span>' : ''}
+              ${a.email ? '<span>✉︎ '+esc(a.email)+'</span>' : ''}
             </div>
           </div>
         </div>`;
@@ -175,7 +175,7 @@ const GlobalSearch = {
         const idx = this._results.length;
         this._results.push({ type: 'schule', id: s.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('schulen'), 100); }});
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
-          <span>🏫</span>
+          <span></span>
           <div style="flex:1"><strong>${esc(s.name)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(s.ort||'')} · ${s.kl_cnt} Klassen · ${s.s_cnt} Azubis</span></div>
           ${s.email ? '<a href="mailto:'+esc(s.email)+'" onclick="event.stopPropagation()" style="font-size:10px;color:var(--clr-forest);text-decoration:none">Mail</a>' : ''}
         </div>`;
@@ -191,7 +191,7 @@ const GlobalSearch = {
         const idx = this._results.length;
         this._results.push({ type: 'klasse', id: k.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('klassen'), 100); }});
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
-          <span>📚</span>
+          <span></span>
           <div style="flex:1"><strong>${esc(k.klassenbezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(k.schule)} · ${esc(k.jahrgang||'')} · ${k.cnt} Azubis</span></div>
         </div>`;
       });
@@ -202,7 +202,7 @@ const GlobalSearch = {
   },
 
   showCheatSheet() {
-    App.openModal('⌨️ Tastenkürzel', `
+    App.openModal('⌨ Tastenkürzel', `
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px 16px;font-size:13px">
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>

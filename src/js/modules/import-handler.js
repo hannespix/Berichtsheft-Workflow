@@ -163,7 +163,7 @@ const ImportHandler = {
           }).join('')}
         </div>
         <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
-          <strong style="font-size:13px;color:var(--clr-forest-dark)">🤖 Vollautomatische Zuordnung:</strong>
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">Vollautomatische Zuordnung:</strong>
           <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
             <li><strong>Beruf-Code</strong> (31–37 Gärtner, 171–177 Fachwerker) → Fachrichtung</li>
             <li><strong>Abschlussprüfung</strong> ("S2028", "W2027") → Abschlussjahrgang</li>
@@ -180,7 +180,7 @@ const ImportHandler = {
           ${data.length > 5 ? `<p style="padding:4px 8px;font-size:11px;color:var(--clr-text-light)">… und ${data.length - 5} weitere Zeilen</p>` : ''}
         </div>
         <details style="margin-bottom:12px" onmouseover="if(!this._loaded){this._loaded=true;ImportHandler._renderMappedPreview()}">
-          <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">🔍 Vorschau: So werden die Daten interpretiert (erste 3)</summary>
+          <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">Vorschau: So werden die Daten interpretiert (erste 3)</summary>
           <div id="mappedPreview" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-top:4px;max-height:200px;overflow-y:auto">
             <em style="color:var(--clr-text-light)">Aufklappen um Vorschau zu laden…</em>
           </div>
@@ -567,12 +567,12 @@ const ImportHandler = {
     if (stats.klassen.size) parts.push(`<strong>${stats.klassen.size}</strong> Klassen angelegt`);
     if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);
     // H/F codes now stored as Frühjahr/Herbst directly
-    if (stats.frNotFound.size) parts.push(`⚠️ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
-    if (stats.bavEnde) parts.push(`⚠️ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
-    if (stats.bavReaktiviert) parts.push(`✅ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
-    if (noKlasseCount > 0) parts.push(`⚠️ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
+    if (stats.frNotFound.size) parts.push(`⚠︎ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
+    if (stats.bavEnde) parts.push(`⚠︎ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
+    if (stats.bavReaktiviert) parts.push(`✓ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
+    if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
-    if (errorRows.length) parts.push(`⚠️ <strong>${errorRows.length}</strong> Zeilen mit Fehlern (übersprungen)`);
+    if (errorRows.length) parts.push(`⚠︎ <strong>${errorRows.length}</strong> Zeilen mit Fehlern (übersprungen)`);
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
@@ -595,7 +595,7 @@ const ImportHandler = {
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
       ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
-        <strong>⚠️ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
+        <strong>⚠︎ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
           ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
             <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${esc(f)}: ${esc(alt||'–')} → ${esc(neu)}`).join(', ')}
@@ -604,7 +604,7 @@ const ImportHandler = {
         </div>
       </div>` : ''}
       ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
-        <strong>⚠️ Fehlerhafte Zeilen (${errorRows.length}):</strong>
+        <strong>⚠︎ Fehlerhafte Zeilen (${errorRows.length}):</strong>
         <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
@@ -675,8 +675,8 @@ const ImportHandler = {
         <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>📞 Telefon</label><input class="form-control" id="mSTelefon" placeholder="Mobil/Festnetz"></div>
-        <div class="form-group"><label>📧 E-Mail</label><input class="form-control" id="mSEmail" placeholder="azubi@email.de"></div>
+        <div class="form-group"><label>☎︎ Telefon</label><input class="form-control" id="mSTelefon" placeholder="Mobil/Festnetz"></div>
+        <div class="form-group"><label>✉︎ E-Mail</label><input class="form-control" id="mSEmail" placeholder="azubi@email.de"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="ImportHandler.saveManual()">Speichern</button>`);
@@ -856,7 +856,7 @@ const ImportHandler = {
         <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">&#128209; Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">▤ Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
@@ -1088,7 +1088,7 @@ const ImportHandler = {
     if (updated) parts.push(`<strong>${updated}</strong> Schüler mit Landesfachklasse aktualisiert`);
     if (cleared) parts.push(`${cleared} Landesfachklassen entfernt (wieder normale Klasse)`);
     if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
-    if (notFound) parts.push(`⚠️ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
+    if (notFound) parts.push(`⚠︎ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
 
     App.openModal('LFK-Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>

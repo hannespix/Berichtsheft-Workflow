@@ -59,10 +59,10 @@ const PlanungHandler = {
       <!-- Typ-Toggle -->
       <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);overflow:hidden">
         <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-forest);color:white;font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
-          🏫 Schulkontrolle
+          Schulkontrolle
         </button>
         <button id="btnTypEinsend" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-warm);color:var(--clr-text);font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypSchule').style.background='var(--clr-warm)';document.getElementById('btnTypSchule').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='einsendung'">
-          📬 Einsendung / Einzelprüfung
+          ✉︎ Einsendung / Einzelprüfung
         </button>
       </div>
       <input type="hidden" id="mKtTyp" value="schulkontrolle">
@@ -72,23 +72,23 @@ const PlanungHandler = {
         <label>Klassen / Gruppen auswählen</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">📅 Abschlussprüfung: Alle</option>
+            <option value="">Abschlussprüfung: Alle</option>
             ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">📝 Zwischenprüfung: Alle</option>
+            <option value="">✎ Zwischenprüfung: Alle</option>
             ${zpValues.map(z => `<option value="${esc(z.zwischenpruefung)}">${App.zpLabel(z.zwischenpruefung)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🏫 Schule: Alle</option>
+            <option value="">Schule: Alle</option>
             ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🏛 Amt: Alle</option>
+            <option value="">§ Amt: Alle</option>
             ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🌿 Fachrichtung: Alle</option>
+            <option value="">Fachrichtung: Alle</option>
             ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
           </select>
         </div>
@@ -111,7 +111,7 @@ const PlanungHandler = {
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
       <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">🏫 Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
@@ -146,7 +146,7 @@ const PlanungHandler = {
       <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mKtBem" rows="2"></textarea></div>
       <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <strong style="color:var(--clr-forest)">📅 KW-Kalender – Klick = Datum setzen</strong>
+          <strong style="color:var(--clr-forest)">KW-Kalender – Klick = Datum setzen</strong>
           <div style="display:flex;gap:8px;font-size:10px">
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> Alle LJ</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:#a7d7a7;border-radius:2px;vertical-align:middle"></span> Teilweise</span>
@@ -280,7 +280,7 @@ const PlanungHandler = {
       </div>`;
     }).join('')
     + (hasAnyLFK ? `<div style="font-size:10px;color:#7b2fa0;margin-top:6px;padding:4px 0">
-      ℹ️ <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
+      <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
 
@@ -599,10 +599,10 @@ const PlanungHandler = {
       <!-- Typ-Toggle -->
       <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);overflow:hidden">
         <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:${isEinsendung ? 'var(--clr-warm)' : 'var(--clr-forest)'};color:${isEinsendung ? 'var(--clr-text)' : 'white'};font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
-          🏫 Schulkontrolle
+          Schulkontrolle
         </button>
         <button id="btnTypEinsend" class="btn" style="flex:1;border-radius:0;border:none;background:${isEinsendung ? 'var(--clr-forest)' : 'var(--clr-warm)'};color:${isEinsendung ? 'white' : 'var(--clr-text)'};font-size:13px;padding:8px" onclick="document.getElementById('sectionEinsendungExtra').style.display='';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypSchule').style.background='var(--clr-warm)';document.getElementById('btnTypSchule').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='einsendung'">
-          📬 Einsendung / Einzelprüfung
+          ✉︎ Einsendung / Einzelprüfung
         </button>
       </div>
       <input type="hidden" id="mKtTyp" value="${esc(t.typ || 'schulkontrolle')}">
@@ -611,23 +611,23 @@ const PlanungHandler = {
         <label>Klassen / Gruppen auswählen</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">📅 Abschlussprüfung: Alle</option>
+            <option value="">Abschlussprüfung: Alle</option>
             ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">📝 Zwischenprüfung: Alle</option>
+            <option value="">✎ Zwischenprüfung: Alle</option>
             ${zpValues.map(z => `<option value="${esc(z.zwischenpruefung)}">${App.zpLabel(z.zwischenpruefung)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🏫 Schule: Alle</option>
+            <option value="">Schule: Alle</option>
             ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🏛 Amt: Alle</option>
+            <option value="">§ Amt: Alle</option>
             ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
           </select>
           <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">🌿 Fachrichtung: Alle</option>
+            <option value="">Fachrichtung: Alle</option>
             ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
           </select>
         </div>
@@ -650,7 +650,7 @@ const PlanungHandler = {
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
       <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">🏫 Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
@@ -685,7 +685,7 @@ const PlanungHandler = {
       <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mKtBem" rows="2">${esc(t.bemerkung)}</textarea></div>
       <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <strong style="color:var(--clr-forest)">📅 KW-Kalender – Klick = Datum setzen</strong>
+          <strong style="color:var(--clr-forest)">KW-Kalender – Klick = Datum setzen</strong>
           <div style="display:flex;gap:8px;font-size:10px">
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> Alle LJ</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:#a7d7a7;border-radius:2px;vertical-align:middle"></span> Teilweise</span>
@@ -772,7 +772,7 @@ const PlanungHandler = {
     const endYear = today.getMonth() >= 7 ? today.getFullYear() + 1 : today.getFullYear();
     const defaultEnd = `${endYear}-07-31`;
 
-    App.openModal('📅 Jahresplanungs-Assistent', `
+    App.openModal('Jahresplanungs-Assistent', `
       <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:12px">
         Erstellt automatisch Kontrolltermine für alle ausgewählten Klassen. Die Termine werden gleichmäßig über den Zeitraum verteilt.
       </p>

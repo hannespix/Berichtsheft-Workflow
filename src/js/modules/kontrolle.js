@@ -188,7 +188,7 @@ const KontrolleHandler = {
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">&#127891;</a>`:''}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">◈</a>`:''}</div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -208,7 +208,7 @@ const KontrolleHandler = {
           <input type="checkbox" ${isPA ? 'checked' : ''} onchange="KontrolleHandler.togglePA(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-red)" title="An Prüfungsausschuss übergeben">
         </td>
         <td style="text-align:center">
-          ${needsAttention ? '<span title="Zulassungsbedingungen nicht erfüllt – prüfen!" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠</span>' : ''}
+          ${needsAttention ? '<span title="Zulassungsbedingungen nicht erfüllt – prüfen!" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠︎</span>' : ''}
           ${isZulassung && !isPA ? '<span style="color:var(--clr-green);font-size:14px" title="AP-Zulassung erteilt ✓">✓</span>' : ''}
           ${isPA ? '<span style="color:var(--clr-red);font-size:12px;font-weight:700" title="Prüfungsausschuss">PA</span>' : ''}
         </td>
@@ -249,8 +249,8 @@ const KontrolleHandler = {
             <div style="font-size:12px;color:var(--clr-text-light)">${formatDate(termin.geplant_datum)} · ${esc(termin.pruefer||'')} · ${schueler.length} Schüler</div>
           </div>
           <div class="btn-group">
-            <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">📋 Übersicht</button>
-            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()" style="${this._viewMode==='einzeln'?'border:2px solid var(--clr-forest)':''}">👤 Einzelansicht</button>
+            <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">▤ Übersicht</button>
+            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()" style="${this._viewMode==='einzeln'?'border:2px solid var(--clr-forest)':''}">Einzelansicht</button>
             <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()" style="${this._groupByFR ? 'border:2px solid var(--clr-forest);background:var(--clr-green-light)' : ''}" title="Nach Fachrichtung gruppieren">Nach FR gruppieren</button>
           </div>
         </div>
@@ -258,7 +258,7 @@ const KontrolleHandler = {
         <!-- Statistik-Leiste -->
         <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
           <div style="padding:6px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
-            📊 <strong>${anwCount}</strong>/${schueler.length} anwesend
+            <strong>${anwCount}</strong>/${schueler.length} anwesend
           </div>
           <div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
             ✓ <strong>${okCount}</strong> in Ordnung
@@ -267,13 +267,13 @@ const KontrolleHandler = {
             ✗ <strong>${mangelCount}</strong> beanstandet
           </div>
           <div style="padding:6px 12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px">
-            ⏳ <strong>${schueler.length - doneCount}</strong> noch offen
+            <strong>${schueler.length - doneCount}</strong> noch offen
           </div>
           ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            🎓 <strong>${zulCount}</strong> zugelassen
+            ◈ <strong>${zulCount}</strong> zugelassen
           </div>` : ''}
           ${paCount ? `<div style="padding:6px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--clr-red)">
-            ⚠ <strong>${paCount}</strong> Prüfungsausschuss
+            ⚠︎ <strong>${paCount}</strong> Prüfungsausschuss
           </div>` : ''}
         </div>
 
@@ -285,7 +285,7 @@ const KontrolleHandler = {
           return `<div style="margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;color:var(--clr-text-light)">
               <span>Fortschritt: ${doneCount}/${schueler.length} bewertet (${pctDone}%)</span>
-              <span>${pctDone === 100 ? '✅ Alle bewertet!' : `${schueler.length - doneCount} offen`}</span>
+              <span>${pctDone === 100 ? '✓ Alle bewertet!' : `${schueler.length - doneCount} offen`}</span>
             </div>
             <div style="height:8px;background:var(--clr-sand);border-radius:4px;overflow:hidden;display:flex">
               <div style="width:${pctOK}%;background:var(--clr-green);transition:width 0.3s" title="${okCount} in Ordnung"></div>
@@ -302,7 +302,7 @@ const KontrolleHandler = {
               <th>Name / Betrieb</th>
               <th title="Fachrichtung">FR</th>
               <th style="width:50px;text-align:center" title="Anwesend bei Durchsicht (Checkbox)">Anw.</th>
-              <th style="width:35px;text-align:center" title="Ampel-Status">⚡</th>
+              <th style="width:35px;text-align:center" title="Ampel-Status">↯</th>
               <th>Ergebnis</th>
               <th style="width:55px;text-align:center" title="Fehltage gesamt">Fehl.</th>
               <th style="width:45px;text-align:center" title="Pflichtteile vollständig">Pfl.</th>
@@ -319,13 +319,13 @@ const KontrolleHandler = {
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">✓ Alle anwesend</button>
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">✗ Alle abwesend</button>
-          <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()">👤 Einzelkontrolle starten</button>
+          <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()">Einzelkontrolle starten</button>
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.showAddSchueler()" title="Schüler aus anderer Klasse oder neuen Schüler hinzufügen">+ Schüler hinzufügen</button>
           <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht()" title="Übersichtstabelle drucken">🖨️ Drucken</button>
-            <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${terminId})" title="E-Mail an Schule">📧 Schule</button>
-            <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${terminId})" title="Betriebe anschreiben">📄 Betriebe</button>
-            <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${terminId})">📄 Alle PDFs</button>
+            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht()" title="Übersichtstabelle drucken">⎙ Drucken</button>
+            <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${terminId})" title="E-Mail an Schule">✉︎ Schule</button>
+            <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${terminId})" title="Betriebe anschreiben">▤ Betriebe</button>
+            <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${terminId})">▤ Alle PDFs</button>
           </div>
         </div>
       </div>
@@ -429,7 +429,7 @@ const KontrolleHandler = {
         <td style="text-align:center;${fehlWarn ? 'color:red;font-weight:bold' : ''}">${fehl} <span style="font-size:8px">(${fehlPct.toFixed(0)}%)</span></td>
         <td style="text-align:center">${pflOK ? '✓' : '–'}</td>
         <td style="text-align:center;color:${isZul ? '#27ae60' : '#999'};font-weight:${isZul ? '700' : '400'}">${isZul ? '✓' : '–'}</td>
-        <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠ PA' : '–'}</td>
+        <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠︎ PA' : '–'}</td>
         <td style="font-size:10px">${esc(ke.bemerkung || '')}</td>
       </tr>`;
     }).join('');
@@ -452,8 +452,8 @@ const KontrolleHandler = {
       <span style="background:#e8f5e9">✓ ${ok} i.O.</span>
       <span style="background:${mg ? '#fde8e6' : '#f5f5f5'}">✗ ${mg} beanstandet</span>
       <span style="background:#f5f5f5">${anw}/${schueler.length} anwesend</span>
-      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">🎓 ${zul} zugelassen</span>` : ''}
-      ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠ ${pa} Prüfungsausschuss</span>` : ''}
+      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">◈ ${zul} zugelassen</span>` : ''}
+      ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠︎ ${pa} Prüfungsausschuss</span>` : ''}
     </div>
     <table>
       <thead><tr><th>#</th><th>Name</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt">Fehl.</th><th title="Pflichtteile vollständig">Pfl.</th><th title="Zulassung zur Abschlussprüfung">Zul.</th><th title="Prüfungsausschuss">PA</th><th>Bemerkung</th></tr></thead>
@@ -526,7 +526,7 @@ const KontrolleHandler = {
 
       <!-- Panel 2: Neuer Schüler manuell anlegen -->
       <div id="panelNew" style="display:none">
-        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠ Der Schüler wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
+        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠︎ Der Schüler wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
         <div class="form-row">
           <div class="form-group"><label>Nachname *</label><input class="form-control" id="newSchNachname" required></div>
           <div class="form-group"><label>Vorname *</label><input class="form-control" id="newSchVorname" required></div>
@@ -563,8 +563,8 @@ const KontrolleHandler = {
         </div>
         <div class="form-group"><label>iBykus-Ident (optional)</label><input class="form-control" id="newSchIbykus" placeholder="BAV-Nummer"></div>
         <div class="form-row">
-          <div class="form-group"><label>📞 Telefon</label><input class="form-control" id="newSchTelefon" placeholder="Mobil/Festnetz"></div>
-          <div class="form-group"><label>📧 E-Mail</label><input class="form-control" id="newSchEmail" placeholder="azubi@email.de"></div>
+          <div class="form-group"><label>☎︎ Telefon</label><input class="form-control" id="newSchTelefon" placeholder="Mobil/Festnetz"></div>
+          <div class="form-group"><label>✉︎ E-Mail</label><input class="form-control" id="newSchEmail" placeholder="azubi@email.de"></div>
         </div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
@@ -829,7 +829,7 @@ const KontrolleHandler = {
             const fehlDisplay = fehl > 0 && !(hasCodes && codeStr.includes('H')) ? `<span class="kw-fehltage">${fehl}</span>` : '';
             // Merge H with Fehltage: "A,H" + 3 → display "A H3"
             const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
-            const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;font-size:7px;line-height:1">💬</span>` : '';
+            const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;font-size:7px;line-height:1"></span>` : '';
             const title = `KW ${kw}${drLabel}${hasRealMaengel ? ' · Mängel: '+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
             return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
@@ -877,21 +877,21 @@ const KontrolleHandler = {
       ${isLocked ? `<!-- Lock Warning -->
       <div class="card" id="lockWarning" style="margin-bottom:8px;border-left:4px solid var(--clr-red);background:var(--clr-red-light)">
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <span style="font-size:24px">🔒</span>
+          <span style="font-size:24px">⊘</span>
           <div>
             <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Schüler!</strong>
             <div style="font-size:12px;color:var(--clr-text)">Dieser Schüler ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Schüler wechselt.</div>
             <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
               Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Schüler bearbeiten.
-              <button class="btn btn-sm" style="margin-left:12px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠️ Sperre aufheben (Datenkonflikt möglich!)</button>
+              <button class="btn btn-sm" style="margin-left:12px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
             </div>
           </div>
         </div>
       </div>` : `<div id="lockWarning" style="display:none" class="card" style="margin-bottom:8px;border-left:4px solid var(--clr-red);background:var(--clr-red-light)">
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <span style="font-size:24px">🔒</span>
+          <span style="font-size:24px">⊘</span>
           <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Schüler!</strong>
-            <div style="font-size:11px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠️ Sperre aufheben</button></div>
+            <div style="font-size:11px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben</button></div>
           </div>
         </div>
       </div>`}
@@ -908,7 +908,7 @@ const KontrolleHandler = {
           </span>` : '<span style="font-size:10px;color:var(--clr-amber)">Demo (kein Sync)</span>'}
           <!-- Live prüfer positions (updated by doLiveSync) -->
           <span id="livePrueferBar" style="display:${anderePruefer.length ? '' : 'none'};font-size:11px;padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">
-            ${anderePruefer.map(a => `🔒 ${esc(a.pruefer)} → #${this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId)+1} ${esc(a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?')}`).join(' · ')}
+            ${anderePruefer.map(a => `⊘ ${esc(a.pruefer)} → #${this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId)+1} ${esc(a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?')}`).join(' · ')}
           </span>
           <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
             <div style="position:relative">
@@ -927,9 +927,9 @@ const KontrolleHandler = {
       <!-- Mode toggle + Navigation -->
       <div class="card" style="margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--clr-sand)">
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">📋 Übersicht</button>
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">▤ Übersicht</button>
           <span style="font-size:11px;color:var(--clr-text-light)">|</span>
-          <span style="font-size:12px;font-weight:600;color:var(--clr-forest)">👤 Einzelansicht</span>
+          <span style="font-size:12px;font-weight:600;color:var(--clr-forest)">Einzelansicht</span>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <button class="btn btn-secondary" ${this.currentIndex === 0 ? 'disabled' : ''} onclick="KontrolleHandler.prev()">← Vorheriger</button>
@@ -940,10 +940,10 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">&#127891; Dashboard</a>`:''}
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">◈ Dashboard</a>`:''}
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
-              ✏️ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
+              ✎ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
             </div>` : ''}
           </div>
           <button class="btn btn-secondary" ${this.currentIndex === total - 1 ? 'disabled' : ''} onclick="KontrolleHandler.next()">Nächster →</button>
@@ -974,7 +974,7 @@ const KontrolleHandler = {
           // Wiederholungstäter
           if (wdh.isRepeat) {
             html += `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;padding:5px 10px;background:var(--clr-red-light);border-left:3px solid var(--clr-red);border-radius:var(--radius);font-size:12px;color:#8b2020">
-              <span style="font-size:14px">⚠️</span>
+              <span style="font-size:14px">⚠︎</span>
               <div><strong>Wiederholte Beanstandung (${wdh.count}×)</strong>
               ${wdh.codes.length ? `<br>Häufige Codes: <strong>${wdh.codes.join(', ')}</strong>` : ''}
               ${wdh.suggestion ? `<br><em>${wdh.suggestion}</em>` : ''}</div>
@@ -984,7 +984,7 @@ const KontrolleHandler = {
           if (prevKE) {
             html += `<div style="margin-top:4px">
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.applyTemplate()" title="Pflichtteile aus letzter Kontrolle übernehmen">
-                📋 Pflichtteile aus Vorkontrolle übernehmen
+                ▤ Pflichtteile aus Vorkontrolle übernehmen
               </button>
             </div>`;
           }
@@ -1002,8 +1002,8 @@ const KontrolleHandler = {
             let style = anw === 0 ? 'background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)' : '';
             if (lockedBy) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
             else if (otherPruefer) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
-            const ampelDot = ampel.color === 'green' ? '' : (ampel.color === 'red' ? '🔴' : (ampel.color === 'yellow' ? '🟡' : ''));
-            return `<button class="btn btn-sm ${cls}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – 🔒 '+lockedBy : (otherPruefer ? ' – 🔒 '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}">${lockedBy ? '🔒' : ampelDot}${i+1}</button>`;
+            const ampelDot = ampel.color === 'green' ? '' : (ampel.color === 'red' ? '<span style="color:var(--clr-red)">◆</span>' : (ampel.color === 'yellow' ? '<span style="color:var(--clr-amber)">◐</span>' : ''));
+            return `<button class="btn btn-sm ${cls}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
           }).join('')}
         </div>
         </div>
@@ -1063,7 +1063,7 @@ const KontrolleHandler = {
 
         return `<details class="card" style="margin-bottom:12px" ${lastPrev && lastPrev.ergebnis !== 'in_ordnung' ? 'open' : ''}>
         <summary style="cursor:pointer;padding:12px 16px;font-weight:600;font-size:13px;color:var(--clr-forest-dark)">
-          📋 ${prevKEs.length} frühere Kontrolle${prevKEs.length > 1 ? 'n' : ''} vorhanden
+          ▤ ${prevKEs.length} frühere Kontrolle${prevKEs.length > 1 ? 'n' : ''} vorhanden
           <span style="font-weight:400;color:var(--clr-text-light);font-size:12px;margin-left:8px">
             Letzte: ${formatDate(lastPrev.geplant_datum)} – ${ergebnisLabels[lastPrev.ergebnis] || lastPrev.ergebnis}
             ${carriedKWs ? ` · <span style="color:var(--clr-green)">${carriedKWs} KWs übernommen</span>` : ''}
@@ -1071,7 +1071,7 @@ const KontrolleHandler = {
         </summary>
         <div style="padding:8px 16px 16px">
           ${lastPrev.ergebnis !== 'in_ordnung' ? `<div style="padding:6px 10px;background:var(--clr-amber-light);border-left:3px solid var(--clr-amber);border-radius:var(--radius);margin-bottom:8px;font-size:12px">
-            <strong>⚠ Letzte Kontrolle war nicht OK:</strong> ${ergebnisLabels[lastPrev.ergebnis] || lastPrev.ergebnis}
+            <strong>⚠︎ Letzte Kontrolle war nicht OK:</strong> ${ergebnisLabels[lastPrev.ergebnis] || lastPrev.ergebnis}
             ${lastPrev.bemerkung ? `<br><em style="color:var(--clr-text-light)">${esc(lastPrev.bemerkung).substring(0,120)}</em>` : ''}
           </div>` : ''}
           <table class="data-table"><thead><tr><th>#</th><th>Datum</th><th>Prüfer</th><th>Ergebnis</th><th>Fehltage</th><th>Unterlagen</th></tr></thead><tbody>
@@ -1084,8 +1084,8 @@ const KontrolleHandler = {
                 <td><span class="badge-status ${pke.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${ergebnisLabels[pke.ergebnis] || pke.ergebnis}</span></td>
                 <td>${pke.fehltage_gesamt || 0}</td>
                 <td class="btn-group" style="flex-wrap:wrap">
-                  <button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${pke.tid},${s.id})" title="Durchsichtsbogen als PDF">📄 PDF</button>
-                  ${snaps.map(snap => `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" title="Archiv vom ${formatDate(snap.snapshot_datum)}">🔍 Archiv</button>`).join('')}
+                  <button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(${pke.tid},${s.id})" title="Durchsichtsbogen als PDF">▤ PDF</button>
+                  ${snaps.map(snap => `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" title="Archiv vom ${formatDate(snap.snapshot_datum)}">Archiv</button>`).join('')}
                   <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.goToKontrolle(${pke.tid},${s.id})" title="Alte Kontrolle öffnen">→ Öffnen</button>
                 </td>
               </tr>`;
@@ -1237,9 +1237,9 @@ const KontrolleHandler = {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px">
         <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''}>← Vorheriger</button>
         <div class="btn-group" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
-          <button class="btn btn-success" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Änderungen speichern und Schüler für andere freigeben" style="font-weight:600">💾 Speichern & Freigeben</button>
-          <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">📄 PDF Einzeln</button>
-          <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">📄 PDF Alle (${total})</button>
+          <button class="btn btn-success" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Änderungen speichern und Schüler für andere freigeben" style="font-weight:600">Speichern & Freigeben</button>
+          <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">▤ PDF Einzeln</button>
+          <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">▤ PDF Alle (${total})</button>
         </div>
         <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''}>Nächster →</button>
       </div>
@@ -1270,7 +1270,7 @@ const KontrolleHandler = {
               ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()" ${open > 0 ? '' : ''}>
                 ${open === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${open} offen)`}
               </button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Kontrolle wieder öffnen</button>`}
-              <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})">📄 Alle als PDF</button>
+              <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})">▤ Alle als PDF</button>
             </div>
           </div>
         </div>`;
@@ -1618,7 +1618,7 @@ const KontrolleHandler = {
       bar.innerHTML = others.map(a => {
         const idx = this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId);
         const name = a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?';
-        return `🔒 ${esc(a.pruefer)} → #${idx+1} ${esc(name)}`;
+        return `⊘ ${esc(a.pruefer)} → #${idx+1} ${esc(name)}`;
       }).join(' · ');
     } else {
       bar.style.display = 'none';
@@ -1799,7 +1799,7 @@ const KontrolleHandler = {
       if (otherHere) {
         btn.style.boxShadow = '0 0 0 3px var(--clr-red), inset 0 0 0 1px var(--clr-red)';
         btn.style.opacity = '0.7';
-        titleParts.push(`🔒 ${otherHere.pruefer}`);
+        titleParts.push(`⊘ ${otherHere.pruefer}`);
       }
 
       // Update done-state from disk (if the other prüfer finished this student)
@@ -1816,7 +1816,7 @@ const KontrolleHandler = {
       }
 
       btn.title = titleParts.join(' · ');
-      btn.textContent = (otherHere ? '🔒' : '') + (i + 1);
+      btn.textContent = (otherHere ? '⊘' : '') + (i + 1);
     });
   },
 
@@ -1828,7 +1828,7 @@ const KontrolleHandler = {
       const parts = others.map(o => {
         const idx = this.currentSchuelerList.findIndex(sc => sc.id === o.schuelerId);
         const name = o.schuelerName || (idx >= 0 ? this.currentSchuelerList[idx].nachname : '?');
-        return `🔒 ${o.pruefer} → #${idx+1} ${name}`;
+        return `⊘ ${o.pruefer} → #${idx+1} ${name}`;
       });
       bar.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
       bar.style.display = '';
@@ -1942,7 +1942,7 @@ const KontrolleHandler = {
       const s = r.sc;
       const ke = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
       const ergebnis = ke?.ergebnis;
-      const badge = ergebnis === 'in_ordnung' ? '🟢' : ergebnis && ergebnis !== '' ? '🔴' : '⚪';
+      const badge = ergebnis === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : ergebnis && ergebnis !== '' ? '<span style="color:var(--clr-red)">◆</span>' : '<span style="color:var(--clr-sage-light)">○</span>';
       const isActive = ri === 0;
       return `<div class="search-result" data-ridx="${ri}" data-idx="${r.idx}"
         style="padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--clr-sand);${isActive ? 'background:var(--clr-green-light)' : ''}"
@@ -2101,7 +2101,7 @@ const KontrolleHandler = {
       <!-- Step 2: Wiedervorlagen-Fristen -->
       ${mangelhafte.length ? `
       <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-        <strong style="font-size:13px;color:var(--clr-forest)">⏰ Wiedervorlagen-Fristen (automatisch vorgeschlagen)</strong>
+        <strong style="font-size:13px;color:var(--clr-forest)">Wiedervorlagen-Fristen (automatisch vorgeschlagen)</strong>
         <div style="max-height:150px;overflow-y:auto;margin-top:8px">
           ${mangelhafte.map(m => {
             const existingWV = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [m.ke.id]);
@@ -2120,16 +2120,16 @@ const KontrolleHandler = {
 
       <!-- Step 3: Nachbereitungs-Optionen -->
       <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-        <strong style="font-size:13px;color:var(--clr-forest)">📤 Nachbereitung</strong>
+        <strong style="font-size:13px;color:var(--clr-forest)">Nachbereitung</strong>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> 📄 PDFs für mangelhafte Schüler generieren (${mangelhafte.length})
+            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> ▤ PDFs für mangelhafte Schüler generieren (${mangelhafte.length})
           </label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="wizEmailSchule" style="accent-color:var(--clr-forest)"> 📧 Ergebnis-Zusammenfassung an Schule senden
+            <input type="checkbox" id="wizEmailSchule" style="accent-color:var(--clr-forest)"> ✉︎ Ergebnis-Zusammenfassung an Schule senden
           </label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="wizBetriebe" ${mangelhafte.length?'checked':''} style="accent-color:var(--clr-forest)"> 📄 Betriebe bei Mängeln anschreiben (Seriendruck)
+            <input type="checkbox" id="wizBetriebe" ${mangelhafte.length?'checked':''} style="accent-color:var(--clr-forest)"> ▤ Betriebe bei Mängeln anschreiben (Seriendruck)
           </label>
         </div>
       </div>
@@ -2348,7 +2348,7 @@ const KontrolleHandler = {
       </div>`;
     App.openModal(`Durchsicht vom ${formatDate(snap.snapshot_datum)}`, body,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="KontrolleHandler.exportSnapshotPDF(${snapId})">📄 Als PDF drucken</button>`);
+       <button class="btn btn-primary" onclick="KontrolleHandler.exportSnapshotPDF(${snapId})">▤ Als PDF drucken</button>`);
   },
 
   // ── PDF from historical snapshot ──

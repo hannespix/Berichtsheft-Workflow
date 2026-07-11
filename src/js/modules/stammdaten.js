@@ -68,14 +68,14 @@ const StammdatenTab = {
 
     // Global filter indicator
     const globalInfo = [];
-    if (App.filterAmt.length && App.filterAmt[0] !== '-1') globalInfo.push('🏛 ' + (App.filterAmt.length === 1 ? App.amtLabel(App.filterAmt[0]) : App.filterAmt.length + ' Ämter'));
+    if (App.filterAmt.length && App.filterAmt[0] !== '-1') globalInfo.push('§ ' + (App.filterAmt.length === 1 ? App.amtLabel(App.filterAmt[0]) : App.filterAmt.length + ' Ämter'));
     if (App.filterFachrichtungen.length) {
       const btn = document.getElementById('bgFilterBtn');
-      globalInfo.push('🌿 ' + (btn ? btn.textContent.replace(' ▾','') : App.filterFachrichtungen.length + ' Berufe'));
+      globalInfo.push('' + (btn ? btn.textContent.replace(' ▾','') : App.filterFachrichtungen.length + ' Berufe'));
     }
     if (App.filterJahrgang.length && App.filterJahrgang[0] !== -1) {
       const names = App.filterJahrgang.map(id => App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [id])).filter(Boolean);
-      globalInfo.push('📅 ' + (names.length <= 2 ? names.join(', ') : names.length + ' JG'));
+      globalInfo.push('' + (names.length <= 2 ? names.join(', ') : names.length + ' JG'));
     }
     const globalBadge = globalInfo.length ? `<span style="font-size:10px;color:var(--clr-sage);padding:2px 6px;background:var(--clr-warm);border-radius:6px">${globalInfo.join(' · ')}</span>` : '';
 
@@ -91,11 +91,11 @@ const StammdatenTab = {
         ${schulen.map(s2 => `<option value="${s2.id}" ${fil.schule==s2.id?'selected':''}>${esc(s2.name)}</option>`).join('')}
       </select>
       ${globalBadge}
-      ${fil.drillDown ? `<span style="font-size:11px;padding:3px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:6px;display:flex;align-items:center;gap:4px">🔍 ${esc(fil.drillDown.label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="StammdatenTab._azubiFilter.drillDown=null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">✕</span></span>` : ''}
+      ${fil.drillDown ? `<span style="font-size:11px;padding:3px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:6px;display:flex;align-items:center;gap:4px">${esc(fil.drillDown.label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="StammdatenTab._azubiFilter.drillDown=null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">✕</span></span>` : ''}
       <span id="azubiCount" style="font-size:12px;color:var(--clr-text-light)"></span>
       <div style="margin-left:auto;display:flex;gap:4px">
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._exportAzubiExcel()" title="Gefilterte Liste als Excel exportieren" style="font-size:11px;padding:4px 8px">📊 Excel</button>
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._copyAzubiTable()" title="Tabelle in Zwischenablage kopieren" style="font-size:11px;padding:4px 8px">📋 Kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._exportAzubiExcel()" title="Gefilterte Liste als Excel exportieren" style="font-size:11px;padding:4px 8px">Excel</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._copyAzubiTable()" title="Tabelle in Zwischenablage kopieren" style="font-size:11px;padding:4px 8px">▤ Kopieren</button>
       </div>
     </div>
     <div id="azubiTableContainer"></div>`;
@@ -141,12 +141,12 @@ const StammdatenTab = {
     <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
       <strong><span id="bulkCountAzubi">0</span> ausgewählt</strong>
       <span style="opacity:0.4">│</span>
-      <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab._bulkDeleteAzubis()">🗑 Löschen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸ Inaktiv setzen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">📚 Klasse zuordnen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">📅 Jahrgang ändern</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">🌿 Fachrichtung ändern</button>
-      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">📋 Einzelprüfung erstellen</button>
+      <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab._bulkDeleteAzubis()">Löschen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸︎ Inaktiv setzen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
@@ -181,7 +181,7 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">&#127891;</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">&#128209;</button></td>
+          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">\u270f\ufe0f</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">◈</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">▤</button></td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -408,7 +408,7 @@ const StammdatenTab = {
           <td>${r.pruefungstermin ? formatDate(r.pruefungstermin) : '–'}</td>
           <td>${cntAktiv > 0 ? `<a href="#" onclick="StammdatenTab._azubiFilter={jahrgang:${r.id}};StammdatenTab._azubiSearch='';StammdatenTab._azubiPage=0;StammdatenTab.show('azubis');return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubis dieses Jahrgangs anzeigen">${cntAktiv}</a>` : '0'}${cnt !== cntAktiv ? ` <span style="color:var(--clr-text-light);font-size:11px">(+${cnt-cntAktiv} inaktiv)</span>` : ''}</td>
           <td class="btn-group">
-            <button class="btn btn-sm btn-secondary" onclick="App.filterJahrgang=[${r.id}];App._applyJgFilter();App.navigate('dashboard')" title="Dashboard auf diesen Jahrgang filtern">📋 Filtern</button>
+            <button class="btn btn-sm btn-secondary" onclick="App.filterJahrgang=[${r.id}];App._applyJgFilter();App.navigate('dashboard')" title="Dashboard auf diesen Jahrgang filtern">▤ Filtern</button>
             <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteJahrgang(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
           </td>
         </tr>`;}).join('')}
@@ -900,7 +900,7 @@ const StammdatenTab = {
         <div id="blockplanGrid"></div>
       </div>
       <div class="card" style="margin-top:12px;padding:12px">
-        <strong style="font-size:13px;color:var(--clr-forest)">🎯 Empfohlene Kontrollwochen</strong>
+        <strong style="font-size:13px;color:var(--clr-forest)">Empfohlene Kontrollwochen</strong>
         <div id="blockplanEmpfehlung" style="margin-top:8px;font-size:12px"></div>
       </div>`;
     setTimeout(() => this._renderBlockplanGrid(), 50);
@@ -1054,7 +1054,7 @@ const StammdatenTab = {
         <span style="font-size:12px;color:var(--clr-text-light)">${rows.length} Betriebe</span>
         <input class="form-control" placeholder="Betrieb suchen…" style="width:200px;padding:4px 8px;font-size:12px" oninput="StammdatenTab._filterBetriebe(this.value)">
       </div><div class="toolbar-right">
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._autoLinkBetriebe(true);StammdatenTab.show('betriebe')">🔗 Auto-Verknüpfen</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._autoLinkBetriebe(true);StammdatenTab.show('betriebe')">Auto-Verknüpfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr>
@@ -1318,8 +1318,8 @@ const StammdatenTab = {
       LEFT JOIN fachrichtungen f ON k.fachrichtung_id=f.id
       WHERE k.berufsschule_id=? ORDER BY j.jahr DESC, k.klassenbezeichnung`, [schuleId]);
 
-    App.openModal(`🏫 ${esc(bs.name)} – ${klassen.length} Klassen`, `
-      ${bs.email ? `<div style="margin-bottom:8px;font-size:12px">📧 <a href="mailto:${esc(bs.email)}" style="color:var(--clr-forest)">${esc(bs.email)}</a>${bs.telefon ? ` · 📞 <a href="tel:${esc(bs.telefon)}" style="color:var(--clr-forest)">${esc(bs.telefon)}</a>` : ''}</div>` : ''}
+    App.openModal(`${esc(bs.name)} – ${klassen.length} Klassen`, `
+      ${bs.email ? `<div style="margin-bottom:8px;font-size:12px">✉︎ <a href="mailto:${esc(bs.email)}" style="color:var(--clr-forest)">${esc(bs.email)}</a>${bs.telefon ? ` · ☎︎ <a href="tel:${esc(bs.telefon)}" style="color:var(--clr-forest)">${esc(bs.telefon)}</a>` : ''}</div>` : ''}
       <table class="data-table">
         <thead><tr><th>Klasse</th><th>Jahrgang</th><th>Fachrichtung</th><th>Schüler</th><th></th></tr></thead>
         <tbody>${klassen.map(k => `<tr>
@@ -1327,11 +1327,11 @@ const StammdatenTab = {
           <td>${esc(k.jahrgang||'–')}</td>
           <td style="font-size:12px">${esc(k.fachrichtung||'–')}</td>
           <td>${k.cnt > 0 ? `<a href="#" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showKlasseAzubis(${k.id}),100);return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline">${k.cnt}</a>` : '0'}</td>
-          <td><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();StammdatenTab.editKlasse(${k.id})">✏️</button></td>
+          <td><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();StammdatenTab.editKlasse(${k.id})">✎</button></td>
         </tr>`).join('')}</tbody>
       </table>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">👥 Alle Schüler</button>`);
+       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">Alle Schüler</button>`);
   },
 
   // ── Modal: Schüler einer Klasse ──
@@ -1348,23 +1348,23 @@ const StammdatenTab = {
       FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id
       WHERE s.klasse_id=? AND s.aktiv=1 ORDER BY s.nachname`, [klasseId]);
 
-    const ampelIcon = (erg) => !erg ? '⚪' : erg === 'in_ordnung' ? '🟢' : '🔴';
+    const ampelIcon = (erg) => !erg ? '<span style="color:var(--clr-sage-light)">○</span>' : erg === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
 
     const bs = App.query('SELECT * FROM berufsschulen WHERE id=?', [kl.berufsschule_id])[0] || {};
     const ansprechpartner = (() => { try { return JSON.parse(bs.ansprechpartner_json || '[]'); } catch { return []; } })();
 
-    App.openModal(`📚 ${esc(kl.klassenbezeichnung)} – ${esc(kl.schule)}`, `
+    App.openModal(`${esc(kl.klassenbezeichnung)} – ${esc(kl.schule)}`, `
       <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:180px;font-size:12px;color:var(--clr-text-light)">
           ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Schüler
-          ${bs.telefon ? '<br>📞 <a href="tel:' + esc(bs.telefon) + '" style="color:var(--clr-forest)">' + esc(bs.telefon) + '</a>' : ''}
-          ${bs.email ? '<br>📧 <a href="mailto:' + esc(bs.email) + '" style="color:var(--clr-forest)">' + esc(bs.email) + '</a>' : ''}
+          ${bs.telefon ? '<br>☎︎ <a href="tel:' + esc(bs.telefon) + '" style="color:var(--clr-forest)">' + esc(bs.telefon) + '</a>' : ''}
+          ${bs.email ? '<br>✉︎ <a href="mailto:' + esc(bs.email) + '" style="color:var(--clr-forest)">' + esc(bs.email) + '</a>' : ''}
         </div>
         ${ansprechpartner.length ? `<div style="flex:1;min-width:180px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
           <strong style="font-size:11px;color:var(--clr-forest)">Ansprechpartner:</strong>
           ${ansprechpartner.map(a => `<div style="margin-top:3px">${esc(a.name||'')}${a.funktion ? ' <span style="color:var(--clr-text-light)">(' + esc(a.funktion) + ')</span>' : ''}
-            ${a.telefon ? '<br>📞 <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
-            ${a.email ? ' 📧 <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
+            ${a.telefon ? '<br>☎︎ <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
+            ${a.email ? ' ✉︎ <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
           </div>`).join('')}
         </div>` : (bs.ansprechpartner ? `<div style="flex:1;min-width:180px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
           <strong style="font-size:11px;color:var(--clr-forest)">Ansprechpartner:</strong> ${esc(bs.ansprechpartner)}
@@ -1381,11 +1381,11 @@ const StammdatenTab = {
             ${s.b_email ? '<a href="mailto:'+esc(s.b_email)+'" style="color:var(--clr-forest)" title="'+esc(s.b_email)+'">Mail</a> ' : ''}
             ${s.email ? '<a href="mailto:'+esc(s.email)+'" style="color:var(--clr-blue)" title="'+esc(s.email)+'">Azu</a>' : ''}
           </td>
-          <td><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})">✏️</button></td>
+          <td><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})">✎</button></td>
         </tr>`).join('')}</tbody>
       </table>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editSchule(${kl.berufsschule_id})">✏️ Schule bearbeiten</button>`);
+        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editSchule(${kl.berufsschule_id})">✎ Schule bearbeiten</button>`);
     _makeModalWide();
   },
 
@@ -1408,9 +1408,9 @@ const StammdatenTab = {
       ORDER BY k.klassenbezeichnung, s.nachname`, [schuleId]);
 
     const eLbl = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
-    const ampelIcon = (erg) => !erg ? '⚪' : erg === 'in_ordnung' ? '🟢' : '🔴';
+    const ampelIcon = (erg) => !erg ? '<span style="color:var(--clr-sage-light)">○</span>' : erg === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
 
-    App.openModal(`👥 ${azubis.length} Schüler – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
+    App.openModal(`${azubis.length} Schüler – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>Klasse</th><th>Betrieb</th><th>Letzte Kontrolle</th><th>Kontakt</th><th></th></tr></thead>
         <tbody>
@@ -1420,10 +1420,10 @@ const StammdatenTab = {
             <td style="font-size:11px">${esc(s.klassenbezeichnung || '–')}</td>
             <td style="font-size:11px">${esc(s.betrieb_display || '–')}</td>
             <td style="font-size:11px">${s.letzte_kontrolle ? `${formatDate(s.letzte_kontrolle)}<br><span style="color:${s.letztes_ergebnis === 'in_ordnung' ? 'var(--clr-green)' : 'var(--clr-red)'}">${eLbl[s.letztes_ergebnis] || '–'}</span>` : '<span style="color:var(--clr-amber)">noch nie</span>'}</td>
-            <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">📧</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">📞</a>` : ''}</td>
+            <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">✉︎</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">☎︎</a>` : ''}</td>
             <td class="btn-group" style="white-space:nowrap">
-              <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten">✏️</button>
-              ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle">📋</button>` : ''}
+              <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten">✎</button>
+              ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle">▤</button>` : ''}
             </td>
           </tr>`).join('')}
         </tbody>
@@ -1451,27 +1451,27 @@ const StammdatenTab = {
     const azubis = App.query(sql, [betriebId]);
 
     const eLbl = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
-    const ampelIcon = (erg) => !erg ? '⚪' : erg === 'in_ordnung' ? '🟢' : '🔴';
+    const ampelIcon = (erg) => !erg ? '<span style="color:var(--clr-sage-light)">○</span>' : erg === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
 
     const title = filter === 'maengel'
-      ? `🔴 Beanstandete Azubis – ${esc(bName)}`
-      : `👥 Azubis – ${esc(bName)}${b.zusatzbezeichnung ? ' · ' + esc(b.zusatzbezeichnung) : ''}`;
+      ? `<span style="color:var(--clr-red)">◆</span> Beanstandete Azubis – ${esc(bName)}`
+      : `Azubis – ${esc(bName)}${b.zusatzbezeichnung ? ' · ' + esc(b.zusatzbezeichnung) : ''}`;
 
     const ausbilder = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? ORDER BY nachname', [betriebId]);
 
     App.openModal(title, `
       <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px;font-size:12px;color:var(--clr-text-light)">
-          ${b.email ? `📧 <a href="mailto:${esc(b.email)}" style="color:var(--clr-forest)">${esc(b.email)}</a><br>` : ''}
-          ${b.telefon ? `📞 <a href="tel:${esc(b.telefon)}" style="color:var(--clr-forest)">${esc(b.telefon)}</a><br>` : ''}
-          ${b.ort ? `📍 ${esc(b.strasse ? b.strasse + ', ' : '')}${esc(b.plz)} ${esc(b.ort)}` : ''}
+          ${b.email ? `✉︎ <a href="mailto:${esc(b.email)}" style="color:var(--clr-forest)">${esc(b.email)}</a><br>` : ''}
+          ${b.telefon ? `☎︎ <a href="tel:${esc(b.telefon)}" style="color:var(--clr-forest)">${esc(b.telefon)}</a><br>` : ''}
+          ${b.ort ? `${esc(b.strasse ? b.strasse + ', ' : '')}${esc(b.plz)} ${esc(b.ort)}` : ''}
         </div>
         ${ausbilder.length ? `<div style="flex:1;min-width:200px;font-size:12px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">
           <strong style="font-size:11px;color:var(--clr-forest)">Ausbilder:</strong>
           ${ausbilder.map(a => `<div style="margin-top:3px">${esc((a.vorname ? a.vorname + ' ' : '') + a.nachname)}${a.funktion ? ' <span style="color:var(--clr-text-light)">(' + esc(a.funktion) + ')</span>' : ''}
-            ${a.telefon ? '<br>📞 <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
-            ${a.mobil ? ' 📱 <a href="tel:' + esc(a.mobil) + '" style="color:var(--clr-forest)">' + esc(a.mobil) + '</a>' : ''}
-            ${a.email ? '<br>📧 <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
+            ${a.telefon ? '<br>☎︎ <a href="tel:' + esc(a.telefon) + '" style="color:var(--clr-forest)">' + esc(a.telefon) + '</a>' : ''}
+            ${a.mobil ? ' ☎︎ <a href="tel:' + esc(a.mobil) + '" style="color:var(--clr-forest)">' + esc(a.mobil) + '</a>' : ''}
+            ${a.email ? '<br>✉︎ <a href="mailto:' + esc(a.email) + '" style="color:var(--clr-forest);font-size:11px">' + esc(a.email) + '</a>' : ''}
           </div>`).join('')}
         </div>` : ''}
       </div>
@@ -1486,17 +1486,17 @@ const StammdatenTab = {
               <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}</td>
               <td style="font-size:11px">${esc(s.fachrichtung || '–')}<br>${esc(s.jahrgang || '–')}</td>
               <td style="font-size:11px">${s.letzte_kontrolle ? `${formatDate(s.letzte_kontrolle)}<br><span style="color:${s.letztes_ergebnis === 'in_ordnung' ? 'var(--clr-green)' : 'var(--clr-red)'}">${eLbl[s.letztes_ergebnis] || s.letztes_ergebnis || '–'}</span>` : '<span style="color:var(--clr-amber)">noch nie</span>'}</td>
-              <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">📧</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">📞</a>` : ''}</td>
+              <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)" title="${esc(s.email)}">✉︎</a> ` : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-forest)" title="${esc(s.telefon)}">☎︎</a>` : ''}</td>
               <td class="btn-group" style="white-space:nowrap">
-                <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✏️</button>
-                ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle öffnen">📋</button>` : ''}
+                <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="App.closeModal();ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>
+                ${s.letzter_termin_id ? `<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="KontrolleHandler.goToKontrolle(${s.letzter_termin_id},${s.id})" title="Letzte Kontrolle öffnen">▤</button>` : ''}
               </td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>`}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">✏️ Betrieb bearbeiten</button>`);
+        <button class="btn btn-primary btn-sm" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">✎ Betrieb bearbeiten</button>`);
     _makeModalWide();
   },
 };

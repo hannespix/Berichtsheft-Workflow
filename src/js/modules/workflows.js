@@ -116,31 +116,31 @@ ${rpAdresse}`;
     window._pendingEmail = { to, subject, body, cc };
 
     if (!to) {
-      App.openModal(`📧 ${emailType} an Schule`, `
+      App.openModal(`✉︎ ${emailType} an Schule`, `
         <div style="padding:8px 12px;background:var(--clr-amber-light);border-radius:var(--radius);margin-bottom:12px;font-size:13px">
-          ⚠️ Keine E-Mail-Adresse für "${schule.name || '?'}" hinterlegt. Bitte unter Stammdaten → Berufsschulen ergänzen.
+          ⚠︎ Keine E-Mail-Adresse für "${schule.name || '?'}" hinterlegt. Bitte unter Stammdaten → Berufsschulen ergänzen.
         </div>
         <div class="form-group"><label>E-Mail-Adresse(n)</label><input class="form-control" id="mSchEmail2" placeholder="email@schule.de"></div>
         <div style="margin-top:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto"><pre style="white-space:pre-wrap;font-family:inherit">${esc(body)}</pre></div>
       `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-          <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+document.getElementById('mSchEmail2').value+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">📋 Kopieren</button>
-          <button class="btn btn-primary" onclick="Workflows.openMailto(document.getElementById('mSchEmail2').value, window._pendingEmail.subject, window._pendingEmail.body);App.closeModal()">📧 E-Mail öffnen</button>`);
+          <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+document.getElementById('mSchEmail2').value+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">▤ Kopieren</button>
+          <button class="btn btn-primary" onclick="Workflows.openMailto(document.getElementById('mSchEmail2').value, window._pendingEmail.subject, window._pendingEmail.body);App.closeModal()">✉︎ E-Mail öffnen</button>`);
       return;
     }
 
     // Show preview + open
-    App.openModal(`📧 ${emailType} an ${schule.name || 'Schule'}`, `
+    App.openModal(`✉︎ ${emailType} an ${schule.name || 'Schule'}`, `
       <div style="font-size:13px">
         <div><strong>An:</strong> ${esc(to)}</div>
         ${cc ? `<div><strong>CC:</strong> ${esc(cc)}</div>` : ''}
         <div><strong>Betreff:</strong> ${esc(subject)}</div>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">${isDone ? '📊 Ergebnis-Mitteilung nach Kontrolle' : '📅 Terminanfrage – bitte Datum bestätigen lassen'}</div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">${isDone ? 'Ergebnis-Mitteilung nach Kontrolle' : 'Terminanfrage – bitte Datum bestätigen lassen'}</div>
         <hr style="margin:8px 0;border-color:var(--clr-sand)">
         <pre style="white-space:pre-wrap;font-family:inherit;font-size:12px;max-height:300px;overflow-y:auto">${esc(body)}</pre>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+window._pendingEmail.to+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">📋 Kopieren</button>
-        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);App.closeModal()">📧 In Outlook öffnen</button>`);
+        <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+window._pendingEmail.to+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">▤ Kopieren</button>
+        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);App.closeModal()">✉︎ In Outlook öffnen</button>`);
   },
 
   // ── B) Seriendruck: Betriebe anschreiben (4 Wochen vor Termin) ──
@@ -169,7 +169,7 @@ ${rpAdresse}`;
     });
     const betriebList = Object.values(grouped);
 
-    App.openModal('📄 Betriebe anschreiben – Seriendruck', `
+    App.openModal('▤ Betriebe anschreiben – Seriendruck', `
       <p style="font-size:13px;margin-bottom:12px">
         <strong>${betriebList.length} Betriebe</strong> mit insgesamt ${schueler.length} Azubis für den Termin am <strong>${formatDate(termin.geplant_datum)}</strong>
         an der ${esc(schule)}, Klasse(n) ${esc(klassenStr)}.
@@ -186,11 +186,11 @@ ${rpAdresse}`;
       </div>
       <p style="font-size:12px;color:var(--clr-text-light)">Wählen Sie das gewünschte Export-Format:</p>
     `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>' +
-        '<button class="btn btn-success" onclick="Workflows.emailBetriebIndividuell(' + terminId + ')" title="Individuelle E-Mails an jeden Betrieb mit Azubi-Details">📧 Individuelle E-Mails</button>' +
-        '<button class="btn btn-secondary" onclick="Workflows.emailBetriebeBCC(' + terminId + ')" title="E-Mail mit allen Betrieben im BCC">📧 BCC</button>' +
-        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckCSV(' + terminId + ')">📊 CSV</button>' +
-        (App.scalar("SELECT wert FROM einstellungen WHERE schluessel=\'word_template\'") ? '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckWord(' + terminId + ')">📝 Word</button>' : '') +
-        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckPDF(' + terminId + ')">📄 PDF</button>');
+        '<button class="btn btn-success" onclick="Workflows.emailBetriebIndividuell(' + terminId + ')" title="Individuelle E-Mails an jeden Betrieb mit Azubi-Details">✉︎ Individuelle E-Mails</button>' +
+        '<button class="btn btn-secondary" onclick="Workflows.emailBetriebeBCC(' + terminId + ')" title="E-Mail mit allen Betrieben im BCC">✉︎ BCC</button>' +
+        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckCSV(' + terminId + ')">CSV</button>' +
+        (App.scalar("SELECT wert FROM einstellungen WHERE schluessel=\'word_template\'") ? '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckWord(' + terminId + ')">✎ Word</button>' : '') +
+        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckPDF(' + terminId + ')">▤ PDF</button>');
   },
 
   // ── BCC Serien-E-Mail an alle Betriebe ──
@@ -246,7 +246,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
     App.closeModal();
 
     // Show confirmation with editable text
-    App.openModal(`📧 Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
+    App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
       <div style="margin-bottom:8px;font-size:12px">
         <strong>${emails.length}</strong> Betriebe mit E-Mail${noEmail.length ? ` · <span style="color:var(--clr-red)">${noEmail.length} ohne E-Mail</span>` : ''}
       </div>
@@ -262,9 +262,9 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
         Bei >50 Empfängern ggf. in 2 Chargen versenden (Outlook: max 500, Gmail: max 500/Tag).
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">📋 Text kopieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${emails.join('; ')}');App.toast('${emails.length} E-Mail-Adressen kopiert','success')">📋 Adressen kopieren</button>
-        <button class="btn btn-primary" onclick="Workflows._openBCCMail()">📧 E-Mail öffnen</button>`);
+        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${emails.join('; ')}');App.toast('${emails.length} E-Mail-Adressen kopiert','success')">▤ Adressen kopieren</button>
+        <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     
     // Store for the mail opener
     this._bccEmails = emails;
@@ -352,10 +352,10 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
           '<strong>' + esc(g.name) + '</strong>' +
           (g.email ? '<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-forest);color:white;border:none" ' +
-            'onclick="Workflows._openIndividualEmail(' + terminId + ',' + idx + ')">📧 Senden</button>' :
+            'onclick="Workflows._openIndividualEmail(' + terminId + ',' + idx + ')">✉︎ Senden</button>' :
             '<span style="color:var(--clr-red);font-size:10px">Keine E-Mail</span>') +
         '</div>' +
-        '<div style="font-size:11px">' + (g.email ? '📧 ' + esc(g.email) : '') + (g.ap ? ' · 👤 ' + esc(g.ap) : '') + '</div>' +
+        '<div style="font-size:11px">' + (g.email ? '✉︎ ' + esc(g.email) : '') + (g.ap ? ' · ' + esc(g.ap) : '') + '</div>' +
         '<div style="margin-top:4px">' + azubiDetails + '</div>' +
       '</div>';
     });
@@ -363,14 +363,14 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
     // Store data for email opening
     this._individualData = { terminId, betriebe, termin, schule, schule_ort, klassenStr, frStr, pruefer, rpAdresse, datum, isDone, codeLabels, eLbl };
 
-    App.openModal('📧 Individuelle E-Mails an ' + betriebe.length + ' Betriebe', '<div style="margin-bottom:8px;font-size:13px">' +
+    App.openModal('✉︎ Individuelle E-Mails an ' + betriebe.length + ' Betriebe', '<div style="margin-bottom:8px;font-size:13px">' +
       '<strong>' + withEmail.length + '</strong> Betriebe mit E-Mail' +
       (noEmail.length ? ' · <span style="color:var(--clr-red)">' + noEmail.length + ' ohne E-Mail</span>' : '') +
       '</div>' +
       '<div style="max-height:400px;overflow-y:auto">' + listHtml + '</div>' +
-      '<div style="margin-top:8px;font-size:11px;color:var(--clr-text-light)">Klicken Sie bei jedem Betrieb auf "📧 Senden" um die E-Mail mit individuellen Azubi-Details zu öffnen.</div>',
+      '<div style="margin-top:8px;font-size:11px;color:var(--clr-text-light)">Klicken Sie bei jedem Betrieb auf "✉︎ Senden" um die E-Mail mit individuellen Azubi-Details zu öffnen.</div>',
       '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>' +
-      (withEmail.length > 1 ? '<button class="btn btn-success" onclick="Workflows._openAllIndividualEmails()">📧 Alle ' + withEmail.length + ' nacheinander öffnen</button>' : ''));
+      (withEmail.length > 1 ? '<button class="btn btn-success" onclick="Workflows._openAllIndividualEmails()">✉︎ Alle ' + withEmail.length + ' nacheinander öffnen</button>' : ''));
   },
 
   _openIndividualEmail(terminId, betriebIdx) {
@@ -701,7 +701,7 @@ Anlage: Durchsichtsbogen ${w.nachname}, ${w.vorname}`;
 
     window._pendingEmail = { to, subject, body };
 
-    App.openModal('📧 E-Mail an Betrieb (Wiedervorlage)', `
+    App.openModal('✉︎ E-Mail an Betrieb (Wiedervorlage)', `
       <div style="font-size:13px">
         <div><strong>An:</strong> ${to ? esc(to) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt!</span>'}</div>
         <div><strong>Betrieb:</strong> ${esc(w.b_name || w.ausbildungsstaette)}</div>
@@ -711,13 +711,13 @@ Anlage: Durchsichtsbogen ${w.nachname}, ${w.vorname}`;
         <pre style="white-space:pre-wrap;font-family:inherit;font-size:12px;max-height:200px;overflow-y:auto">${esc(body)}</pre>
       </div>
       <div style="margin-top:8px;padding:8px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:11px">
-        💡 <strong>Tipp:</strong> Erstellen Sie vor dem Senden den PDF-Durchsichtsbogen und fügen Sie ihn als Anhang bei.
-        <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="Workflows.generateWVPDF(${wvId})">📄 PDF jetzt erstellen</button>
+        <strong>Tipp:</strong> Erstellen Sie vor dem Senden den PDF-Durchsichtsbogen und fügen Sie ihn als Anhang bei.
+        <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="Workflows.generateWVPDF(${wvId})">▤ PDF jetzt erstellen</button>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+(window._pendingEmail?.to||'')+'\\nBetreff: '+(window._pendingEmail?.subject||'')+'\\n\\n'+(window._pendingEmail?.body||''));App.toast('In Zwischenablage kopiert','success')">📋 Kopieren</button>
+        <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+(window._pendingEmail?.to||'')+'\\nBetreff: '+(window._pendingEmail?.subject||'')+'\\n\\n'+(window._pendingEmail?.body||''));App.toast('In Zwischenablage kopiert','success')">▤ Kopieren</button>
         ${!to ? `<button class="btn btn-secondary" onclick="const e=prompt('E-Mail-Adresse eingeben:');if(e)Workflows.openMailto(e,window._pendingEmail.subject,window._pendingEmail.body)">E-Mail eingeben</button>` : ''}
-        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to,window._pendingEmail.subject,window._pendingEmail.body,window._pendingEmail.cc);App.closeModal()">📧 In Outlook öffnen</button>`);
+        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to,window._pendingEmail.subject,window._pendingEmail.body,window._pendingEmail.cc);App.closeModal()">✉︎ In Outlook öffnen</button>`);
   },
 
   generateWVPDF(wvId) {
