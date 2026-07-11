@@ -2052,7 +2052,7 @@ const App = {
       this._syncChannel = new BroadcastChannel('bhk-sync');
       this._syncChannel.onmessage = (e) => {
         if (e.data?.type === 'db-saved' && this.db && !this._mergeInProgress) {
-          setTimeout(() => this._doSyncImport('broadcast'), 400);
+          setTimeout(() => { this._v3Active() ? this._pollOplogs() : this._doSyncImport('broadcast'); }, 400);
         }
       };
     } catch(e) {}
@@ -2068,12 +2068,21 @@ const App = {
       this._pollIntervalMs = interval;
       this.pollInterval = setTimeout(async () => {
         if (!document.hidden && this.dirHandle && !this._mergeInProgress) {
-          await this._pollSyncMarker();
+          if (this._v3Active()) await this._pollOplogs();
+          else await this._pollSyncMarker();
         }
         this._schedulePoll();
       }, interval);
     };
-    this._schedulePoll();
+    // Sync-v3: erst Snapshot-Meta + Logs einziehen, dann Polling starten
+    if (this._v3Active()) {
+      this._bootstrapV3().then(() => {
+        this._smartRefresh();
+        this._schedulePoll();
+      }).catch(() => this._schedulePoll());
+    } else {
+      this._schedulePoll();
+    }
 
     // ── Single-Tab-Guard + Crash-Restore ──
     // Web Locks: Erst-Tab pro DB hält ein Browser-Lock. Ein Zweit-Tab derselben
@@ -2332,7 +2341,11 @@ const App = {
       req.onsuccess = () => {
         const record = req.result;
         if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 3600000) {
-          this._dirtyOps = record.ops;
+          // Sync-v3: Ops, die bereits im eigenen Log stehen, nicht erneut puffern
+          this._dirtyOps = this._ownLogUids
+            ? record.ops.filter(o => !o.uid || !this._ownLogUids.has(o.uid))
+            : record.ops;
+          if (!this._dirtyOps.length) return;
           this.unsavedChanges = true;
           this.toast(`↻ ${record.ops.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
           this.scheduleAutoSave();
@@ -2704,6 +2717,7 @@ const App = {
           }
         }
       }
+      this._rewriteKeRef(out);
       return out;
     }
     // ── DELETE: Tombstones VOR dem Löschen erfassen (beliebige WHERE-Formen) ──
@@ -2732,7 +2746,29 @@ const App = {
         }
       } catch(e) {}
     }
+    this._rewriteKeRef(out);
     return out;
+  },
+  // FK-Verweise auf kontrollergebnisse (kontrollergebnis_id) im Replay-Op durch
+  // einen Natural-Key-Subselect ersetzen: der Empfänger löst die id gegen SEINE
+  // lokale Zeile auf – vollständig immun gegen KE-id-Divergenz zwischen Clients.
+  _rewriteKeRef(out) {
+    if (!/kontrollergebnis_id/i.test(out.opSql)) return;
+    if (/^\s*INSERT[^(]*INTO\s+kontrollergebnisse\b/i.test(out.opSql)) return;
+    try {
+      const pi = this._paramIndexForColumn(out.opSql, 'kontrollergebnis_id');
+      if (pi < 0 || pi >= out.opParams.length) return;
+      const keId = out.opParams[pi];
+      if (keId == null) return;
+      const row = this.query('SELECT kontrolltermin_id, schueler_id FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      if (!row || row.kontrolltermin_id == null || row.schueler_id == null) return;
+      let count = -1;
+      out.opSql = out.opSql.replace(/\?/g, (q) => {
+        count++;
+        return count === pi ? '(SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?)' : q;
+      });
+      out.opParams = [...out.opParams.slice(0, pi), row.kontrolltermin_id, row.schueler_id, ...out.opParams.slice(pi + 1)];
+    } catch(e) {}
   },
   run(sql, params = []) {
     // During bulk import: skip dirty-tracking, full-write happens at end
@@ -2760,6 +2796,23 @@ const App = {
   // Nutzers gegenseitig (Full-Write ersetzt die ganze Datei).
   async fullSave() {
     if (!this.dbFileHandle || !this.db) return;
+    // Sync-v3: Bulk-Import → Snapshot direkt kompaktieren (Logs werden vorher
+    // vollständig eingezogen, danach decken die Offsets alles ab)
+    if (this._v3Active() && this._v3Ready) {
+      const ok = await this._compact('import');
+      if (ok) {
+        this._dirtyOps = [];
+        this.unsavedChanges = false;
+        this.saveCount++;
+        const timeStr = new Date().toLocaleTimeString('de-DE');
+        document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+        this._broadcastChange();
+      } else {
+        setTimeout(() => this.fullSave(), 3000);
+      }
+      return;
+    }
     if (this._mergeInProgress) { setTimeout(() => this.fullSave(), 2000); return; }
     this._mergeInProgress = true;
     try {
@@ -2833,6 +2886,339 @@ const App = {
       await this._releaseLock();
     }
   },
+
+  // ═══════════════════════════════════════════
+  //  SYNC-V3: Append-only Op-Logs pro Client
+  //
+  //  Kein konkurrierendes Schreiben mehr auf die geteilte DB-Datei:
+  //  - Jeder Client schreibt AUSSCHLIESSLICH seine eigene Log-Datei
+  //    (_bhk/oplog_<db>_<client>.jsonl, append-only) → keine Locks,
+  //    keine Lost Updates, keine Zombie-Writes im Normalbetrieb.
+  //  - Die DB-Datei ist nur noch der SNAPSHOT. Sie wird selten und mit
+  //    Lock kompaktiert (Memory-Export nach vollständigem Log-Einzug).
+  //  - Zustand = Snapshot + alle Logs ab snapmeta-Offsets, Ops nach
+  //    Zeitstempel geordnet angewendet (LWW, wie bisheriges Verhalten).
+  // ═══════════════════════════════════════════
+  _logOffsets: {},          // Log-Dateiname → gelesene Bytes
+  _myLogSize: 0,
+  _ownLogUids: null,        // uids im eigenen Log (Crash-Restore-Dedupe)
+  _appliedForeignUids: null,
+  _appendInProgress: false,
+  _compactInProgress: false,
+  _lastCompactCheck: 0,
+  _v3Ready: false,
+
+  _v3Active() { return !this.demoMode && !!(this.bhkDirHandle || this.dirHandle) && !!this.dbFileHandle; },
+  _syncDirV3() { return this.bhkDirHandle || this.dirHandle; },
+  _getClientId() {
+    if (this._clientIdCache) return this._clientIdCache;
+    let id = null;
+    try { id = localStorage.getItem('bhk_client_id'); } catch(e) {}
+    if (!id) {
+      id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try { localStorage.setItem('bhk_client_id', id); } catch(e) {}
+    }
+    this._clientIdCache = id;
+    return id;
+  },
+  _dbSlug() { return (this.autoLoadedDbName || 'db').replace(/\.sqlite$|\.db$/i, '').replace(/[^A-Za-z0-9_-]/g, '_'); },
+  _oplogPrefix() { return 'oplog_' + this._dbSlug() + '_'; },
+  _myOplogName() { return this._oplogPrefix() + this._getClientId() + '.jsonl'; },
+  _snapMetaName() { return 'snapmeta_' + this._dbSlug() + '.json'; },
+
+  // ── Speichern: eigene Ops an das eigene Log anhängen ──
+  async _saveV3() {
+    if (this._appendInProgress) return;
+    if (!this._dirtyOps.length) {
+      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+      return;
+    }
+    this._appendInProgress = true;
+    const claimed = this._dirtyOps.splice(0);
+    let writable = null;
+    try {
+      const dir = this._syncDirV3();
+      const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler?.activePruefer) || '?';
+      const lines = claimed.map(o => JSON.stringify({ uid: o.uid, ts: Date.now(), u: pruefer, sql: o.sql, params: o.params })).join('\n') + '\n';
+      const bytes = new TextEncoder().encode(lines);
+      const handle = await dir.getFileHandle(this._myOplogName(), { create: true });
+      let size = 0;
+      try { size = (await handle.getFile()).size; } catch(e) {}
+      const writeOp = async () => {
+        writable = await handle.createWritable({ keepExistingData: true });
+        await writable.write({ type: 'write', position: size, data: bytes });
+        await writable.close();
+        writable = null;
+      };
+      try {
+        await Promise.race([
+          writeOp(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Oplog-Append Timeout')), 30000)),
+        ]);
+      } catch(err) {
+        if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 10000))]); } catch(_) {} writable = null; }
+        throw err;
+      }
+      this._myLogSize = size + bytes.length;
+      claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+      this.unsavedChanges = this._dirtyOps.length > 0;
+      this.saveCount++;
+      this._saveRetryCount = 0;
+      const timeStr = new Date().toLocaleTimeString('de-DE');
+      document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+      this._broadcastChange();
+      this._persistDirtyOps();
+      // Kompaktierung fällig? (höchstens alle 5 Min prüfen)
+      if (Date.now() - this._lastCompactCheck > 300000) {
+        this._lastCompactCheck = Date.now();
+        if (await this._compactionDue()) this._compact('groesse');
+      }
+    } catch(e) {
+      // Ops zurücklegen (an den Anfang – Reihenfolge erhalten), später erneut
+      this._dirtyOps = [...claimed, ...this._dirtyOps];
+      this.unsavedChanges = true;
+      console.error('[SyncV3] Append-Fehler:', e);
+      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
+      setTimeout(() => this.scheduleAutoSave(), 5000);
+    } finally {
+      this._appendInProgress = false;
+    }
+  },
+
+  // ── Fremde Logs inkrementell lesen und anwenden ──
+  async _pollOplogs() {
+    if (!this._v3Ready) return;
+    const dir = this._syncDirV3();
+    if (!dir || !this.db) return;
+    try {
+      const prefix = this._oplogPrefix();
+      const mine = this._myOplogName();
+      const batch = [];
+      for await (const entry of dir.entries()) {
+        const name = entry[0], h = entry[1];
+        if (!name.startsWith(prefix) || !name.endsWith('.jsonl') || name === mine) continue;
+        let f;
+        try { f = await h.getFile(); } catch(e) { continue; }
+        let off = this._logOffsets[name] || 0;
+        if (f.size < off) off = 0; // Log wurde rotiert → von vorn (uid-Set dedupt)
+        if (f.size <= off) continue;
+        const text = await f.slice(off).text();
+        const nl = text.lastIndexOf('\n');
+        if (nl < 0) continue; // Zeile noch unvollständig geschrieben
+        const chunk = text.slice(0, nl + 1);
+        this._logOffsets[name] = off + new TextEncoder().encode(chunk).length;
+        chunk.split('\n').forEach(l => { if (l.trim()) batch.push(l); });
+      }
+      const applied = this._applyOps(batch);
+      if (this._reconnectAttempts > 0) this._reconnectAttempts = 0;
+      if (!this._syncReady) this._syncReady = true;
+      if (applied > 0) {
+        console.log(`[SyncV3] ${applied} fremde Änderungen übernommen`);
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green" style="animation:syncPulse 0.6s"></span>Sync ✓';
+        setTimeout(() => {
+          const el = document.getElementById('dbStatusIndicator');
+          if (el && !this.unsavedChanges) el.innerHTML = '<span class="dot dot-green"></span>Verbunden';
+        }, 2000);
+        this._smartRefresh();
+      }
+      await this._rotateOwnLogIfCovered();
+    } catch(e) {
+      this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+      if (this._reconnectAttempts > 5) {
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Getrennt';
+      }
+    }
+  },
+
+  // Ops (JSONL-Zeilen) nach Zeitstempel geordnet anwenden
+  _applyOps(lines) {
+    if (!lines.length) return 0;
+    if (!this._appliedForeignUids) this._appliedForeignUids = new Set();
+    if (this._appliedForeignUids.size > 50000) this._appliedForeignUids.clear();
+    const ops = [];
+    for (const line of lines) {
+      try { const op = JSON.parse(line); if (op && op.sql) ops.push(op); } catch(e) {}
+    }
+    // Kausale/deterministische Ordnung: Zeitstempel, dann uid als Tiebreaker
+    ops.sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.uid).localeCompare(String(b.uid)));
+    let applied = 0;
+    for (const op of ops) {
+      if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
+      try {
+        if (!this._lwwSkip(op)) {
+          this.db.run(op.sql, op.params || []);
+          applied++;
+        }
+      } catch(e) {
+        console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
+      }
+      if (op.uid) this._appliedForeignUids.add(op.uid);
+    }
+    return applied;
+  },
+
+  // LWW-Guard: fremdes UPDATE mit eingefrorenem geaendert_am nicht anwenden,
+  // wenn die lokale Zeile bereits einen NEUEREN Zeitstempel trägt (z.B. weil
+  // der andere Client lange offline war und alte Ops nachliefert).
+  _lwwSkip(op) {
+    try {
+      const m = (op.sql || '').match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s[\s\S]*geaendert_am='([^']+)'[\s\S]*WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
+      if (!m || !op.params || op.params.length < 2) return false;
+      const ktId = op.params[op.params.length - 2];
+      const sId = op.params[op.params.length - 1];
+      const localTs = this.scalar('SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId]);
+      return !!(localTs && localTs > m[1]);
+    } catch(e) { return false; }
+  },
+
+  // ── Bootstrap nach dem Laden der Snapshot-Datei ──
+  async _bootstrapV3() {
+    const dir = this._syncDirV3();
+    if (!dir) { this._v3Ready = false; return; }
+    this._appliedForeignUids = new Set();
+    this._ownLogUids = new Set();
+    this._logOffsets = {};
+    this._myLogSize = 0;
+    let meta = null;
+    try {
+      const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
+      meta = JSON.parse(await (await h.getFile()).text());
+    } catch(e) { /* erste Nutzung: kein Snapshot-Meta → Logs komplett anwenden */ }
+    const baseOffsets = (meta && meta.offsets) || {};
+    const prefix = this._oplogPrefix();
+    const mine = this._myOplogName();
+    const batch = [];
+    try {
+      for await (const entry of dir.entries()) {
+        const name = entry[0], h = entry[1];
+        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+        let f;
+        try { f = await h.getFile(); } catch(e) { continue; }
+        let off = baseOffsets[name] || 0;
+        if (f.size < off) off = 0;
+        if (f.size > off) {
+          const text = await f.slice(off).text();
+          const chunk = text.slice(0, text.lastIndexOf('\n') + 1);
+          chunk.split('\n').forEach(l => {
+            if (!l.trim()) return;
+            if (name === mine) {
+              try { const op = JSON.parse(l); if (op.uid) this._ownLogUids.add(op.uid); batch.push(l); } catch(e) {}
+            } else batch.push(l);
+          });
+        }
+        if (name === mine) this._myLogSize = f.size;
+        else this._logOffsets[name] = f.size;
+      }
+      // Eigene wie fremde Ops in globaler ts-Ordnung anwenden (eigene sind im
+      // Snapshot evtl. noch nicht enthalten); _ownLogUids ist bereits gefüllt,
+      // daher eigene NICHT über das uid-Set ausschließen: temporär leeren Set nutzen
+      const ownUids = this._ownLogUids;
+      this._ownLogUids = new Set();
+      this._applyOps(batch);
+      this._ownLogUids = ownUids;
+      this._v3Ready = true;
+      console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
+      // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts)
+      setTimeout(async () => {
+        try { if (await this._compactionDue()) this._compact('start'); } catch(e) {}
+      }, 20000);
+    } catch(e) {
+      console.warn('[SyncV3] Bootstrap-Fehler:', e.message);
+      this._v3Ready = true; // Polling darf trotzdem starten
+    }
+  },
+
+  // ── Kompaktierung: Snapshot (DB-Datei) aktualisieren, mit Lock ──
+  async _compactionDue() {
+    try {
+      const dir = this._syncDirV3();
+      if (!dir) return false;
+      let total = 0;
+      const prefix = this._oplogPrefix();
+      for await (const entry of dir.entries()) {
+        const name = entry[0], h = entry[1];
+        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+        try { total += (await h.getFile()).size; } catch(e) {}
+      }
+      return total > 1500000; // ~1,5 MB Logs → kompakt
+    } catch(e) { return false; }
+  },
+  async _compact(reason) {
+    if (this._compactInProgress || !this.db || !this.dbFileHandle) return false;
+    this._compactInProgress = true;
+    let writable = null;
+    try {
+      const gotLock = await this._acquireLock();
+      if (!gotLock) return false; // ein anderer kompaktiert bereits – egal
+      // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
+      await this._saveV3();
+      await this._pollOplogs();
+      // 2) Log-Offsets JETZT erfassen (alles danach bleibt in den Logs erhalten)
+      const dir = this._syncDirV3();
+      const offsets = {};
+      const prefix = this._oplogPrefix();
+      for await (const entry of dir.entries()) {
+        const name = entry[0], h = entry[1];
+        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+        try { offsets[name] = (await h.getFile()).size; } catch(e) {}
+      }
+      // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort)
+      const data = this.db.export();
+      const writeOp = async () => {
+        writable = await this.dbFileHandle.createWritable();
+        await writable.write(data);
+        await writable.close();
+        writable = null;
+      };
+      try {
+        await Promise.race([
+          writeOp(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), 120000)),
+        ]);
+      } catch(err) {
+        if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
+        throw err;
+      }
+      // 4) snapmeta schreiben
+      const metaHandle = await dir.getFileHandle(this._snapMetaName(), { create: true });
+      const mw = await metaHandle.createWritable();
+      await mw.write(JSON.stringify({ offsets, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
+      await mw.close();
+      try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
+      await this._writeSyncMarker();
+      console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
+      return true;
+    } catch(e) {
+      console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
+      return false;
+    } finally {
+      await this._releaseLock();
+      this._compactInProgress = false;
+    }
+  },
+
+  // Eigenes Log leeren, wenn der Snapshot es vollständig abdeckt
+  async _rotateOwnLogIfCovered() {
+    try {
+      if (this._dirtyOps.length || this._appendInProgress || !this._myLogSize) return;
+      const dir = this._syncDirV3();
+      const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
+      const meta = JSON.parse(await (await h.getFile()).text());
+      const covered = meta?.offsets?.[this._myOplogName()];
+      if (covered == null) return;
+      const fh = await dir.getFileHandle(this._myOplogName(), { create: false });
+      const size = (await fh.getFile()).size;
+      if (size > 0 && covered >= size) {
+        const w = await fh.createWritable(); // ohne keepExistingData → truncate
+        await w.close();
+        this._myLogSize = 0;
+        if (this._ownLogUids) this._ownLogUids.clear();
+        console.log('[SyncV3] Eigenes Log rotiert (vom Snapshot abgedeckt)');
+      }
+    } catch(e) { /* meta/log fehlt – ok */ }
+  },
+
   scalar(sql, params = []) {
     const r = this.query(sql, params);
     if (!r.length) return null;
@@ -2867,6 +3253,9 @@ const App = {
     if (!this.dbFileHandle || !this.db || this._mergeInProgress) return;
     if (this._dirtyOps.length === 0 && !force) return;
     if (this._saveCooldownUntil && Date.now() < this._saveCooldownUntil) return;
+
+    // Sync-v3: Ops ans eigene Log anhängen statt die geteilte Datei zu beschreiben
+    if (this._v3Active() && this._v3Ready) return this._saveV3();
 
     this._mergeInProgress = true;
     try {
