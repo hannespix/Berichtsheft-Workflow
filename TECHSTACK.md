@@ -211,20 +211,31 @@ _migrateDiskDb(diskDb) {
 - kw_status-Schreiber nutzen UPSERT (`ON CONFLICT ... DO UPDATE`) — Replay ist
   idempotent gegen den UNIQUE-Index, auch wenn ein anderer Nutzer die Zeile zuerst anlegte
 
+**Sync-v2 (Juli 2026) — strukturelle Absicherung, per Zwei-Client-Testharness verifiziert:**
+- **Globale IDs**: INSERTs auf allen relevanten Tabellen bekommen eine clientseitig
+  vergebene, zeitbasierte eindeutige INTEGER-ID (`App.newId()`, ~1.7e15 « 2^53) —
+  parallele INSERTs zweier Nutzer koennen nicht mehr dieselbe ID belegen
+- **Natural-Key-Replay**: UPDATE/DELETE-Ops auf kontrollergebnisse/kw_status werden
+  im Replay ueber den natuerlichen Schluessel adressiert (id-divergenzfest)
+- **KE-Id-Reconciliation**: verliert ein Client das Auto-Anlage-Race (INSERT OR
+  IGNORE), uebernimmt er die Disk-id lokal inkl. aller FK-Verweise + pendenter Ops
+- **Tombstones** (`bhk_tombstones`): Loeschungen propagieren zu allen Clients und
+  geloeschte Zeilen werden nicht durch den additiven Import re-animiert (60 Tage TTL)
+- **Idempotenz-Ledger** (`bhk_applied_ops`): jede Op traegt eine UUID; nach Crash/
+  Retry werden bereits angewendete Ops beim Replay uebersprungen (kein Doppel-Apply)
+- **Retry-Schleife statt Rekursion**: mergeAndSave/fullSave behalten await-Semantik;
+  Lock-Ownership gilt exakt pro Versuch
+- **Tab-Guard** (Web Locks API): Zweit-Tab derselben DB wird gewarnt und vom
+  IndexedDB-Crash-Store (jetzt pro DB-Datei namespaced) ausgeschlossen
+- Testharness: `node tests/sync-test.mjs` — simuliert 2 Clients + Netzlaufwerk in
+  Node (Fake File System Access API) und fährt die komplette Pipeline durch
+
 **Bekannte Grenzen (dokumentiert, bewusst nicht behoben):**
-- AUTOINCREMENT-IDs koennen bei gleichzeitigen INSERTs zweier Nutzer divergieren;
-  Folge-Ops per `WHERE id=?` treffen auf der Disk-DB dann u.U. die falsche/keine Zeile.
-  Echte Loesung waere Adressierung ueber natuerliche Schluessel/UUIDs (groesserer Umbau)
-- Loeschungen propagieren nicht zu anderen Clients (rein additiver Sync);
-  ein Import kann lokal geloeschte, noch nicht gespeicherte Zeilen re-animieren
 - Stammdaten-Sync ist minimal: `schueler` nur als INSERT (neue Zeilen, alle Spalten),
   UPDATEs an schueler/betriebe/klassen/berufsschulen/ausbilder werden nicht gemerged —
   letzter Formular-Save gewinnt zeilenweise
-- Kein Replay-Idempotenz-Log: schlaegt ein Save NACH dem Disk-Write aber VOR dem
-  Queue-Clear fehl, koennen Ops doppelt angewendet werden (INSERTs sind via
-  UPSERT/OR IGNORE entschaerft, UPDATEs sind idempotent)
-- Zwei Tabs desselben Nutzers teilen sich den IndexedDB-Crash-Store (Key 'ops')
 - Einstellungs-JSONs (Textbausteine, Tarife) werden als Ganzes ersetzt (kein Feld-Merge)
+- Loeschung vs. paralleler Edit: die Loeschung gewinnt (Tombstone), der Edit geht verloren
 
 ### 3.7 Datei-Struktur auf dem Netzlaufwerk
 

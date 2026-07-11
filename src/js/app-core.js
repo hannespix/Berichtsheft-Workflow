@@ -1104,6 +1104,12 @@ const App = {
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
     );
+    CREATE TABLE IF NOT EXISTS bhk_tombstones (
+      tabelle TEXT NOT NULL,
+      key TEXT NOT NULL,
+      geloescht_am TEXT DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (tabelle, key)
+    );
     CREATE TABLE IF NOT EXISTS wiedervorlagen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
@@ -2069,8 +2075,29 @@ const App = {
     };
     this._schedulePoll();
 
-    // Restore any dirty ops from IndexedDB (surviving tab close/crash)
-    this._restoreDirtyOps();
+    // ── Single-Tab-Guard + Crash-Restore ──
+    // Web Locks: Erst-Tab pro DB hält ein Browser-Lock. Ein Zweit-Tab derselben
+    // DB bekommt es nicht → Warnung + kein Crash-Restore/-Persist (sonst
+    // Doppel-Replays und gegenseitiges Überschreiben des Op-Puffers).
+    (async () => {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.locks) {
+          const gotLock = await new Promise((resolve) => {
+            navigator.locks.request('bhk_tab_' + (this.autoLoadedDbName || 'default'), { ifAvailable: true }, (lock) => {
+              if (!lock) { resolve(false); return; }
+              resolve(true);
+              return new Promise(() => {}); // Lock für die Tab-Lebensdauer halten
+            }).catch(() => resolve(true));
+          });
+          if (!gotLock) {
+            this._tabIsPrimary = false;
+            this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten', 'warning');
+          }
+        }
+      } catch(e) {}
+      // Restore any dirty ops from IndexedDB (surviving tab close/crash)
+      this._restoreDirtyOps();
+    })();
   },
 
   async _pollSyncMarker() {
@@ -2279,23 +2306,29 @@ const App = {
       req.onerror = () => reject(req.error);
     });
   },
+  // Crash-Store-Key pro Datenbank – zwei DBs (oder zwei Tabs verschiedener DBs)
+  // dürfen sich nicht denselben Op-Puffer teilen (Replay in die falsche DB!)
+  _idbOpsKey() { return 'ops_' + (this.autoLoadedDbName || 'default'); },
   async _persistDirtyOps() {
+    if (this._tabIsPrimary === false) return; // Zweit-Tab überschreibt nicht den Puffer des Erst-Tabs
     try {
       const db = await this._getIDB();
       const tx = db.transaction('dirtyOps', 'readwrite');
       const store = tx.objectStore('dirtyOps');
-      store.clear();
+      store.delete(this._idbOpsKey());
+      store.delete('ops'); // Legacy-Key aufräumen
       if (this._dirtyOps.length > 0) {
-        store.put({ id: 'ops', ops: this._dirtyOps.map(o => ({sql: o.sql, params: o.params})), ts: Date.now() });
+        store.put({ id: this._idbOpsKey(), ops: this._dirtyOps.map(o => ({uid: o.uid, sql: o.sql, params: o.params})), ts: Date.now() });
       }
     } catch(e) { /* IndexedDB not available – non-critical */ }
   },
   async _restoreDirtyOps() {
+    if (this._tabIsPrimary === false) return; // Zweit-Tab: kein Crash-Restore (Doppel-Replay)
     try {
       const db = await this._getIDB();
       const tx = db.transaction('dirtyOps', 'readonly');
       const store = tx.objectStore('dirtyOps');
-      const req = store.get('ops');
+      const req = store.get(this._idbOpsKey());
       req.onsuccess = () => {
         const record = req.result;
         if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 3600000) {
@@ -2536,25 +2569,184 @@ const App = {
     stmt.free();
     return rows;
   },
-  run(sql, params = []) {
-    this.db.run(sql, params);
-    // During bulk import: skip dirty-tracking, full-write happens at end
-    if (this._bulkImport) return;
-    // ── Dirty-Tracking: record the SQL + params for merge-save ──
-    // datetime('now') EINFRIEREN: Beim Replay auf der Disk-DB (Sekunden bis
-    // Minuten später) würde SQLite den Ausdruck neu auswerten → geaendert_am
-    // divergiert zwischen Memory und Disk und kippt die LWW-Konfliktauflösung.
-    let opSql = sql;
-    if (opSql.includes("datetime('now'")) {
-      const d = new Date();
-      const p2 = (n) => String(n).padStart(2, '0');
-      const localTs = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-      const utcTs = `${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
-      opSql = opSql
-        .replace(/datetime\('now',\s*'localtime'\)/g, `'${localTs}'`)
-        .replace(/datetime\('now'\)/g, `'${utcTs}'`);
+  // ═══ Sync-v2: global eindeutige IDs + Natural-Key-Replay + Tombstones ═══
+  // Tabellen, deren INSERTs eine clientseitig vergebene, global eindeutige ID
+  // bekommen. Ohne das vergeben zwei Clients bei parallelen INSERTs dieselbe
+  // AUTOINCREMENT-ID für verschiedene Zeilen → Replays/FKs treffen falsche Zeilen.
+  ID_TABLES: new Set(['kontrolltermine','kontrollergebnisse','wiedervorlagen','wiedervorlage_notizen',
+    'durchsicht_snapshots','ausbildungsphasen','schueler_bemerkungen','schueler_dateien',
+    'schueler','betriebe','ausbilder','klassen','berufsschulen','aenderungslog']),
+  // Natürliche Schlüssel: Replay-Adressierung (statt divergenter ids) + Tombstone-Keys
+  NATURAL_KEYS: {
+    kontrollergebnisse: ['kontrolltermin_id','schueler_id'],
+    kw_status: ['schueler_id','ausbildungsjahr','kalenderwoche'],
+    kw_maengel: ['kontrollergebnis_id','ausbildungsjahr','kalenderwoche'],
+    kontrolltermin_klassen: ['kontrolltermin_id','klasse_id'],
+    kontrolltermin_schueler: ['kontrolltermin_id','schueler_id'],
+  },
+  // Tabellen mit Lösch-Propagation (Tombstones verhindern Re-Import gelöschter Zeilen)
+  TOMBSTONE_TABLES: new Set(['kontrolltermine','kontrollergebnisse','kw_status','kw_maengel',
+    'wiedervorlagen','wiedervorlage_notizen','durchsicht_snapshots','ausbildungsphasen',
+    'schueler_bemerkungen','schueler_dateien','schueler',
+    'kontrolltermin_klassen','kontrolltermin_schueler']),
+  _lastNewId: 0,
+  // Zeitbasierte, kollisionsarme INTEGER-ID (~1.7e15 « 2^53): ms-Timestamp × 1000
+  // + Zufall; monoton pro Client, praktisch kollisionsfrei zwischen 2-3 Clients.
+  newId() {
+    let id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    if (id <= this._lastNewId) id = this._lastNewId + 1;
+    this._lastNewId = id;
+    return id;
+  },
+  _newUid() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); },
+  _frozenNow() {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    return {
+      local: `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`,
+      utc: `${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`,
+    };
+  },
+  // VALUES-Inhalt (erstes Tupel) aus einem INSERT extrahieren
+  _valuesContent(sql) {
+    const m = sql.match(/VALUES\s*\(/i);
+    if (!m) return null;
+    let depth = 1, i = m.index + m[0].length;
+    const start = i;
+    for (; i < sql.length && depth > 0; i++) {
+      if (sql[i] === '(') depth++;
+      else if (sql[i] === ')') depth--;
     }
-    this._dirtyOps.push({ sql: opSql, params: [...params] });
+    return depth === 0 ? sql.slice(start, i - 1) : null;
+  },
+  // Kommasplit auf Klammer-Tiefe 0 (respektiert datetime('now') etc.)
+  _splitTokens(str) {
+    const tokens = []; let depth = 0, cur = '';
+    for (const ch of str) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { tokens.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) tokens.push(cur.trim());
+    return tokens;
+  },
+  // Param-Index einer Spalte in einem Statement (INSERT-Spaltenliste oder "col=?")
+  _paramIndexForColumn(sql, col) {
+    const mIns = sql.match(/INSERT[^(]*\(([^)]*)\)\s*VALUES\s*\(/i);
+    if (mIns) {
+      const cols = mIns[1].split(',').map(c => c.trim().toLowerCase());
+      const ci = cols.indexOf(col);
+      if (ci < 0) return -1;
+      const content = this._valuesContent(sql);
+      if (!content) return -1;
+      const tokens = this._splitTokens(content);
+      if (ci >= tokens.length || tokens[ci] !== '?') return -1;
+      return tokens.slice(0, ci).filter(t => t === '?').length;
+    }
+    const re = new RegExp(col + '\\s*=\\s*\\?', 'i');
+    const idx = sql.search(re);
+    if (idx < 0) return -1;
+    return (sql.slice(0, idx).match(/\?/g) || []).length;
+  },
+  /**
+   * Bereitet eine Schreib-Op für lokale Ausführung + Replay vor:
+   * - injiziert explizite newId() in INSERTs auf ID_TABLES
+   * - friert datetime('now') im Replay-Op ein (Replay-Divergenz)
+   * - schreibt UPDATE/DELETE "WHERE id=?" auf kontrollergebnisse/kw_status
+   *   im Replay-Op auf den natürlichen Schlüssel um (id-divergenzfest)
+   * - erfasst Tombstones für DELETEs / räumt Tombstones bei Re-INSERT
+   */
+  _prepareOp(sql, params) {
+    const out = { sql, params: [...params], opSql: sql, opParams: [...params], pre: [], post: [] };
+    const now = this._frozenNow();
+    if (out.opSql.includes("datetime('now'")) {
+      out.opSql = out.opSql
+        .replace(/datetime\('now',\s*'localtime'\)/g, `'${now.local}'`)
+        .replace(/datetime\('now'\)/g, `'${now.utc}'`);
+    }
+    // ── INSERT ──
+    const mIns = sql.match(/^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\(/i);
+    if (mIns) {
+      const table = mIns[2].toLowerCase();
+      let cols = mIns[3].split(',').map(c => c.trim().toLowerCase());
+      if (this.ID_TABLES.has(table) && !cols.includes('id')) {
+        const id = this.newId();
+        const headOld = mIns[0];
+        const headNew = headOld
+          .replace('(' + mIns[3] + ')', '(id,' + mIns[3] + ')')
+          .replace(/VALUES\s*\($/i, (mm) => mm + '?,');
+        out.sql = out.sql.replace(headOld, headNew);
+        out.opSql = out.opSql.replace(headOld, headNew);
+        out.params.unshift(id);
+        out.opParams.unshift(id);
+        cols = ['id', ...cols];
+      }
+      // Re-Anlage hebt eine frühere Löschung (Tombstone) auf
+      if (this.TOMBSTONE_TABLES.has(table)) {
+        const keyCols = this.NATURAL_KEYS[table] || ['id'];
+        const content = this._valuesContent(out.sql);
+        if (content) {
+          const tokens = this._splitTokens(content);
+          const vals = [];
+          for (const k of keyCols) {
+            const ci = cols.indexOf(k);
+            if (ci < 0 || ci >= tokens.length) { vals.length = 0; break; }
+            const tok = tokens[ci];
+            if (tok === '?') vals.push(out.params[tokens.slice(0, ci).filter(t => t === '?').length]);
+            else if (/^-?\d+$/.test(tok)) vals.push(Number(tok));
+            else if (/^["'].*["']$/.test(tok)) vals.push(tok.slice(1, -1));
+            else { vals.length = 0; break; }
+          }
+          if (vals.length === keyCols.length) {
+            out.post.push({ sql: 'DELETE FROM bhk_tombstones WHERE tabelle=? AND key=?',
+              params: [table, vals.map(v => String(v)).join('_')] });
+          }
+        }
+      }
+      return out;
+    }
+    // ── DELETE: Tombstones VOR dem Löschen erfassen (beliebige WHERE-Formen) ──
+    const mDel = sql.match(/^\s*DELETE\s+FROM\s+([A-Za-z_]+)\b([\s\S]*)$/i);
+    if (mDel && this.TOMBSTONE_TABLES.has(mDel[1].toLowerCase())) {
+      const table = mDel[1].toLowerCase();
+      const keyCols = this.NATURAL_KEYS[table] || ['id'];
+      try {
+        const rows = this.query(`SELECT ${keyCols.join(',')} FROM ${table} ${mDel[2]}`, params);
+        rows.forEach(r => out.pre.push({
+          sql: 'INSERT OR REPLACE INTO bhk_tombstones (tabelle,key,geloescht_am) VALUES (?,?,?)',
+          params: [table, keyCols.map(k => String(r[k])).join('_'), now.local],
+        }));
+      } catch(e) { /* z.B. Tabelle fehlt noch */ }
+    }
+    // ── Natural-Key-Rewrite (nur Replay-Op): id-divergenzfeste Adressierung ──
+    const mNk = sql.match(/^\s*(UPDATE|DELETE\s+FROM)\s+(kontrollergebnisse|kw_status)\b[\s\S]*WHERE\s+id\s*=\s*\?\s*$/i);
+    if (mNk) {
+      const table = mNk[2].toLowerCase();
+      const keyCols = this.NATURAL_KEYS[table];
+      try {
+        const row = this.query(`SELECT ${keyCols.join(',')} FROM ${table} WHERE id=?`, [params[params.length - 1]])[0];
+        if (row) {
+          out.opSql = out.opSql.replace(/WHERE\s+id\s*=\s*\?\s*$/i, 'WHERE ' + keyCols.map(k => k + '=?').join(' AND '));
+          out.opParams = [...out.opParams.slice(0, -1), ...keyCols.map(k => row[k])];
+        }
+      } catch(e) {}
+    }
+    return out;
+  },
+  run(sql, params = []) {
+    // During bulk import: skip dirty-tracking, full-write happens at end
+    if (this._bulkImport) { this.db.run(sql, params); return; }
+    const prep = this._prepareOp(sql, params);
+    prep.pre.forEach(x => {
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+    });
+    this.db.run(prep.sql, prep.params);
+    prep.post.forEach(x => {
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+    });
+    // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
+    this._dirtyOps.push({ uid: this._newUid(), sql: prep.opSql, params: prep.opParams });
     this.markDirty();
   },
   _bulkImport: false,
@@ -2566,20 +2758,29 @@ const App = {
   // Fährt dasselbe Schutzprotokoll wie mergeAndSave (Lock + Marker-Check) –
   // sonst vernichten sich Bulk-Import und paralleler Save eines anderen
   // Nutzers gegenseitig (Full-Write ersetzt die ganze Datei).
-  _fullSaveRetries: 0,
   async fullSave() {
     if (!this.dbFileHandle || !this.db) return;
     if (this._mergeInProgress) { setTimeout(() => this.fullSave(), 2000); return; }
     this._mergeInProgress = true;
+    try {
+      // Retry-Schleife (siehe mergeAndSave): await-Semantik + Lock-Ownership pro Versuch
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const status = await this._fullSaveAttempt();
+        if (status !== 'retry') break;
+      }
+    } finally {
+      this._mergeInProgress = false;
+    }
+  },
+  async _fullSaveAttempt() {
     let writable = null;
     try {
       // 0) Lock über die gesamte Read-Merge-Write-Sequenz
       const lockAcquired = await this._acquireLock();
       if (!lockAcquired) {
-        this._mergeInProgress = false;
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte (anderer User speichert)…';
         setTimeout(() => this.fullSave(), 3000);
-        return;
+        return 'stop';
       }
 
       // 1) Read disk version to preserve other users' changes
@@ -2595,14 +2796,11 @@ const App = {
       // 2b) Marker-Check direkt vor dem Schreiben: hat jemand zwischen unserem
       // Read und jetzt gespeichert? Dann mit frischem Disk-Stand neu ansetzen.
       const freshToken = await this._readMarkerToken();
-      if (freshToken && freshToken !== this._lastSyncVersion && this._fullSaveRetries < 5) {
-        this._fullSaveRetries++;
+      if (freshToken && freshToken !== this._lastSyncVersion) {
         this._lastSyncVersion = freshToken; // Retry liest die Disk sofort neu → Stand ist dann enthalten
         console.log('[Save] Marker changed during fullSave → retry with fresh disk data');
-        setTimeout(() => this.fullSave(), 100);
-        return;
+        return 'retry';
       }
-      this._fullSaveRetries = 0;
 
       // 3) NOW export our merged in-memory DB (has both our import + others' edits)
       const data = this.db.export();
@@ -2625,13 +2823,14 @@ const App = {
       this._broadcastChange();
       await this._writeSyncMarker(); // VOR Lock-Release, sonst maskiert ein späterer Marker fremde Saves
       console.log('[Save] Full-write nach Import abgeschlossen (mit Merge)');
+      return 'ok';
     } catch(e) {
       if (writable) { try { await writable.abort(); } catch(_) {} writable = null; }
       console.error('[Save] fullSave error:', e);
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
+      return 'stop';
     } finally {
       await this._releaseLock();
-      this._mergeInProgress = false;
     }
   },
   scalar(sql, params = []) {
@@ -2670,15 +2869,29 @@ const App = {
     if (this._saveCooldownUntil && Date.now() < this._saveCooldownUntil) return;
 
     this._mergeInProgress = true;
+    try {
+      // Retry-SCHLEIFE statt Rekursion/setTimeout: (a) await-Semantik bleibt
+      // erhalten (Aufrufer weiß, wann wirklich gespeichert ist), (b) das
+      // finally eines äußeren Aufrufs kann nie das Lock eines inneren
+      // Retry-Aufrufs freigeben (Ownership pro Versuch).
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const status = await this._mergeAttempt(force);
+        if (status !== 'retry') break;
+      }
+    } finally {
+      this._mergeInProgress = false;
+    }
+  },
+  // Ein einzelner Merge-Save-Versuch. Rückgabe: 'ok' | 'retry' | 'stop'.
+  async _mergeAttempt(force) {
     const t0 = Date.now();
     try {
       // 0) Acquire lock file to prevent concurrent writes
       const lockAcquired = await this._acquireLock();
       if (!lockAcquired) {
-        this._mergeInProgress = false;
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Warte (anderer User speichert)…';
         setTimeout(() => this.scheduleAutoSave(), 3000);
-        return;
+        return 'stop';
       }
 
       // 1) Read disk version
@@ -2695,33 +2908,44 @@ const App = {
         const memSchueler = this.scalar('SELECT COUNT(*) FROM schueler') || 0;
         if (tableCount < 3 && memSchueler > 0) {
           diskDb.close();
-          this._mergeInProgress = false;
-          await this._releaseLock();
           console.error('[Save] Disk-DB unlesbar/leer gelesen – Save abgebrochen (Schutz vor Überschreiben)');
           this.toast('Netzlaufwerk-Lesefehler – Speichern übersprungen, wird erneut versucht', 'warning');
           setTimeout(() => this.scheduleAutoSave(), 5000);
-          return;
+          return 'stop';
         }
       } catch(e) {
         diskDb.close();
-        this._mergeInProgress = false;
-        await this._releaseLock();
         this.toast('Disk-DB nicht lesbar – Speichern übersprungen', 'warning');
         setTimeout(() => this.scheduleAutoSave(), 5000);
-        return;
+        return 'stop';
       }
 
       // 2) Ensure diskDb has the same schema
       this._migrateDiskDb(diskDb);
 
-      // 3) Replay our dirty ops onto diskDb
+      // 2c) KE-Id-Reconciliation VOR dem Replay: hat ein anderer Client dieselbe
+      // Kontrollergebnis-Zeile (Natural Key) mit anderer id auf der Disk angelegt,
+      // übernehmen wir die Disk-id lokal + in allen pendenten Ops.
+      this._reconcileKeIds(diskDb);
+
+      // 3) Replay our dirty ops onto diskDb (idempotent via Ledger)
       const ops = [...this._dirtyOps];
       let replayErrors = 0;
       let permanentlyDropped = 0;
       const retryOps = []; // fehlgeschlagen, aber < 3 Versuche → beim nächsten Save erneut
+      const appliedStmt = (() => {
+        try { return diskDb.prepare('SELECT 1 FROM bhk_applied_ops WHERE op_uid=?'); } catch(e) { return null; }
+      })();
+      const wasApplied = (uid) => {
+        if (!appliedStmt || !uid) return false;
+        try { appliedStmt.bind([uid]); const hit = appliedStmt.step(); appliedStmt.reset(); return hit; } catch(e) { return false; }
+      };
       ops.forEach((op) => {
         try {
+          // Bereits angewendet (Crash/Retry nach Disk-Write)? → überspringen statt doppeln
+          if (wasApplied(op.uid)) return;
           diskDb.run(op.sql, op.params);
+          if (op.uid) { try { diskDb.run('INSERT OR IGNORE INTO bhk_applied_ops (op_uid,ts) VALUES (?,?)', [op.uid, new Date().toISOString()]); } catch(e) {} }
         } catch(e) {
           op._retries = (op._retries || 0) + 1;
           replayErrors++;
@@ -2730,6 +2954,9 @@ const App = {
           else retryOps.push(op);
         }
       });
+      if (appliedStmt) { try { appliedStmt.free(); } catch(e) {} }
+      // Ledger begrenzen (die letzten ~5000 Ops reichen für jedes Crash-Fenster)
+      try { diskDb.run('DELETE FROM bhk_applied_ops WHERE rowid NOT IN (SELECT rowid FROM bhk_applied_ops ORDER BY rowid DESC LIMIT 5000)'); } catch(e) {}
       if (permanentlyDropped) {
         console.error(`Permanently dropped ${permanentlyDropped} ops after 3 failed replays`);
       }
@@ -2743,10 +2970,7 @@ const App = {
         // endlos (Livelock), weil derselbe Marker immer wieder "neu" ist.
         this._lastSyncVersion = freshToken;
         console.log('[Save] Marker changed during save → retry with fresh disk data');
-        // Retry NACH dem finally planen (nicht rekursiv im try!) – sonst gibt
-        // das finally dieses Aufrufs das frisch acquirierte Lock des Retries frei.
-        setTimeout(() => this.mergeAndSave(force), 100);
-        return;
+        return 'retry';
       }
 
       // 3c) Lock-Heartbeat: Timestamp auffrischen, damit ein langsamer Save
@@ -2821,6 +3045,7 @@ const App = {
       } else if (replayErrors > 0) {
         console.warn(`Merge-save: ${ops.length} ops replayed, ${replayErrors} skipped (will retry)`);
       }
+      return 'ok';
     } catch(e) {
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
       this._lastSaveDurationMs = Date.now() - t0;
@@ -2835,9 +3060,7 @@ const App = {
           const oldName = this.dbFileHandle?.name || 'berichtsheftkontrolle.sqlite';
           this.dbFileHandle = await this.dirHandle.getFileHandle(oldName, { create: false });
           console.log('[Save] retry ' + this._saveRetryCount + '/3');
-          // Retry NACH dem finally planen (nicht rekursiv) – siehe Marker-Retry oben.
-          setTimeout(() => this.mergeAndSave(force), 100);
-          return;
+          return 'retry';
         } catch(reacquireErr) {}
       }
 
@@ -2854,16 +3077,17 @@ const App = {
           this._lastReconnectAttempt = now;
           await this.tryReconnect();
         }
-        return;
+        return 'stop';
       }
 
       if (this._saveRetryCount <= 2) {
         console.error('Merge-save error:', e);
       }
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
+      return 'stop';
     } finally {
+      // Lock-Ownership endet mit diesem Versuch; der nächste acquiriert neu
       await this._releaseLock();
-      this._mergeInProgress = false;
     }
   },
 
@@ -3043,6 +3267,13 @@ const App = {
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
     )`);
+    // Tombstones (Replay-Ziel für Lösch-Propagation)
+    run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
+      tabelle TEXT NOT NULL, key TEXT NOT NULL,
+      geloescht_am TEXT DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (tabelle, key))`);
+    // Idempotenz-Ledger: verhindert Doppel-Anwendung von Ops nach Crash/Retry
+    run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
     // UNIQUE-Index gegen doppelte Kontrollergebnisse bei gleichzeitiger Auto-Erstellung
     try {
       diskDb.run("DELETE FROM kontrollergebnisse WHERE id NOT IN (SELECT MIN(id) FROM kontrollergebnisse GROUP BY kontrolltermin_id, schueler_id)");
@@ -3088,6 +3319,45 @@ const App = {
         id INTEGER PRIMARY KEY AUTOINCREMENT, bezeichnung TEXT NOT NULL UNIQUE,
         typ TEXT NOT NULL DEFAULT '', jahr INTEGER, pruefungstermin TEXT DEFAULT '', aktiv INTEGER DEFAULT 1)`,
       `INSERT OR IGNORE INTO abschlussjahrgaenge SELECT * FROM abschlussjahrgaenge_new`);
+  },
+
+  /**
+   * KE-Id-Reconciliation: gleiche Kontrollergebnis-Zeile (kontrolltermin_id +
+   * schueler_id), aber unterschiedliche id lokal vs. Disk (Auto-Anlage-Race,
+   * INSERT OR IGNORE hat auf der Disk verloren). Die Disk-id ist autoritativ:
+   * lokale Zeile + alle FK-Verweise + pendente Op-Parameter übernehmen sie.
+   */
+  _reconcileKeIds(diskDb) {
+    try {
+      const disk = [];
+      const stmt = diskDb.prepare('SELECT id, kontrolltermin_id, schueler_id FROM kontrollergebnisse');
+      while (stmt.step()) disk.push(stmt.getAsObject());
+      stmt.free();
+      if (!disk.length) return;
+      const diskByKey = new Map(disk.map(r => [r.kontrolltermin_id + '_' + r.schueler_id, r.id]));
+      const local = this.query('SELECT id, kontrolltermin_id, schueler_id FROM kontrollergebnisse');
+      local.forEach(l => {
+        const dId = diskByKey.get(l.kontrolltermin_id + '_' + l.schueler_id);
+        if (dId == null || dId === l.id) return;
+        // FK-Verweise umziehen, dann die Zeile selbst
+        ['kw_maengel', 'wiedervorlagen', 'durchsicht_snapshots'].forEach(t => {
+          try { this._runSilent(`UPDATE ${t} SET kontrollergebnis_id=? WHERE kontrollergebnis_id=?`, [dId, l.id]); } catch(e) {}
+        });
+        try {
+          this._runSilent('UPDATE kontrollergebnisse SET id=? WHERE id=?', [dId, l.id]);
+        } catch(e) {
+          // Ziel-id existiert lokal bereits (Duplikat aus früherem Import) → Duplikat entfernen
+          try { this._runSilent('DELETE FROM kontrollergebnisse WHERE id=?', [l.id]); } catch(e2) {}
+        }
+        // Pendente Ops: kontrollergebnis_id-Parameter positionsgenau umschreiben
+        this._dirtyOps.forEach(op => {
+          if (!/kontrollergebnis_id/i.test(op.sql)) return;
+          const pi = this._paramIndexForColumn(op.sql, 'kontrollergebnis_id');
+          if (pi >= 0 && pi < op.params.length && op.params[pi] === l.id) op.params[pi] = dId;
+        });
+        console.log(`[Sync] KE-Id reconciled: lokal ${l.id} → Disk ${dId} (Termin ${l.kontrolltermin_id}, Schüler ${l.schueler_id})`);
+      });
+    } catch(e) { console.warn('KE-Reconcile:', e.message); }
   },
 
   _importFromDisk(diskDb) {
@@ -3139,6 +3409,31 @@ const App = {
     });
 
     try {
+      // ── 0) KE-Ids angleichen + Tombstones anwenden ──
+      this._reconcileKeIds(diskDb);
+      // Löschungen anderer Clients übernehmen; eigene Tombstones blockieren Re-Import
+      const tsSet = new Set();
+      try {
+        const localTs = new Set(this.query("SELECT tabelle||'|'||key AS k FROM bhk_tombstones").map(r => r.k));
+        this._readTable(diskDb, 'bhk_tombstones').forEach(t => {
+          const k = t.tabelle + '|' + t.key;
+          if (!localTs.has(k)) {
+            this._runSilent('INSERT OR REPLACE INTO bhk_tombstones (tabelle,key,geloescht_am) VALUES (?,?,?)',
+              [t.tabelle, t.key, t.geloescht_am || '']);
+            const keyCols = this.NATURAL_KEYS[t.tabelle] || ['id'];
+            const vals = String(t.key).split('_');
+            if (vals.length === keyCols.length) {
+              try {
+                this._runSilent(`DELETE FROM ${t.tabelle} WHERE ${keyCols.map(c => c + '=?').join(' AND ')}`, vals);
+                this._importChangeCount++;
+              } catch(e) {}
+            }
+          }
+        });
+        this.query("SELECT tabelle||'|'||key AS k FROM bhk_tombstones").forEach(r => tsSet.add(r.k));
+      } catch(e) { /* bhk_tombstones evtl. noch nicht vorhanden */ }
+      const tomb = (tabelle, ...vals) => tsSet.has(tabelle + '|' + vals.map(v => String(v)).join('_'));
+
       // ── 1) kontrollergebnisse: COLUMN-LEVEL merge ──
       const diskKE = [];
       const stmtKe = diskDb.prepare('SELECT * FROM kontrollergebnisse');
@@ -3155,6 +3450,7 @@ const App = {
           [dke.kontrolltermin_id, dke.schueler_id]);
 
         if (!local.length) {
+          if (tomb('kontrollergebnisse', dke.kontrolltermin_id, dke.schueler_id)) return;
           // Row exists on disk but not locally → import fully
           this._runSilent('INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb,fehltage_gesamt,anwesend,bemerkung,durchsicht_nr,geprueft_kws,zulassung_ap,pruefungsausschuss,sachberichte_anzahl,erstellt_am,geaendert_am,geaendert_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             [dke.kontrolltermin_id,dke.schueler_id,dke.ergebnis,dke.p_1_1_ausbildungsplan,dke.p_1_4_auszubildende,dke.p_1_5_bescheinigungen,dke.bescheinigungen_anzahl,dke.f_1_2_vertragliche_regelungen,dke.f_1_6_ausbildungsbetrieb,dke.fehltage_gesamt,dke.anwesend,dke.bemerkung,dke.durchsicht_nr,dke.geprueft_kws,dke.zulassung_ap??0,dke.pruefungsausschuss??0,dke.sachberichte_anzahl??0,dke.erstellt_am||'',dke.geaendert_am||'',dke.geaendert_von||'']);
@@ -3235,6 +3531,7 @@ const App = {
         const local = this.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
           [dkw.schueler_id, dkw.ausbildungsjahr, dkw.kalenderwoche]);
         if (!local.length) {
+          if (tomb('kw_status', dkw.schueler_id, dkw.ausbildungsjahr, dkw.kalenderwoche)) return;
           // New KW data from disk → import (inkl. bemerkung – fehlte früher)
           this._runSilent('INSERT OR IGNORE INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,behobene_codes,fehltage,geprueft,bemerkung,erstellt_bei,behoben_bei) VALUES (?,?,?,?,?,?,?,?,?,?)',
             [dkw.schueler_id,dkw.ausbildungsjahr,dkw.kalenderwoche,dkw.maengel_codes,dkw.behobene_codes,dkw.fehltage,dkw.geprueft,dkw.bemerkung||'',dkw.erstellt_bei,dkw.behoben_bei]);
@@ -3278,6 +3575,7 @@ const App = {
         diskKM.forEach(dkm => {
           const key = dkm.kontrollergebnis_id + '_' + dkm.ausbildungsjahr + '_' + dkm.kalenderwoche;
           if (!localKMKeys.has(key)) {
+            if (tomb('kw_maengel', dkm.kontrollergebnis_id, dkm.ausbildungsjahr, dkm.kalenderwoche)) return;
             this._runSilent('INSERT OR IGNORE INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)',
               [dkm.kontrollergebnis_id, dkm.ausbildungsjahr, dkm.kalenderwoche, dkm.maengel_codes||'', dkm.fehltage||0]);
             this._importChangeCount++;
@@ -3306,6 +3604,7 @@ const App = {
       const localKTIds = new Set(this.query('SELECT id FROM kontrolltermine').map(r => r.id));
       diskKT.forEach(dkt => {
         if (!localKTIds.has(dkt.id)) {
+          if (tomb('kontrolltermine', dkt.id)) return;
           this._runSilent('INSERT INTO kontrolltermine (id,betrieb_id,klasse_id,jahrgang_id,geplant_datum,durchgefuehrt_datum,pruefer,status,typ,bemerkung) VALUES (?,?,?,?,?,?,?,?,?,?)',
             [dkt.id,dkt.betrieb_id??null,dkt.klasse_id??null,dkt.jahrgang_id??null,dkt.geplant_datum,dkt.durchgefuehrt_datum||'',dkt.pruefer||'',dkt.status||'geplant',dkt.typ||'schulkontrolle',dkt.bemerkung||'']);
           this._importChangeCount++;
@@ -3328,6 +3627,7 @@ const App = {
       diskTKK.forEach(d => {
         const key = d.kontrolltermin_id + '_' + d.klasse_id;
         if (!localTKK.has(key)) {
+          if (tomb('kontrolltermin_klassen', d.kontrolltermin_id, d.klasse_id)) return;
           this._runSilent('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id,klasse_id) VALUES (?,?)',
             [d.kontrolltermin_id, d.klasse_id]);
           this._importChangeCount++;
@@ -3342,6 +3642,7 @@ const App = {
         diskTKS.forEach(d => {
           const key = d.kontrolltermin_id + '_' + d.schueler_id;
           if (!localTKS.has(key)) {
+            if (tomb('kontrolltermin_schueler', d.kontrolltermin_id, d.schueler_id)) return;
             this._runSilent('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (?,?)',
               [d.kontrolltermin_id, d.schueler_id]);
             this._importChangeCount++;
@@ -3355,6 +3656,7 @@ const App = {
       const localWVIds = new Set(this.query('SELECT id FROM wiedervorlagen').map(r => r.id));
       diskWV.forEach(d => {
         if (!localWVIds.has(d.id)) {
+          if (tomb('wiedervorlagen', d.id)) return;
           this._runSilent('INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,erinnerung_datum,status,erledigt_datum,erledigt_bemerkung,erstellt_am) VALUES (?,?,?,?,?,?,?,?,?,?)',
             [d.id,d.kontrollergebnis_id,d.schueler_id,d.art||'',d.frist_datum,d.erinnerung_datum||'',d.status||'offen',d.erledigt_datum||'',d.erledigt_bemerkung||'',d.erstellt_am||'']);
           this._importChangeCount++;
@@ -3376,6 +3678,7 @@ const App = {
       const localWNIds = new Set(this.query('SELECT id FROM wiedervorlage_notizen').map(r => r.id));
       diskWN.forEach(d => {
         if (!localWNIds.has(d.id)) {
+          if (tomb('wiedervorlage_notizen', d.id)) return;
           this._runSilent('INSERT INTO wiedervorlage_notizen (id,wiedervorlage_id,notiz,erstellt_am,erstellt_von) VALUES (?,?,?,?,?)',
             [d.id,d.wiedervorlage_id,d.notiz||'',d.erstellt_am||'',d.erstellt_von||'']);
           this._importChangeCount++;
@@ -3389,6 +3692,7 @@ const App = {
       const localDSIds = new Set(this.query('SELECT id FROM durchsicht_snapshots').map(r => r.id));
       diskDS.forEach(d => {
         if (!localDSIds.has(d.id)) {
+          if (tomb('durchsicht_snapshots', d.id)) return;
           this._runSilent('INSERT INTO durchsicht_snapshots (id,kontrollergebnis_id,schueler_id,snapshot_datum,kw_daten_json,geprueft_kws_json,pflichtteile_json,ergebnis,bemerkung,pruefer,erstellt_am) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
             [d.id,d.kontrollergebnis_id??null,d.schueler_id,d.snapshot_datum||'',d.kw_daten_json||'{}',d.geprueft_kws_json||'{}',d.pflichtteile_json||'{}',d.ergebnis||'',d.bemerkung||'',d.pruefer||'',d.erstellt_am||'']);
           this._importChangeCount++;
@@ -3406,6 +3710,7 @@ const App = {
       const schuelerCols = this.query('PRAGMA table_info(schueler)').map(c => c.name);
       diskS.forEach(d => {
         if (!localSIds.has(d.id)) {
+          if (tomb('schueler', d.id)) return;
           const cols = schuelerCols.filter(c => c in d);
           this._runSilent(`INSERT OR IGNORE INTO schueler (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
             cols.map(c => d[c] ?? null));
@@ -4238,6 +4543,12 @@ const App = {
   migrateDB() {
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
+      // Tombstones (Lösch-Propagation) – auch auf Bestands-DBs anlegen + alte Einträge räumen
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
+        tabelle TEXT NOT NULL, key TEXT NOT NULL,
+        geloescht_am TEXT DEFAULT (datetime('now','localtime')),
+        PRIMARY KEY (tabelle, key))`);
+      try { this.db.run("DELETE FROM bhk_tombstones WHERE geloescht_am < datetime('now','localtime','-60 days')"); } catch(e) {}
       // Add columns to kontrollergebnisse if missing
       const keCols = this.query("PRAGMA table_info(kontrollergebnisse)").map(r => r.name);
       if (!keCols.includes('geprueft_kws')) {
