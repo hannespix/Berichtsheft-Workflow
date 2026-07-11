@@ -11847,6 +11847,26 @@ const App = {
 // ║  UTILITY FUNCTIONS                                           ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Monochrome Inline-SVG-Icons (Feather/Lucide-Stil, erben currentColor) ──
+// Für Aktionen mit eigener Bedeutung: Text-Glyphen wie ◈/▤ sind zu abstrakt,
+// Emojis tabu (unprofessionell + Plattform-abhängig bunt).
+function svgIcon(name, size = 14) {
+  const paths = {
+    // Azubi-Dashboard: Übersichtskacheln
+    dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    // Schüler-Akte: Ordner
+    akte: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    // Zulassung / Abschluss / Prüfung: Doktorhut
+    abschluss: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+    // Dateitypen (Schüler-Akte)
+    datei: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    bild: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+    tabelle: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>',
+    archiv: '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><line x1="10" y1="13" x2="14" y2="13"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}" style="vertical-align:-2px;flex-shrink:0">${paths[name] || paths.datei}</svg>`;
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
@@ -12384,7 +12404,7 @@ const Views = {
 
           <!-- Nächste Prüfungstermine -->
           <div class="card">
-            <div class="card-header">◈ Anstehende Prüfungen</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Anstehende Prüfungen</div>
             ${pruefTermine.length ? pruefTermine.map(p => `
               <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px">
                 <span><strong>${esc(p.bezeichnung)}</strong> <span style="color:var(--clr-text-light)">(${p.typ})</span></span>
@@ -12426,7 +12446,7 @@ const Views = {
 
         <div class="grid-2" style="margin-bottom:16px">
           <div class="card dash-chart-card" style="text-align:center">
-            <div class="card-header">◈ Schulabschlüsse</div>
+            <div class="card-header">${svgIcon('abschluss', 15)} Schulabschlüsse</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartSchulabschluss" style="cursor:pointer"></canvas></div>
             <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
@@ -12620,7 +12640,7 @@ const Views = {
           options: { ...chartOpts, cutout: '55%', onClick: (evt, elems) => {
             if (!elems.length) return;
             const sa = saKeys[elems[0].index];
-            App.drillDown("s.schulabschluss='" + sa + "'", '◈ ' + (saLabels[sa] || 'Code ' + sa));
+            App.drillDown("s.schulabschluss='" + sa + "'", 'Abschluss: ' + (saLabels[sa] || 'Code ' + sa));
           } }
         });
       }
@@ -13167,7 +13187,7 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Rohdaten + Schul-/Betriebs-/Fachrichtungs-/Amt-Statistik als Excel.</p>
         </div>
         <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-green)" onclick="BerichteHandler.zulassungsliste()">
-          <div class="card-header">◈ Zulassungsliste AP</div>
+          <div class="card-header">${svgIcon('abschluss', 15)} Zulassungsliste AP</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
         </div>
       </div>
@@ -13763,7 +13783,7 @@ const Views = {
             <p>&nbsp;&nbsp;Kontrollfortschritt – OK / Beanstandet / Offen</p>
             <p>&nbsp;&nbsp;Geschlechterquote – Männlich / Weiblich / Divers</p>
             <p>&nbsp;&nbsp;Regionale Verteilung – Nach zuständigem Amt</p>
-            <p>&nbsp;&nbsp;◈ Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
+            <p>&nbsp;&nbsp;${svgIcon('abschluss', 12)} Schulabschlüsse – Vor der Ausbildung (Codes 1-5)</p>
             <p>&nbsp;&nbsp;▤ Prüfungserfolg – Bestanden / Nicht bestanden / WDH</p>
             <p>&nbsp;&nbsp;Fachrichtungen – Gärtner vs. Fachwerker (Balkendiagramm)</p>
             <p>&nbsp;&nbsp;Mängelverteilung – Häufigkeit der Mängelcodes A-I</p>
@@ -13869,8 +13889,8 @@ const Views = {
           </div>
 
           <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">◈ Azubi-Dashboard</div>
-            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ◈-Button in Stammdaten, SchuelerView und Kontrolle.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Azubi-Dashboard</div>
+            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ${svgIcon('dashboard', 12)}-Button in Stammdaten, SchuelerView und Kontrolle.</p>
             <p><strong>Komponenten:</strong></p>
             <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
             <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
@@ -13899,8 +13919,8 @@ const Views = {
           </div>
 
           <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">▤ Schüler-Akte</div>
-            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ▤-Button in Stammdaten und SchuelerView.</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Schüler-Akte</div>
+            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
@@ -14867,7 +14887,7 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">◈</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">▤</button></td>
+          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="AzubiDashboard.open(${s.id})" title="Azubi-Dashboard">${svgIcon('dashboard', 13)}</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen & Dateien">${svgIcon('akte', 13)}</button></td>
         </tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -17046,7 +17066,7 @@ const ImportHandler = {
         <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">▤ Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
@@ -19235,7 +19255,7 @@ const KontrolleHandler = {
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">◈</a>`:''}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -19317,7 +19337,7 @@ const KontrolleHandler = {
             <strong>${schueler.length - doneCount}</strong> noch offen
           </div>
           ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            ◈ <strong>${zulCount}</strong> zugelassen
+            ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> zugelassen
           </div>` : ''}
           ${paCount ? `<div style="padding:6px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--clr-red)">
             ⚠︎ <strong>${paCount}</strong> Prüfungsausschuss
@@ -19499,7 +19519,7 @@ const KontrolleHandler = {
       <span style="background:#e8f5e9">✓ ${ok} i.O.</span>
       <span style="background:${mg ? '#fde8e6' : '#f5f5f5'}">✗ ${mg} beanstandet</span>
       <span style="background:#f5f5f5">${anw}/${schueler.length} anwesend</span>
-      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">◈ ${zul} zugelassen</span>` : ''}
+      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">${svgIcon('abschluss', 12)} ${zul} zugelassen</span>` : ''}
       ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠︎ ${pa} Prüfungsausschuss</span>` : ''}
     </div>
     <table>
@@ -19987,7 +20007,7 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">◈ Dashboard</a>`:''}
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✎ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
@@ -24508,7 +24528,7 @@ const BerichteHandler = {
     const ampelIcon = (e) => !e ? '<span style="color:var(--clr-sage-light)">○</span>' : e === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
     const ergebnisLabel = {in_ordnung:'OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
-    App.openModal(`◈ Zulassungsliste AP (${azubis.length} Azubis)`, `
+    App.openModal(`${svgIcon('abschluss', 17)} Zulassungsliste AP (${azubis.length} Azubis)`, `
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
         <select class="form-control" style="width:auto;font-size:12px" onchange="BerichteHandler._zlFilter.schule=this.value;BerichteHandler._renderZulassungsliste()">
           <option value="">Alle Schulen</option>${schulen.map(s => `<option value="${esc(s.name)}" ${f.schule===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}
@@ -26095,8 +26115,8 @@ const SchuelerView = {
               <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})" style="font-size:12px">◈</button>`:''}
-              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})" style="font-size:12px">▤</button>
+              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<button class="btn-icon btn-sm" title="Azubi-Dashboard" onclick="AzubiDashboard.open(${s.id})">${svgIcon('dashboard')}</button>`:''}
+              <button class="btn-icon btn-sm" title="Akte: Bemerkungen & Dateien" onclick="SchuelerAkte.open(${s.id})">${svgIcon('akte')}</button>
               <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               </button>
@@ -26539,13 +26559,13 @@ const SchuelerAkte = {
 
   _fileIcon(ext) {
     const icons = {
-      pdf: '▤', doc: '▤', docx: '▤', odt: '▤',
+      pdf: svgIcon('datei', 13), doc: svgIcon('datei', 13), docx: svgIcon('datei', 13), odt: svgIcon('datei', 13),
       msg: '✉︎', eml: '✉︎',
-      jpg: '▤', jpeg: '▤', png: '▤', gif: '▤', bmp: '▤',
-      xlsx: '', xls: '', csv: '',
-      zip: '', rar: '', '7z': ''
+      jpg: svgIcon('bild', 13), jpeg: svgIcon('bild', 13), png: svgIcon('bild', 13), gif: svgIcon('bild', 13), bmp: svgIcon('bild', 13),
+      xlsx: svgIcon('tabelle', 13), xls: svgIcon('tabelle', 13), csv: svgIcon('tabelle', 13),
+      zip: svgIcon('archiv', 13), rar: svgIcon('archiv', 13), '7z': svgIcon('archiv', 13)
     };
-    return icons[ext] || '▤';
+    return icons[ext] || svgIcon('datei', 13);
   },
 
   // ── Zähler für Badge ──
