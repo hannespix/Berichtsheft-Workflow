@@ -477,7 +477,7 @@ const KWNav = {
       ${bausteine.length ? `<div style="margin-bottom:10px">
         <label style="font-size:12px;font-weight:600;color:var(--clr-forest);margin-bottom:4px;display:block">Textbausteine (Klick = einfügen)</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${bausteine.map(b => `<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="const t=document.getElementById('sonstBem');const v=t.value;t.value=v+(v?'\\n':'')+${JSON.stringify(b)};t.focus()" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
+          ${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="bausteinInsert('sonstBem',${bi})" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
         </div>
       </div>` : `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">
         Keine Textbausteine definiert – <a href="#" onclick="App.closeModal();App.navigate('einstellungen');return false" style="color:var(--clr-forest)">In Einstellungen anlegen</a>

@@ -22,6 +22,20 @@ function svgIcon(name, size = 14) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}" style="vertical-align:-2px;flex-shrink:0">${paths[name] || paths.datei}</svg>`;
 }
 
+// Textbaustein per Index in ein Textfeld einfügen. Der Baustein-TEXT darf nie
+// in ein onclick-Attribut eingebettet werden: JSON.stringify erzeugt doppelte
+// Anführungszeichen, die das Attribut an Ort und Stelle beenden (Bug: Klick
+// auf Baustein-Buttons tat nichts).
+function bausteinInsert(targetId, idx) {
+  try {
+    const t = document.getElementById(targetId);
+    const b = App.getTextbausteine()[idx];
+    if (!t || b == null) return;
+    t.value = t.value ? t.value + '\n' + b : b;
+    t.focus();
+  } catch(e) {}
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');

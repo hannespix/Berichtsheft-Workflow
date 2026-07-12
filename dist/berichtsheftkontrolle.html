@@ -12788,6 +12788,20 @@ function svgIcon(name, size = 14) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}" style="vertical-align:-2px;flex-shrink:0">${paths[name] || paths.datei}</svg>`;
 }
 
+// Textbaustein per Index in ein Textfeld einfügen. Der Baustein-TEXT darf nie
+// in ein onclick-Attribut eingebettet werden: JSON.stringify erzeugt doppelte
+// Anführungszeichen, die das Attribut an Ort und Stelle beenden (Bug: Klick
+// auf Baustein-Buttons tat nichts).
+function bausteinInsert(targetId, idx) {
+  try {
+    const t = document.getElementById(targetId);
+    const b = App.getTextbausteine()[idx];
+    if (!t || b == null) return;
+    t.value = t.value ? t.value + '\n' + b : b;
+    t.focus();
+  } catch(e) {}
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   const d = document.createElement('div');
@@ -21398,7 +21412,7 @@ const KontrolleHandler = {
           <label>Bemerkung zu KW ${kw} (Sonstiges)</label>
           <textarea class="form-control" id="kwBemText" rows="2" style="font-size:12px" placeholder="Freitext…">${esc(kwBem)}</textarea>
         </div>
-        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map(b => `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="const t=document.getElementById('kwBemText');t.value=t.value+(t.value?'\\n':'')+${JSON.stringify(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
+        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="bausteinInsert('kwBemText',${bi})" title="${esc(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
       </div>
       <div style="font-size:10px;color:var(--clr-text-light);margin-top:12px;border-top:1px solid var(--clr-sand);padding-top:8px">
         <kbd>Enter</kbd> Speichern · <kbd>Esc</kbd> Abbrechen · <kbd>O</kbd> Keine Beanstandungen · <kbd>A</kbd>–<kbd>I</kbd> Codes umschalten
@@ -22953,7 +22967,7 @@ const KWNav = {
       ${bausteine.length ? `<div style="margin-bottom:10px">
         <label style="font-size:12px;font-weight:600;color:var(--clr-forest);margin-bottom:4px;display:block">Textbausteine (Klick = einfügen)</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${bausteine.map(b => `<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="const t=document.getElementById('sonstBem');const v=t.value;t.value=v+(v?'\\n':'')+${JSON.stringify(b)};t.focus()" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
+          ${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="bausteinInsert('sonstBem',${bi})" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
         </div>
       </div>` : `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">
         Keine Textbausteine definiert – <a href="#" onclick="App.closeModal();App.navigate('einstellungen');return false" style="color:var(--clr-forest)">In Einstellungen anlegen</a>

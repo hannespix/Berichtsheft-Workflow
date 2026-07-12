@@ -1408,7 +1408,7 @@ const KontrolleHandler = {
           <label>Bemerkung zu KW ${kw} (Sonstiges)</label>
           <textarea class="form-control" id="kwBemText" rows="2" style="font-size:12px" placeholder="Freitext…">${esc(kwBem)}</textarea>
         </div>
-        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map(b => `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="const t=document.getElementById('kwBemText');t.value=t.value+(t.value?'\\n':'')+${JSON.stringify(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
+        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="bausteinInsert('kwBemText',${bi})" title="${esc(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
       </div>
       <div style="font-size:10px;color:var(--clr-text-light);margin-top:12px;border-top:1px solid var(--clr-sand);padding-top:8px">
         <kbd>Enter</kbd> Speichern · <kbd>Esc</kbd> Abbrechen · <kbd>O</kbd> Keine Beanstandungen · <kbd>A</kbd>–<kbd>I</kbd> Codes umschalten
