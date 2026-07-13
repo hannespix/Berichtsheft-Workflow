@@ -2023,10 +2023,11 @@ const Views = {
 
           <div id="help_17" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Globale Suche (Strg+K)</div>
-            <p>Die Volltextsuche durchsucht den <strong>gesamten Datenbestand</strong> nach folgenden Feldern:</p>
-            <p>• Nachname, Vorname, Ausbildungsbetrieb, Berufsschule, Klasse, Jahrgang, Fachrichtung, BAV-Identnummer, E-Mail, Telefon</p>
-            <p>• Es werden bis zu 50 Treffer mit Ampelstatus und Betriebsangabe angezeigt</p>
-            <p>• Ein Klick auf einen Treffer öffnet die Einzelansicht des Auszubildenden in der Kontrolle</p>
+            <p>Die Suche durchsucht den <strong>gesamten Datenbestand in allen Feldern</strong> – Azubis (auch inaktive), Betriebe, Ausbilder, Schulen (inkl. Lehrer/Ansprechpartner) und Klassen: Namen, Adressen, Telefon, E-Mail, IBYKUS-ID, Betriebsnummer, Bemerkungen u.v.m.</p>
+            <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
+            <p>• <strong>Tippfehler-tolerant (fuzzy)</strong>: „maier" findet auch „Mayer", „muler" den „Müller"; Umlaute sind egal (mueller = müller = muller)</p>
+            <p>• Treffer sind nach Relevanz sortiert (exakter Name vor Teilstring vor Tippfehler-Treffer); inaktive Azubis erscheinen markiert weiter hinten</p>
+            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz</p>
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 

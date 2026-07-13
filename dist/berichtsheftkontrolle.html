@@ -14947,10 +14947,11 @@ const Views = {
 
           <div id="help_17" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Globale Suche (Strg+K)</div>
-            <p>Die Volltextsuche durchsucht den <strong>gesamten Datenbestand</strong> nach folgenden Feldern:</p>
-            <p>• Nachname, Vorname, Ausbildungsbetrieb, Berufsschule, Klasse, Jahrgang, Fachrichtung, BAV-Identnummer, E-Mail, Telefon</p>
-            <p>• Es werden bis zu 50 Treffer mit Ampelstatus und Betriebsangabe angezeigt</p>
-            <p>• Ein Klick auf einen Treffer öffnet die Einzelansicht des Auszubildenden in der Kontrolle</p>
+            <p>Die Suche durchsucht den <strong>gesamten Datenbestand in allen Feldern</strong> – Azubis (auch inaktive), Betriebe, Ausbilder, Schulen (inkl. Lehrer/Ansprechpartner) und Klassen: Namen, Adressen, Telefon, E-Mail, IBYKUS-ID, Betriebsnummer, Bemerkungen u.v.m.</p>
+            <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
+            <p>• <strong>Tippfehler-tolerant (fuzzy)</strong>: „maier" findet auch „Mayer", „muler" den „Müller"; Umlaute sind egal (mueller = müller = muller)</p>
+            <p>• Treffer sind nach Relevanz sortiert (exakter Name vor Teilstring vor Tippfehler-Treffer); inaktive Azubis erscheinen markiert weiter hinten</p>
+            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz</p>
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 
@@ -23261,6 +23262,10 @@ const BlockplanAnalyzer = {
 };
 
 // ── global-search.js ──
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  GLOBALE SUCHE (Ctrl+K)                                      ║
+// ║  Fuzzy + Multi-Token über ALLE Felder, mit Relevanz-Ranking  ║
+// ╚══════════════════════════════════════════════════════════════╝
 const GlobalSearch = {
   _debounce: null,
   _selectedIdx: -1,
@@ -23274,7 +23279,7 @@ const GlobalSearch = {
     inp.focus();
     this._selectedIdx = -1;
     this._results = [];
-    document.getElementById('globalSearchResults').innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Name, Betrieb, Schule, Klasse, Ort, Tel, E-Mail…</div>';
+    document.getElementById('globalSearchResults').innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Name, Betrieb, Schule, Klasse, Ort, Tel, E-Mail, Bemerkungen… – mehrere Begriffe kombinierbar, Tippfehler werden toleriert</div>';
   },
 
   close() {
@@ -23314,153 +23319,275 @@ const GlobalSearch = {
     }
   },
 
+  // ═══ Such-Engine ═══
+  // Normalisierung: Kleinschreibung, deutsche Umlaute (ä→ae …), Akzente weg.
+  // Damit findet "mueller" den "Müller" und "Jose" den "José".
+  _norm(s) {
+    return String(s ?? '').toLowerCase()
+      .replace(/\u00e4/g, 'ae').replace(/\u00f6/g, 'oe').replace(/\u00fc/g, 'ue').replace(/\u00df/g, 'ss')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  },
+  // Zweite Variante ohne Umlaut-Expansion (ü→u statt ü→ue): "muler" (Tippfehler)
+  // liegt sonst 2 Edits von "mueller" entfernt, aber nur 1 von "muller"
+  _norm2(s) {
+    return String(s ?? '').toLowerCase().replace(/\u00df/g, 'ss')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  },
+  _tokenize(q) {
+    return this._norm(q).split(/[,;\s]+/).map(t => t.trim()).filter(Boolean);
+  },
+  // Bounded Levenshtein mit Frühabbruch (Rückgabe max+1 = "zu weit weg")
+  _lev(a, b, max) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let rowMin = i;
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < rowMin) rowMin = cur[j];
+      }
+      if (rowMin > max) return max + 1;
+      prev = cur;
+    }
+    return prev[b.length];
+  },
+  // Score eines Tokens gegen einen Heuhaufen (0 = kein Treffer).
+  // Stufen: ganzes Wort > Wortanfang > Teilstring > Fuzzy (Tippfehler).
+  _tokenScore(token, hay) {
+    if (hay.full.includes(token)) {
+      for (const w of hay.words) {
+        if (w === token) return 100;
+        if (w.startsWith(token)) return 80;
+      }
+      return 60;
+    }
+    // Fuzzy nur ab 4 Zeichen (sonst zu viel Rauschen); 2 Fehler ab 7 Zeichen
+    const maxDist = token.length >= 7 ? 2 : token.length >= 4 ? 1 : 0;
+    if (!maxDist) return 0;
+    for (const w of hay.words) {
+      if (w.length < 3) continue;
+      if (this._lev(token, w, maxDist) <= maxDist) return 40;
+      // Fuzzy-Wortanfang: "muler" trifft auch "mullerbach"
+      if (w.length > token.length + maxDist &&
+          this._lev(token, w.slice(0, token.length + 1), maxDist) <= maxDist) return 32;
+    }
+    return 0;
+  },
+  // Heuhaufen aus Feldwerten bauen (einmal pro Zeile)
+  _hay(values) {
+    const joined = values.filter(v => v !== null && v !== undefined && v !== '').join(' ');
+    // Beide Normalisierungsvarianten in den Heuhaufen (mueller UND muller)
+    const full = this._norm(joined) + ' ' + this._norm2(joined);
+    return { full, words: [...new Set(full.split(/[^a-z0-9@.\-]+/).filter(Boolean))] };
+  },
+  // Gesamt-Score: ALLE Tokens müssen treffen (UND, jeder Token in irgendeinem
+  // Feld); Treffer in Primärfeldern (Namen, Nummern) geben Bonus
+  _score(tokens, hay, primaryHay) {
+    let total = 0;
+    for (const t of tokens) {
+      const s = this._tokenScore(t, hay);
+      if (!s) return 0;
+      total += s;
+      if (primaryHay && this._tokenScore(t, primaryHay)) total += 20;
+    }
+    return total;
+  },
+
   search(q) {
     q = q.trim();
     const res = document.getElementById('globalSearchResults');
     if (q.length < 2) { res.innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Mindestens 2 Zeichen…</div>'; this._results = []; return; }
 
-    const tokens = q.split(/[,;\s]+/).map(t => t.trim()).filter(t => t.length > 0);
+    const tokens = this._tokenize(q);
+    if (!tokens.length) { res.innerHTML = ''; this._results = []; return; }
     let html = '';
     this._results = [];
     this._selectedIdx = -1;
 
-    // ── Schüler (ALL, no global filter) ──
-    let sWhere = 's.aktiv=1';
-    const sParams = [];
-    tokens.forEach(t => {
-      const p = `%${t}%`;
-      sWhere += " AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.name LIKE ? OR b.ort LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
-      sParams.push(p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p);
-    });
-    const schueler = App.query(`SELECT s.*, k.klassenbezeichnung, bs.name as schule, b.name as b_name, b.ort as b_ort, b.email as b_email, b.telefon as b_tel, b.betriebsnummer as b_nr, b.strasse as b_str, b.plz as b_plz, b.id as b_dbid, j.bezeichnung as jahrgang, fr.bezeichnung as fr_name FROM schueler s LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${sWhere} ORDER BY s.nachname LIMIT 20`, sParams);
+    // ── Azubis: ALLE Felder inkl. Betrieb, Schule, Klasse, Bemerkungen; auch inaktive ──
+    const schuelerAll = App.query(`SELECT s.*, k.klassenbezeichnung, k.lehrjahr, bs.name as schule, bs.ort as schule_ort,
+        b.name as b_name, b.ort as b_ort, b.email as b_email, b.telefon as b_tel, b.betriebsnummer as b_nr,
+        b.strasse as b_str, b.plz as b_plz, b.ansprechpartner as b_ansp, b.zusatzbezeichnung as b_zusatz,
+        j.bezeichnung as jahrgang, fr.bezeichnung as fr_name, fr.code as fr_code,
+        (SELECT GROUP_CONCAT(text, ' ') FROM schueler_bemerkungen WHERE schueler_id = s.id) as bem_text
+      FROM schueler s
+      LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+      LEFT JOIN betriebe b ON s.betrieb_id=b.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
+      LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id`);
+    const schueler = [];
+    for (const s of schuelerAll) {
+      const hay = this._hay([s.nachname, s.vorname, s.ibykus_id, s.email, s.telefon, s.ausbildungsstaette,
+        s.zustaendiges_amt, s.bav_status, s.status, s.geschlecht, s.schulabschluss, s.beruf_id,
+        s.ausbildungsbeginn, s.ausbildungsende, s.geburtsdatum, s.inaktiv_grund,
+        s.b_name, s.b_ort, s.b_email, s.b_tel, s.b_nr, s.b_str, s.b_plz, s.b_ansp, s.b_zusatz,
+        s.schule, s.schule_ort, s.klassenbezeichnung, s.jahrgang, s.fr_name, s.fr_code, s.bem_text]);
+      const primary = this._hay([s.nachname, s.vorname, s.b_name, s.ibykus_id]);
+      let score = this._score(tokens, hay, primary);
+      if (score) {
+        if (!s.aktiv) score -= 25; // inaktive weiter hinten einsortieren
+        schueler.push({ s, score });
+      }
+    }
+    schueler.sort((a, b) => b.score - a.score || String(a.s.nachname).localeCompare(String(b.s.nachname)));
+    const sTop = schueler.slice(0, 20);
 
-    if (schueler.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase">Azubis ('+schueler.length+')</div>';
-      schueler.forEach(s => {
+    if (sTop.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase">Azubis (' + (schueler.length > 20 ? '20 von ' + schueler.length : schueler.length) + ')</div>';
+      sTop.forEach(({ s }) => {
         const ampel = App.getSchuelerAmpel(s.id);
         const ktrls = App.query('SELECT ke.ergebnis, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis!="" ORDER BY kt.geplant_datum DESC LIMIT 3', [s.id]);
         const snapCnt = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE schueler_id=?', [s.id]) || 0;
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes!=''", [s.id]) || 0;
         const wvO = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) || 0;
         const idx = this._results.length;
-        this._results.push({ type: 'schueler', id: s.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>{ StammdatenTab.show('azubis', document.querySelector('.tab-btn')); setTimeout(()=>{ StammdatenTab._azubiSearch = s.nachname; StammdatenTab.azubis(document.getElementById('stammdatenContent')); }, 50); }, 100); }});
+        this._results.push({ type: 'schueler', id: s.id, action: () => { App.navigate('stammdaten'); setTimeout(() => { StammdatenTab.show('azubis', document.querySelector('.tab-btn')); setTimeout(() => { StammdatenTab._azubiSearch = s.nachname; StammdatenTab.azubis(document.getElementById('stammdatenContent')); }, 50); }, 100); } });
 
-        html += `<div class="gs-row" role="option" tabindex="-1" data-idx="${idx}" style="padding:8px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
+        html += `<div class="gs-row" role="option" tabindex="-1" data-idx="${idx}" style="padding:8px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer${s.aktiv ? '' : ';opacity:0.65'}" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:14px" title="${esc(ampel.label)}">${ampel.icon}</span>
             <div style="flex:1;min-width:0">
               <div><strong>${esc(s.nachname)}, ${esc(s.vorname)}</strong>
-                ${oMgl > 0 ? '<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:6px;margin-left:4px" title="'+oMgl+' KW(s) mit offenen Mängeln">'+oMgl+'M</span>' : ''}
+                ${s.aktiv ? '' : '<span style="font-size:9px;padding:1px 4px;background:var(--clr-sand);color:var(--clr-text-light);border-radius:6px;margin-left:4px">inaktiv</span>'}
+                ${oMgl > 0 ? '<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:6px;margin-left:4px" title="' + oMgl + ' KW(s) mit offenen Mängeln">' + oMgl + 'M</span>' : ''}
                 ${wvO ? '<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:6px;margin-left:2px" title="Offene Wiedervorlage">WV</span>' : ''}
               </div>
               <div style="font-size:11px;color:var(--clr-text-light);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:2px">
-                <span>${esc(s.b_name||s.ausbildungsstaette||'')}</span>
-                ${s.b_ort ? '<span>'+esc(s.b_ort)+'</span>' : ''}
-                ${s.schule ? '<span>'+esc(s.schule)+'</span>' : ''}
-                ${s.klassenbezeichnung ? '<span>'+esc(s.klassenbezeichnung)+'</span>' : ''}
-                ${s.jahrgang ? '<span style="font-weight:600">'+esc(s.jahrgang)+'</span>' : ''}
+                <span>${esc(s.b_name || s.ausbildungsstaette || '')}</span>
+                ${s.b_ort ? '<span>' + esc(s.b_ort) + '</span>' : ''}
+                ${s.schule ? '<span>' + esc(s.schule) + '</span>' : ''}
+                ${s.klassenbezeichnung ? '<span>' + esc(s.klassenbezeichnung) + '</span>' : ''}
+                ${s.jahrgang ? '<span style="font-weight:600">' + esc(s.jahrgang) + '</span>' : ''}
               </div>
               <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-                ${s.telefon ? '<span>☎︎ '+esc(s.telefon)+'</span>' : ''}${s.email ? '<span>✉︎ '+esc(s.email)+'</span>' : ''}
-                ${!s.telefon && s.b_tel ? '<span>☎︎ '+esc(s.b_tel)+' (Betrieb)</span>' : ''}
-                ${!s.email && s.b_email ? '<span>✉︎ '+esc(s.b_email)+' (Betrieb)</span>' : ''}
-                ${s.ibykus_id ? '<span>ID:'+esc(s.ibykus_id)+'</span>' : ''}
-                ${s.zustaendiges_amt ? '<span>Amt:'+esc(s.zustaendiges_amt)+'</span>' : ''}
+                ${s.telefon ? '<span>☎︎ ' + esc(s.telefon) + '</span>' : ''}${s.email ? '<span>✉︎ ' + esc(s.email) + '</span>' : ''}
+                ${!s.telefon && s.b_tel ? '<span>☎︎ ' + esc(s.b_tel) + ' (Betrieb)</span>' : ''}
+                ${!s.email && s.b_email ? '<span>✉︎ ' + esc(s.b_email) + ' (Betrieb)</span>' : ''}
+                ${s.ibykus_id ? '<span>ID:' + esc(s.ibykus_id) + '</span>' : ''}
+                ${s.zustaendiges_amt ? '<span>Amt:' + esc(s.zustaendiges_amt) + '</span>' : ''}
               </div>
             </div>
             <div style="display:flex;gap:2px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;max-width:120px">
-              ${ktrls.map(ke => '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green-light);color:var(--clr-green)':'var(--clr-red-light);color:var(--clr-red)')+'">'+formatDate(ke.geplant_datum).substring(0,6)+'</span>').join('')}
-              ${snapCnt ? '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:var(--clr-blue-light);color:var(--clr-blue)">'+snapCnt+'x</span>' : ''}
+              ${ktrls.map(ke => '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:' + (ke.ergebnis === 'in_ordnung' ? 'var(--clr-green-light);color:var(--clr-green)' : 'var(--clr-red-light);color:var(--clr-red)') + '">' + formatDate(ke.geplant_datum).substring(0, 6) + '</span>').join('')}
+              ${snapCnt ? '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:var(--clr-blue-light);color:var(--clr-blue)">' + snapCnt + 'x</span>' : ''}
             </div>
           </div>
         </div>`;
       });
     }
 
-    // ── Betriebe (ALL, no global filter) ──
-    let bWhere = '1=1';
-    const bParams = [];
-    tokens.forEach(t => { const p=`%${t}%`; bWhere += " AND (name LIKE ? OR ort LIKE ? OR email LIKE ? OR telefon LIKE ? OR vorname LIKE ? OR betriebsnummer LIKE ? OR zusatzbezeichnung LIKE ? OR strasse LIKE ? OR plz LIKE ?)"; bParams.push(p,p,p,p,p,p,p,p,p); });
-    const betriebe = App.query(`SELECT *, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=betriebe.id AND aktiv=1) as cnt FROM betriebe WHERE ${bWhere} ORDER BY name LIMIT 5`, bParams);
-    if (betriebe.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Betriebe ('+betriebe.length+')</div>';
-      betriebe.forEach(b => {
+    // ── Betriebe: alle Spalten ──
+    const betriebeAll = App.query(`SELECT *, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=betriebe.id AND aktiv=1) as cnt FROM betriebe`);
+    const betriebe = [];
+    for (const b of betriebeAll) {
+      const hay = this._hay([b.name, b.vorname, b.firma, b.ansprechpartner, b.strasse, b.plz, b.ort,
+        b.telefon, b.fax, b.email, b.betriebsnummer, b.zusatzbezeichnung]);
+      const score = this._score(tokens, hay, this._hay([b.name, b.betriebsnummer]));
+      if (score) betriebe.push({ b, score });
+    }
+    betriebe.sort((x, y) => y.score - x.score || String(x.b.name).localeCompare(String(y.b.name)));
+    const bTop = betriebe.slice(0, 8);
+    if (bTop.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Betriebe (' + betriebe.length + ')</div>';
+      bTop.forEach(({ b }) => {
         const idx = this._results.length;
-        this._results.push({ type: 'betrieb', id: b.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('betriebe'), 100); setTimeout(()=>StammdatenTab.showBetriebAzubis(b.id), 200); }});
+        this._results.push({ type: 'betrieb', id: b.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('betriebe'), 100); setTimeout(() => StammdatenTab.showBetriebAzubis(b.id), 200); } });
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span></span>
           <div style="flex:1;min-width:0">
-            <div><strong>${esc(b.name)}</strong>${b.vorname?' '+esc(b.vorname):''} <span style="color:var(--clr-text-light);font-size:12px">${esc(b.ort||'')} · ${b.cnt} Azubis</span></div>
+            <div><strong>${esc(b.name)}</strong>${b.vorname ? ' ' + esc(b.vorname) : ''} <span style="color:var(--clr-text-light);font-size:12px">${esc(b.ort || '')} · ${b.cnt} Azubis</span></div>
             <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-              ${b.telefon ? '<span>☎︎ '+esc(b.telefon)+'</span>' : ''}
-              ${b.email ? '<span>✉︎ '+esc(b.email)+'</span>' : ''}
-              ${b.betriebsnummer ? '<span>Nr:'+esc(b.betriebsnummer)+'</span>' : ''}
-              ${b.strasse ? '<span>'+esc(b.strasse)+', '+esc(b.plz||'')+' '+esc(b.ort||'')+'</span>' : ''}
+              ${b.telefon ? '<span>☎︎ ' + esc(b.telefon) + '</span>' : ''}
+              ${b.email ? '<span>✉︎ ' + esc(b.email) + '</span>' : ''}
+              ${b.betriebsnummer ? '<span>Nr:' + esc(b.betriebsnummer) + '</span>' : ''}
+              ${b.strasse ? '<span>' + esc(b.strasse) + ', ' + esc(b.plz || '') + ' ' + esc(b.ort || '') + '</span>' : ''}
             </div>
           </div>
         </div>`;
       });
     }
 
-    // ── Ausbilder ──
-    let aWhere = '1=1';
-    const aParams = [];
-    tokens.forEach(t => { const p=`%${t}%`; aWhere += " AND (a.nachname LIKE ? OR a.vorname LIKE ? OR a.telefon LIKE ? OR a.email LIKE ? OR a.mobil LIKE ? OR a.funktion LIKE ? OR b.name LIKE ?)"; aParams.push(p,p,p,p,p,p,p); });
-    const ausbilder = App.query(`SELECT a.*, b.name as betrieb_name, b.ort as betrieb_ort, b.id as betrieb_id FROM ausbilder a LEFT JOIN betriebe b ON a.betrieb_id=b.id WHERE ${aWhere} ORDER BY a.nachname LIMIT 10`, aParams);
-    if (ausbilder.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder ('+ausbilder.length+')</div>';
-      ausbilder.forEach(a => {
+    // ── Ausbilder: alle Spalten + Betrieb ──
+    const ausbilderAll = App.query(`SELECT a.*, b.name as betrieb_name, b.ort as betrieb_ort, b.id as betrieb_id FROM ausbilder a LEFT JOIN betriebe b ON a.betrieb_id=b.id`);
+    const ausbilder = [];
+    for (const a of ausbilderAll) {
+      const hay = this._hay([a.nachname, a.vorname, a.telefon, a.email, a.mobil, a.funktion, a.betrieb_name, a.betrieb_ort]);
+      const score = this._score(tokens, hay, this._hay([a.nachname, a.vorname]));
+      if (score) ausbilder.push({ a, score });
+    }
+    ausbilder.sort((x, y) => y.score - x.score || String(x.a.nachname).localeCompare(String(y.a.nachname)));
+    const aTop = ausbilder.slice(0, 8);
+    if (aTop.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder (' + ausbilder.length + ')</div>';
+      aTop.forEach(({ a }) => {
         const idx = this._results.length;
-        this._results.push({ type: 'ausbilder', id: a.id, action: () => { App.navigate('stammdaten'); if (a.betrieb_id) { setTimeout(()=>StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } else { setTimeout(()=>StammdatenTab.show('betriebe'), 100); } }});
+        this._results.push({ type: 'ausbilder', id: a.id, action: () => { App.navigate('stammdaten'); if (a.betrieb_id) { setTimeout(() => StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } else { setTimeout(() => StammdatenTab.show('betriebe'), 100); } } });
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span></span>
           <div style="flex:1;min-width:0">
-            <div><strong>${esc((a.vorname?a.vorname+' ':'')+a.nachname)}</strong>${a.funktion?' <span style="color:var(--clr-text-light);font-size:12px">('+esc(a.funktion)+')</span>':''}</div>
+            <div><strong>${esc((a.vorname ? a.vorname + ' ' : '') + a.nachname)}</strong>${a.funktion ? ' <span style="color:var(--clr-text-light);font-size:12px">(' + esc(a.funktion) + ')</span>' : ''}</div>
             <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
-              ${a.betrieb_name ? '<span>'+esc(a.betrieb_name)+(a.betrieb_ort?' ('+esc(a.betrieb_ort)+')':'')+'</span>' : ''}
-              ${a.telefon ? '<span>☎︎ '+esc(a.telefon)+'</span>' : ''}
-              ${a.mobil ? '<span>☎︎ '+esc(a.mobil)+'</span>' : ''}
-              ${a.email ? '<span>✉︎ '+esc(a.email)+'</span>' : ''}
+              ${a.betrieb_name ? '<span>' + esc(a.betrieb_name) + (a.betrieb_ort ? ' (' + esc(a.betrieb_ort) + ')' : '') + '</span>' : ''}
+              ${a.telefon ? '<span>☎︎ ' + esc(a.telefon) + '</span>' : ''}
+              ${a.mobil ? '<span>☎︎ ' + esc(a.mobil) + '</span>' : ''}
+              ${a.email ? '<span>✉︎ ' + esc(a.email) + '</span>' : ''}
             </div>
           </div>
         </div>`;
       });
     }
 
-    // ── Schulen (ALL) ──
-    let schWhere = '1=1';
-    const schParams = [];
-    tokens.forEach(t => { const p=`%${t}%`; schWhere += " AND (name LIKE ? OR ort LIKE ? OR email LIKE ? OR email_cc LIKE ?)"; schParams.push(p,p,p,p); });
-    const schulen = App.query(`SELECT *, (SELECT COUNT(*) FROM klassen WHERE berufsschule_id=berufsschulen.id) as kl_cnt, (SELECT COUNT(*) FROM schueler sq JOIN klassen kq ON sq.klasse_id=kq.id WHERE kq.berufsschule_id=berufsschulen.id AND sq.aktiv=1) as s_cnt FROM berufsschulen WHERE ${schWhere} ORDER BY name LIMIT 5`, schParams);
-    if (schulen.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Schulen ('+schulen.length+')</div>';
-      schulen.forEach(s => {
+    // ── Schulen: alle Spalten inkl. Ansprechpartner/Lehrer (JSON) ──
+    const schulenAll = App.query(`SELECT *, (SELECT COUNT(*) FROM klassen WHERE berufsschule_id=berufsschulen.id) as kl_cnt, (SELECT COUNT(*) FROM schueler sq JOIN klassen kq ON sq.klasse_id=kq.id WHERE kq.berufsschule_id=berufsschulen.id AND sq.aktiv=1) as s_cnt FROM berufsschulen`);
+    const schulen = [];
+    for (const sc of schulenAll) {
+      let anspText = '';
+      try { anspText = (JSON.parse(sc.ansprechpartner_json || '[]') || []).map(x => Object.values(x || {}).join(' ')).join(' '); } catch (e) {}
+      const hay = this._hay([sc.name, sc.ort, sc.strasse, sc.plz, sc.telefon, sc.email, sc.email_cc, anspText]);
+      const score = this._score(tokens, hay, this._hay([sc.name]));
+      if (score) schulen.push({ sc, score });
+    }
+    schulen.sort((x, y) => y.score - x.score || String(x.sc.name).localeCompare(String(y.sc.name)));
+    const schTop = schulen.slice(0, 5);
+    if (schTop.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Schulen (' + schulen.length + ')</div>';
+      schTop.forEach(({ sc }) => {
         const idx = this._results.length;
-        this._results.push({ type: 'schule', id: s.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('schulen'), 100); }});
+        this._results.push({ type: 'schule', id: sc.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('schulen'), 100); } });
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span></span>
-          <div style="flex:1"><strong>${esc(s.name)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(s.ort||'')} · ${s.kl_cnt} Klassen · ${s.s_cnt} Azubis</span></div>
-          ${s.email ? '<a href="mailto:'+esc(s.email)+'" onclick="event.stopPropagation()" style="font-size:10px;color:var(--clr-forest);text-decoration:none">Mail</a>' : ''}
+          <div style="flex:1"><strong>${esc(sc.name)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(sc.ort || '')} · ${sc.kl_cnt} Klassen · ${sc.s_cnt} Azubis</span></div>
+          ${sc.email ? '<a href="mailto:' + esc(sc.email) + '" onclick="event.stopPropagation()" style="font-size:10px;color:var(--clr-forest);text-decoration:none">Mail</a>' : ''}
         </div>`;
       });
     }
 
     // ── Klassen ──
-    const like = `%${q}%`;
-    const klassen = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jahrgang, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as cnt FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id WHERE (k.klassenbezeichnung LIKE ? OR bs.name LIKE ?) ORDER BY bs.name LIMIT 5`, [like, like]);
-    if (klassen.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Klassen ('+klassen.length+')</div>';
-      klassen.forEach(k => {
+    const klassenAll = App.query(`SELECT k.*, bs.name as schule, bs.ort as schule_ort, j.bezeichnung as jahrgang, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as cnt FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id`);
+    const klassen = [];
+    for (const k of klassenAll) {
+      const hay = this._hay([k.klassenbezeichnung, k.lehrjahr, k.schule, k.schule_ort, k.jahrgang]);
+      const score = this._score(tokens, hay, this._hay([k.klassenbezeichnung]));
+      if (score) klassen.push({ k, score });
+    }
+    klassen.sort((x, y) => y.score - x.score || String(x.k.klassenbezeichnung).localeCompare(String(y.k.klassenbezeichnung)));
+    const kTop = klassen.slice(0, 6);
+    if (kTop.length) {
+      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Klassen (' + klassen.length + ')</div>';
+      kTop.forEach(({ k }) => {
         const idx = this._results.length;
-        this._results.push({ type: 'klasse', id: k.id, action: () => { App.navigate('stammdaten'); setTimeout(()=>StammdatenTab.show('klassen'), 100); }});
+        this._results.push({ type: 'klasse', id: k.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('klassen'), 100); } });
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span></span>
-          <div style="flex:1"><strong>${esc(k.klassenbezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(k.schule)} · ${esc(k.jahrgang||'')} · ${k.cnt} Azubis</span></div>
+          <div style="flex:1"><strong>${esc(k.klassenbezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(k.schule)} · ${esc(k.jahrgang || '')} · ${k.cnt} Azubis</span></div>
         </div>`;
       });
     }
 
-    if (!html) html = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Keine Ergebnisse</div>';
+    if (!html) html = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Keine Ergebnisse – auch mit Tippfehler-Toleranz nicht. Anders schreiben oder weniger Begriffe?</div>';
     res.innerHTML = html;
   },
 
