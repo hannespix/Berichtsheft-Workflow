@@ -832,5 +832,237 @@ const BerichteHandler = {
 
     doc.save(`Zulassungsliste_AP_${todayStr()}.pdf`);
     App.toast('PDF erstellt', 'success');
+  },
+
+  // ════════════════════════════════════════════
+  //  DATENQUALITÄTS-PRÜFUNG (IBYKUS-Datenbestand)
+  //  Korrekturen erfolgen in IBYKUS (Datenfluss ist einbahnig) – der Export
+  //  dient der Assistenz als Abarbeitungsliste.
+  // ════════════════════════════════════════════
+  _dqIssues: [],
+  _dqFilter: { sev: '', kat: '' },
+
+  _dqValidDate(d) { return !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(new Date(d + 'T00:00:00').getTime())); },
+  _dqMonate(von, bis) {
+    const a = new Date(von + 'T00:00:00'), b = new Date(bis + 'T00:00:00');
+    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  },
+
+  _dqRun() {
+    const issues = [];
+    const add = (sev, kat, name, problem, feld, action, ibykusId) =>
+      issues.push({ sev, kat, name, problem, feld, action, ibykusId: ibykusId || '' });
+
+    // ── Azubis ──
+    const alle = App.query(`SELECT s.*, k.jahrgang_id AS klassen_jg, k.klassenbezeichnung, b.name AS b_name,
+        b.email AS b_email, b.telefon AS b_tel, j.bezeichnung AS jahrgang, j.jahr AS jg_jahr
+      FROM schueler s
+      LEFT JOIN klassen k ON s.klasse_id=k.id
+      LEFT JOIN betriebe b ON s.betrieb_id=b.id
+      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id`);
+    const heute = todayStr();
+    const seenIbk = {};
+    const seenPerson = {};
+    alle.forEach(s => {
+      if (s.ibykus_id) (seenIbk[s.ibykus_id] = seenIbk[s.ibykus_id] || []).push(s);
+      const pKey = ((s.nachname || '') + '|' + (s.vorname || '') + '|' + (s.geburtsdatum || '')).toLowerCase();
+      if (s.nachname && s.geburtsdatum) (seenPerson[pKey] = seenPerson[pKey] || []).push(s);
+    });
+
+    alle.forEach(s => {
+      const nm = `${s.nachname || '?'}, ${s.vorname || '?'}`;
+      const edit = () => { App.closeModal(); ImportHandler.editSchueler(s.id); };
+      // Ungültige Datumsformate zuerst (verhindert Folge-Fehlalarme)
+      let datesOk = true;
+      [['ausbildungsbeginn', s.ausbildungsbeginn], ['ausbildungsende', s.ausbildungsende], ['geburtsdatum', s.geburtsdatum]].forEach(([f, v]) => {
+        if (!this._dqValidDate(v)) { add('fehler', 'Azubi', nm, `Ungültiges Datum: "${v}"`, f, edit, s.ibykus_id); datesOk = false; }
+      });
+      if (!s.ibykus_id) add('fehler', 'Azubi', nm, 'Keine IBYKUS-ID – Datensatz nicht zuordenbar', 'ibykus_id', edit, '');
+      if (s.aktiv) {
+        if (!s.ausbildungsbeginn) add('fehler', 'Azubi', nm, 'Ausbildungsbeginn fehlt', 'ausbildungsbeginn', edit, s.ibykus_id);
+        if (!s.ausbildungsende) add('fehler', 'Azubi', nm, 'Ausbildungsende fehlt', 'ausbildungsende', edit, s.ibykus_id);
+        if (!s.betrieb_id && !s.ausbildungsstaette) add('fehler', 'Azubi', nm, 'Kein Ausbildungsbetrieb zugeordnet', 'betrieb', edit, s.ibykus_id);
+        if (!s.klasse_id) add('warnung', 'Azubi', nm, 'Keine Klasse/Berufsschule zugeordnet', 'klasse', edit, s.ibykus_id);
+        if (!s.jahrgang_id) add('warnung', 'Azubi', nm, 'Kein Abschlussjahrgang zugeordnet', 'jahrgang', edit, s.ibykus_id);
+        if (!s.fachrichtung_id) add('warnung', 'Azubi', nm, 'Keine Fachrichtung zugeordnet', 'fachrichtung', edit, s.ibykus_id);
+        if (!s.geburtsdatum) add('warnung', 'Azubi', nm, 'Geburtsdatum fehlt (Urlaubs-/JArbSchG-Berechnung)', 'geburtsdatum', edit, s.ibykus_id);
+        if (!s.email && !s.telefon && !s.b_email && !s.b_tel) add('warnung', 'Azubi', nm, 'Nicht erreichbar: weder eigene noch Betriebs-Kontaktdaten', 'email/telefon', edit, s.ibykus_id);
+        if (datesOk && s.ausbildungsende && s.ausbildungsende < heute) {
+          const m = this._dqMonate(s.ausbildungsende, heute);
+          if (m >= 6) add('warnung', 'Azubi', nm, `Aktiv, aber Ausbildungsende liegt ${m} Monate zurück – beendet?`, 'aktiv/ende', edit, s.ibykus_id);
+        }
+      } else if (!s.inaktiv_grund) {
+        add('hinweis', 'Azubi', nm, 'Inaktiv ohne hinterlegten Grund', 'inaktiv_grund', edit, s.ibykus_id);
+      }
+      if (datesOk && s.ausbildungsbeginn && s.ausbildungsende) {
+        if (s.ausbildungsende <= s.ausbildungsbeginn) add('fehler', 'Azubi', nm, 'Ausbildungsende liegt vor dem Beginn', 'beginn/ende', edit, s.ibykus_id);
+        else {
+          const dauer = this._dqMonate(s.ausbildungsbeginn, s.ausbildungsende);
+          if (dauer < 12 || dauer > 54) add('warnung', 'Azubi', nm, `Unplausible Ausbildungsdauer: ${dauer} Monate`, 'beginn/ende', edit, s.ibykus_id);
+        }
+      }
+      if (datesOk && s.geburtsdatum && s.ausbildungsbeginn) {
+        const alter = this._dqMonate(s.geburtsdatum, s.ausbildungsbeginn) / 12;
+        if (alter < 14 || alter > 60) add('warnung', 'Azubi', nm, `Unplausibles Alter bei Ausbildungsbeginn: ${Math.round(alter)} Jahre`, 'geburtsdatum', edit, s.ibykus_id);
+      }
+      if (s.jahrgang_id && s.klassen_jg && s.jahrgang_id !== s.klassen_jg) {
+        add('warnung', 'Azubi', nm, `Jahrgang des Azubis weicht vom Jahrgang der Klasse ${s.klassenbezeichnung || ''} ab`, 'jahrgang/klasse', edit, s.ibykus_id);
+      }
+      if (datesOk && s.jg_jahr && s.ausbildungsende) {
+        const endeJahr = parseInt(s.ausbildungsende.substring(0, 4));
+        if (Math.abs(endeJahr - s.jg_jahr) > 1) add('hinweis', 'Azubi', nm, `Jahrgang ${s.jahrgang} passt nicht zum Ausbildungsende ${endeJahr}`, 'jahrgang/ende', edit, s.ibykus_id);
+      }
+    });
+    Object.values(seenIbk).filter(g => g.length > 1).forEach(g => {
+      g.forEach(s => add('fehler', 'Azubi', `${s.nachname}, ${s.vorname}`, `IBYKUS-ID ${s.ibykus_id} ist ${g.length}× vergeben`, 'ibykus_id', () => { App.closeModal(); ImportHandler.editSchueler(s.id); }, s.ibykus_id));
+    });
+    Object.values(seenPerson).filter(g => g.length > 1).forEach(g => {
+      g.forEach(s => add('warnung', 'Azubi', `${s.nachname}, ${s.vorname}`, `Mögliches Duplikat: Name + Geburtsdatum ${g.length}× vorhanden`, 'duplikat', () => { App.closeModal(); ImportHandler.editSchueler(s.id); }, s.ibykus_id));
+    });
+
+    // ── Betriebe ──
+    const betriebe = App.query(`SELECT b.*, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=b.id AND aktiv=1) AS cnt FROM betriebe b`);
+    const seenBnr = {}, seenBName = {};
+    betriebe.forEach(b => {
+      if (b.betriebsnummer) (seenBnr[b.betriebsnummer] = seenBnr[b.betriebsnummer] || []).push(b);
+      const key = ((b.name || '') + '|' + (b.ort || '')).toLowerCase();
+      if (b.name) (seenBName[key] = seenBName[key] || []).push(b);
+      const edit = () => { App.closeModal(); StammdatenTab.editBetrieb(b.id); };
+      if (b.cnt > 0) {
+        if (!b.ort) add('warnung', 'Betrieb', b.name || '?', 'Kein Ort/Adresse hinterlegt', 'ort', edit);
+        if (!b.telefon && !b.email) add('warnung', 'Betrieb', b.name || '?', `Kein Kontakt (${b.cnt} aktive Azubis) – Anschreiben unmöglich`, 'telefon/email', edit);
+        if (!b.betriebsnummer) add('hinweis', 'Betrieb', b.name || '?', 'Betriebsnummer fehlt (Import-Zuordnung unsicher)', 'betriebsnummer', edit);
+      }
+    });
+    Object.values(seenBnr).filter(g => g.length > 1).forEach(g => {
+      g.forEach(b => add('warnung', 'Betrieb', b.name || '?', `Betriebsnummer ${b.betriebsnummer} ist ${g.length}× vergeben`, 'betriebsnummer', () => { App.closeModal(); StammdatenTab.editBetrieb(b.id); }));
+    });
+    Object.values(seenBName).filter(g => g.length > 1).forEach(g => {
+      g.forEach(b => add('hinweis', 'Betrieb', b.name || '?', `Mögliches Duplikat: Name+Ort ${g.length}× vorhanden`, 'duplikat', () => { App.closeModal(); StammdatenTab.editBetrieb(b.id); }));
+    });
+
+    // ── Klassen / Schulen ──
+    App.query(`SELECT k.*, bs.name AS schule, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) AS cnt
+      FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id`).forEach(k => {
+      const edit = () => { App.closeModal(); StammdatenTab.editKlasse(k.id); };
+      if (k.cnt > 0 && !k.lehrjahr) add('hinweis', 'Klasse', `${k.klassenbezeichnung} (${k.schule || '?'})`, 'Kein Lehrjahr gepflegt (Anzeige nutzt Fallback-Berechnung)', 'lehrjahr', edit);
+      if (k.cnt > 0 && !k.jahrgang_id) add('hinweis', 'Klasse', `${k.klassenbezeichnung} (${k.schule || '?'})`, 'Kein Jahrgang zugeordnet', 'jahrgang', edit);
+    });
+    App.query(`SELECT bs.*, (SELECT COUNT(*) FROM schueler s JOIN klassen k ON s.klasse_id=k.id WHERE k.berufsschule_id=bs.id AND s.aktiv=1) AS cnt FROM berufsschulen bs`).forEach(sc => {
+      if (sc.cnt > 0 && !sc.email) add('warnung', 'Schule', sc.name, `Keine E-Mail hinterlegt (${sc.cnt} aktive Azubis) – Anschreiben unmöglich`, 'email', () => { App.closeModal(); StammdatenTab.editSchule(sc.id); });
+    });
+
+    const rank = { fehler: 0, warnung: 1, hinweis: 2 };
+    issues.sort((a, b) => rank[a.sev] - rank[b.sev] || a.kat.localeCompare(b.kat) || a.name.localeCompare(b.name));
+    return issues;
+  },
+
+  datenqualitaet() {
+    this._dqIssues = this._dqRun();
+    this._dqFilter = { sev: '', kat: '' };
+    const nF = this._dqIssues.filter(i => i.sev === 'fehler').length;
+    const nW = this._dqIssues.filter(i => i.sev === 'warnung').length;
+    const nH = this._dqIssues.filter(i => i.sev === 'hinweis').length;
+    const gesamt = App.scalar('SELECT COUNT(*) FROM schueler') || 0;
+    const betroffen = new Set(this._dqIssues.filter(i => i.kat === 'Azubi' && i.sev !== 'hinweis').map(i => i.name)).size;
+    const score = gesamt ? Math.max(0, Math.round(100 * (1 - betroffen / gesamt))) : 100;
+    const scoreColor = score >= 90 ? 'var(--clr-green)' : score >= 70 ? 'var(--clr-amber)' : 'var(--clr-red)';
+
+    App.openModal('Datenqualität IBYKUS-Datenbestand', `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <div style="font-size:26px;font-weight:700;color:${scoreColor};font-family:var(--font-display)">${score}%</div>
+        <div style="font-size:11px;color:var(--clr-text-light);line-height:1.4">Qualitäts-Score<br>(Azubis ohne Fehler/Warnung)</div>
+        <span style="margin-left:auto"></span>
+        <span class="badge-status badge-overdue" style="cursor:pointer" onclick="BerichteHandler._dqSetFilter('sev','fehler')">${nF} Fehler</span>
+        <span class="badge-status badge-open" style="cursor:pointer" onclick="BerichteHandler._dqSetFilter('sev','warnung')">${nW} Warnungen</span>
+        <span class="badge-status" style="cursor:pointer;background:var(--clr-warm);color:var(--clr-text-light)" onclick="BerichteHandler._dqSetFilter('sev','hinweis')">${nH} Hinweise</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+        <select class="form-control" style="width:auto;font-size:12px;padding:4px 8px" onchange="BerichteHandler._dqSetFilter('sev',this.value)">
+          <option value="">Alle Schweregrade</option>
+          <option value="fehler">Nur Fehler</option>
+          <option value="warnung">Nur Warnungen</option>
+          <option value="hinweis">Nur Hinweise</option>
+        </select>
+        <select class="form-control" style="width:auto;font-size:12px;padding:4px 8px" onchange="BerichteHandler._dqSetFilter('kat',this.value)">
+          <option value="">Alle Kategorien</option>
+          <option value="Azubi">Azubis</option>
+          <option value="Betrieb">Betriebe</option>
+          <option value="Klasse">Klassen</option>
+          <option value="Schule">Schulen</option>
+        </select>
+        <span style="font-size:11px;color:var(--clr-text-light)">Spalten-Klick sortiert · Zeilen-Klick öffnet den Datensatz</span>
+      </div>
+      <div id="dqTableWrap" style="max-height:55vh;overflow:auto"></div>
+      <p style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Wichtig: Korrekturen an IBYKUS-Stammdaten in <strong>IBYKUS</strong> vornehmen (der nächste Import überschreibt lokale Änderungen). Der Excel-Export dient als Abarbeitungsliste für die Assistenz.</p>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <button class="btn btn-secondary" onclick="BerichteHandler.datenqualitaet()">↻ Neu prüfen</button>
+        <button class="btn btn-primary" onclick="BerichteHandler.exportDatenqualitaet()">Excel-Export</button>`);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    this._dqRenderTable();
+  },
+
+  _dqSetFilter(key, val) {
+    this._dqFilter[key] = this._dqFilter[key] === val ? '' : val;
+    this._dqRenderTable();
+  },
+
+  _dqFiltered() {
+    return this._dqIssues.filter(i =>
+      (!this._dqFilter.sev || i.sev === this._dqFilter.sev) &&
+      (!this._dqFilter.kat || i.kat === this._dqFilter.kat));
+  },
+
+  _dqRenderTable() {
+    const wrap = document.getElementById('dqTableWrap');
+    if (!wrap) return;
+    const list = this._dqFiltered();
+    if (!list.length) {
+      wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--clr-green);font-weight:600">✓ Keine Befunde' + (this._dqFilter.sev || this._dqFilter.kat ? ' (Filter aktiv)' : ' – Datenbestand sauber') + '</div>';
+      return;
+    }
+    const sevBadge = { fehler: '<span class="badge-status badge-overdue">Fehler</span>', warnung: '<span class="badge-status badge-open">Warnung</span>', hinweis: '<span class="badge-status" style="background:var(--clr-warm);color:var(--clr-text-light)">Hinweis</span>' };
+    const sevRank = { fehler: 0, warnung: 1, hinweis: 2 };
+    wrap.innerHTML = `<table class="data-table" style="font-size:12px"><thead><tr>
+        <th>Schweregrad</th><th>Kategorie</th><th>Datensatz</th><th>IBYKUS-ID</th><th>Problem</th><th>Feld</th>
+      </tr></thead><tbody>
+      ${list.map((i, idx) => `<tr style="cursor:pointer" onclick="BerichteHandler._dqOpen(${idx})">
+        <td data-sort="${sevRank[i.sev]}">${sevBadge[i.sev]}</td>
+        <td>${esc(i.kat)}</td>
+        <td><strong>${esc(i.name)}</strong></td>
+        <td style="font-size:11px;color:var(--clr-text-light)">${esc(i.ibykusId || '–')}</td>
+        <td>${esc(i.problem)}</td>
+        <td style="font-size:11px;color:var(--clr-text-light)">${esc(i.feld)}</td>
+      </tr>`).join('')}
+      </tbody></table>`;
+    this._dqRendered = list;
+    setTimeout(() => { if (typeof TableSort !== 'undefined') TableSort.initAll(); }, 50);
+  },
+
+  _dqOpen(idx) {
+    const i = (this._dqRendered || [])[idx];
+    if (i && i.action) i.action();
+  },
+
+  exportDatenqualitaet() {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
+    const list = this._dqFiltered();
+    if (!list.length) return App.toast('Keine Befunde zum Exportieren', 'info');
+    const rows = list.map(i => ({
+      Schweregrad: i.sev === 'fehler' ? 'Fehler' : i.sev === 'warnung' ? 'Warnung' : 'Hinweis',
+      Kategorie: i.kat,
+      Datensatz: i.name,
+      'IBYKUS-ID': i.ibykusId || '',
+      Problem: i.problem,
+      Feld: i.feld,
+      'Korrigiert in IBYKUS am': '',
+      'Bearbeitet von': '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 10 }, { wch: 9 }, { wch: 28 }, { wch: 12 }, { wch: 60 }, { wch: 16 }, { wch: 20 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Datenqualität');
+    XLSX.writeFile(wb, `Datenqualitaet_IBYKUS_${todayStr()}.xlsx`);
+    App.toast(`${rows.length} Befunde exportiert`, 'success');
   }
 };

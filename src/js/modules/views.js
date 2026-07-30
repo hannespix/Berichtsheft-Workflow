@@ -1203,6 +1203,10 @@ const Views = {
           <div class="card-header">${svgIcon('abschluss', 15)} Zulassungsliste AP</div>
           <p style="font-size:13px;color:var(--clr-text-light)">Zur AP zugelassene Azubis filtern und als PDF/Excel exportieren.</p>
         </div>
+        <div class="card" style="cursor:pointer;border-left:4px solid var(--clr-amber)" onclick="BerichteHandler.datenqualitaet()">
+          <div class="card-header">Datenqualität IBYKUS</div>
+          <p style="font-size:13px;color:var(--clr-text-light)">Datenbestand auf Fehler, Lücken und Duplikate prüfen – sortierbar, filterbar, als Excel-Abarbeitungsliste exportierbar.</p>
+        </div>
       </div>
       ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
         <div class="card-header">Jahresbericht generieren</div>
@@ -1972,6 +1976,7 @@ const Views = {
             <p>• <strong>Serienbrief (Word)</strong> – Automatisierte Brieferzeugung über eigene .docx-Vorlage mit Platzhaltern (z.B. Aufforderungsschreiben an Ausbildungsbetriebe)</p>
             <p>• <strong>CSV-Export</strong> – Tabellarischer Export für die Weiterverarbeitung in Microsoft Excel</p>
             <p>• <strong>Snapshot-Archiv</strong> – Unveränderliche Momentaufnahme der Durchsichtsergebnisse eines Termins zur Dokumentation und Archivierung</p>
+            <p>• <strong>Datenqualität IBYKUS</strong> – Prüft den Datenbestand auf Fehler (fehlende IBYKUS-ID, unplausible Daten, Ende vor Beginn), Lücken (Klasse/Jahrgang/Kontakt fehlt) und Duplikate. Ergebnis sortier- und filterbar nach Schweregrad/Kategorie; Zeilen-Klick öffnet den Datensatz. Excel-Export als Abarbeitungsliste – Korrekturen an IBYKUS-Stammdaten immer <strong>in IBYKUS</strong> vornehmen (Einbahn-Datenfluss).</p>
           </div>
 
           <div id="help_15" class="card" style="margin-bottom:12px">
