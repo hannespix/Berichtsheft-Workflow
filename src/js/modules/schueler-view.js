@@ -123,6 +123,7 @@ const SchuelerView = {
   },
 
   doAbschliessen() {
+    try {
     const jgId = document.getElementById('mAbschlJG').value;
     if (!jgId) return App.toast('Kein Jahrgang ausgewählt', 'error');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgId]);
@@ -138,6 +139,12 @@ const SchuelerView = {
     App.closeModal();
     this.render();
     App.toast(`${count} Schüler im Jahrgang ${jgName} abgeschlossen`, 'success');
+    } catch(e) {
+      console.error('doAbschliessen:', e);
+      App.toast('Vorgang fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   render() {

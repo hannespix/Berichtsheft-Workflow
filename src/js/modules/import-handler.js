@@ -1088,6 +1088,7 @@ const ImportHandler = {
   },
 
   doImportLFK(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('lfkmap_' + f)?.value || '';
     const nrCol = gm('nr');
@@ -1144,6 +1145,12 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     document.getElementById('lfkImportPreview').innerHTML = '';
+    } catch(e) {
+      console.error('doImportLFK:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════
@@ -1224,6 +1231,7 @@ const ImportHandler = {
   },
 
   doImportAusbilder(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('aumap_' + f)?.value || '';
     const bnrCol = gm('betriebsnummer');
@@ -1298,6 +1306,12 @@ const ImportHandler = {
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     const preview = document.getElementById('ausbilderImportPreview');
     if (preview) preview.innerHTML = '';
+    } catch(e) {
+      console.error('doImportAusbilder:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   deleteAllJahrgang() {

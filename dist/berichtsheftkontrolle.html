@@ -7416,6 +7416,13 @@ const App = {
   uGet(key, fallback) { try { return localStorage.getItem(this.uKey(key)) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
   uSet(key, val) { try { localStorage.setItem(this.uKey(key), val); } catch(e) {} },
   uRemove(key) { try { localStorage.removeItem(this.uKey(key)); } catch(e) {} },
+  // Browser-weite Einstellungen (NICHT pro Prüfer), z.B. die Freischaltung der
+  // Statistikansicht. Immer über diese Helfer zugreifen: auf gesperrten
+  // Verwaltungs-PCs wirft localStorage einen SecurityError, der eine ganze
+  // Ansicht mitreißen kann, wenn er mitten im Aufbau der Seite auftritt.
+  lsGet(key, fallback) { try { return localStorage.getItem(key) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
+  lsSet(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
+  lsRemove(key) { try { localStorage.removeItem(key); } catch(e) {} },
 
   _populateUserSelect() {
     const sel = document.getElementById('topbarUserSelect');
@@ -14467,7 +14474,7 @@ const Views = {
             </label>`;
           }).join('')}
         </div>
-        <div id="dashboardToggle" style="display:${localStorage.getItem('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div id="dashboardToggle" style="display:${App.lsGet('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
             Statistiken &amp; Jahresbericht einblenden
@@ -14601,7 +14608,7 @@ const Views = {
             ${dupes.map(d => `<tr>
               <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id1}</span></td>
               <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id2}</span></td>
-              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2},'${esc(d.name1).replace(/'/g,"\\'")}','${esc(d.name2).replace(/'/g,"\\'")}')" style="font-size:10px">Zusammenführen</button></td>
+              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:10px">Zusammenführen</button></td>
             </tr>`).join('')}
           </tbody></table>
         </div>`;
@@ -14611,13 +14618,13 @@ const Views = {
   },
 
   _pinClicked() {
-    if (localStorage.getItem('bhk_stats_unlocked') === '1') {
+    if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
     const pw = prompt('Passwort:');
     if (pw === 'dienstweg') {
-      localStorage.setItem('bhk_stats_unlocked', '1');
+      App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
     }
   },
@@ -14625,7 +14632,7 @@ const Views = {
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
     if (!enabled) {
-      localStorage.removeItem('bhk_stats_unlocked');
+      App.lsRemove('bhk_stats_unlocked');
       document.getElementById('dashboardToggle').style.display = 'none';
     }
     App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
@@ -14779,7 +14786,12 @@ const Views = {
     }
   },
 
-  mergeBetriebe(keepId, removeId, keepName, removeName) {
+  // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
+  // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
+  // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
+  mergeBetriebe(keepId, removeId) {
+    const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
+    const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
     if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
     // Move all schueler references
     App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);
@@ -18504,6 +18516,7 @@ const ImportHandler = {
   },
 
   doImportLFK(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('lfkmap_' + f)?.value || '';
     const nrCol = gm('nr');
@@ -18560,6 +18573,12 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     document.getElementById('lfkImportPreview').innerHTML = '';
+    } catch(e) {
+      console.error('doImportLFK:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════
@@ -18640,6 +18659,7 @@ const ImportHandler = {
   },
 
   doImportAusbilder(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('aumap_' + f)?.value || '';
     const bnrCol = gm('betriebsnummer');
@@ -18714,6 +18734,12 @@ const ImportHandler = {
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     const preview = document.getElementById('ausbilderImportPreview');
     if (preview) preview.innerHTML = '';
+    } catch(e) {
+      console.error('doImportAusbilder:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   deleteAllJahrgang() {
@@ -24031,10 +24057,15 @@ document.addEventListener('keydown', (e) => {
     GlobalSearch.showCheatSheet();
     return;
   }
-  // Alt+1-7 = Quick navigation
+  // Alt+1-8 = Schnellnavigation. Nicht in Eingabefeldern feuern (halb
+  // ausgefüllte Formulare gingen sonst verloren) und offene Dialoge vorher
+  // schließen – sonst schwebte das Fenster über einer ganz anderen Ansicht.
   if (e.altKey && !e.ctrlKey && '12345678'.includes(e.key)) {
+    const t = e.target?.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || e.target?.isContentEditable) return;
     e.preventDefault();
     const views = ['dashboard','stammdaten','import','planung','kontrolle','wiedervorlagen','berichte','einstellungen'];
+    try { const ov = document.getElementById('modalOverlay'); if (ov && ov.classList.contains('active')) App.closeModal(); } catch(err) {}
     App.navigate(views[parseInt(e.key) - 1]);
     return;
   }
@@ -24546,7 +24577,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${emails.join('; ')}');App.toast('${emails.length} E-Mail-Adressen kopiert','success')">▤ Adressen kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
         <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     
     // Store for the mail opener
@@ -25566,6 +25597,7 @@ const BerichteHandler = {
   },
 
   jahresbericht() {
+    try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
     const { jsPDF } = window.jspdf;
@@ -25949,6 +25981,12 @@ const BerichteHandler = {
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout
+    } catch(e) {
+      console.error('Jahresbericht:', e);
+      App.toast('Jahresbericht konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════
@@ -26818,7 +26856,11 @@ const AzubiRechner = {
     const merged = [];
     for (const p of perioden) {
       const last = merged[merged.length - 1];
+      // +last.bis === +p.von: Ohne diese Prüfung wurden Perioden über eine
+      // LÜCKE hinweg verschmolzen (z.B. unbelegte Monate zwischen zwei Phasen)
+      // und die Lücke als bezahlte Zeit mit Urlaubsanspruch ausgewiesen.
       if (last && !last.unterbrechung && !p.unterbrechung
+          && +last.bis === +p.von
           && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr
           && last.urlaubTageJahr === p.urlaubTageJahr && last.quote === p.quote
           && last.betrieb === p.betrieb) {
@@ -26911,7 +26953,12 @@ const AzubiRechner = {
       // Individueller Lohn (z.B. 822€ eigene Wohnung) überschreibt Pauschale
       aktVerg = s.brutto_lohn > 0 ? s.brutto_lohn : this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
-      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung) || perioden.filter(p => !p.unterbrechung).pop();
+      // Fällt "heute" in keine Periode (Unterbrechung, Lücke, Ausbildung noch
+      // nicht begonnen), NICHT auf die letzte Periode zurückfallen – das war
+      // die des 3. Lehrjahres und zeigte einem pausierenden oder noch nicht
+      // gestarteten Azubi den höchsten Satz an.
+      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung)
+        || perioden.filter(p => !p.unterbrechung && p.bis <= heute).pop() || null;
       aktVerg = aktPeriode ? aktPeriode.vergEff : (hatIndividuellenLohn ? s.brutto_lohn : 0);
     }
 
@@ -27203,11 +27250,19 @@ const AzubiDashboard = {
     if (kz.probleme.some(p => p.typ === 'luecke')) risiken.push('Lücken im Ausbildungsverlauf');
     if (kz.probleme.some(p => p.typ === 'ueberlappung')) risiken.push('Phasen-Überlappungen vorhanden');
     if (kz.aktPhase && kz.aktPhase.typ === 'unterbrechung') risiken.push('Ausbildung aktuell unterbrochen');
-    if (kz.aktVerg > 0) {
+    // §17 BBiG gilt NICHT für Fachwerker/Fachpraktiker (§66 BBiG) – die
+    // erhalten Ausbildungsgeld der Arbeitsagentur. Und maßgeblich ist der
+    // Mindestsatz zum AUSBILDUNGSBEGINN, nicht der aktuell jüngste; sonst
+    // wurde jeder Altvertrag gegen den neuesten Wert geprüft.
+    if (kz.aktVerg > 0 && !kz.isFachwerker) {
+      const beginn = (kz.schueler && kz.schueler.ausbildungsbeginn) || '';
       const miav = AzubiRechner.MINDESTVERGUETUNG;
-      const letztes = miav[miav.length - 1];
+      let stufe = miav[0];
+      for (let i = miav.length - 1; i >= 0; i--) {
+        if (beginn && beginn >= miav[i].ab) { stufe = miav[i]; break; }
+      }
       const ljIdx = Math.max(0, Math.min(2, kz.aktLehrjahr - 1));
-      if (kz.aktVerg < letztes.lj[ljIdx]) risiken.push('Vergütung unter Mindestvergütung (§17 BBiG)');
+      if (kz.aktVerg < stufe.lj[ljIdx]) risiken.push(`Vergütung unter Mindestvergütung (§17 BBiG, Stand ${stufe.ab.substring(0, 4)})`);
     }
     return risiken;
   },
@@ -27682,6 +27737,7 @@ const SchuelerView = {
   },
 
   doAbschliessen() {
+    try {
     const jgId = document.getElementById('mAbschlJG').value;
     if (!jgId) return App.toast('Kein Jahrgang ausgewählt', 'error');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgId]);
@@ -27697,6 +27753,12 @@ const SchuelerView = {
     App.closeModal();
     this.render();
     App.toast(`${count} Schüler im Jahrgang ${jgName} abgeschlossen`, 'success');
+    } catch(e) {
+      console.error('doAbschliessen:', e);
+      App.toast('Vorgang fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   render() {

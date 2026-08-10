@@ -171,6 +171,13 @@ const App = {
   uGet(key, fallback) { try { return localStorage.getItem(this.uKey(key)) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
   uSet(key, val) { try { localStorage.setItem(this.uKey(key), val); } catch(e) {} },
   uRemove(key) { try { localStorage.removeItem(this.uKey(key)); } catch(e) {} },
+  // Browser-weite Einstellungen (NICHT pro Prüfer), z.B. die Freischaltung der
+  // Statistikansicht. Immer über diese Helfer zugreifen: auf gesperrten
+  // Verwaltungs-PCs wirft localStorage einen SecurityError, der eine ganze
+  // Ansicht mitreißen kann, wenn er mitten im Aufbau der Seite auftritt.
+  lsGet(key, fallback) { try { return localStorage.getItem(key) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
+  lsSet(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
+  lsRemove(key) { try { localStorage.removeItem(key); } catch(e) {} },
 
   _populateUserSelect() {
     const sel = document.getElementById('topbarUserSelect');

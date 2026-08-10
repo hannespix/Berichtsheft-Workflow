@@ -1302,7 +1302,7 @@ const Views = {
             </label>`;
           }).join('')}
         </div>
-        <div id="dashboardToggle" style="display:${localStorage.getItem('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div id="dashboardToggle" style="display:${App.lsGet('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
             Statistiken &amp; Jahresbericht einblenden
@@ -1436,7 +1436,7 @@ const Views = {
             ${dupes.map(d => `<tr>
               <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id1}</span></td>
               <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id2}</span></td>
-              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2},'${esc(d.name1).replace(/'/g,"\\'")}','${esc(d.name2).replace(/'/g,"\\'")}')" style="font-size:10px">Zusammenführen</button></td>
+              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:10px">Zusammenführen</button></td>
             </tr>`).join('')}
           </tbody></table>
         </div>`;
@@ -1446,13 +1446,13 @@ const Views = {
   },
 
   _pinClicked() {
-    if (localStorage.getItem('bhk_stats_unlocked') === '1') {
+    if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
     const pw = prompt('Passwort:');
     if (pw === 'dienstweg') {
-      localStorage.setItem('bhk_stats_unlocked', '1');
+      App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
     }
   },
@@ -1460,7 +1460,7 @@ const Views = {
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
     if (!enabled) {
-      localStorage.removeItem('bhk_stats_unlocked');
+      App.lsRemove('bhk_stats_unlocked');
       document.getElementById('dashboardToggle').style.display = 'none';
     }
     App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
@@ -1614,7 +1614,12 @@ const Views = {
     }
   },
 
-  mergeBetriebe(keepId, removeId, keepName, removeName) {
+  // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
+  // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
+  // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
+  mergeBetriebe(keepId, removeId) {
+    const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
+    const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
     if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
     // Move all schueler references
     App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);

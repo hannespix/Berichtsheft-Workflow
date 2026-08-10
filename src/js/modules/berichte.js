@@ -306,6 +306,7 @@ const BerichteHandler = {
   },
 
   jahresbericht() {
+    try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
     const { jsPDF } = window.jspdf;
@@ -689,6 +690,12 @@ const BerichteHandler = {
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout
+    } catch(e) {
+      console.error('Jahresbericht:', e);
+      App.toast('Jahresbericht konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════

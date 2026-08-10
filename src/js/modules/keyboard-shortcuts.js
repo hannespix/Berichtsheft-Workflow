@@ -56,10 +56,15 @@ document.addEventListener('keydown', (e) => {
     GlobalSearch.showCheatSheet();
     return;
   }
-  // Alt+1-7 = Quick navigation
+  // Alt+1-8 = Schnellnavigation. Nicht in Eingabefeldern feuern (halb
+  // ausgefüllte Formulare gingen sonst verloren) und offene Dialoge vorher
+  // schließen – sonst schwebte das Fenster über einer ganz anderen Ansicht.
   if (e.altKey && !e.ctrlKey && '12345678'.includes(e.key)) {
+    const t = e.target?.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || e.target?.isContentEditable) return;
     e.preventDefault();
     const views = ['dashboard','stammdaten','import','planung','kontrolle','wiedervorlagen','berichte','einstellungen'];
+    try { const ov = document.getElementById('modalOverlay'); if (ov && ov.classList.contains('active')) App.closeModal(); } catch(err) {}
     App.navigate(views[parseInt(e.key) - 1]);
     return;
   }
