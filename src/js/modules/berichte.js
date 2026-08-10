@@ -895,8 +895,11 @@ const BerichteHandler = {
       LEFT JOIN betriebe b ON s.betrieb_id=b.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id`);
     const heute = todayStr();
-    const seenIbk = {};
-    const seenPerson = {};
+    // Object.create(null): Bei einer BAV-Ident namens "constructor" oder
+    // "__proto__" lieferte ein normales Objekt die geerbte Eigenschaft zurück
+    // (truthy, aber kein Array) und die gesamte Prüfung brach ab.
+    const seenIbk = Object.create(null);
+    const seenPerson = Object.create(null);
     alle.forEach(s => {
       if (s.ibykus_id) (seenIbk[s.ibykus_id] = seenIbk[s.ibykus_id] || []).push(s);
       const pKey = ((s.nachname || '') + '|' + (s.vorname || '') + '|' + (s.geburtsdatum || '')).toLowerCase();
@@ -956,7 +959,7 @@ const BerichteHandler = {
 
     // ── Betriebe ──
     const betriebe = App.query(`SELECT b.*, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=b.id AND aktiv=1) AS cnt FROM betriebe b`);
-    const seenBnr = {}, seenBName = {};
+    const seenBnr = Object.create(null), seenBName = Object.create(null);
     betriebe.forEach(b => {
       if (b.betriebsnummer) (seenBnr[b.betriebsnummer] = seenBnr[b.betriebsnummer] || []).push(b);
       const key = ((b.name || '') + '|' + (b.ort || '')).toLowerCase();
@@ -986,6 +989,27 @@ const BerichteHandler = {
       if (sc.cnt > 0 && !sc.email) add('warnung', 'Schule', sc.name, `Keine E-Mail hinterlegt (${sc.cnt} aktive Azubis) – Anschreiben unmöglich`, 'email', () => { App.closeModal(); StammdatenTab.editSchule(sc.id); });
     });
 
+    // Strukturelle Lücken bündeln: Trifft eine Regel auf über die Hälfte aller
+    // Azubis zu, ist das keine Aussage über einzelne Datensätze, sondern über
+    // den Export (z.B. Geburtsdatum wird gar nicht geliefert). 600 identische
+    // Zeilen würden die echten Befunde sonst unauffindbar machen.
+    const gesamtAzubis = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    if (gesamtAzubis >= 20) {
+      const proProblem = Object.create(null);
+      issues.forEach(i => { if (i.kat === 'Azubi') proProblem[i.problem] = (proProblem[i.problem] || 0) + 1; });
+      const strukturell = new Set(Object.keys(proProblem).filter(k => proProblem[k] > gesamtAzubis * 0.5));
+      if (strukturell.size) {
+        const rest = issues.filter(i => !(i.kat === 'Azubi' && strukturell.has(i.problem)));
+        strukturell.forEach(problem => {
+          rest.push({ sev: 'hinweis', kat: 'Struktur', name: `${proProblem[problem]} Azubis betroffen`,
+            problem: `${problem} – betrifft nahezu alle Datensätze, vermutlich im IBYKUS-Export nicht enthalten`,
+            feld: '(Sammelmeldung)', action: null, ibykusId: '', strukturell: true });
+        });
+        issues.length = 0;
+        issues.push(...rest);
+      }
+    }
+
     const rank = { fehler: 0, warnung: 1, hinweis: 2 };
     issues.sort((a, b) => rank[a.sev] - rank[b.sev] || a.kat.localeCompare(b.kat) || a.name.localeCompare(b.name));
     return issues;
@@ -997,8 +1021,12 @@ const BerichteHandler = {
     const nF = this._dqIssues.filter(i => i.sev === 'fehler').length;
     const nW = this._dqIssues.filter(i => i.sev === 'warnung').length;
     const nH = this._dqIssues.filter(i => i.sev === 'hinweis').length;
-    const gesamt = App.scalar('SELECT COUNT(*) FROM schueler') || 0;
-    const betroffen = new Set(this._dqIssues.filter(i => i.kat === 'Azubi' && i.sev !== 'hinweis').map(i => i.name)).size;
+    // Nenner nur AKTIVE Azubis: sonst stieg der Wert allein durchs Archivieren.
+    // Dedupliziert wird über die IBYKUS-ID (Namen sind nicht eindeutig).
+    const gesamt = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    const betroffen = new Set(this._dqIssues
+      .filter(i => i.kat === 'Azubi' && i.sev !== 'hinweis')
+      .map(i => i.ibykusId || i.name)).size;
     const score = gesamt ? Math.max(0, Math.round(100 * (1 - betroffen / gesamt))) : 100;
     const scoreColor = score >= 90 ? 'var(--clr-green)' : score >= 70 ? 'var(--clr-amber)' : 'var(--clr-red)';
 

@@ -2847,6 +2847,8 @@ const App = {
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
     this._dirtyOps.push({ ...stamp(), sql: prep.opSql, params: prep.opParams });
+    // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
+    try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.markDirty();
   },
   _bulkImport: false,
@@ -3136,6 +3138,7 @@ const App = {
       }
       if (op.uid) this._appliedForeignUids.add(op.uid);
     }
+    if (applied) { try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {} }
     return applied;
   },
 

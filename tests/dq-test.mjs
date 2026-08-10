@@ -71,5 +71,29 @@ check(B._dqFiltered().every(i => i.sev === 'fehler'), 'Schweregrad-Filter wirkt'
 B._dqFilter = { sev: '', kat: 'Betrieb' };
 check(B._dqFiltered().every(i => i.kat === 'Betrieb'), 'Kategorie-Filter wirkt');
 
+console.log('══ Robustheit und Aussagekraft ══');
+{
+  // BAV-Idents mit JS-Sonderbedeutung dürfen die Prüfung nicht abbrechen
+  db.run("INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,aktiv,ibykus_id,ausbildungsbeginn,ausbildungsende,geburtsdatum) VALUES (90,'Proto','Typ',2,1,1,1,1,'constructor','2024-09-01','2027-08-31','2005-01-01')");
+  db.run("INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,aktiv,ibykus_id,ausbildungsbeginn,ausbildungsende,geburtsdatum) VALUES (91,'Proto2','Typ',2,1,1,1,1,'__proto__','2024-09-01','2027-08-31','2005-01-01')");
+  let lief = true;
+  try { B._dqRun(); } catch (e) { lief = false; console.error('    ' + e.message); }
+  check(lief, 'Prüfung läuft auch bei IBYKUS-IDs wie "constructor"/"__proto__"');
+  db.run('DELETE FROM schueler WHERE id IN (90,91)');
+}
+
+{
+  // Strukturelle Lücke: fehlt ein Feld bei fast allen, wird EINE Sammelmeldung
+  // erzeugt statt hunderter Einzelzeilen
+  for (let i = 100; i < 130; i++) {
+    db.run(`INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,aktiv,ibykus_id,ausbildungsbeginn,ausbildungsende,geburtsdatum,email) VALUES (${i},'Masse${i}','V',2,1,1,1,1,'IBK-${i}','2024-09-01','2027-08-31','','m${i}@x.de')`);
+  }
+  const issues = B._dqRun();
+  const einzeln = issues.filter(i => i.kat === 'Azubi' && i.problem.includes('Geburtsdatum fehlt')).length;
+  const sammel = issues.filter(i => i.kat === 'Struktur').length;
+  check(einzeln === 0 && sammel >= 1, `Flächendeckende Lücke als Sammelmeldung (${sammel}) statt ${einzeln} Einzelzeilen`);
+  for (let i = 100; i < 130; i++) db.run(`DELETE FROM schueler WHERE id=${i}`);
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

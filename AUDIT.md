@@ -1,5 +1,10 @@
 # Gesamt-Audit Berichtsheftkontrolle
 
+> **Status: abgearbeitet.** Alle hier beschriebenen Befunde wurden in acht
+> Meilensteinen behoben (M1–M8, siehe Git-Historie) und mit 207 automatisierten
+> Prüfungen in zehn Testsuiten abgesichert. Dieses Dokument bleibt als
+> Befund-Dokumentation und Begründung der Änderungen erhalten.
+
 **Stand:** August 2026 · Grundlage: Code-Audit über alle Module (7 Prüfbereiche) + Laufzeittests im echten Browser (Chromium, Demo-Bestand 605 Azubis)
 
 **Gesamtbild:** Die Anwendung läuft technisch stabil — alle Ansichten, Tabs, Modals und die Kontrolldurchführung wurden im Browser durchgefahren, **null Konsolenfehler**, Build byte-identisch zu den Quellen, alle 58 automatisierten Tests grün. Die Probleme liegen nicht in der Technik, sondern in der **Fachlogik**: mehrere Rechen- und Zuordnungsfehler führen zu falschen Zahlen in Berichten und in Einzelfällen zu Datenverlust.
@@ -181,3 +186,29 @@ Der neue Op-Log-Sync hat fünf reproduzierte Defekte. Die automatisierten Tests 
 7. Rest nach Aufwand
 
 > **Hinweis zur Dokumentation:** `CLAUDE.md` ist nicht mehr aktuell — es fehlen die Module `azubi-dashboard.js`, `azubi-rechner.js` und `schueler-akte.js`, das Testverzeichnis `tests/`, die Sync-v3-Architektur; die Zeilenangaben stammen aus einem früheren Stand und die Schema-Regel nennt zwei statt drei Pflegestellen.
+
+
+---
+
+## Abarbeitung (August 2026)
+
+| Meilenstein | Inhalt | Test |
+|---|---|---|
+| M1 | Lehrjahr-Berechnung: Dauer statt Kalender-Schuljahr; Verkürzung wird gelesen; Tastaturnavigation und Nacherfassung folgen der Raster-Anzahl | `aj-test.mjs` |
+| M2 | Schreibziel aus dem Kontrollergebnis statt aus der Ansicht; Mängel-Historie auf allen Bedienwegen; Fehltage-Summe; AP-Zulassung dauerhaft | `kontrolle-test.mjs` |
+| M3 | Op-Reihenfolge, Log-Rotation über Generationen, Kompaktierungs-Offsets, Snapshot-Generation, globale IDs für drei weitere Tabellen | `sync-test.mjs` |
+| M4 | Jahresbericht und Diagramme zählen Köpfe über den aktiven Bestand; Klassenübersicht eine Zeile je Azubi; Seitenumbrüche | `berichte-test.mjs` |
+| M5 | Betriebsnummer-Sperre, Spaltenzuordnung, Datumsprüfung, Speicher-Rückmeldung, Re-Import von Namen und Ident | `import-test.mjs` |
+| M6 | Zentrale Lösch-Kaskaden für alle Pfade; tote Bedienelemente; Migrations-Parität | `integritaet-test.mjs` |
+| M7 | Apostroph-Fallen, hängende Ladeanzeigen, abgesicherter Speicherzugriff, Tastenkürzel; Vergütungsperioden und Mindestvergütung | `rechner-test.mjs` |
+| M8 | Datenqualität: Absturzschutz, Sammelmeldungen, Score-Basis; Suchindex-Zwischenspeicher; Dokumentation | `dq-test.mjs`, `search-test.mjs` |
+
+**Bewusst nicht geändert** (Architekturentscheidungen, keine Fehler):
+
+- Der erste Ausbildungsmonat vor September ist im Schuljahres-Raster nicht
+  abbildbar. Ein Vertrag ab 1.8. hat drei volle Raster ab September; die
+  Augustwochen des ersten Jahres liegen davor. Alternative wäre ein Raster
+  je Vertragsjahr statt je Schuljahr – ein Umbau der gesamten Kontrollansicht.
+- Löschungen gewinnen gegen gleichzeitige Änderungen (Tombstone-Prinzip).
+- Stammdaten-Änderungen (Betriebe, Klassen, Schulen) werden zeilenweise
+  übernommen, nicht feldweise zusammengeführt.
