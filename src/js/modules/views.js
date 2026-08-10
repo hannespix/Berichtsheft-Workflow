@@ -291,7 +291,12 @@ const Views = {
         // ── 4) Azubis je Jahrgang (with kontrollergebnis summary) ──
         const jgs = App.query(`SELECT j.id, j.bezeichnung, j.pruefungstermin, j.typ,
           COUNT(DISTINCT s.id) as cnt,
-          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok_cnt,
+          -- Mangel hat Vorrang: ohne diesen Ausschluss zählt ein Azubi mit
+          -- OK- UND Mangel-Kontrolle in beiden Spalten, die Balkenanteile
+          -- summieren sich über 100 % und der rote Teil wird abgeschnitten.
+          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung'
+            AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')
+            THEN s.id END) as ok_cnt,
           COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as issue_cnt
           FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
           LEFT JOIN kontrollergebnisse ke ON ke.schueler_id=s.id AND ke.ergebnis != ''
@@ -530,9 +535,12 @@ const Views = {
 
     // ── 1) Kontrollfortschritt Donut ──
     try {
-      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND ' + _ak + gf) || 0;
+      // Azubis mit Mangel zählen als "Mangel", auch wenn sie zusätzlich eine
+      // OK-Kontrolle haben. Ohne diesen Vorrang lag derselbe Azubi in BEIDEN
+      // Mengen und der Rest ("offen") wurde zu klein bis negativ.
       const issueCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis != "" AND ke.ergebnis != "in_ordnung" AND ' + _ak + gf) || 0;
-      const openCnt = total - okCnt - issueCnt;
+      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!="" AND ergebnis!="in_ordnung") AND ' + _ak + gf) || 0;
+      const openCnt = Math.max(0, total - okCnt - issueCnt);
       const ctx1 = document.getElementById('chartKontrollfortschritt');
       if (ctx1) {
         this._chartInstances.kontroll = new Chart(ctx1, {
@@ -1163,6 +1171,12 @@ const Views = {
       <div class="page-header">
         <h2>Berichte & Export</h2>
         <p>Durchsichtsbögen, Klassenübersichten und Statistiken exportieren</p>
+      </div>
+      ${App.filterBadgeHtml()}
+      <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:10px">
+        Hinweis: Terminliste und Zulassungsliste folgen den aktiven Filtern.
+        Klassenübersicht, Excel-Dashboard und Jahresbericht werten immer den
+        <strong>gesamten aktiven Bestand</strong> aus.
       </div>
 
       <div class="card" style="margin-bottom:16px">

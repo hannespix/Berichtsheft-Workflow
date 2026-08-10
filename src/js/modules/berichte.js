@@ -11,10 +11,18 @@ const BerichteHandler = {
   doExportKlasse() {
     const klasseId = document.getElementById('mExpKlasse').value;
     const klasse = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?`, [klasseId])[0];
-    const schueler = App.query(`SELECT s.*, ke.ergebnis, ke.fehltage_gesamt, ke.bemerkung as ke_bemerkung
-      FROM schueler s LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
-      WHERE s.klasse_id=? ORDER BY s.nachname`, [klasseId]);
+    // Eine Zeile PRO AZUBI mit dem jeweils letzten Ergebnis. Der frühere JOIN
+    // erzeugte eine Zeile je Kontrolle – wer dreimal kontrolliert wurde, stand
+    // dreimal im PDF, und die Anzahl im Dateinamen war entsprechend falsch.
+    const schueler = App.query(`SELECT s.*,
+        (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS ergebnis,
+        (SELECT ke.fehltage_gesamt FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS fehltage_gesamt,
+        (SELECT ke.bemerkung FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS ke_bemerkung
+      FROM schueler s
+      WHERE s.klasse_id=? AND s.aktiv=1 ORDER BY s.nachname`, [klasseId]);
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('l', 'mm', 'a4');
@@ -313,10 +321,20 @@ const BerichteHandler = {
     const totalSchueler = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
     const totalInaktiv = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
     const totalAbgeschlossen = App.scalar("SELECT COUNT(*) FROM schueler WHERE status='ap_bestanden'") || 0;
-    const kontrolliert = App.scalar('SELECT COUNT(DISTINCT schueler_id) FROM kontrollergebnisse WHERE ergebnis != ""') || 0;
-    const nichtKontrolliert = totalSchueler - kontrolliert;
-    const okCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis='in_ordnung'") || 0;
-    const mangelCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis != '' AND ergebnis != 'in_ordnung'") || 0;
+    // Alle Kontroll-Kennzahlen nur über AKTIVE Azubis: sonst zählen archivierte
+    // Jahrgänge weiter als 'kontrolliert', während der Nenner nur die Aktiven
+    // enthält -> die Abdeckung stieg nach jedem Jahrgangsabschluss und lief
+    // über 100 %, 'noch offen' wurde negativ.
+    const kontrolliert = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND s.aktiv=1`) || 0;
+    const nichtKontrolliert = Math.max(0, totalSchueler - kontrolliert);
+    // Kopf-Kennzahlen (nicht Ergebnis-Zeilen): Bei mehreren Durchsichten pro
+    // Azubi ergab die Zeilenzählung Erfolgsquoten weit über 100 %.
+    const okCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis='in_ordnung' AND s.aktiv=1
+      AND ke.schueler_id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')`) || 0;
+    const mangelCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND s.aktiv=1`) || 0;
     const termine = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="durchgefuehrt"') || 0;
     const termineGeplant = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="geplant"') || 0;
     const offeneWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
@@ -324,9 +342,14 @@ const BerichteHandler = {
     const einsendungen = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE typ='einsendung' AND status='durchgefuehrt'") || 0;
 
     // Top Mängel-Codes
-    const topCodes = App.query(`SELECT maengel_codes FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H'`);
+    // Nur Wochen aktiver Azubis; 'H' (Fehltage) ist kein Mangelcode und wird
+    // beim Aufsplitten unten einzeln aussortiert – der frühere Filter griff
+    // nur bei GENAU 'H', bei "A,H" wurde das H mitgezählt.
+    const topCodes = App.query(`SELECT kws.maengel_codes FROM kw_status kws
+      JOIN schueler s ON s.id=kws.schueler_id
+      WHERE kws.maengel_codes != '' AND s.aktiv=1`);
     const codeCount = {};
-    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { codeCount[c] = (codeCount[c]||0) + 1; }));
+    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { if (c !== 'H') codeCount[c] = (codeCount[c]||0) + 1; }));
     const sortedCodes = Object.entries(codeCount).sort((a,b) => b[1] - a[1]);
     const totalCodeEntries = sortedCodes.reduce((s, [,c]) => s + c, 0);
     const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'BS-Themen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
@@ -488,17 +511,21 @@ const BerichteHandler = {
     const sCols = [{label:'Schule',x:LM+2},{label:'Ort',x:LM+72},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+124,align:'center'},{label:'Mängel',x:LM+140,align:'center'},{label:'Offen',x:LM+156,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
     y = drawTableHeader(doc, y, sCols);
     schoolStats.forEach((s, i) => {
+      // Umbruch VOR der Zeile: ohne diese Prüfung liefen die letzten Zeilen
+      // unter die Fußzeile bzw. aus dem Blatt heraus und fehlten im PDF.
+      if (y > 268) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); y = drawTableHeader(doc, y, sCols); }
       const q = s.ok + s.mangel > 0 ? Math.round(s.ok / (s.ok + s.mangel) * 100) + '%' : '–';
       y = drawTableRow(doc, y, sCols, [s.schule, s.ort || '', s.total, s.ok, s.mangel, s.offen, q], i % 2 === 0);
     });
     y += 6;
 
     // Ergebnisse pro Fachrichtung
-    if (y > 235) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+    if (y > 235) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
     y = drawSectionTitle(doc, y, 'Ergebnisse pro Fachrichtung');
     const fCols = [{label:'Fachrichtung',x:LM+2},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+126,align:'center'},{label:'Mängel',x:LM+144,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
     y = drawTableHeader(doc, y, fCols);
     frStats.forEach((f, i) => {
+      if (y > 268) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); y = drawTableHeader(doc, y, fCols); }
       const q = f.ok + f.mangel > 0 ? Math.round(f.ok / (f.ok + f.mangel) * 100) + '%' : '–';
       y = drawTableRow(doc, y, fCols, [f.fachrichtung, f.total, f.ok, f.mangel, q], i % 2 === 0);
     });

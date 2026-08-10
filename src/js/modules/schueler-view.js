@@ -145,10 +145,13 @@ const SchuelerView = {
     if (!c) return;
     const allData = this.getFilteredData();
     const opts = this.getFilterOptions();
-    const totalAll = App.scalar(`SELECT COUNT(*) FROM schueler WHERE ${this.showInaktive ? '1=1' : 'aktiv=1'}`) || 0;
-    const totalInaktive = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
+    // Gesamtzahl auf DERSELBEN Basis wie die Tabelle (inkl. globaler Filter):
+    // sonst stand im Kopf "612", während die Liste 47 Zeilen zeigte.
+    const gfS = App.gf('schueler');
+    const totalAll = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${this.showInaktive ? '1=1' : 's.aktiv=1'}${gfS}`) || 0;
+    const totalInaktive = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=0${gfS}`) || 0;
     const filtered = allData.length;
-    const isFiltered = Object.values(this.filters).some(v => v);
+    const isFiltered = Object.values(this.filters).some(v => v) || filtered !== totalAll;
 
     // Pagination
     const totalPages = Math.ceil(filtered / this.pageSize) || 1;
