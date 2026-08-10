@@ -150,13 +150,16 @@ const KWNav = {
     const row = parseInt(cell.dataset.row);
     const col = parseInt(cell.dataset.col);
     let targetAj = aj, targetRow = row, targetCol = col;
+    // Obergrenze aus dem tatsächlich gerenderten Raster (Verlängerer haben AJ 4)
+    const ajsVorhanden = this.getAllCells().map(c => parseInt(c.dataset.aj)).filter(n => !isNaN(n));
+    const maxAj = ajsVorhanden.length ? Math.max(...ajsVorhanden) : 3;
 
     switch(direction) {
       case 'right':
         targetCol = col + 1;
         if (targetCol > 12) { targetCol = 0; targetRow++; }
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return null;
+        if (targetAj > maxAj) return null;
         break;
       case 'left':
         targetCol = col - 1;
@@ -167,7 +170,7 @@ const KWNav = {
       case 'down':
         targetRow = row + 1;
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return;
+        if (targetAj > maxAj) return null;
         break;
       case 'up':
         targetRow = row - 1;

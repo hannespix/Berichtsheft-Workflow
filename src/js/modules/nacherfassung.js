@@ -197,7 +197,11 @@ const NacherfassungHandler = {
             [s.id, aj, kw, codes, fehl, keId]);
         }
       };
-      const aj = App.getSchuelerAJs(s.id).pop() || 1;
+      // Aktuelles Ausbildungsjahr, nicht das letzte: sonst landen nacherfasste
+      // Mängel eines Erstjahres-Azubis im Raster des 3. Ausbildungsjahres.
+      const ajListe = App.getSchuelerAJs(s.id) || [1];
+      const ajAktuell = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+      const aj = (ajAktuell && ajListe.includes(ajAktuell)) ? ajAktuell : (ajListe[ajListe.length - 1] || 1);
       const kw = row.lastKW || 0;
       if (kw > 0) {
         upsertKw(kw, row.codes || '', row.fehltage || 0);

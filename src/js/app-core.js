@@ -4377,7 +4377,10 @@ const App = {
   // Zählt Schuljahre (Sep–Aug) die zwischen AV-Beginn und AV-Ende liegen.
   // Ein Verkürzer der im März startet spannt 3 Schuljahre → braucht 3 KW-Grids.
   getSchuelerAJs(schuelerId) {
-    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+    // regulaer_dauer_monate/verkuerzung_monate MÜSSEN mitselektiert werden –
+    // sie werden unten für das Phasen-Ende gebraucht (fehlten früher → immer
+    // 36 Monate/0 Verkürzung, Verkürzer bekamen ein Raster zu viel).
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende, regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s?.ausbildungsbeginn) return [1, 2, 3];
     const d1 = this._parseDate(s.ausbildungsbeginn);
     if (!d1) return [1, 2, 3];
@@ -4396,10 +4399,15 @@ const App = {
     }
     if (!d2) return [1, 2, 3];
 
-    const startSY = d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1;
-    const d2adj = new Date(d2); d2adj.setDate(d2adj.getDate() - 1);
-    const endSY = d2adj.getMonth() >= 8 ? d2adj.getFullYear() : d2adj.getFullYear() - 1;
-    const numSY = endSY - startSY + 1;
+    // Anzahl der Ausbildungsjahre aus der VERTRAGSDAUER, nicht aus überspannten
+    // Kalender-Schuljahren: Eine feste Schuljahresgrenze kann 1.8.- und
+    // 1.9.-Verträge nicht gleichzeitig richtig zählen (Sep-Grenze → jeder
+    // August-Beginner bekam ein Raster zu viel, Aug-Grenze → jeder
+    // September-Beginner). Die Dauer ist von der Grenze unabhängig.
+    const endeExkl = new Date(d2); endeExkl.setDate(endeExkl.getDate() + 1);
+    let monate = (endeExkl.getFullYear() - d1.getFullYear()) * 12 + (endeExkl.getMonth() - d1.getMonth());
+    if (endeExkl.getDate() < d1.getDate()) monate -= 1;
+    const numSY = Math.max(1, Math.min(4, Math.ceil(monate / 12)));
 
     if (numSY <= 1) return [3];
     if (numSY === 2) return [2, 3];
@@ -4426,7 +4434,9 @@ const App = {
             if (eff < von) return sum;
             return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
           }, 0);
-        return Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+        // Obergrenze = tatsächliche Anzahl Ausbildungsjahre (Verlängerer haben 4)
+        const maxAjP = Math.max(...(this.getSchuelerAJs(schuelerId) || [3]));
+        return Math.min(maxAjP, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
       }
     }
     const d = this._parseDate(beginn);
@@ -4434,7 +4444,8 @@ const App = {
     const now = new Date();
     const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
     if (months < 0) return 1;
-    return Math.min(Math.floor(months / 12) + 1, 3);
+    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
+    return Math.min(Math.floor(months / 12) + 1, maxAj);
   },
 
   // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
@@ -4643,8 +4654,10 @@ const App = {
 
       if (isFirst && startKW !== 36) {
         const startIdx = allKWOrder.indexOf(startKW);
-        // KWs 33-35 (indices 49-51) = school year boundary → all active
-        if (startIdx > 0 && startIdx < 49) {
+        // KWs 31-35 (Indizes 47-51) = August, also Schuljahresgrenze → ganzes
+        // Raster aktiv. Ein Vertrag ab 1.8. hat sein erstes volles Rasterjahr
+        // ab September; die Augustwochen davor liegen vor dem ersten Raster.
+        if (startIdx > 0 && startIdx < 47) {
           for (let i = 0; i < startIdx; i++) inactive.push(allKWOrder[i]);
         }
       }
