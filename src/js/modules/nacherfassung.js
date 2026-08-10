@@ -186,7 +186,10 @@ const NacherfassungHandler = {
       // Kontrollergebnis (with fehltage)
       App.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, fehltage_gesamt, erstellt_am, geaendert_von) VALUES (?,?,?,?,?,datetime('now'),?)",
         [terminId, s.id, row.ergebnis, row.bemerkung, row.fehltage || 0, pruefer]);
-      const keId = App.scalar("SELECT last_insert_rowid()");
+      // Gezielt nachladen statt last_insert_rowid(): Wurde der INSERT wegen
+      // OR IGNORE übersprungen (Schüler doppelt in der Liste, zweiter Klick auf
+      // "Alle speichern"), zeigte die Nummer auf einen fremden Datensatz.
+      const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
 
       // Wiedervorlage (Tabelle hat KEINE kontrolltermin_id-Spalte!)
       if (row.ergebnis !== 'in_ordnung' && row.wvDate) {

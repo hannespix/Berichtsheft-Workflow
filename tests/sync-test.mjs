@@ -247,10 +247,14 @@ console.log('\n══ T6: Kompaktierung + Log-Rotation + frischer Client ══'
   check(snap.exec('SELECT COUNT(*) FROM wiedervorlagen')[0].values[0][0] === 2, 'Snapshot enthält den Gesamtstand (2 WV)');
   check(snap.exec("SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1")[0].values[0][0] === 'in_ordnung', 'Snapshot enthält KE-Ergebnis');
   snap.close();
-  // B rotiert sein Log, sobald der Snapshot es abdeckt
+  // B beginnt eine neue Log-Generation, sobald der Snapshot die alte abdeckt.
+  // (Früher wurde die Datei geleert – Leser konnten das nicht zuverlässig
+  // erkennen und lasen ab der falschen Stelle weiter.)
+  const genVorher = B._logGen;
   await B._pollOplogs();
-  const bLog = store.files.get(B._myOplogName());
-  check(bLog && bLog.data.length === 0, 'B hat sein Log rotiert (vom Snapshot abgedeckt)');
+  check(B._logGen === genVorher + 1, `B hat eine neue Log-Generation begonnen (g${genVorher} → g${B._logGen})`);
+  const bLogNeu = store.files.get(B._myOplogName());
+  check(!bLogNeu || bLogNeu.data.length === 0, 'Neue Generation startet leer');
   // Frischer Client C bootstrappt aus Snapshot + Logs
   const C = await makeClient(SQL, store, 'clara', new Uint8Array(store.files.get('test.sqlite').data));
   check(C.scalar('SELECT COUNT(*) FROM wiedervorlagen') === 2, 'C (neu) sieht alle Wiedervorlagen');
@@ -261,6 +265,75 @@ console.log('\n══ T6: Kompaktierung + Log-Rotation + frischer Client ══'
   await B.mergeAndSave(true);
   await C._pollOplogs();
   check(C.scalar("SELECT status FROM wiedervorlagen WHERE schueler_id=1") === 'erledigt', 'C sieht Op aus rotiertem Log (Offset-Reset)');
+}
+
+console.log('\n══ T7: Op-Reihenfolge innerhalb einer Millisekunde ══');
+{
+  // Anlegen + sofortiges Ändern derselben Zeile: beide Ops tragen denselben
+  // Zeitstempel. Ein Zufalls-Tiebreaker verdrehte sie beim Empfänger, wodurch
+  // das UPDATE vor dem INSERT lief und wirkungslos verpuffte.
+  let verdreht = 0;
+  for (let i = 0; i < 12; i++) {
+    const sid = 500 + i;
+    A.run("INSERT INTO schueler (id,nachname,vorname,aktiv) VALUES (?,?,?,1)", [sid, 'Reihen', 'Folge']);
+    A.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws) VALUES (?,?,?)", [77, sid, '{}']);
+    A.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?", ['anna', 77, sid]);
+    await A.mergeAndSave(true);
+    await B._pollOplogs();
+    const r = B.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [77, sid]);
+    if (r !== 'in_ordnung') verdreht++;
+  }
+  check(verdreht === 0, `12 Durchläufe INSERT+UPDATE: ${verdreht} verdreht (erwartet 0)`);
+}
+
+console.log('\n══ T8: kw_maengel bekommt globale IDs ══');
+{
+  check(A.ID_TABLES.has('kw_maengel'), 'kw_maengel ist als Tabelle mit globalen IDs eingetragen');
+  check(A.ID_TABLES.has('pruefer') && A.ID_TABLES.has('abschlussjahrgaenge'), 'pruefer und abschlussjahrgaenge ebenfalls');
+  const keA = A.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
+  const keB = B.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1');
+  A.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)', [keA, 1, 30, 'A', 0]);
+  B.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)', [keB, 1, 31, 'B', 0]);
+  const idA = A.scalar('SELECT id FROM kw_maengel WHERE kalenderwoche=30');
+  const idB = B.scalar('SELECT id FROM kw_maengel WHERE kalenderwoche=31');
+  check(idA !== idB && idA > 1e15 && idB > 1e15, `IDs global eindeutig (${idA} / ${idB})`);
+  await A.mergeAndSave(true); await B.mergeAndSave(true);
+  await A._pollOplogs(); await B._pollOplogs();
+  check(A.scalar("SELECT maengel_codes FROM kw_maengel WHERE kalenderwoche=31") === 'B', 'A sieht den Mangel von B in der richtigen Woche');
+  check(B.scalar("SELECT maengel_codes FROM kw_maengel WHERE kalenderwoche=30") === 'A', 'B sieht den Mangel von A in der richtigen Woche');
+}
+
+console.log('\n══ T9: Natural-Key-Rewrite bei "WHERE id=? AND ..." ══');
+{
+  // Kontrollergebnis für Azubi 2 auf beiden Seiten anlegen (divergente lokale Nummern)
+  A.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws) VALUES (?,?,?)", [77, 2, '{}']);
+  B.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws) VALUES (?,?,?)", [77, 2, '{}']);
+  const keB = B.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=2');
+  B.run("UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0", [keB]);
+  const op = B._dirtyOps[B._dirtyOps.length - 1];
+  check(!/WHERE\s+id\s*=\s*\?/i.test(op.sql), `Op adressiert über den fachlichen Schlüssel: ${op.sql.slice(op.sql.search(/WHERE/i)).slice(0, 60)}`);
+  await B.mergeAndSave(true);
+  await A._pollOplogs();
+  check(A.scalar('SELECT zulassung_ap FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=2') === 1,
+    'Änderung kommt trotz abweichender lokaler Nummer an');
+}
+
+console.log('\n══ T10: Rotation – wachsendes Log wird vollständig gelesen ══');
+{
+  // A rotiert und schreibt danach MEHR als vorher. Früher erkannte der Leser
+  // die Rotation nur an einer kleiner gewordenen Datei und übersprang Ops.
+  const vorher = B.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen');
+  const genVor = A._logGen;
+  await A._compact('test-rotation');
+  await A._pollOplogs();
+  check(A._logGen >= genVor, 'A hat rotiert oder die Generation gehalten');
+  for (let i = 0; i < 25; i++) {
+    A.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id,notiz,erstellt_von) VALUES (?,?,?)", [1, 'Rotation-Notiz-' + i, 'anna']);
+  }
+  await A.mergeAndSave(true);
+  await B._pollOplogs();
+  const nachher = B.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen');
+  check(nachher - vorher === 25, `B hat alle 25 Notizen nach der Rotation erhalten (${nachher - vorher})`);
 }
 
 console.log('\n══ T7: datetime-Freeze + Lock-Respekt (Kompaktierungspfad) ══');
