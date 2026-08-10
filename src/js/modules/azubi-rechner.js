@@ -408,7 +408,11 @@ const AzubiRechner = {
     const merged = [];
     for (const p of perioden) {
       const last = merged[merged.length - 1];
+      // +last.bis === +p.von: Ohne diese Prüfung wurden Perioden über eine
+      // LÜCKE hinweg verschmolzen (z.B. unbelegte Monate zwischen zwei Phasen)
+      // und die Lücke als bezahlte Zeit mit Urlaubsanspruch ausgewiesen.
       if (last && !last.unterbrechung && !p.unterbrechung
+          && +last.bis === +p.von
           && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr
           && last.urlaubTageJahr === p.urlaubTageJahr && last.quote === p.quote
           && last.betrieb === p.betrieb) {
@@ -501,7 +505,12 @@ const AzubiRechner = {
       // Individueller Lohn (z.B. 822€ eigene Wohnung) überschreibt Pauschale
       aktVerg = s.brutto_lohn > 0 ? s.brutto_lohn : this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
-      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung) || perioden.filter(p => !p.unterbrechung).pop();
+      // Fällt "heute" in keine Periode (Unterbrechung, Lücke, Ausbildung noch
+      // nicht begonnen), NICHT auf die letzte Periode zurückfallen – das war
+      // die des 3. Lehrjahres und zeigte einem pausierenden oder noch nicht
+      // gestarteten Azubi den höchsten Satz an.
+      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung)
+        || perioden.filter(p => !p.unterbrechung && p.bis <= heute).pop() || null;
       aktVerg = aktPeriode ? aktPeriode.vergEff : (hatIndividuellenLohn ? s.brutto_lohn : 0);
     }
 

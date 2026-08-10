@@ -205,6 +205,13 @@ const SchuelerAkte = {
 
   // ── Aktenvermerk als PDF exportieren ──
   async exportAktenvermerk(schuelerId) {
+    try { return await this._exportAktenvermerk(schuelerId); }
+    catch (e) {
+      console.error('Aktenvermerk-Export:', e);
+      App.toast('Aktenvermerk konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    }
+  },
+  async _exportAktenvermerk(schuelerId) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
     const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
@@ -213,7 +220,9 @@ const SchuelerAkte = {
     const fr = s.fachrichtung_id ? App.query('SELECT * FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0] : null;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
     const dateien = App.query('SELECT * FROM schueler_dateien WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
-    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.name as termin_name
+    // kontrolltermine hat keine Spalte "name" – die Abfrage warf deshalb
+    // "no such column" und der Export-Knopf tat kommentarlos nichts.
+    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.bemerkung as termin_name
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
       WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum ASC`, [schuelerId]);
     const wiedervorlagen = App.query(`SELECT w.*, wn.notiz as wv_notiz, wn.erstellt_am as wv_notiz_am

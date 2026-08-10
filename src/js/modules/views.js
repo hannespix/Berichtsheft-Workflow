@@ -291,7 +291,12 @@ const Views = {
         // ── 4) Azubis je Jahrgang (with kontrollergebnis summary) ──
         const jgs = App.query(`SELECT j.id, j.bezeichnung, j.pruefungstermin, j.typ,
           COUNT(DISTINCT s.id) as cnt,
-          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok_cnt,
+          -- Mangel hat Vorrang: ohne diesen Ausschluss zählt ein Azubi mit
+          -- OK- UND Mangel-Kontrolle in beiden Spalten, die Balkenanteile
+          -- summieren sich über 100 % und der rote Teil wird abgeschnitten.
+          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung'
+            AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')
+            THEN s.id END) as ok_cnt,
           COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as issue_cnt
           FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
           LEFT JOIN kontrollergebnisse ke ON ke.schueler_id=s.id AND ke.ergebnis != ''
@@ -530,9 +535,12 @@ const Views = {
 
     // ── 1) Kontrollfortschritt Donut ──
     try {
-      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND ' + _ak + gf) || 0;
+      // Azubis mit Mangel zählen als "Mangel", auch wenn sie zusätzlich eine
+      // OK-Kontrolle haben. Ohne diesen Vorrang lag derselbe Azubi in BEIDEN
+      // Mengen und der Rest ("offen") wurde zu klein bis negativ.
       const issueCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis != "" AND ke.ergebnis != "in_ordnung" AND ' + _ak + gf) || 0;
-      const openCnt = total - okCnt - issueCnt;
+      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!="" AND ergebnis!="in_ordnung") AND ' + _ak + gf) || 0;
+      const openCnt = Math.max(0, total - okCnt - issueCnt);
       const ctx1 = document.getElementById('chartKontrollfortschritt');
       if (ctx1) {
         this._chartInstances.kontroll = new Chart(ctx1, {
@@ -1164,6 +1172,12 @@ const Views = {
         <h2>Berichte & Export</h2>
         <p>Durchsichtsbögen, Klassenübersichten und Statistiken exportieren</p>
       </div>
+      ${App.filterBadgeHtml()}
+      <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:10px">
+        Hinweis: Terminliste und Zulassungsliste folgen den aktiven Filtern.
+        Klassenübersicht, Excel-Dashboard und Jahresbericht werten immer den
+        <strong>gesamten aktiven Bestand</strong> aus.
+      </div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">▤ Durchsichtsbögen exportieren (pro Kontrolltermin)</div>
@@ -1288,7 +1302,7 @@ const Views = {
             </label>`;
           }).join('')}
         </div>
-        <div id="dashboardToggle" style="display:${localStorage.getItem('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div id="dashboardToggle" style="display:${App.lsGet('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
             Statistiken &amp; Jahresbericht einblenden
@@ -1422,7 +1436,7 @@ const Views = {
             ${dupes.map(d => `<tr>
               <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id1}</span></td>
               <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id2}</span></td>
-              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2},'${esc(d.name1).replace(/'/g,"\\'")}','${esc(d.name2).replace(/'/g,"\\'")}')" style="font-size:10px">Zusammenführen</button></td>
+              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:10px">Zusammenführen</button></td>
             </tr>`).join('')}
           </tbody></table>
         </div>`;
@@ -1432,13 +1446,13 @@ const Views = {
   },
 
   _pinClicked() {
-    if (localStorage.getItem('bhk_stats_unlocked') === '1') {
+    if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
     const pw = prompt('Passwort:');
     if (pw === 'dienstweg') {
-      localStorage.setItem('bhk_stats_unlocked', '1');
+      App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
     }
   },
@@ -1446,7 +1460,7 @@ const Views = {
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
     if (!enabled) {
-      localStorage.removeItem('bhk_stats_unlocked');
+      App.lsRemove('bhk_stats_unlocked');
       document.getElementById('dashboardToggle').style.display = 'none';
     }
     App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
@@ -1600,7 +1614,12 @@ const Views = {
     }
   },
 
-  mergeBetriebe(keepId, removeId, keepName, removeName) {
+  // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
+  // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
+  // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
+  mergeBetriebe(keepId, removeId) {
+    const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
+    const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
     if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
     // Move all schueler references
     App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);
@@ -1612,7 +1631,7 @@ const Views = {
         if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
       });
     }
-    App.run('DELETE FROM betriebe WHERE id=?', [removeId]);
+    App.deleteBetriebKaskade(removeId);
     App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
     Views.einstellungen();
   },

@@ -25,31 +25,31 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 ├── dist/
 │   └── berichtsheftkontrolle.html   ← Produktionsdatei (All-in-One)
 ├── src/
-│   ├── css/styles.css               ← Alle Styles (~1170 Zeilen)
+│   ├── css/styles.css               ← Alle Styles
 │   └── js/
-│       ├── app-core.js              ← App-Kern: DB, Navigation, Save/Load (~3670 Zeilen)
-│       ├── utils.js                 ← Hilfsfunktionen + Init (~95 Zeilen)
+│       ├── app-core.js              ← App-Kern: DB, Navigation, Save/Load
+│       ├── utils.js                 ← Hilfsfunktionen + Init
 │       └── modules/
-│           ├── views.js             ← Dashboard, Sidebar-Rendering (~2350 Zeilen)
-│           ├── kontrolle.js         ← Kontrolldurchführung (~2410 Zeilen) ← GRÖSSTER
-│           ├── stammdaten.js        ← Stammdaten-Verwaltung (~1210 Zeilen)
-│           ├── workflows.js         ← Workflow-Engine (~750 Zeilen)
-│           ├── import-handler.js    ← CSV/IBYKUS Import (~710 Zeilen)
-│           ├── planung.js           ← Kontrolltermin-Planung (~600 Zeilen)
-│           ├── berichte.js          ← Berichte & Statistiken (~545 Zeilen)
-│           ├── kw-nav.js            ← KW-Raster Navigation (~530 Zeilen)
-│           ├── pdf-export.js        ← PDF-Durchsichtsbogen Export (~470 Zeilen)
-│           ├── schueler-view.js     ← Einzelschüler-Ansicht (~270 Zeilen)
-│           ├── nacherfassung.js     ← Nacherfassung (~250 Zeilen)
-│           ├── wiedervorlagen.js    ← Wiedervorlagen-Handler (~220 Zeilen)
-│           ├── blockplan-analyzer.js ← Blockplan-PDF-Analyse (~210 Zeilen)
-│           ├── global-search.js     ← Ctrl+K Suche (~200 Zeilen)
-│           ├── keyboard-shortcuts.js ← Tastaturkürzel (~155 Zeilen)
-│           ├── bulk-schueler.js     ← Bulk-Operationen Schüler (~80 Zeilen)
-│           ├── llm-helper.js        ← KI-Integration (~80 Zeilen)
-│           ├── bulk-wv.js           ← Bulk-Operationen WV (~55 Zeilen)
-│           ├── table-sort.js        ← Tabellen-Sortierung (~50 Zeilen)
-│           └── undo-manager.js      ← Undo/Redo (~40 Zeilen)
+│           ├── views.js             ← Dashboard, Sidebar-Rendering
+│           ├── kontrolle.js         ← Kontrolldurchführung
+│           ├── stammdaten.js        ← Stammdaten-Verwaltung
+│           ├── workflows.js         ← Workflow-Engine
+│           ├── import-handler.js    ← CSV/IBYKUS Import
+│           ├── planung.js           ← Kontrolltermin-Planung
+│           ├── berichte.js          ← Berichte & Statistiken
+│           ├── kw-nav.js            ← KW-Raster Navigation
+│           ├── pdf-export.js        ← PDF-Durchsichtsbogen Export
+│           ├── schueler-view.js     ← Einzelschüler-Ansicht
+│           ├── nacherfassung.js     ← Nacherfassung
+│           ├── wiedervorlagen.js    ← Wiedervorlagen-Handler
+│           ├── blockplan-analyzer.js ← Blockplan-PDF-Analyse
+│           ├── global-search.js     ← Ctrl+K Suche
+│           ├── keyboard-shortcuts.js ← Tastaturkürzel
+│           ├── bulk-schueler.js     ← Bulk-Operationen Schüler
+│           ├── llm-helper.js        ← KI-Integration
+│           ├── bulk-wv.js           ← Bulk-Operationen WV
+│           ├── table-sort.js        ← Tabellen-Sortierung
+│           └── undo-manager.js      ← Undo/Redo
 ├── libs/                            ← Externe Libraries (offline)
 │   ├── sql-wasm.js + .wasm          ← SQLite im Browser
 │   ├── papaparse.min.js             ← CSV-Parser
@@ -87,6 +87,9 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 | keyboard-shortcuts.js | – | Globale Tastaturkürzel |
 | blockplan-analyzer.js | `BlockplanAnalyzer` | Blockplan-PDF-Analyse |
 | llm-helper.js | `LLMHelper` | KI-Integration |
+| azubi-rechner.js | `AzubiRechner` | Phasen-Mathematik, Tarife, Vergütungsperioden |
+| azubi-dashboard.js | `AzubiDashboard` | Per-Azubi-Dashboard, Phasen-Editor |
+| schueler-akte.js | `SchuelerAkte` | Bemerkungen, Dateianhänge, Aktenvermerk |
 
 ## Wichtige Patterns
 
@@ -112,6 +115,28 @@ Reihenfolge der `<script>`-Tags in `index.html` ist wichtig!
 3. **UI-Änderung**: `styles.css` + betroffenes View-Modul bearbeiten
 4. **Neuer Report**: In `berichte.js` neue Methode, View in `views.js` registrieren
 
+### Tests
+```bash
+for t in tests/*.mjs; do node "$t"; done   # alle Suiten
+node tests/aj-test.mjs                     # einzeln
+```
+Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
+
+| Suite | Prüft |
+|---|---|
+| `aj-test.mjs` | Ausbildungsjahre, KW-Raster-Grenzen |
+| `kontrolle-test.mjs` | Schreibziel, Mängel-Historie, Fehltage, AP-Zulassung |
+| `sync-test.mjs` | Mehrbenutzer-Synchronisation (simuliert 3 Clients + Netzlaufwerk) |
+| `berichte-test.mjs` | Abdeckung, Erfolgsquote, Klassenübersicht, Diagramme |
+| `import-test.mjs` | Datumsformate, Spaltenzuordnung, Betriebsanlage |
+| `integritaet-test.mjs` | Lösch-Kaskaden, Migrations-Parität |
+| `rechner-test.mjs` | Vergütungsperioden, Mindestvergütung |
+| `search-test.mjs` | Fuzzy-Suche, Mehrwortsuche, Ranking |
+| `dq-test.mjs` | Datenqualitäts-Regeln |
+| `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
+
+**Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.
+
 ### Regeln
 - **Build nach jeder Änderung** – `./build.sh` ausführen, `dist/` mit committen
 - **Keine npm-Dependencies** – Libraries als einzelne Dateien in `libs/`
@@ -122,11 +147,25 @@ Reihenfolge der `<script>`-Tags in `index.html` ist wichtig!
 ### Schema-Änderungen (WICHTIG!)
 Die App nutzt eine In-Memory-SQLite-DB und synchronisiert per `mergeAndSave()` mit der Disk-Datei. Schema-Migrationen (ALTER TABLE ADD COLUMN, CREATE TABLE) laufen beim Start nur auf der In-Memory-DB. Die Disk-DB kann ein älteres Schema haben.
 
-**Bei jeder Schema-Änderung müssen ZWEI Stellen gepflegt werden:**
+**Bei jeder Schema-Änderung müssen DREI Stellen gepflegt werden:**
+0. **`SCHEMA`-Konstante** – für neu angelegte Datenbanken (CREATE TABLE)
 1. **`migrateDB()`** – Migration auf der In-Memory-DB (beim App-Start)
 2. **`_migrateDiskDb(diskDb)`** – Dieselbe Migration auf der Disk-DB (vor jedem mergeAndSave-Replay)
 
 Wird `_migrateDiskDb` vergessen, schlagen Dirty-Op-Replays still fehl (try/catch verschluckt den Fehler) und Änderungen gehen beim nächsten Reload verloren.
+
+## Synchronisation (Sync-v3)
+Im Normalbetrieb schreibt **kein** Client auf die geteilte Datenbankdatei:
+jeder hängt seine Änderungen an sein **eigenes** Op-Log an
+(`_bhk/oplog_<db>_<client>_g<n>.jsonl`), die anderen lesen sie im
+3-Sekunden-Takt ab ihrer Leseposition. Die `.sqlite`-Datei ist nur noch der
+Snapshot und wird selten und mit Sperre kompaktiert; `snapmeta_<db>.json`
+hält Log-Offsets und Snapshot-Generation. Details: `TECHSTACK.md`.
+
+**Beim Ändern von Schreibpfaden beachten:**
+- Schreibende IDs müssen global eindeutig sein → Tabelle in `App.ID_TABLES`
+- `INSERT` auf Tabellen mit UNIQUE-Bedingung immer mit `ON CONFLICT … DO UPDATE`
+- Löschen ausschließlich über `App.delete*Kaskade()`
 
 ## Einsatzumgebung
 - **Zielgruppe**: Ausbildungsberater im RP Freiburg (Verwaltung)

@@ -171,6 +171,13 @@ const App = {
   uGet(key, fallback) { try { return localStorage.getItem(this.uKey(key)) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
   uSet(key, val) { try { localStorage.setItem(this.uKey(key), val); } catch(e) {} },
   uRemove(key) { try { localStorage.removeItem(this.uKey(key)); } catch(e) {} },
+  // Browser-weite Einstellungen (NICHT pro Prüfer), z.B. die Freischaltung der
+  // Statistikansicht. Immer über diese Helfer zugreifen: auf gesperrten
+  // Verwaltungs-PCs wirft localStorage einen SecurityError, der eine ganze
+  // Ansicht mitreißen kann, wenn er mitten im Aufbau der Seite auftritt.
+  lsGet(key, fallback) { try { return localStorage.getItem(key) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
+  lsSet(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
+  lsRemove(key) { try { localStorage.removeItem(key); } catch(e) {} },
 
   _populateUserSelect() {
     const sel = document.getElementById('topbarUserSelect');
@@ -1069,6 +1076,7 @@ const App = {
       fehltage_gesamt INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
+      zulassung_manuell INTEGER DEFAULT 0,
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
@@ -1119,6 +1127,10 @@ const App = {
       maengel_codes TEXT DEFAULT '',
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    );
+    CREATE TABLE IF NOT EXISTS bhk_applied_ops (
+      op_uid TEXT PRIMARY KEY,
+      ts TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS bhk_tombstones (
       tabelle TEXT NOT NULL,
@@ -2120,8 +2132,18 @@ const App = {
           }
         }
       } catch(e) {}
-      // Restore any dirty ops from IndexedDB (surviving tab close/crash)
-      this._restoreDirtyOps();
+      // Crash-Restore erst NACH dem Bootstrap: vorher ist das uid-Set des
+      // eigenen Logs leer, sodass bereits geschriebene Ops ein zweites Mal
+      // angehängt und bei allen Clients doppelt angewendet würden.
+      if (this._v3Active()) {
+        const warte = async () => {
+          for (let i = 0; i < 100 && !this._v3Ready; i++) await new Promise(r => setTimeout(r, 100));
+          this._restoreDirtyOps();
+        };
+        warte();
+      } else {
+        this._restoreDirtyOps();
+      }
     })();
   },
 
@@ -2604,7 +2626,12 @@ const App = {
   // AUTOINCREMENT-ID für verschiedene Zeilen → Replays/FKs treffen falsche Zeilen.
   ID_TABLES: new Set(['kontrolltermine','kontrollergebnisse','wiedervorlagen','wiedervorlage_notizen',
     'durchsicht_snapshots','ausbildungsphasen','schueler_bemerkungen','schueler_dateien',
-    'schueler','betriebe','ausbilder','klassen','berufsschulen','aenderungslog']),
+    'schueler','betriebe','ausbilder','klassen','berufsschulen','aenderungslog',
+    // Ohne globale IDs vergeben zwei Rechner beim gleichzeitigen Anlegen
+    // dieselbe Nummer; ein späteres "WHERE id=?" trifft dann beim Kollegen die
+    // falsche Zeile (Mängel landeten beim falschen Azubi, Löschungen beim
+    // falschen Prüfer/Jahrgang).
+    'kw_maengel','pruefer','abschlussjahrgaenge']),
   // Natürliche Schlüssel: Replay-Adressierung (statt divergenter ids) + Tombstone-Keys
   NATURAL_KEYS: {
     kontrollergebnisse: ['kontrolltermin_id','schueler_id'],
@@ -2628,6 +2655,12 @@ const App = {
     return id;
   },
   _newUid() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); },
+  // Streng monoton steigende Sequenznummer pro Client. Zusammen mit dem
+  // Erfassungs-Zeitstempel legt sie die Anwendungsreihenfolge beim Empfänger
+  // eindeutig fest – ein Zufalls-Tiebreaker zerstörte sonst die Reihenfolge
+  // innerhalb einer Millisekunde (INSERT nach UPDATE → Änderung ging verloren).
+  _opSeq: 0,
+  _nextSeq() { return ++this._opSeq; },
   _frozenNow() {
     const d = new Date();
     const p2 = (n) => String(n).padStart(2, '0');
@@ -2750,15 +2783,27 @@ const App = {
       } catch(e) { /* z.B. Tabelle fehlt noch */ }
     }
     // ── Natural-Key-Rewrite (nur Replay-Op): id-divergenzfeste Adressierung ──
-    const mNk = sql.match(/^\s*(UPDATE|DELETE\s+FROM)\s+(kontrollergebnisse|kw_status)\b[\s\S]*WHERE\s+id\s*=\s*\?\s*$/i);
+    // Auch "WHERE id=? AND <rest>" erfassen – die frühere Regex verlangte das
+    // Statement-Ende und ließ mehrere reale Statements ungerewritten durch.
+    const mNk = sql.match(/^\s*(UPDATE|DELETE\s+FROM)\s+(kontrollergebnisse|kw_status|kw_maengel)\b[\s\S]*?WHERE\s+id\s*=\s*\?(\s+AND\s[\s\S]*)?$/i);
     if (mNk) {
       const table = mNk[2].toLowerCase();
       const keyCols = this.NATURAL_KEYS[table];
+      const rest = mNk[3] || '';
       try {
-        const row = this.query(`SELECT ${keyCols.join(',')} FROM ${table} WHERE id=?`, [params[params.length - 1]])[0];
+        // Die id ist der Parameter an der Position des "id=?" – bei angehängten
+        // Bedingungen folgen danach noch weitere Parameter.
+        const vorId = (sql.slice(0, sql.search(/WHERE\s+id\s*=\s*\?/i)).match(/\?/g) || []).length;
+        const idWert = params[vorId];
+        const row = keyCols && idWert != null
+          ? this.query(`SELECT ${keyCols.join(',')} FROM ${table} WHERE id=?`, [idWert])[0] : null;
         if (row) {
-          out.opSql = out.opSql.replace(/WHERE\s+id\s*=\s*\?\s*$/i, 'WHERE ' + keyCols.map(k => k + '=?').join(' AND '));
-          out.opParams = [...out.opParams.slice(0, -1), ...keyCols.map(k => row[k])];
+          out.opSql = out.opSql.replace(/WHERE\s+id\s*=\s*\?/i, 'WHERE ' + keyCols.map(k => k + '=?').join(' AND '));
+          out.opParams = [
+            ...out.opParams.slice(0, vorId),
+            ...keyCols.map(k => row[k]),
+            ...out.opParams.slice(vorId + 1),
+          ];
         }
       } catch(e) {}
     }
@@ -2790,15 +2835,20 @@ const App = {
     // During bulk import: skip dirty-tracking, full-write happens at end
     if (this._bulkImport) { this.db.run(sql, params); return; }
     const prep = this._prepareOp(sql, params);
+    const stamp = () => ({ uid: this._newUid(), ts: Date.now(), seq: this._nextSeq() });
     prep.pre.forEach(x => {
-      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
+      catch(e) { console.warn('[Sync] Vor-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
     });
     this.db.run(prep.sql, prep.params);
     prep.post.forEach(x => {
-      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
+      catch(e) { console.warn('[Sync] Nach-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
-    this._dirtyOps.push({ uid: this._newUid(), sql: prep.opSql, params: prep.opParams });
+    this._dirtyOps.push({ ...stamp(), sql: prep.opSql, params: prep.opParams });
+    // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
+    try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.markDirty();
   },
   _bulkImport: false,
@@ -2939,7 +2989,12 @@ const App = {
   },
   _dbSlug() { return (this.autoLoadedDbName || 'db').replace(/\.sqlite$|\.db$/i, '').replace(/[^A-Za-z0-9_-]/g, '_'); },
   _oplogPrefix() { return 'oplog_' + this._dbSlug() + '_'; },
-  _myOplogName() { return this._oplogPrefix() + this._getClientId() + '.jsonl'; },
+  // Generation im Dateinamen: Beim Rotieren wird eine NEUE Datei begonnen statt
+  // die bestehende zu leeren. Leser erkannten ein geleertes Log nur daran, dass
+  // es kleiner geworden war – wuchs es zwischen zwei Abfragen über die alte
+  // Größe hinaus, lasen sie ab der falschen Stelle und verloren Änderungen.
+  _logGen: 0,
+  _myOplogName() { return this._oplogPrefix() + this._getClientId() + '_g' + this._logGen + '.jsonl'; },
   _snapMetaName() { return 'snapmeta_' + this._dbSlug() + '.json'; },
 
   // ── Speichern: eigene Ops an das eigene Log anhängen ──
@@ -2955,7 +3010,11 @@ const App = {
     try {
       const dir = this._syncDirV3();
       const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler?.activePruefer) || '?';
-      const lines = claimed.map(o => JSON.stringify({ uid: o.uid, ts: Date.now(), u: pruefer, sql: o.sql, params: o.params })).join('\n') + '\n';
+      const jetzt = Date.now();
+      const cid = this._getClientId();
+      const lines = claimed.map(o => JSON.stringify({
+        uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params,
+      })).join('\n') + '\n';
       const bytes = new TextEncoder().encode(lines);
       const handle = await dir.getFileHandle(this._myOplogName(), { create: true });
       let size = 0;
@@ -3008,6 +3067,9 @@ const App = {
     const dir = this._syncDirV3();
     if (!dir || !this.db) return;
     try {
+      // ZUERST prüfen, ob ein anderer Rechner den Snapshot ersetzt hat: Wird er
+      // danach getauscht, wären die soeben gelesenen Ops wieder verworfen.
+      await this._pruefeFremdenSnapshot();
       const prefix = this._oplogPrefix();
       const mine = this._myOplogName();
       const batch = [];
@@ -3056,8 +3118,13 @@ const App = {
     for (const line of lines) {
       try { const op = JSON.parse(line); if (op && op.sql) ops.push(op); } catch(e) {}
     }
-    // Kausale/deterministische Ordnung: Zeitstempel, dann uid als Tiebreaker
-    ops.sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.uid).localeCompare(String(b.uid)));
+    // Deterministische Ordnung: Erfassungszeit, dann Client, dann dessen
+    // laufende Nummer. Ein Zufalls-Tiebreaker (uid) zerstörte die Reihenfolge
+    // innerhalb einer Millisekunde – abhängige Ops (INSERT, dann UPDATE
+    // derselben Zeile) kamen beim Empfänger verdreht an.
+    ops.sort((a, b) => (a.ts || 0) - (b.ts || 0)
+      || String(a.c || '').localeCompare(String(b.c || ''))
+      || (a.seq || 0) - (b.seq || 0));
     let applied = 0;
     for (const op of ops) {
       if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
@@ -3071,20 +3138,31 @@ const App = {
       }
       if (op.uid) this._appliedForeignUids.add(op.uid);
     }
+    if (applied) { try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {} }
     return applied;
   },
 
-  // LWW-Guard: fremdes UPDATE mit eingefrorenem geaendert_am nicht anwenden,
-  // wenn die lokale Zeile bereits einen NEUEREN Zeitstempel trägt (z.B. weil
-  // der andere Client lange offline war und alte Ops nachliefert).
+  // Veraltete Ops erkennen: Ein Client, der lange offline war, liefert Ops mit
+  // altem Erfassungszeitpunkt nach. Verworfen wird eine Op nur, wenn die lokale
+  // Zeile GENAU DIESELBEN Spalten bereits neuer gesetzt hat – früher wurde die
+  // ganze Op verworfen, wodurch unbeteiligte Spalten (z.B. "anwesend") verloren
+  // gingen, obwohl sie sich konfliktfrei mergen ließen.
   _lwwSkip(op) {
     try {
-      const m = (op.sql || '').match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s[\s\S]*geaendert_am='([^']+)'[\s\S]*WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
+      const m = (op.sql || '').match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s([\s\S]*?)\s+WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
       if (!m || !op.params || op.params.length < 2) return false;
+      const tsMatch = m[1].match(/geaendert_am='([^']+)'/);
+      if (!tsMatch) return false;
       const ktId = op.params[op.params.length - 2];
       const sId = op.params[op.params.length - 1];
-      const localTs = this.scalar('SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId]);
-      return !!(localTs && localTs > m[1]);
+      const lokal = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId])[0];
+      if (!lokal || !lokal.geaendert_am || lokal.geaendert_am <= tsMatch[1]) return false;
+      // Lokale Zeile ist neuer – nur überspringen, wenn die Op keine Spalte
+      // mitbringt, die lokal noch ihren Ausgangswert hat.
+      const spalten = (m[1].match(/([a-z_]+)\s*=/gi) || [])
+        .map(x => x.replace(/\s*=$/, '').trim().toLowerCase())
+        .filter(c => c !== 'geaendert_am' && c !== 'geaendert_von');
+      return spalten.length > 0;
     } catch(e) { return false; }
   },
 
@@ -3096,6 +3174,17 @@ const App = {
     this._ownLogUids = new Set();
     this._logOffsets = {};
     this._myLogSize = 0;
+    // Eigene Log-Generation fortsetzen (nach Reload/Neustart)
+    try {
+      const eigen = this._oplogPrefix() + this._getClientId() + '_g';
+      let maxGen = 0;
+      for await (const [name] of dir.entries()) {
+        if (!name.startsWith(eigen) || !name.endsWith('.jsonl')) continue;
+        const n = parseInt(name.slice(eigen.length), 10);
+        if (!isNaN(n) && n > maxGen) maxGen = n;
+      }
+      this._logGen = maxGen;
+    } catch(e) {}
     let meta = null;
     try {
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -3116,9 +3205,10 @@ const App = {
         if (f.size > off) {
           const text = await f.slice(off).text();
           const chunk = text.slice(0, text.lastIndexOf('\n') + 1);
+          const istEigenes = name.startsWith(this._oplogPrefix() + this._getClientId() + '_g');
           chunk.split('\n').forEach(l => {
             if (!l.trim()) return;
-            if (name === mine) {
+            if (istEigenes) {
               try { const op = JSON.parse(l); if (op.uid) this._ownLogUids.add(op.uid); batch.push(l); } catch(e) {}
             } else batch.push(l);
           });
@@ -3133,6 +3223,7 @@ const App = {
       this._ownLogUids = new Set();
       this._applyOps(batch);
       this._ownLogUids = ownUids;
+      this._snapGen = (meta && meta.gen) || 0;
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts)
@@ -3170,15 +3261,12 @@ const App = {
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       await this._saveV3();
       await this._pollOplogs();
-      // 2) Log-Offsets JETZT erfassen (alles danach bleibt in den Logs erhalten)
+      // 2) Offsets = eigener LESESTAND. Ein erneuter Verzeichnis-Scan würde
+      // Änderungen, die gerade WÄHREND der Kompaktierung angehängt wurden, als
+      // "im Snapshot enthalten" markieren, obwohl der Snapshot aus dem Speicher
+      // stammt – sie würden anschließend beim Rotieren verworfen.
       const dir = this._syncDirV3();
-      const offsets = {};
-      const prefix = this._oplogPrefix();
-      for await (const entry of dir.entries()) {
-        const name = entry[0], h = entry[1];
-        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
-        try { offsets[name] = (await h.getFile()).size; } catch(e) {}
-      }
+      const offsets = { ...this._logOffsets, [this._myOplogName()]: this._myLogSize };
       // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort)
       const data = this.db.export();
       const writeOp = async () => {
@@ -3199,7 +3287,8 @@ const App = {
       // 4) snapmeta schreiben
       const metaHandle = await dir.getFileHandle(this._snapMetaName(), { create: true });
       const mw = await metaHandle.createWritable();
-      await mw.write(JSON.stringify({ offsets, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
+      this._snapGen = (this._snapGen || 0) + 1;
+      await mw.write(JSON.stringify({ offsets, gen: this._snapGen, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
       await mw.close();
       try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
       await this._writeSyncMarker();
@@ -3215,24 +3304,145 @@ const App = {
   },
 
   // Eigenes Log leeren, wenn der Snapshot es vollständig abdeckt
+  // Hat ein anderer Rechner den Snapshot ersetzt (Kompaktierung oder
+  // IBYKUS-Import)? Dann muss dieser Client ihn neu laden – sonst überschreibt
+  // seine nächste eigene Kompaktierung den fremden Stand mit seinem älteren
+  // Speicherabbild (der komplette Import wäre weg).
+  async _pruefeFremdenSnapshot() {
+    if (this._compactInProgress || this._appendInProgress || this._dirtyOps.length) return;
+    try {
+      const dir = this._syncDirV3();
+      const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
+      const meta = JSON.parse(await (await h.getFile()).text());
+      const gen = meta?.gen || 0;
+      if (!gen || gen <= (this._snapGen || 0)) return;
+      if (meta.by === this._getClientId()) { this._snapGen = gen; return; }
+      console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
+      const file = await this.dbFileHandle.getFile();
+      const buf = await file.arrayBuffer();
+      const SQL = await App._getSqlJs();
+      const neu = new SQL.Database(new Uint8Array(buf));
+      // Sanity: niemals gegen eine leer gelesene Datei tauschen
+      const tabellen = neu.exec("SELECT COUNT(*) FROM sqlite_master WHERE type='table'");
+      if (!tabellen.length || tabellen[0].values[0][0] < 3) { neu.close(); return; }
+      const alt = this.db;
+      this.db = neu;
+      try { alt.close(); } catch(e) {}
+      this.migrateDB();
+      this._snapGen = gen;
+      this._logOffsets = { ...(meta.offsets || {}) };
+      this._appliedForeignUids = new Set();
+      this._ownLogUids = new Set();
+      this._myLogSize = (meta.offsets || {})[this._myOplogName()] || 0;
+      this._smartRefresh();
+    } catch(e) { console.warn('[SyncV3] Snapshot-Prüfung:', e.message); }
+  },
+
   async _rotateOwnLogIfCovered() {
     try {
       if (this._dirtyOps.length || this._appendInProgress || !this._myLogSize) return;
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
       const meta = JSON.parse(await (await h.getFile()).text());
-      const covered = meta?.offsets?.[this._myOplogName()];
+      const aktuell = this._myOplogName();
+      const covered = meta?.offsets?.[aktuell];
       if (covered == null) return;
-      const fh = await dir.getFileHandle(this._myOplogName(), { create: false });
+      const fh = await dir.getFileHandle(aktuell, { create: false });
       const size = (await fh.getFile()).size;
       if (size > 0 && covered >= size) {
-        const w = await fh.createWritable(); // ohne keepExistingData → truncate
-        await w.close();
+        // Neue Generation beginnen; die alte Datei bleibt zunächst liegen,
+        // damit Leser sie zu Ende lesen können.
+        this._logGen++;
         this._myLogSize = 0;
         if (this._ownLogUids) this._ownLogUids.clear();
-        console.log('[SyncV3] Eigenes Log rotiert (vom Snapshot abgedeckt)');
+        await this._pruneAlteGenerationen(dir);
+        console.log('[SyncV3] Eigenes Log rotiert → Generation ' + this._logGen);
       }
     } catch(e) { /* meta/log fehlt – ok */ }
+  },
+  // Nur die letzten beiden eigenen Generationen aufheben
+  async _pruneAlteGenerationen(dir) {
+    try {
+      const eigen = this._oplogPrefix() + this._getClientId() + '_g';
+      const gens = [];
+      for await (const [name] of dir.entries()) {
+        if (!name.startsWith(eigen) || !name.endsWith('.jsonl')) continue;
+        const n = parseInt(name.slice(eigen.length), 10);
+        if (!isNaN(n)) gens.push(n);
+      }
+      gens.sort((a, b) => b - a);
+      for (const n of gens.slice(2)) {
+        try { await dir.removeEntry(eigen + n + '.jsonl'); } catch(e) {}
+      }
+    } catch(e) {}
+  },
+
+  // ═══════════════════════════════════════════
+  //  LÖSCHEN MIT KASKADE
+  //  PRAGMA foreign_keys ist in sql.js standardmäßig AUS, die ON DELETE
+  //  CASCADE im Schema greifen also nie. Ohne diese Helfer blieben nach jedem
+  //  Löschen verwaiste Zeilen liegen: unsichtbar, aber weiterhin in Ampel,
+  //  Statistik und Mängelcode-Auswertung mitgezählt.
+  // ═══════════════════════════════════════════
+  deleteSchuelerKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE schueler_id=?',
+     'DELETE FROM wiedervorlagen WHERE schueler_id=?',
+     'DELETE FROM kontrollergebnisse WHERE schueler_id=?',
+     'DELETE FROM kw_status WHERE schueler_id=?',
+     'DELETE FROM ausbildungsphasen WHERE schueler_id=?',
+     'DELETE FROM schueler_bemerkungen WHERE schueler_id=?',
+     'DELETE FROM schueler_dateien WHERE schueler_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE schueler_id=?',
+     'DELETE FROM aktive_sitzung WHERE schueler_id=?',
+     'DELETE FROM schueler WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
+  },
+  deleteTerminKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?',
+     'DELETE FROM aktive_sitzung WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermine WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteKlasseKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?',
+     'UPDATE kontrolltermine SET klasse_id=NULL WHERE klasse_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE klasse_id=?',
+     'DELETE FROM klassen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteSchuleKaskade(id) {
+    if (!id) return;
+    try {
+      this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
+    } catch(e) {}
+    ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'DELETE FROM berufsschulen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteBetriebKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'DELETE FROM ausbilder WHERE betrieb_id=?',
+     'DELETE FROM betriebe WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteJahrgangKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE klassen SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE kontrolltermine SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'DELETE FROM abschlussjahrgaenge WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
   },
 
   scalar(sql, params = []) {
@@ -3530,6 +3740,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -3671,6 +3882,13 @@ const App = {
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
     )`);
     // Tombstones (Replay-Ziel für Lösch-Propagation)
     run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
@@ -4377,7 +4595,10 @@ const App = {
   // Zählt Schuljahre (Sep–Aug) die zwischen AV-Beginn und AV-Ende liegen.
   // Ein Verkürzer der im März startet spannt 3 Schuljahre → braucht 3 KW-Grids.
   getSchuelerAJs(schuelerId) {
-    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+    // regulaer_dauer_monate/verkuerzung_monate MÜSSEN mitselektiert werden –
+    // sie werden unten für das Phasen-Ende gebraucht (fehlten früher → immer
+    // 36 Monate/0 Verkürzung, Verkürzer bekamen ein Raster zu viel).
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende, regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s?.ausbildungsbeginn) return [1, 2, 3];
     const d1 = this._parseDate(s.ausbildungsbeginn);
     if (!d1) return [1, 2, 3];
@@ -4396,10 +4617,15 @@ const App = {
     }
     if (!d2) return [1, 2, 3];
 
-    const startSY = d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1;
-    const d2adj = new Date(d2); d2adj.setDate(d2adj.getDate() - 1);
-    const endSY = d2adj.getMonth() >= 8 ? d2adj.getFullYear() : d2adj.getFullYear() - 1;
-    const numSY = endSY - startSY + 1;
+    // Anzahl der Ausbildungsjahre aus der VERTRAGSDAUER, nicht aus überspannten
+    // Kalender-Schuljahren: Eine feste Schuljahresgrenze kann 1.8.- und
+    // 1.9.-Verträge nicht gleichzeitig richtig zählen (Sep-Grenze → jeder
+    // August-Beginner bekam ein Raster zu viel, Aug-Grenze → jeder
+    // September-Beginner). Die Dauer ist von der Grenze unabhängig.
+    const endeExkl = new Date(d2); endeExkl.setDate(endeExkl.getDate() + 1);
+    let monate = (endeExkl.getFullYear() - d1.getFullYear()) * 12 + (endeExkl.getMonth() - d1.getMonth());
+    if (endeExkl.getDate() < d1.getDate()) monate -= 1;
+    const numSY = Math.max(1, Math.min(4, Math.ceil(monate / 12)));
 
     if (numSY <= 1) return [3];
     if (numSY === 2) return [2, 3];
@@ -4426,7 +4652,9 @@ const App = {
             if (eff < von) return sum;
             return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
           }, 0);
-        return Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+        // Obergrenze = tatsächliche Anzahl Ausbildungsjahre (Verlängerer haben 4)
+        const maxAjP = Math.max(...(this.getSchuelerAJs(schuelerId) || [3]));
+        return Math.min(maxAjP, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
       }
     }
     const d = this._parseDate(beginn);
@@ -4434,7 +4662,8 @@ const App = {
     const now = new Date();
     const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
     if (months < 0) return 1;
-    return Math.min(Math.floor(months / 12) + 1, 3);
+    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
+    return Math.min(Math.floor(months / 12) + 1, maxAj);
   },
 
   // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
@@ -4643,8 +4872,10 @@ const App = {
 
       if (isFirst && startKW !== 36) {
         const startIdx = allKWOrder.indexOf(startKW);
-        // KWs 33-35 (indices 49-51) = school year boundary → all active
-        if (startIdx > 0 && startIdx < 49) {
+        // KWs 31-35 (Indizes 47-51) = August, also Schuljahresgrenze → ganzes
+        // Raster aktiv. Ein Vertrag ab 1.8. hat sein erstes volles Rasterjahr
+        // ab September; die Augustwochen davor liegen vor dem ersten Raster.
+        if (startIdx > 0 && startIdx < 47) {
           for (let i = 0; i < startIdx; i++) inactive.push(allKWOrder[i]);
         }
       }
@@ -4956,6 +5187,17 @@ const App = {
   migrateDB() {
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
+      // wiedervorlage_notizen fehlte als einzige Zusatztabelle in beiden
+      // Migrationen: auf gewachsenen Datenbanken schlugen alle Abfragen darauf fehl.
+      this.db.run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
+    )`);
+      // Idempotenz-Ledger auch in der Arbeitskopie vorhalten
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
       // Tombstones (Lösch-Propagation) – auch auf Bestands-DBs anlegen + alte Einträge räumen
       this.db.run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
         tabelle TEXT NOT NULL, key TEXT NOT NULL,
@@ -4978,6 +5220,11 @@ const App = {
       }
       if (!keCols.includes('geaendert_von')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
+      }
+      // Manuelle Abwahl der AP-Zulassung dauerhaft merken (war nur im Speicher →
+      // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
+      if (!keCols.includes('zulassung_manuell')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
@@ -5492,6 +5739,10 @@ const App = {
   },
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // KW-Modal-Kontext aufräumen: bleibt er stehen, schreibt ein späterer
+    // Tastendruck (O/Enter) in einem FREMDEN Dialog auf die zuletzt
+    // betrachtete Kalenderwoche.
+    try { if (typeof KontrolleHandler !== 'undefined') KontrolleHandler._kwModalContext = null; } catch(e) {}
     // Modal-History-Eintrag wieder entfernen (außer die Zurück-Taste hat ihn
     // bereits konsumiert) – sonst müsste man nach dem X-Klick 2× zurück drücken
     if (this._modalHistoryPushed && !fromPopstate) {

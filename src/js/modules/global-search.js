@@ -15,6 +15,7 @@ const GlobalSearch = {
     inp.focus();
     this._selectedIdx = -1;
     this._results = [];
+    this._hayCache = null; // Datenstand kann sich seit der letzten Suche geändert haben
     document.getElementById('globalSearchResults').innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Name, Betrieb, Schule, Klasse, Ort, Tel, E-Mail, Bemerkungen… – mehrere Begriffe kombinierbar, Tippfehler werden toleriert</div>';
   },
 
@@ -112,6 +113,17 @@ const GlobalSearch = {
     return 0;
   },
   // Heuhaufen aus Feldwerten bauen (einmal pro Zeile)
+  // Zwischenspeicher: wird bei jeder Datenänderung und beim Öffnen verworfen.
+  _hayCache: null,
+  _hayCacheKey: null,
+  _cachedHay(key, values) {
+    if (!this._hayCache) this._hayCache = new Map();
+    const treffer = this._hayCache.get(key);
+    if (treffer) return treffer;
+    const neu = this._hay(values);
+    this._hayCache.set(key, neu);
+    return neu;
+  },
   _hay(values) {
     const joined = values.filter(v => v !== null && v !== undefined && v !== '').join(' ');
     // Beide Normalisierungsvarianten in den Heuhaufen (mueller UND muller)
@@ -156,12 +168,12 @@ const GlobalSearch = {
       LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id`);
     const schueler = [];
     for (const s of schuelerAll) {
-      const hay = this._hay([s.nachname, s.vorname, s.ibykus_id, s.email, s.telefon, s.ausbildungsstaette,
+      const hay = this._cachedHay('s' + s.id, [s.nachname, s.vorname, s.ibykus_id, s.email, s.telefon, s.ausbildungsstaette,
         s.zustaendiges_amt, s.bav_status, s.status, s.geschlecht, s.schulabschluss, s.beruf_id,
         s.ausbildungsbeginn, s.ausbildungsende, s.geburtsdatum, s.inaktiv_grund,
         s.b_name, s.b_ort, s.b_email, s.b_tel, s.b_nr, s.b_str, s.b_plz, s.b_ansp, s.b_zusatz,
         s.schule, s.schule_ort, s.klassenbezeichnung, s.jahrgang, s.fr_name, s.fr_code, s.bem_text]);
-      const primary = this._hay([s.nachname, s.vorname, s.b_name, s.ibykus_id]);
+      const primary = this._cachedHay('sp' + s.id, [s.nachname, s.vorname, s.b_name, s.ibykus_id]);
       let score = this._score(tokens, hay, primary);
       if (score) {
         if (!s.aktiv) score -= 25; // inaktive weiter hinten einsortieren
@@ -219,9 +231,9 @@ const GlobalSearch = {
     const betriebeAll = App.query(`SELECT *, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=betriebe.id AND aktiv=1) as cnt FROM betriebe`);
     const betriebe = [];
     for (const b of betriebeAll) {
-      const hay = this._hay([b.name, b.vorname, b.firma, b.ansprechpartner, b.strasse, b.plz, b.ort,
+      const hay = this._cachedHay('b' + b.id, [b.name, b.vorname, b.firma, b.ansprechpartner, b.strasse, b.plz, b.ort,
         b.telefon, b.fax, b.email, b.betriebsnummer, b.zusatzbezeichnung]);
-      const score = this._score(tokens, hay, this._hay([b.name, b.betriebsnummer]));
+      const score = this._score(tokens, hay, this._cachedHay('bp' + b.id, [b.name, b.betriebsnummer]));
       if (score) betriebe.push({ b, score });
     }
     betriebe.sort((x, y) => y.score - x.score || String(x.b.name).localeCompare(String(y.b.name)));
@@ -250,8 +262,8 @@ const GlobalSearch = {
     const ausbilderAll = App.query(`SELECT a.*, b.name as betrieb_name, b.ort as betrieb_ort, b.id as betrieb_id FROM ausbilder a LEFT JOIN betriebe b ON a.betrieb_id=b.id`);
     const ausbilder = [];
     for (const a of ausbilderAll) {
-      const hay = this._hay([a.nachname, a.vorname, a.telefon, a.email, a.mobil, a.funktion, a.betrieb_name, a.betrieb_ort]);
-      const score = this._score(tokens, hay, this._hay([a.nachname, a.vorname]));
+      const hay = this._cachedHay('a' + a.id, [a.nachname, a.vorname, a.telefon, a.email, a.mobil, a.funktion, a.betrieb_name, a.betrieb_ort]);
+      const score = this._score(tokens, hay, this._cachedHay('ap' + a.id, [a.nachname, a.vorname]));
       if (score) ausbilder.push({ a, score });
     }
     ausbilder.sort((x, y) => y.score - x.score || String(x.a.nachname).localeCompare(String(y.a.nachname)));
@@ -282,8 +294,8 @@ const GlobalSearch = {
     for (const sc of schulenAll) {
       let anspText = '';
       try { anspText = (JSON.parse(sc.ansprechpartner_json || '[]') || []).map(x => Object.values(x || {}).join(' ')).join(' '); } catch (e) {}
-      const hay = this._hay([sc.name, sc.ort, sc.strasse, sc.plz, sc.telefon, sc.email, sc.email_cc, anspText]);
-      const score = this._score(tokens, hay, this._hay([sc.name]));
+      const hay = this._cachedHay('sc' + sc.id, [sc.name, sc.ort, sc.strasse, sc.plz, sc.telefon, sc.email, sc.email_cc, anspText]);
+      const score = this._score(tokens, hay, this._cachedHay('scp' + sc.id, [sc.name]));
       if (score) schulen.push({ sc, score });
     }
     schulen.sort((x, y) => y.score - x.score || String(x.sc.name).localeCompare(String(y.sc.name)));
@@ -305,8 +317,8 @@ const GlobalSearch = {
     const klassenAll = App.query(`SELECT k.*, bs.name as schule, bs.ort as schule_ort, j.bezeichnung as jahrgang, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as cnt FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id`);
     const klassen = [];
     for (const k of klassenAll) {
-      const hay = this._hay([k.klassenbezeichnung, k.lehrjahr, k.schule, k.schule_ort, k.jahrgang]);
-      const score = this._score(tokens, hay, this._hay([k.klassenbezeichnung]));
+      const hay = this._cachedHay('k' + k.id, [k.klassenbezeichnung, k.lehrjahr, k.schule, k.schule_ort, k.jahrgang]);
+      const score = this._score(tokens, hay, this._cachedHay('kp' + k.id, [k.klassenbezeichnung]));
       if (score) klassen.push({ k, score });
     }
     klassen.sort((x, y) => y.score - x.score || String(x.k.klassenbezeichnung).localeCompare(String(y.k.klassenbezeichnung)));

@@ -196,11 +196,19 @@ const AzubiDashboard = {
     if (kz.probleme.some(p => p.typ === 'luecke')) risiken.push('Lücken im Ausbildungsverlauf');
     if (kz.probleme.some(p => p.typ === 'ueberlappung')) risiken.push('Phasen-Überlappungen vorhanden');
     if (kz.aktPhase && kz.aktPhase.typ === 'unterbrechung') risiken.push('Ausbildung aktuell unterbrochen');
-    if (kz.aktVerg > 0) {
+    // §17 BBiG gilt NICHT für Fachwerker/Fachpraktiker (§66 BBiG) – die
+    // erhalten Ausbildungsgeld der Arbeitsagentur. Und maßgeblich ist der
+    // Mindestsatz zum AUSBILDUNGSBEGINN, nicht der aktuell jüngste; sonst
+    // wurde jeder Altvertrag gegen den neuesten Wert geprüft.
+    if (kz.aktVerg > 0 && !kz.isFachwerker) {
+      const beginn = (kz.schueler && kz.schueler.ausbildungsbeginn) || '';
       const miav = AzubiRechner.MINDESTVERGUETUNG;
-      const letztes = miav[miav.length - 1];
+      let stufe = miav[0];
+      for (let i = miav.length - 1; i >= 0; i--) {
+        if (beginn && beginn >= miav[i].ab) { stufe = miav[i]; break; }
+      }
       const ljIdx = Math.max(0, Math.min(2, kz.aktLehrjahr - 1));
-      if (kz.aktVerg < letztes.lj[ljIdx]) risiken.push('Vergütung unter Mindestvergütung (§17 BBiG)');
+      if (kz.aktVerg < stufe.lj[ljIdx]) risiken.push(`Vergütung unter Mindestvergütung (§17 BBiG, Stand ${stufe.ab.substring(0, 4)})`);
     }
     return risiken;
   },

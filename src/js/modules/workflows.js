@@ -263,7 +263,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${emails.join('; ')}');App.toast('${emails.length} E-Mail-Adressen kopiert','success')">▤ Adressen kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
         <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     
     // Store for the mail opener

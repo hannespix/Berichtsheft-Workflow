@@ -7416,6 +7416,13 @@ const App = {
   uGet(key, fallback) { try { return localStorage.getItem(this.uKey(key)) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
   uSet(key, val) { try { localStorage.setItem(this.uKey(key), val); } catch(e) {} },
   uRemove(key) { try { localStorage.removeItem(this.uKey(key)); } catch(e) {} },
+  // Browser-weite Einstellungen (NICHT pro Prüfer), z.B. die Freischaltung der
+  // Statistikansicht. Immer über diese Helfer zugreifen: auf gesperrten
+  // Verwaltungs-PCs wirft localStorage einen SecurityError, der eine ganze
+  // Ansicht mitreißen kann, wenn er mitten im Aufbau der Seite auftritt.
+  lsGet(key, fallback) { try { return localStorage.getItem(key) ?? fallback ?? null; } catch(e) { return fallback ?? null; } },
+  lsSet(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
+  lsRemove(key) { try { localStorage.removeItem(key); } catch(e) {} },
 
   _populateUserSelect() {
     const sel = document.getElementById('topbarUserSelect');
@@ -8314,6 +8321,7 @@ const App = {
       fehltage_gesamt INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
+      zulassung_manuell INTEGER DEFAULT 0,
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
@@ -8364,6 +8372,10 @@ const App = {
       maengel_codes TEXT DEFAULT '',
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    );
+    CREATE TABLE IF NOT EXISTS bhk_applied_ops (
+      op_uid TEXT PRIMARY KEY,
+      ts TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS bhk_tombstones (
       tabelle TEXT NOT NULL,
@@ -9365,8 +9377,18 @@ const App = {
           }
         }
       } catch(e) {}
-      // Restore any dirty ops from IndexedDB (surviving tab close/crash)
-      this._restoreDirtyOps();
+      // Crash-Restore erst NACH dem Bootstrap: vorher ist das uid-Set des
+      // eigenen Logs leer, sodass bereits geschriebene Ops ein zweites Mal
+      // angehängt und bei allen Clients doppelt angewendet würden.
+      if (this._v3Active()) {
+        const warte = async () => {
+          for (let i = 0; i < 100 && !this._v3Ready; i++) await new Promise(r => setTimeout(r, 100));
+          this._restoreDirtyOps();
+        };
+        warte();
+      } else {
+        this._restoreDirtyOps();
+      }
     })();
   },
 
@@ -9849,7 +9871,12 @@ const App = {
   // AUTOINCREMENT-ID für verschiedene Zeilen → Replays/FKs treffen falsche Zeilen.
   ID_TABLES: new Set(['kontrolltermine','kontrollergebnisse','wiedervorlagen','wiedervorlage_notizen',
     'durchsicht_snapshots','ausbildungsphasen','schueler_bemerkungen','schueler_dateien',
-    'schueler','betriebe','ausbilder','klassen','berufsschulen','aenderungslog']),
+    'schueler','betriebe','ausbilder','klassen','berufsschulen','aenderungslog',
+    // Ohne globale IDs vergeben zwei Rechner beim gleichzeitigen Anlegen
+    // dieselbe Nummer; ein späteres "WHERE id=?" trifft dann beim Kollegen die
+    // falsche Zeile (Mängel landeten beim falschen Azubi, Löschungen beim
+    // falschen Prüfer/Jahrgang).
+    'kw_maengel','pruefer','abschlussjahrgaenge']),
   // Natürliche Schlüssel: Replay-Adressierung (statt divergenter ids) + Tombstone-Keys
   NATURAL_KEYS: {
     kontrollergebnisse: ['kontrolltermin_id','schueler_id'],
@@ -9873,6 +9900,12 @@ const App = {
     return id;
   },
   _newUid() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); },
+  // Streng monoton steigende Sequenznummer pro Client. Zusammen mit dem
+  // Erfassungs-Zeitstempel legt sie die Anwendungsreihenfolge beim Empfänger
+  // eindeutig fest – ein Zufalls-Tiebreaker zerstörte sonst die Reihenfolge
+  // innerhalb einer Millisekunde (INSERT nach UPDATE → Änderung ging verloren).
+  _opSeq: 0,
+  _nextSeq() { return ++this._opSeq; },
   _frozenNow() {
     const d = new Date();
     const p2 = (n) => String(n).padStart(2, '0');
@@ -9995,15 +10028,27 @@ const App = {
       } catch(e) { /* z.B. Tabelle fehlt noch */ }
     }
     // ── Natural-Key-Rewrite (nur Replay-Op): id-divergenzfeste Adressierung ──
-    const mNk = sql.match(/^\s*(UPDATE|DELETE\s+FROM)\s+(kontrollergebnisse|kw_status)\b[\s\S]*WHERE\s+id\s*=\s*\?\s*$/i);
+    // Auch "WHERE id=? AND <rest>" erfassen – die frühere Regex verlangte das
+    // Statement-Ende und ließ mehrere reale Statements ungerewritten durch.
+    const mNk = sql.match(/^\s*(UPDATE|DELETE\s+FROM)\s+(kontrollergebnisse|kw_status|kw_maengel)\b[\s\S]*?WHERE\s+id\s*=\s*\?(\s+AND\s[\s\S]*)?$/i);
     if (mNk) {
       const table = mNk[2].toLowerCase();
       const keyCols = this.NATURAL_KEYS[table];
+      const rest = mNk[3] || '';
       try {
-        const row = this.query(`SELECT ${keyCols.join(',')} FROM ${table} WHERE id=?`, [params[params.length - 1]])[0];
+        // Die id ist der Parameter an der Position des "id=?" – bei angehängten
+        // Bedingungen folgen danach noch weitere Parameter.
+        const vorId = (sql.slice(0, sql.search(/WHERE\s+id\s*=\s*\?/i)).match(/\?/g) || []).length;
+        const idWert = params[vorId];
+        const row = keyCols && idWert != null
+          ? this.query(`SELECT ${keyCols.join(',')} FROM ${table} WHERE id=?`, [idWert])[0] : null;
         if (row) {
-          out.opSql = out.opSql.replace(/WHERE\s+id\s*=\s*\?\s*$/i, 'WHERE ' + keyCols.map(k => k + '=?').join(' AND '));
-          out.opParams = [...out.opParams.slice(0, -1), ...keyCols.map(k => row[k])];
+          out.opSql = out.opSql.replace(/WHERE\s+id\s*=\s*\?/i, 'WHERE ' + keyCols.map(k => k + '=?').join(' AND '));
+          out.opParams = [
+            ...out.opParams.slice(0, vorId),
+            ...keyCols.map(k => row[k]),
+            ...out.opParams.slice(vorId + 1),
+          ];
         }
       } catch(e) {}
     }
@@ -10035,15 +10080,20 @@ const App = {
     // During bulk import: skip dirty-tracking, full-write happens at end
     if (this._bulkImport) { this.db.run(sql, params); return; }
     const prep = this._prepareOp(sql, params);
+    const stamp = () => ({ uid: this._newUid(), ts: Date.now(), seq: this._nextSeq() });
     prep.pre.forEach(x => {
-      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
+      catch(e) { console.warn('[Sync] Vor-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
     });
     this.db.run(prep.sql, prep.params);
     prep.post.forEach(x => {
-      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ uid: this._newUid(), sql: x.sql, params: x.params }); } catch(e) {}
+      try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
+      catch(e) { console.warn('[Sync] Nach-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
-    this._dirtyOps.push({ uid: this._newUid(), sql: prep.opSql, params: prep.opParams });
+    this._dirtyOps.push({ ...stamp(), sql: prep.opSql, params: prep.opParams });
+    // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
+    try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.markDirty();
   },
   _bulkImport: false,
@@ -10184,7 +10234,12 @@ const App = {
   },
   _dbSlug() { return (this.autoLoadedDbName || 'db').replace(/\.sqlite$|\.db$/i, '').replace(/[^A-Za-z0-9_-]/g, '_'); },
   _oplogPrefix() { return 'oplog_' + this._dbSlug() + '_'; },
-  _myOplogName() { return this._oplogPrefix() + this._getClientId() + '.jsonl'; },
+  // Generation im Dateinamen: Beim Rotieren wird eine NEUE Datei begonnen statt
+  // die bestehende zu leeren. Leser erkannten ein geleertes Log nur daran, dass
+  // es kleiner geworden war – wuchs es zwischen zwei Abfragen über die alte
+  // Größe hinaus, lasen sie ab der falschen Stelle und verloren Änderungen.
+  _logGen: 0,
+  _myOplogName() { return this._oplogPrefix() + this._getClientId() + '_g' + this._logGen + '.jsonl'; },
   _snapMetaName() { return 'snapmeta_' + this._dbSlug() + '.json'; },
 
   // ── Speichern: eigene Ops an das eigene Log anhängen ──
@@ -10200,7 +10255,11 @@ const App = {
     try {
       const dir = this._syncDirV3();
       const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler?.activePruefer) || '?';
-      const lines = claimed.map(o => JSON.stringify({ uid: o.uid, ts: Date.now(), u: pruefer, sql: o.sql, params: o.params })).join('\n') + '\n';
+      const jetzt = Date.now();
+      const cid = this._getClientId();
+      const lines = claimed.map(o => JSON.stringify({
+        uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params,
+      })).join('\n') + '\n';
       const bytes = new TextEncoder().encode(lines);
       const handle = await dir.getFileHandle(this._myOplogName(), { create: true });
       let size = 0;
@@ -10253,6 +10312,9 @@ const App = {
     const dir = this._syncDirV3();
     if (!dir || !this.db) return;
     try {
+      // ZUERST prüfen, ob ein anderer Rechner den Snapshot ersetzt hat: Wird er
+      // danach getauscht, wären die soeben gelesenen Ops wieder verworfen.
+      await this._pruefeFremdenSnapshot();
       const prefix = this._oplogPrefix();
       const mine = this._myOplogName();
       const batch = [];
@@ -10301,8 +10363,13 @@ const App = {
     for (const line of lines) {
       try { const op = JSON.parse(line); if (op && op.sql) ops.push(op); } catch(e) {}
     }
-    // Kausale/deterministische Ordnung: Zeitstempel, dann uid als Tiebreaker
-    ops.sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.uid).localeCompare(String(b.uid)));
+    // Deterministische Ordnung: Erfassungszeit, dann Client, dann dessen
+    // laufende Nummer. Ein Zufalls-Tiebreaker (uid) zerstörte die Reihenfolge
+    // innerhalb einer Millisekunde – abhängige Ops (INSERT, dann UPDATE
+    // derselben Zeile) kamen beim Empfänger verdreht an.
+    ops.sort((a, b) => (a.ts || 0) - (b.ts || 0)
+      || String(a.c || '').localeCompare(String(b.c || ''))
+      || (a.seq || 0) - (b.seq || 0));
     let applied = 0;
     for (const op of ops) {
       if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
@@ -10316,20 +10383,31 @@ const App = {
       }
       if (op.uid) this._appliedForeignUids.add(op.uid);
     }
+    if (applied) { try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {} }
     return applied;
   },
 
-  // LWW-Guard: fremdes UPDATE mit eingefrorenem geaendert_am nicht anwenden,
-  // wenn die lokale Zeile bereits einen NEUEREN Zeitstempel trägt (z.B. weil
-  // der andere Client lange offline war und alte Ops nachliefert).
+  // Veraltete Ops erkennen: Ein Client, der lange offline war, liefert Ops mit
+  // altem Erfassungszeitpunkt nach. Verworfen wird eine Op nur, wenn die lokale
+  // Zeile GENAU DIESELBEN Spalten bereits neuer gesetzt hat – früher wurde die
+  // ganze Op verworfen, wodurch unbeteiligte Spalten (z.B. "anwesend") verloren
+  // gingen, obwohl sie sich konfliktfrei mergen ließen.
   _lwwSkip(op) {
     try {
-      const m = (op.sql || '').match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s[\s\S]*geaendert_am='([^']+)'[\s\S]*WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
+      const m = (op.sql || '').match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s([\s\S]*?)\s+WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
       if (!m || !op.params || op.params.length < 2) return false;
+      const tsMatch = m[1].match(/geaendert_am='([^']+)'/);
+      if (!tsMatch) return false;
       const ktId = op.params[op.params.length - 2];
       const sId = op.params[op.params.length - 1];
-      const localTs = this.scalar('SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId]);
-      return !!(localTs && localTs > m[1]);
+      const lokal = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId])[0];
+      if (!lokal || !lokal.geaendert_am || lokal.geaendert_am <= tsMatch[1]) return false;
+      // Lokale Zeile ist neuer – nur überspringen, wenn die Op keine Spalte
+      // mitbringt, die lokal noch ihren Ausgangswert hat.
+      const spalten = (m[1].match(/([a-z_]+)\s*=/gi) || [])
+        .map(x => x.replace(/\s*=$/, '').trim().toLowerCase())
+        .filter(c => c !== 'geaendert_am' && c !== 'geaendert_von');
+      return spalten.length > 0;
     } catch(e) { return false; }
   },
 
@@ -10341,6 +10419,17 @@ const App = {
     this._ownLogUids = new Set();
     this._logOffsets = {};
     this._myLogSize = 0;
+    // Eigene Log-Generation fortsetzen (nach Reload/Neustart)
+    try {
+      const eigen = this._oplogPrefix() + this._getClientId() + '_g';
+      let maxGen = 0;
+      for await (const [name] of dir.entries()) {
+        if (!name.startsWith(eigen) || !name.endsWith('.jsonl')) continue;
+        const n = parseInt(name.slice(eigen.length), 10);
+        if (!isNaN(n) && n > maxGen) maxGen = n;
+      }
+      this._logGen = maxGen;
+    } catch(e) {}
     let meta = null;
     try {
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -10361,9 +10450,10 @@ const App = {
         if (f.size > off) {
           const text = await f.slice(off).text();
           const chunk = text.slice(0, text.lastIndexOf('\n') + 1);
+          const istEigenes = name.startsWith(this._oplogPrefix() + this._getClientId() + '_g');
           chunk.split('\n').forEach(l => {
             if (!l.trim()) return;
-            if (name === mine) {
+            if (istEigenes) {
               try { const op = JSON.parse(l); if (op.uid) this._ownLogUids.add(op.uid); batch.push(l); } catch(e) {}
             } else batch.push(l);
           });
@@ -10378,6 +10468,7 @@ const App = {
       this._ownLogUids = new Set();
       this._applyOps(batch);
       this._ownLogUids = ownUids;
+      this._snapGen = (meta && meta.gen) || 0;
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts)
@@ -10415,15 +10506,12 @@ const App = {
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       await this._saveV3();
       await this._pollOplogs();
-      // 2) Log-Offsets JETZT erfassen (alles danach bleibt in den Logs erhalten)
+      // 2) Offsets = eigener LESESTAND. Ein erneuter Verzeichnis-Scan würde
+      // Änderungen, die gerade WÄHREND der Kompaktierung angehängt wurden, als
+      // "im Snapshot enthalten" markieren, obwohl der Snapshot aus dem Speicher
+      // stammt – sie würden anschließend beim Rotieren verworfen.
       const dir = this._syncDirV3();
-      const offsets = {};
-      const prefix = this._oplogPrefix();
-      for await (const entry of dir.entries()) {
-        const name = entry[0], h = entry[1];
-        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
-        try { offsets[name] = (await h.getFile()).size; } catch(e) {}
-      }
+      const offsets = { ...this._logOffsets, [this._myOplogName()]: this._myLogSize };
       // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort)
       const data = this.db.export();
       const writeOp = async () => {
@@ -10444,7 +10532,8 @@ const App = {
       // 4) snapmeta schreiben
       const metaHandle = await dir.getFileHandle(this._snapMetaName(), { create: true });
       const mw = await metaHandle.createWritable();
-      await mw.write(JSON.stringify({ offsets, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
+      this._snapGen = (this._snapGen || 0) + 1;
+      await mw.write(JSON.stringify({ offsets, gen: this._snapGen, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
       await mw.close();
       try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
       await this._writeSyncMarker();
@@ -10460,24 +10549,145 @@ const App = {
   },
 
   // Eigenes Log leeren, wenn der Snapshot es vollständig abdeckt
+  // Hat ein anderer Rechner den Snapshot ersetzt (Kompaktierung oder
+  // IBYKUS-Import)? Dann muss dieser Client ihn neu laden – sonst überschreibt
+  // seine nächste eigene Kompaktierung den fremden Stand mit seinem älteren
+  // Speicherabbild (der komplette Import wäre weg).
+  async _pruefeFremdenSnapshot() {
+    if (this._compactInProgress || this._appendInProgress || this._dirtyOps.length) return;
+    try {
+      const dir = this._syncDirV3();
+      const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
+      const meta = JSON.parse(await (await h.getFile()).text());
+      const gen = meta?.gen || 0;
+      if (!gen || gen <= (this._snapGen || 0)) return;
+      if (meta.by === this._getClientId()) { this._snapGen = gen; return; }
+      console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
+      const file = await this.dbFileHandle.getFile();
+      const buf = await file.arrayBuffer();
+      const SQL = await App._getSqlJs();
+      const neu = new SQL.Database(new Uint8Array(buf));
+      // Sanity: niemals gegen eine leer gelesene Datei tauschen
+      const tabellen = neu.exec("SELECT COUNT(*) FROM sqlite_master WHERE type='table'");
+      if (!tabellen.length || tabellen[0].values[0][0] < 3) { neu.close(); return; }
+      const alt = this.db;
+      this.db = neu;
+      try { alt.close(); } catch(e) {}
+      this.migrateDB();
+      this._snapGen = gen;
+      this._logOffsets = { ...(meta.offsets || {}) };
+      this._appliedForeignUids = new Set();
+      this._ownLogUids = new Set();
+      this._myLogSize = (meta.offsets || {})[this._myOplogName()] || 0;
+      this._smartRefresh();
+    } catch(e) { console.warn('[SyncV3] Snapshot-Prüfung:', e.message); }
+  },
+
   async _rotateOwnLogIfCovered() {
     try {
       if (this._dirtyOps.length || this._appendInProgress || !this._myLogSize) return;
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
       const meta = JSON.parse(await (await h.getFile()).text());
-      const covered = meta?.offsets?.[this._myOplogName()];
+      const aktuell = this._myOplogName();
+      const covered = meta?.offsets?.[aktuell];
       if (covered == null) return;
-      const fh = await dir.getFileHandle(this._myOplogName(), { create: false });
+      const fh = await dir.getFileHandle(aktuell, { create: false });
       const size = (await fh.getFile()).size;
       if (size > 0 && covered >= size) {
-        const w = await fh.createWritable(); // ohne keepExistingData → truncate
-        await w.close();
+        // Neue Generation beginnen; die alte Datei bleibt zunächst liegen,
+        // damit Leser sie zu Ende lesen können.
+        this._logGen++;
         this._myLogSize = 0;
         if (this._ownLogUids) this._ownLogUids.clear();
-        console.log('[SyncV3] Eigenes Log rotiert (vom Snapshot abgedeckt)');
+        await this._pruneAlteGenerationen(dir);
+        console.log('[SyncV3] Eigenes Log rotiert → Generation ' + this._logGen);
       }
     } catch(e) { /* meta/log fehlt – ok */ }
+  },
+  // Nur die letzten beiden eigenen Generationen aufheben
+  async _pruneAlteGenerationen(dir) {
+    try {
+      const eigen = this._oplogPrefix() + this._getClientId() + '_g';
+      const gens = [];
+      for await (const [name] of dir.entries()) {
+        if (!name.startsWith(eigen) || !name.endsWith('.jsonl')) continue;
+        const n = parseInt(name.slice(eigen.length), 10);
+        if (!isNaN(n)) gens.push(n);
+      }
+      gens.sort((a, b) => b - a);
+      for (const n of gens.slice(2)) {
+        try { await dir.removeEntry(eigen + n + '.jsonl'); } catch(e) {}
+      }
+    } catch(e) {}
+  },
+
+  // ═══════════════════════════════════════════
+  //  LÖSCHEN MIT KASKADE
+  //  PRAGMA foreign_keys ist in sql.js standardmäßig AUS, die ON DELETE
+  //  CASCADE im Schema greifen also nie. Ohne diese Helfer blieben nach jedem
+  //  Löschen verwaiste Zeilen liegen: unsichtbar, aber weiterhin in Ampel,
+  //  Statistik und Mängelcode-Auswertung mitgezählt.
+  // ═══════════════════════════════════════════
+  deleteSchuelerKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE schueler_id=?',
+     'DELETE FROM wiedervorlagen WHERE schueler_id=?',
+     'DELETE FROM kontrollergebnisse WHERE schueler_id=?',
+     'DELETE FROM kw_status WHERE schueler_id=?',
+     'DELETE FROM ausbildungsphasen WHERE schueler_id=?',
+     'DELETE FROM schueler_bemerkungen WHERE schueler_id=?',
+     'DELETE FROM schueler_dateien WHERE schueler_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE schueler_id=?',
+     'DELETE FROM aktive_sitzung WHERE schueler_id=?',
+     'DELETE FROM schueler WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
+  },
+  deleteTerminKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?',
+     'DELETE FROM aktive_sitzung WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermine WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteKlasseKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?',
+     'UPDATE kontrolltermine SET klasse_id=NULL WHERE klasse_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE klasse_id=?',
+     'DELETE FROM klassen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteSchuleKaskade(id) {
+    if (!id) return;
+    try {
+      this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
+    } catch(e) {}
+    ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'DELETE FROM berufsschulen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteBetriebKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'DELETE FROM ausbilder WHERE betrieb_id=?',
+     'DELETE FROM betriebe WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteJahrgangKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE klassen SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE kontrolltermine SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'DELETE FROM abschlussjahrgaenge WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
   },
 
   scalar(sql, params = []) {
@@ -10775,6 +10985,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -10916,6 +11127,13 @@ const App = {
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
     )`);
     // Tombstones (Replay-Ziel für Lösch-Propagation)
     run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
@@ -11622,7 +11840,10 @@ const App = {
   // Zählt Schuljahre (Sep–Aug) die zwischen AV-Beginn und AV-Ende liegen.
   // Ein Verkürzer der im März startet spannt 3 Schuljahre → braucht 3 KW-Grids.
   getSchuelerAJs(schuelerId) {
-    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+    // regulaer_dauer_monate/verkuerzung_monate MÜSSEN mitselektiert werden –
+    // sie werden unten für das Phasen-Ende gebraucht (fehlten früher → immer
+    // 36 Monate/0 Verkürzung, Verkürzer bekamen ein Raster zu viel).
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende, regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s?.ausbildungsbeginn) return [1, 2, 3];
     const d1 = this._parseDate(s.ausbildungsbeginn);
     if (!d1) return [1, 2, 3];
@@ -11641,10 +11862,15 @@ const App = {
     }
     if (!d2) return [1, 2, 3];
 
-    const startSY = d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1;
-    const d2adj = new Date(d2); d2adj.setDate(d2adj.getDate() - 1);
-    const endSY = d2adj.getMonth() >= 8 ? d2adj.getFullYear() : d2adj.getFullYear() - 1;
-    const numSY = endSY - startSY + 1;
+    // Anzahl der Ausbildungsjahre aus der VERTRAGSDAUER, nicht aus überspannten
+    // Kalender-Schuljahren: Eine feste Schuljahresgrenze kann 1.8.- und
+    // 1.9.-Verträge nicht gleichzeitig richtig zählen (Sep-Grenze → jeder
+    // August-Beginner bekam ein Raster zu viel, Aug-Grenze → jeder
+    // September-Beginner). Die Dauer ist von der Grenze unabhängig.
+    const endeExkl = new Date(d2); endeExkl.setDate(endeExkl.getDate() + 1);
+    let monate = (endeExkl.getFullYear() - d1.getFullYear()) * 12 + (endeExkl.getMonth() - d1.getMonth());
+    if (endeExkl.getDate() < d1.getDate()) monate -= 1;
+    const numSY = Math.max(1, Math.min(4, Math.ceil(monate / 12)));
 
     if (numSY <= 1) return [3];
     if (numSY === 2) return [2, 3];
@@ -11671,7 +11897,9 @@ const App = {
             if (eff < von) return sum;
             return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
           }, 0);
-        return Math.min(3, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+        // Obergrenze = tatsächliche Anzahl Ausbildungsjahre (Verlängerer haben 4)
+        const maxAjP = Math.max(...(this.getSchuelerAJs(schuelerId) || [3]));
+        return Math.min(maxAjP, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
       }
     }
     const d = this._parseDate(beginn);
@@ -11679,7 +11907,8 @@ const App = {
     const now = new Date();
     const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
     if (months < 0) return 1;
-    return Math.min(Math.floor(months / 12) + 1, 3);
+    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
+    return Math.min(Math.floor(months / 12) + 1, maxAj);
   },
 
   // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
@@ -11888,8 +12117,10 @@ const App = {
 
       if (isFirst && startKW !== 36) {
         const startIdx = allKWOrder.indexOf(startKW);
-        // KWs 33-35 (indices 49-51) = school year boundary → all active
-        if (startIdx > 0 && startIdx < 49) {
+        // KWs 31-35 (Indizes 47-51) = August, also Schuljahresgrenze → ganzes
+        // Raster aktiv. Ein Vertrag ab 1.8. hat sein erstes volles Rasterjahr
+        // ab September; die Augustwochen davor liegen vor dem ersten Raster.
+        if (startIdx > 0 && startIdx < 47) {
           for (let i = 0; i < startIdx; i++) inactive.push(allKWOrder[i]);
         }
       }
@@ -12201,6 +12432,17 @@ const App = {
   migrateDB() {
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
+      // wiedervorlage_notizen fehlte als einzige Zusatztabelle in beiden
+      // Migrationen: auf gewachsenen Datenbanken schlugen alle Abfragen darauf fehl.
+      this.db.run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
+    )`);
+      // Idempotenz-Ledger auch in der Arbeitskopie vorhalten
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
       // Tombstones (Lösch-Propagation) – auch auf Bestands-DBs anlegen + alte Einträge räumen
       this.db.run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
         tabelle TEXT NOT NULL, key TEXT NOT NULL,
@@ -12223,6 +12465,11 @@ const App = {
       }
       if (!keCols.includes('geaendert_von')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
+      }
+      // Manuelle Abwahl der AP-Zulassung dauerhaft merken (war nur im Speicher →
+      // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
+      if (!keCols.includes('zulassung_manuell')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
@@ -12737,6 +12984,10 @@ const App = {
   },
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // KW-Modal-Kontext aufräumen: bleibt er stehen, schreibt ein späterer
+    // Tastendruck (O/Enter) in einem FREMDEN Dialog auf die zuletzt
+    // betrachtete Kalenderwoche.
+    try { if (typeof KontrolleHandler !== 'undefined') KontrolleHandler._kwModalContext = null; } catch(e) {}
     // Modal-History-Eintrag wieder entfernen (außer die Zurück-Taste hat ihn
     // bereits konsumiert) – sonst müsste man nach dem X-Klick 2× zurück drücken
     if (this._modalHistoryPushed && !fromPopstate) {
@@ -13215,7 +13466,12 @@ const Views = {
         // ── 4) Azubis je Jahrgang (with kontrollergebnis summary) ──
         const jgs = App.query(`SELECT j.id, j.bezeichnung, j.pruefungstermin, j.typ,
           COUNT(DISTINCT s.id) as cnt,
-          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok_cnt,
+          -- Mangel hat Vorrang: ohne diesen Ausschluss zählt ein Azubi mit
+          -- OK- UND Mangel-Kontrolle in beiden Spalten, die Balkenanteile
+          -- summieren sich über 100 % und der rote Teil wird abgeschnitten.
+          COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung'
+            AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')
+            THEN s.id END) as ok_cnt,
           COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as issue_cnt
           FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
           LEFT JOIN kontrollergebnisse ke ON ke.schueler_id=s.id AND ke.ergebnis != ''
@@ -13454,9 +13710,12 @@ const Views = {
 
     // ── 1) Kontrollfortschritt Donut ──
     try {
-      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND ' + _ak + gf) || 0;
+      // Azubis mit Mangel zählen als "Mangel", auch wenn sie zusätzlich eine
+      // OK-Kontrolle haben. Ohne diesen Vorrang lag derselbe Azubi in BEIDEN
+      // Mengen und der Rest ("offen") wurde zu klein bis negativ.
       const issueCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis != "" AND ke.ergebnis != "in_ordnung" AND ' + _ak + gf) || 0;
-      const openCnt = total - okCnt - issueCnt;
+      const okCnt = App.scalar('SELECT COUNT(DISTINCT s.id) FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.ergebnis="in_ordnung" AND s.id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!="" AND ergebnis!="in_ordnung") AND ' + _ak + gf) || 0;
+      const openCnt = Math.max(0, total - okCnt - issueCnt);
       const ctx1 = document.getElementById('chartKontrollfortschritt');
       if (ctx1) {
         this._chartInstances.kontroll = new Chart(ctx1, {
@@ -14088,6 +14347,12 @@ const Views = {
         <h2>Berichte & Export</h2>
         <p>Durchsichtsbögen, Klassenübersichten und Statistiken exportieren</p>
       </div>
+      ${App.filterBadgeHtml()}
+      <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:10px">
+        Hinweis: Terminliste und Zulassungsliste folgen den aktiven Filtern.
+        Klassenübersicht, Excel-Dashboard und Jahresbericht werten immer den
+        <strong>gesamten aktiven Bestand</strong> aus.
+      </div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">▤ Durchsichtsbögen exportieren (pro Kontrolltermin)</div>
@@ -14212,7 +14477,7 @@ const Views = {
             </label>`;
           }).join('')}
         </div>
-        <div id="dashboardToggle" style="display:${localStorage.getItem('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
+        <div id="dashboardToggle" style="display:${App.lsGet('bhk_stats_unlocked')==='1'?'':'none'};margin-top:10px;padding:10px 12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand)">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="togDashboard" ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'")==='1'?'checked':''} onchange="Views._toggleDashboard(this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
             Statistiken &amp; Jahresbericht einblenden
@@ -14346,7 +14611,7 @@ const Views = {
             ${dupes.map(d => `<tr>
               <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id1}</span></td>
               <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id2}</span></td>
-              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2},'${esc(d.name1).replace(/'/g,"\\'")}','${esc(d.name2).replace(/'/g,"\\'")}')" style="font-size:10px">Zusammenführen</button></td>
+              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:10px">Zusammenführen</button></td>
             </tr>`).join('')}
           </tbody></table>
         </div>`;
@@ -14356,13 +14621,13 @@ const Views = {
   },
 
   _pinClicked() {
-    if (localStorage.getItem('bhk_stats_unlocked') === '1') {
+    if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
     const pw = prompt('Passwort:');
     if (pw === 'dienstweg') {
-      localStorage.setItem('bhk_stats_unlocked', '1');
+      App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
     }
   },
@@ -14370,7 +14635,7 @@ const Views = {
   _toggleDashboard(enabled) {
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('azubi_dashboard_enabled',?)", [enabled ? '1' : '0']);
     if (!enabled) {
-      localStorage.removeItem('bhk_stats_unlocked');
+      App.lsRemove('bhk_stats_unlocked');
       document.getElementById('dashboardToggle').style.display = 'none';
     }
     App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
@@ -14524,7 +14789,12 @@ const Views = {
     }
   },
 
-  mergeBetriebe(keepId, removeId, keepName, removeName) {
+  // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
+  // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
+  // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
+  mergeBetriebe(keepId, removeId) {
+    const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
+    const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
     if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
     // Move all schueler references
     App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);
@@ -14536,7 +14806,7 @@ const Views = {
         if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
       });
     }
-    App.run('DELETE FROM betriebe WHERE id=?', [removeId]);
+    App.deleteBetriebKaskade(removeId);
     App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
     Views.einstellungen();
   },
@@ -15901,14 +16171,9 @@ const StammdatenTab = {
     const ids = this._bulkGetSelected();
     const inp = document.getElementById('bulkDeleteConfirmInput');
     if (!inp || inp.value.trim() !== String(ids.length)) return;
-    const ph = ids.join(',');
-    App.run(`DELETE FROM kontrollergebnisse WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kw_status WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kontrolltermin_schueler WHERE schueler_id IN (${ph})`);
-    try { App.run(`DELETE FROM schueler_bemerkungen WHERE schueler_id IN (${ph})`); } catch(e) {}
-    try { App.run(`DELETE FROM schueler_dateien WHERE schueler_id IN (${ph})`); } catch(e) {}
-    App.run(`DELETE FROM schueler WHERE id IN (${ph})`);
+    // Über die zentrale Kaskade, damit keine abhängige Tabelle vergessen wird
+    // (die frühere Liste ließ Snapshots, Phasen und Mängel-Altdaten zurück).
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
     App.closeModal();
     App.toast(`${ids.length} Azubis und alle verknüpften Daten gelöscht`, 'success');
     this._renderAzubiTable(document.getElementById('stammdatenContent'));
@@ -16095,7 +16360,7 @@ const StammdatenTab = {
   },
   deleteJahrgang(id) {
     if (!confirm('Jahrgang wirklich löschen?')) return;
-    App.run('DELETE FROM abschlussjahrgaenge WHERE id=?', [id]);
+    App.deleteJahrgangKaskade(id);
     // (jahrgang refresh no longer needed)
     StammdatenTab.show('jahrgaenge');
   },
@@ -16152,7 +16417,7 @@ const StammdatenTab = {
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
     ids.forEach(id => {
       App.run('DELETE FROM klassen WHERE berufsschule_id=?', [id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.toast(`${ids.length} Schulen gelöscht`, 'success');
     StammdatenTab.show('schulen');
@@ -16176,7 +16441,7 @@ const StammdatenTab = {
     if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
     others.forEach(id => {
       App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.closeModal();
     App.toast(`${others.length} Schulen in Ziel zusammengeführt`, 'success');
@@ -16287,7 +16552,7 @@ const StammdatenTab = {
   },
   deleteSchule(id) {
     if (!confirm('Berufsschule löschen?')) return;
-    App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+    App.deleteSchuleKaskade(id);
     StammdatenTab.show('schulen');
   },
 
@@ -16350,7 +16615,7 @@ const StammdatenTab = {
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-      App.run('DELETE FROM klassen WHERE id=?', [id]);
+      App.deleteKlasseKaskade(id);
     });
     App.toast(`${ids.length} Klassen gelöscht`, 'success');
     StammdatenTab.show('klassen');
@@ -16481,7 +16746,7 @@ const StammdatenTab = {
   deleteKlasse(id) {
     if (!confirm('Klasse löschen?')) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-    App.run('DELETE FROM klassen WHERE id=?', [id]);
+    App.deleteKlasseKaskade(id);
     StammdatenTab.show('klassen');
   },
 
@@ -16746,7 +17011,7 @@ const StammdatenTab = {
     const unlinked = App.query("SELECT id, ausbildungsstaette FROM schueler WHERE betrieb_id IS NULL AND ausbildungsstaette != '' AND aktiv=1");
     if (!unlinked.length) { if (showToast) App.toast('Alle Schüler sind bereits verknüpft', 'success'); return; }
 
-    let linked = 0, created = 0;
+    let linked = 0, created = 0, fehler = 0;
     unlinked.forEach(s => {
       const name = s.ausbildungsstaette.replace(/\s*\(.*\)$/, '').trim(); // Remove "(Ort)" suffix
       // Try exact match
@@ -16759,14 +17024,21 @@ const StammdatenTab = {
         App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [b.id, s.id]);
         linked++;
       } else {
-        // Create minimal betrieb entry from name
-        App.run('INSERT INTO betriebe (name) VALUES (?)', [name]);
-        const newId = App.scalar('SELECT last_insert_rowid()');
-        App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [newId, s.id]);
-        created++;
+        // Create minimal betrieb entry from name.
+        // betriebsnummer ausdrücklich NULL: der Vorgabewert '' ist UNIQUE, der
+        // zweite Betrieb ohne Nummer scheiterte und riss die ganze Schleife mit.
+        try {
+          App.run('INSERT INTO betriebe (name,betriebsnummer) VALUES (?,NULL)', [name]);
+          const newId = App.scalar('SELECT last_insert_rowid()');
+          App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [newId, s.id]);
+          created++;
+        } catch(e) {
+          console.warn('Betrieb konnte nicht angelegt werden:', name, e.message);
+          fehler++;
+        }
       }
     });
-    if (showToast) App.toast(`${linked} verknüpft, ${created} neue Betriebe erstellt`, 'success');
+    if (showToast) App.toast(`${linked} verknüpft, ${created} neue Betriebe erstellt` + (fehler ? `, ${fehler} fehlgeschlagen` : ''), fehler ? 'warning' : 'success');
   },
 
   addBetrieb() {
@@ -16812,10 +17084,16 @@ const StammdatenTab = {
     const n = document.getElementById('mBeName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
     const zusatz = document.getElementById('mBeZusatz')?.value?.trim()||'';
+    // Doppelte Betriebsnummer vorab abfangen: sonst warf der INSERT eine
+    // Ausnahme, das Fenster blieb offen und der Nutzer bekam keine Erklärung.
+    const bnrNeu = document.getElementById('mBeBnr').value.trim();
+    if (bnrNeu && App.scalar('SELECT COUNT(*) FROM betriebe WHERE betriebsnummer=?', [bnrNeu])) {
+      return App.toast(`Betriebsnummer ${bnrNeu} ist bereits vergeben`, 'error');
+    }
     App.run('INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon,fax,ansprechpartner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [n, document.getElementById('mBeVorname')?.value?.trim()||'',
        zusatz, zusatz,
-       document.getElementById('mBeBnr').value.trim(),
+       document.getElementById('mBeBnr').value.trim() || null,
        document.getElementById('mBeStr').value.trim(), document.getElementById('mBePlz').value.trim(),
        document.getElementById('mBeOrt').value.trim(),
        document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(),
@@ -16952,7 +17230,7 @@ const StammdatenTab = {
     if (!confirm('Betrieb löschen? (Nur möglich wenn keine Azubis zugeordnet)')) return;
     App.run('UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?', [id]);
     App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
-    App.run('DELETE FROM betriebe WHERE id=?', [id]);
+    App.deleteBetriebKaskade(id);
     StammdatenTab.show('betriebe');
   },
 
@@ -17286,14 +17564,31 @@ const ImportHandler = {
     };
     const fieldKeys = Object.keys(fieldDefs);
 
+    // Jede CSV-Spalte darf nur EINEM Feld zugeordnet werden. Ohne diese Sperre
+    // beanspruchte z.B. eine Spalte "Nr" gleichzeitig Betriebsnummer und
+    // BAV-Ident – jeder Azubi bekam dann einen eigenen Betrieb.
+    const vergeben = new Set();
     function bestMatch(fieldKey, columns) {
       const patterns = fieldDefs[fieldKey]?.[1] || [];
-      for (const col of columns) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) return col; }
-      for (const col of columns) { const cl = col.toLowerCase().trim(); for (const p of patterns) { if (cl.includes(p) || p.includes(cl)) return col; } }
+      const frei = columns.filter(c => !vergeben.has(c));
+      // Runde 1: exakter Treffer
+      for (const col of frei) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) { vergeben.add(col); return col; } }
+      // Runde 2: Spaltenname enthält das Muster (Mindestlänge 4, damit kurze
+      // Kürzel wie "nr" nicht wahllos greifen). Die Rückrichtung
+      // (Muster enthält Spaltenname) entfällt – sie erzeugte Fehlzuordnungen
+      // wie Azubi-Nachname -> Ausbildungsstätte.
+      for (const col of frei) {
+        const cl = col.toLowerCase().trim();
+        for (const p of patterns) { if (p.length >= 4 && cl.includes(p)) { vergeben.add(col); return col; } }
+      }
       return '';
     }
 
-    const matchCount = fieldKeys.filter(f => bestMatch(f, fields)).length;
+    // Zuordnung einmal vorab berechnen (bestMatch ist durch die Sperre
+    // zustandsbehaftet und darf pro Feld nur einmal laufen)
+    const autoMap = {};
+    fieldKeys.forEach(f => { autoMap[f] = bestMatch(f, fields); });
+    const matchCount = fieldKeys.filter(f => autoMap[f]).length;
     const preview = document.getElementById('importPreview');
     preview.innerHTML = `
       <div style="margin-top:16px">
@@ -17304,7 +17599,7 @@ const ImportHandler = {
         </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
           ${fieldKeys.map(f => {
-            const matched = bestMatch(f, fields);
+            const matched = autoMap[f];
             const label = fieldDefs[f][0];
             return `<div class="form-group" style="margin:0">
               <label>${label} ${matched ? '✓' : ''}</label>
@@ -17421,11 +17716,19 @@ const ImportHandler = {
     // ── Parse date (DD.MM.YYYY) ──
     function parseD(t) {
       if (!t) return null;
-      let m = t.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-      if (m) return new Date(+m[3], m[2]-1, +m[1]);
-      m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-      if (m) return new Date(+m[1], m[2]-1, +m[3]);
-      const d = new Date(t); return isNaN(d) ? null : d;
+      // Streng: nur TT.MM.JJJJ und JJJJ-MM-TT, jeweils mit Gültigkeitsprüfung.
+      // Der frühere new Date(t)-Rückfall las "01.02.24" als 2. Januar (US-Format)
+      // und ließ "31.02.2024" stillschweigend zum 2. März überlaufen.
+      const bau = (j, mo, tg) => {
+        const d = new Date(j, mo - 1, tg);
+        if (d.getFullYear() !== j || d.getMonth() !== mo - 1 || d.getDate() !== tg) return null;
+        return d;
+      };
+      let m = String(t).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (m) return bau(+m[3], +m[2], +m[1]);
+      m = String(t).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (m) return bau(+m[1], +m[2], +m[3]);
+      return null;
     }
 
     // ── Lehrjahr from Ausbildungsbeginn ──
@@ -17533,8 +17836,11 @@ const ImportHandler = {
         return b.id;
       }
       // Create new
+      // Leere Betriebsnummer als NULL: betriebsnummer ist UNIQUE, und '' gilt in
+      // SQLite als regulärer Wert – der zweite Betrieb ohne Nummer scheiterte,
+      // wodurch der ganze Azubi-Datensatz verworfen wurde.
       App.run('INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        [bnr, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
+        [bnr || null, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
       const n = App.query('SELECT id FROM betriebe WHERE rowid=last_insert_rowid()');
       return n.length ? n[0].id : null;
     }
@@ -17614,6 +17920,12 @@ const ImportHandler = {
         // Check if data changed → update
         const ex = App.query('SELECT * FROM schueler WHERE id=?', [existingId])[0];
         const changes = [];
+        // Namensänderungen (z.B. Heirat) kamen bisher nie im Tool an, und ein
+        // über den Namen gefundener Datensatz behielt seine leere BAV-Ident –
+        // beim nächsten Import entstand daraus eine Dublette.
+        if (nachname && ex.nachname !== nachname) changes.push(['nachname', nachname, ex.nachname]);
+        if (vorname && ex.vorname !== vorname) changes.push(['vorname', vorname, ex.vorname]);
+        if (ibyk && !ex.ibykus_id) changes.push(['ibykus_id', ibyk, ex.ibykus_id]);
         if (aend && ex.ausbildungsende !== aend) changes.push(['ausbildungsende', aend, ex.ausbildungsende]);
         if (abeg && ex.ausbildungsbeginn !== abeg) changes.push(['ausbildungsbeginn', abeg, ex.ausbildungsbeginn]);
         if (betrieb && ex.ausbildungsstaette !== betrieb) changes.push(['ausbildungsstaette', betrieb, ex.ausbildungsstaette]);
@@ -17635,7 +17947,11 @@ const ImportHandler = {
         // BAV-Status geändert → aktiv/status synchronisieren
         if (bav_status && ex.bav_status !== bav_status) {
           if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
-          if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
+          // "ENDE" heißt in IBYKUS nur "Vertrag beendet" – auch bei regulärem,
+          // bestandenem Abschluss. Ein bereits gepflegtes Ergebnis (bestanden,
+          // verlängert) darf davon nicht zu "abgebrochen" überschrieben werden.
+          const ergebnisGepflegt = ['ap_bestanden', 'verlaengert', 'abgebrochen'].includes(ex.status);
+          if (ex.status !== bavStatus && !(bavAktiv === 0 && ergebnisGepflegt)) changes.push(['status', bavStatus, ex.status]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
             const today = todayStr();
             if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
@@ -17729,9 +18045,18 @@ const ImportHandler = {
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
+    // Während des Imports ist die Änderungsverfolgung aus – die Daten stehen
+    // NUR im Arbeitsspeicher. Schlägt das Speichern fehl, sind sie beim
+    // nächsten regulären Speichern verloren, deshalb hier hart melden.
+    this._importGespeichert = false;
     try {
-      if (App.dbFileHandle) await App.fullSave();
-    } catch(e) { console.warn('Post-import save:', e); }
+      if (!App.dbFileHandle) throw new Error('Keine Datenbankdatei verbunden');
+      await App.fullSave();
+      this._importGespeichert = true;
+    } catch(e) {
+      console.error('Import konnte nicht gespeichert werden:', e);
+      App.toast('ACHTUNG: Import wurde NICHT gespeichert (' + (e.message || e) + '). Bitte Netzlaufwerk prüfen und erneut speichern!', 'error');
+    }
     App.hideLoading();
     // Log import in einstellungen
     const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -17744,6 +18069,9 @@ const ImportHandler = {
     // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
     this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
+      ${this._importGespeichert === false ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:13px">
+        <strong>Der Import wurde NICHT auf das Netzlaufwerk geschrieben.</strong> Die Daten stehen nur in dieser Sitzung.
+        Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
@@ -18088,7 +18416,7 @@ const ImportHandler = {
   },
   deleteSchueler(id) {
     if (!confirm('Schüler wirklich löschen?')) return;
-    App.run('DELETE FROM schueler WHERE id=?', [id]);
+    App.deleteSchuelerKaskade(id);
     try { SchuelerView.render(); } catch(e) {}
   },
   // ═══════════════════════════════════════════
@@ -18191,12 +18519,13 @@ const ImportHandler = {
   },
 
   doImportLFK(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('lfkmap_' + f)?.value || '';
     const nrCol = gm('nr');
     const beschCol = gm('beschreibung');
     const lfkCol = gm('landesfachklasse');
-    if (!nrCol && !lfkCol) return App.toast('Bitte mindestens Nr./BAV-Ident und Landesfachklasse zuordnen', 'error');
+    if (!nrCol || !lfkCol) return App.toast('Bitte SOWOHL Nr./BAV-Ident ALS AUCH Landesfachklasse zuordnen', 'error');
 
     App.showLoading('Importiere Landesfachklassen…');
     let updated = 0, skipped = 0, notFound = 0, cleared = 0;
@@ -18247,6 +18576,12 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     document.getElementById('lfkImportPreview').innerHTML = '';
+    } catch(e) {
+      console.error('doImportLFK:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════
@@ -18327,6 +18662,7 @@ const ImportHandler = {
   },
 
   doImportAusbilder(data) {
+    try {
     if (!data) return;
     const gm = f => document.getElementById('aumap_' + f)?.value || '';
     const bnrCol = gm('betriebsnummer');
@@ -18401,6 +18737,12 @@ const ImportHandler = {
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
     const preview = document.getElementById('ausbilderImportPreview');
     if (preview) preview.innerHTML = '';
+    } catch(e) {
+      console.error('doImportAusbilder:', e);
+      App.toast('Import fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   deleteAllJahrgang() {
@@ -18410,15 +18752,12 @@ const ImportHandler = {
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
     if (!count) return App.toast('Keine Schüler zum Löschen', 'warning');
     if (!confirm(`Wirklich ALLE ${count} Schüler im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
-    // Delete related data
-    App.run(`DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT ke.id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE kt.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT w.id FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE s.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrollergebnisse WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run('DELETE FROM kontrolltermine WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM klassen WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM schueler WHERE jahrgang_id=?', [jg]);
+    // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
+    // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
+    // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
+    App.query('SELECT id FROM kontrolltermine WHERE jahrgang_id=?', [jg]).forEach(t => App.deleteTerminKaskade(t.id));
+    App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
+    App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
     App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
     try { SchuelerView.render(); } catch(e) {}
   },
@@ -19133,8 +19472,7 @@ const PlanungHandler = {
   },
   deleteTermin(id) {
     if (!confirm('Termin löschen?')) return;
-    App.run('DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?', [id]);
-    App.run('DELETE FROM kontrolltermine WHERE id=?', [id]);
+    App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
   },
@@ -19361,7 +19699,10 @@ const NacherfassungHandler = {
               const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
               const lastKE = App.query("SELECT ke.ergebnis, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1", [s.id]);
               const lastInfo = lastKE.length ? formatDate(lastKE[0].geplant_datum).substring(0,6) + (lastKE[0].ergebnis === 'in_ordnung' ? '✓' : '!') : '–';
-              const lastKW = App.scalar("SELECT MAX(kalenderwoche) FROM kw_status WHERE schueler_id=? AND geprueft=1", [s.id]) || '';
+              // Letzte geprüfte KW in SCHULJAHRES-Reihenfolge (36..52, dann 1..35):
+              // ein einfaches MAX() liefert immer 52 statt der tatsächlich letzten Woche.
+              const lastKW = App.scalar(`SELECT kalenderwoche FROM kw_status WHERE schueler_id=? AND geprueft=1
+                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END, kalenderwoche DESC LIMIT 1`, [s.id]) || '';
               const amp = App.getSchuelerAmpel(s.id);
               return `<tr data-sid="${s.id}" class="ne-row">
                 <td>
@@ -19369,7 +19710,7 @@ const NacherfassungHandler = {
                   <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')} · ${esc(s.jahrgang||'')}</div>
                 </td>
                 <td style="font-size:11px">${esc(s.betrieb_name||s.ausbildungsstaette||'–')}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.betrieb_ort||'')}</div></td>
-                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="${fehlGesamt}" min="0" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Fehltage gesamt"></td>
+                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="7" placeholder="0" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Fehltage in der erfassten KW (bisher gesamt: ${fehlGesamt})"></td>
                 <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${lastKW}" min="1" max="52" placeholder="–" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Letzte geprüfte KW"></td>
                 <td style="font-size:10px;text-align:center">${lastInfo}</td>
                 <td>
@@ -19425,13 +19766,18 @@ const NacherfassungHandler = {
 
     // Collect rows with data
     const toSave = [];
-    document.querySelectorAll('.ne-ergebnis').forEach((sel, i) => {
+    document.querySelectorAll('.ne-ergebnis').forEach((sel) => {
       if (!sel.value || sel.value === '') return;
+      // Index aus dem Datensatz-Attribut, NICHT aus der DOM-Position: nach dem
+      // Sortieren der Tabelle stimmen die beiden nicht mehr überein und das
+      // Ergebnis würde einem anderen Azubi zugeschrieben.
+      const i = parseInt(sel.dataset.idx, 10);
       const s = this._rows[i];
+      if (!s) return;
       const codes = (document.querySelector(`.ne-codes[data-idx="${i}"]`)?.value || '').toUpperCase().replace(/\s+/g, '');
       const bem = document.querySelector(`.ne-bem[data-idx="${i}"]`)?.value || '';
       const wvDate = document.querySelector(`.ne-wv[data-idx="${i}"]`)?.value || '';
-      const fehl = parseInt(document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value) || 0;
+      const fehl = Math.max(0, Math.min(7, parseInt(document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value) || 0));
       const kw = parseInt(document.querySelector(`.ne-kw[data-idx="${i}"]`)?.value) || 0;
       toSave.push({ schueler: s, ergebnis: sel.value, codes, bemerkung: bem, wvDate, fehltage: fehl, lastKW: kw });
     });
@@ -19458,7 +19804,10 @@ const NacherfassungHandler = {
       // Kontrollergebnis (with fehltage)
       App.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, fehltage_gesamt, erstellt_am, geaendert_von) VALUES (?,?,?,?,?,datetime('now'),?)",
         [terminId, s.id, row.ergebnis, row.bemerkung, row.fehltage || 0, pruefer]);
-      const keId = App.scalar("SELECT last_insert_rowid()");
+      // Gezielt nachladen statt last_insert_rowid(): Wurde der INSERT wegen
+      // OR IGNORE übersprungen (Schüler doppelt in der Liste, zweiter Klick auf
+      // "Alle speichern"), zeigte die Nummer auf einen fremden Datensatz.
+      const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
 
       // Wiedervorlage (Tabelle hat KEINE kontrolltermin_id-Spalte!)
       if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
@@ -19477,7 +19826,11 @@ const NacherfassungHandler = {
             [s.id, aj, kw, codes, fehl, keId]);
         }
       };
-      const aj = App.getSchuelerAJs(s.id).pop() || 1;
+      // Aktuelles Ausbildungsjahr, nicht das letzte: sonst landen nacherfasste
+      // Mängel eines Erstjahres-Azubis im Raster des 3. Ausbildungsjahres.
+      const ajListe = App.getSchuelerAJs(s.id) || [1];
+      const ajAktuell = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+      const aj = (ajAktuell && ajListe.includes(ajAktuell)) ? ajAktuell : (ajListe[ajListe.length - 1] || 1);
       const kw = row.lastKW || 0;
       if (kw > 0) {
         upsertKw(kw, row.codes || '', row.fehltage || 0);
@@ -20176,10 +20529,8 @@ const KontrolleHandler = {
       // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
       // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
       // der Import es bei jedem Sync zurück und der Toast erscheint endlos).
-      if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
-      const overrideKey = this.currentTerminId + ':' + s.id;
-      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !this._manualZulassungOverride.has(overrideKey)) {
-        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
+      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !ke.zulassung_manuell) {
+        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0 AND COALESCE(zulassung_manuell,0)=0', [ke.id]);
         ke.zulassung_ap = 1;
         autoZulCount++;
       }
@@ -20366,10 +20717,10 @@ const KontrolleHandler = {
   toggleZulassung(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
-    // Manuelles Abwählen merken — sonst setzt die Auto-Zulassung beim nächsten Render sofort wieder auf 1
-    if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
-    if (!checked) this._manualZulassungOverride.add(this.currentTerminId + ':' + schuelerId);
-    else this._manualZulassungOverride.delete(this.currentTerminId + ':' + schuelerId);
+    // Manuelles Abwählen DAUERHAFT merken (DB-Spalte, nicht nur im Speicher):
+    // sonst setzt die Auto-Zulassung sie nach einem Reload – oder beim Kollegen,
+    // der dieselbe Übersicht öffnet – kommentarlos wieder auf 1.
+    App.run('UPDATE kontrollergebnisse SET zulassung_manuell=? WHERE id=?', [checked ? 0 : 1, ke.id]);
     if (checked && ke.pruefungsausschuss === 1) {
       // Unset PA when setting Zulassung
       App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=0, zulassung_ap=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
@@ -20845,7 +21196,7 @@ const KontrolleHandler = {
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
               data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
               onclick="KWNav.focusCell(this,event)"
-              title="${title}">
+              title="${esc(title)}">
               ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
             </div>`;
           }).join('')}
@@ -21446,7 +21797,7 @@ const KontrolleHandler = {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes="", fehltage=0, geprueft=1',
           [s.id, aj, kw, keId]);
       }
-      KWNav.trackSessionKW(keId, aj, kw);
+      KWNav.trackSessionKW(keId, aj, kw, s?.id);
     }
     // Also clear kw_maengel
     App.run('DELETE FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [keId, aj, kw]);
@@ -22244,9 +22595,9 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET geprueft=1 WHERE id=?', [existing[0].id]);
       } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?)', [s.id, aj, kw, ke.id]);
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, aj, kw, ke.id]);
       }
-      KWNav.trackSessionKW(ke.id, aj, kw);
+      KWNav.trackSessionKW(ke.id, aj, kw, ke.schueler_id ?? s?.id);
       count++;
     });
 
@@ -22264,10 +22615,10 @@ const KontrolleHandler = {
             count++;
           }
         } else {
-          App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?)', [s.id, prevAJ, kw, ke.id]);
+          App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, prevAJ, kw, ke.id]);
           count++;
         }
-        KWNav.trackSessionKW(ke.id, prevAJ, kw);
+        KWNav.trackSessionKW(ke.id, prevAJ, kw, ke.schueler_id ?? s?.id);
       });
     });
 
@@ -22646,13 +22997,16 @@ const KWNav = {
     const row = parseInt(cell.dataset.row);
     const col = parseInt(cell.dataset.col);
     let targetAj = aj, targetRow = row, targetCol = col;
+    // Obergrenze aus dem tatsächlich gerenderten Raster (Verlängerer haben AJ 4)
+    const ajsVorhanden = this.getAllCells().map(c => parseInt(c.dataset.aj)).filter(n => !isNaN(n));
+    const maxAj = ajsVorhanden.length ? Math.max(...ajsVorhanden) : 3;
 
     switch(direction) {
       case 'right':
         targetCol = col + 1;
         if (targetCol > 12) { targetCol = 0; targetRow++; }
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return null;
+        if (targetAj > maxAj) return null;
         break;
       case 'left':
         targetCol = col - 1;
@@ -22663,7 +23017,7 @@ const KWNav = {
       case 'down':
         targetRow = row + 1;
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return;
+        if (targetAj > maxAj) return null;
         break;
       case 'up':
         targetRow = row - 1;
@@ -22784,8 +23138,12 @@ const KWNav = {
 
     // Push undo (restore old state)
     if (!skipUndo && (oldCodes || oldFehltage)) {
+      // behobene_codes des Vorzustands mit einfrieren – sonst bleibt nach dem
+      // Undo derselbe Code gleichzeitig als "offen" UND "behoben" stehen.
+      const vorBehoben = (App.query('SELECT behobene_codes FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
+        [sid, aj, kw])[0]?.behobene_codes) || '';
       UndoManager.push(`KW ${kw} geleert`,
-        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid); KontrolleHandler.renderSchueler(); },
+        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid, false, vorBehoben); KontrolleHandler.renderSchueler(); },
         () => { this.persistCodes(keId, aj, kw, '', 0, sid); KontrolleHandler.renderSchueler(); }
       );
     }
@@ -22810,7 +23168,10 @@ const KWNav = {
   // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
   // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
   // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
-  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft) {
+  // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
+  // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
+  // Mängel automatisch als "behoben" protokolliert.
+  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft, behobenOverride) {
     let sid = sidOpt ? parseInt(sidOpt) : null;
     if (!sid) {
       const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
@@ -22821,16 +23182,28 @@ const KWNav = {
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
       if (existing.length) {
+        // Entfernte Mängel IMMER als behoben protokollieren – unabhängig davon,
+        // ob sie über Entf, "Leeren", das Modal oder die O-Taste verschwinden.
+        // Sonst ging die Mängelhistorie je nach Bedienweg verloren.
+        const vorher = (existing[0].maengel_codes || '').split(',').filter(Boolean);
+        const neu = (codesStr || '').split(',').filter(Boolean);
+        const entfernt = vorher.filter(c => !neu.includes(c));
+        const prevBehoben = (existing[0].behobene_codes || '').split(',').filter(Boolean);
+        const behoben = behobenOverride !== undefined
+          ? behobenOverride
+          : [...new Set([...prevBehoben, ...entfernt])].join(',');
+
         if (!codesStr && !fehltage) {
-          if (keepGeprueft || existing[0].behobene_codes) {
+          if (keepGeprueft || behoben) {
             // "Keine Beanstandungen" (O) bzw. behobene Codes: Zeile erhalten
-            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
+            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1, behobene_codes=?, behoben_bei=COALESCE(behoben_bei,?) WHERE id=?',
+              [behoben, entfernt.length ? keId : null, existing[0].id]);
           } else {
             App.run('DELETE FROM kw_status WHERE id=?', [existing[0].id]);
           }
         } else {
-          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
-            [codesStr, fehltage, keId, existing[0].id]);
+          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, behobene_codes=?, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
+            [codesStr, fehltage, behoben, keId, existing[0].id]);
         }
       } else if (codesStr || fehltage || keepGeprueft) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1',
@@ -22838,7 +23211,11 @@ const KWNav = {
       }
 
       // Track this KW as checked in this session
-      this.trackSessionKW(keId, aj, kw);
+      this.trackSessionKW(keId, aj, kw, sid);
+      // Gesamt-Fehltage nachziehen: lief bisher NUR über die Inline-Tasten,
+      // nicht über Modal/O-Taste/Leeren -> fehltage_gesamt (und damit das PDF)
+      // blieb auf dem alten Wert stehen.
+      try { KontrolleHandler.autoUpdateFehltage(sid, keId); } catch(e) {}
     }
 
     // ── kw_maengel (backward compat per kontrollergebnis) ──
@@ -22847,14 +23224,18 @@ const KWNav = {
       if (!codesStr && !fehltage) App.run('DELETE FROM kw_maengel WHERE id=?', [exM[0].id]);
       else App.run('UPDATE kw_maengel SET maengel_codes=?, fehltage=? WHERE id=?', [codesStr, fehltage, exM[0].id]);
     } else if (codesStr || fehltage) {
-      App.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)',
+      App.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?) ON CONFLICT(kontrollergebnis_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage',
         [keId, aj, kw, codesStr, fehltage]);
     }
   },
 
   // Track session KWs in kontrollergebnisse.geprueft_kws
-  trackSessionKW(keId, aj, kw) {
-    const ke = App.query('SELECT geprueft_kws FROM kontrollergebnisse WHERE id=?', [keId])[0];
+  // sidOpt optional – ohne Angabe wird der Schüler aus dem Kontrollergebnis
+  // abgeleitet. NIEMALS aus currentSchuelerList[currentIndex]: das ist der
+  // gerade ANGEZEIGTE Azubi, nicht der bearbeitete (Undo nach Blättern
+  // markierte sonst dutzende Wochen beim falschen Azubi als geprüft).
+  trackSessionKW(keId, aj, kw, sidOpt) {
+    const ke = App.query('SELECT geprueft_kws, schueler_id FROM kontrollergebnisse WHERE id=?', [keId])[0];
     if (!ke) return;
     let data = {};
     try { data = JSON.parse(ke.geprueft_kws || '{}'); } catch(e) {}
@@ -22869,7 +23250,8 @@ const KWNav = {
     const clickedIdx = kwOrder.indexOf(kw);
     if (clickedIdx < 0) return;
 
-    const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
+    const sid = sidOpt ?? ke.schueler_id;
+    const s = sid ? { id: sid } : null;
     const newlyFilled = [];
 
     // Inaktive KWs (vor AV-Beginn / nach AV-Ende / Unterbrechung) nicht auto-füllen
@@ -23284,6 +23666,7 @@ const GlobalSearch = {
     inp.focus();
     this._selectedIdx = -1;
     this._results = [];
+    this._hayCache = null; // Datenstand kann sich seit der letzten Suche geändert haben
     document.getElementById('globalSearchResults').innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Name, Betrieb, Schule, Klasse, Ort, Tel, E-Mail, Bemerkungen… – mehrere Begriffe kombinierbar, Tippfehler werden toleriert</div>';
   },
 
@@ -23381,6 +23764,17 @@ const GlobalSearch = {
     return 0;
   },
   // Heuhaufen aus Feldwerten bauen (einmal pro Zeile)
+  // Zwischenspeicher: wird bei jeder Datenänderung und beim Öffnen verworfen.
+  _hayCache: null,
+  _hayCacheKey: null,
+  _cachedHay(key, values) {
+    if (!this._hayCache) this._hayCache = new Map();
+    const treffer = this._hayCache.get(key);
+    if (treffer) return treffer;
+    const neu = this._hay(values);
+    this._hayCache.set(key, neu);
+    return neu;
+  },
   _hay(values) {
     const joined = values.filter(v => v !== null && v !== undefined && v !== '').join(' ');
     // Beide Normalisierungsvarianten in den Heuhaufen (mueller UND muller)
@@ -23425,12 +23819,12 @@ const GlobalSearch = {
       LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id`);
     const schueler = [];
     for (const s of schuelerAll) {
-      const hay = this._hay([s.nachname, s.vorname, s.ibykus_id, s.email, s.telefon, s.ausbildungsstaette,
+      const hay = this._cachedHay('s' + s.id, [s.nachname, s.vorname, s.ibykus_id, s.email, s.telefon, s.ausbildungsstaette,
         s.zustaendiges_amt, s.bav_status, s.status, s.geschlecht, s.schulabschluss, s.beruf_id,
         s.ausbildungsbeginn, s.ausbildungsende, s.geburtsdatum, s.inaktiv_grund,
         s.b_name, s.b_ort, s.b_email, s.b_tel, s.b_nr, s.b_str, s.b_plz, s.b_ansp, s.b_zusatz,
         s.schule, s.schule_ort, s.klassenbezeichnung, s.jahrgang, s.fr_name, s.fr_code, s.bem_text]);
-      const primary = this._hay([s.nachname, s.vorname, s.b_name, s.ibykus_id]);
+      const primary = this._cachedHay('sp' + s.id, [s.nachname, s.vorname, s.b_name, s.ibykus_id]);
       let score = this._score(tokens, hay, primary);
       if (score) {
         if (!s.aktiv) score -= 25; // inaktive weiter hinten einsortieren
@@ -23488,9 +23882,9 @@ const GlobalSearch = {
     const betriebeAll = App.query(`SELECT *, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=betriebe.id AND aktiv=1) as cnt FROM betriebe`);
     const betriebe = [];
     for (const b of betriebeAll) {
-      const hay = this._hay([b.name, b.vorname, b.firma, b.ansprechpartner, b.strasse, b.plz, b.ort,
+      const hay = this._cachedHay('b' + b.id, [b.name, b.vorname, b.firma, b.ansprechpartner, b.strasse, b.plz, b.ort,
         b.telefon, b.fax, b.email, b.betriebsnummer, b.zusatzbezeichnung]);
-      const score = this._score(tokens, hay, this._hay([b.name, b.betriebsnummer]));
+      const score = this._score(tokens, hay, this._cachedHay('bp' + b.id, [b.name, b.betriebsnummer]));
       if (score) betriebe.push({ b, score });
     }
     betriebe.sort((x, y) => y.score - x.score || String(x.b.name).localeCompare(String(y.b.name)));
@@ -23519,8 +23913,8 @@ const GlobalSearch = {
     const ausbilderAll = App.query(`SELECT a.*, b.name as betrieb_name, b.ort as betrieb_ort, b.id as betrieb_id FROM ausbilder a LEFT JOIN betriebe b ON a.betrieb_id=b.id`);
     const ausbilder = [];
     for (const a of ausbilderAll) {
-      const hay = this._hay([a.nachname, a.vorname, a.telefon, a.email, a.mobil, a.funktion, a.betrieb_name, a.betrieb_ort]);
-      const score = this._score(tokens, hay, this._hay([a.nachname, a.vorname]));
+      const hay = this._cachedHay('a' + a.id, [a.nachname, a.vorname, a.telefon, a.email, a.mobil, a.funktion, a.betrieb_name, a.betrieb_ort]);
+      const score = this._score(tokens, hay, this._cachedHay('ap' + a.id, [a.nachname, a.vorname]));
       if (score) ausbilder.push({ a, score });
     }
     ausbilder.sort((x, y) => y.score - x.score || String(x.a.nachname).localeCompare(String(y.a.nachname)));
@@ -23551,8 +23945,8 @@ const GlobalSearch = {
     for (const sc of schulenAll) {
       let anspText = '';
       try { anspText = (JSON.parse(sc.ansprechpartner_json || '[]') || []).map(x => Object.values(x || {}).join(' ')).join(' '); } catch (e) {}
-      const hay = this._hay([sc.name, sc.ort, sc.strasse, sc.plz, sc.telefon, sc.email, sc.email_cc, anspText]);
-      const score = this._score(tokens, hay, this._hay([sc.name]));
+      const hay = this._cachedHay('sc' + sc.id, [sc.name, sc.ort, sc.strasse, sc.plz, sc.telefon, sc.email, sc.email_cc, anspText]);
+      const score = this._score(tokens, hay, this._cachedHay('scp' + sc.id, [sc.name]));
       if (score) schulen.push({ sc, score });
     }
     schulen.sort((x, y) => y.score - x.score || String(x.sc.name).localeCompare(String(y.sc.name)));
@@ -23574,8 +23968,8 @@ const GlobalSearch = {
     const klassenAll = App.query(`SELECT k.*, bs.name as schule, bs.ort as schule_ort, j.bezeichnung as jahrgang, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) as cnt FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id`);
     const klassen = [];
     for (const k of klassenAll) {
-      const hay = this._hay([k.klassenbezeichnung, k.lehrjahr, k.schule, k.schule_ort, k.jahrgang]);
-      const score = this._score(tokens, hay, this._hay([k.klassenbezeichnung]));
+      const hay = this._cachedHay('k' + k.id, [k.klassenbezeichnung, k.lehrjahr, k.schule, k.schule_ort, k.jahrgang]);
+      const score = this._score(tokens, hay, this._cachedHay('kp' + k.id, [k.klassenbezeichnung]));
       if (score) klassen.push({ k, score });
     }
     klassen.sort((x, y) => y.score - x.score || String(x.k.klassenbezeichnung).localeCompare(String(y.k.klassenbezeichnung)));
@@ -23678,10 +24072,15 @@ document.addEventListener('keydown', (e) => {
     GlobalSearch.showCheatSheet();
     return;
   }
-  // Alt+1-7 = Quick navigation
+  // Alt+1-8 = Schnellnavigation. Nicht in Eingabefeldern feuern (halb
+  // ausgefüllte Formulare gingen sonst verloren) und offene Dialoge vorher
+  // schließen – sonst schwebte das Fenster über einer ganz anderen Ansicht.
   if (e.altKey && !e.ctrlKey && '12345678'.includes(e.key)) {
+    const t = e.target?.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || e.target?.isContentEditable) return;
     e.preventDefault();
     const views = ['dashboard','stammdaten','import','planung','kontrolle','wiedervorlagen','berichte','einstellungen'];
+    try { const ov = document.getElementById('modalOverlay'); if (ov && ov.classList.contains('active')) App.closeModal(); } catch(err) {}
     App.navigate(views[parseInt(e.key) - 1]);
     return;
   }
@@ -23778,9 +24177,29 @@ document.addEventListener('keydown', (e) => {
 
 // ── bulk-schueler.js ──
 const BulkSchueler = {
-  getSelected() { return [...document.querySelectorAll('.chk-s:checked')].map(c => parseInt(c.value)); },
+  // Löschen aus der Bulk-Leiste der Schülerliste. Der Knopf rief bisher eine
+  // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
+  deleteSelected() {
+    const ids = this.getSelected();
+    if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
+    if (!confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`)) return;
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
+    App.toast(`${ids.length} Azubi(s) und alle verknüpften Daten gelöscht`, 'success');
+    this.deselectAll();
+    this._refresh();
+  },
+  // Ansicht aktualisieren – je nachdem, aus welcher Liste die Aktion kam
+  _refresh() {
+    const c = document.getElementById('stammdatenContent');
+    if (c && typeof StammdatenTab !== 'undefined' && StammdatenTab._renderAzubiTable) {
+      try { StammdatenTab._renderAzubiTable(c); return; } catch(e) {}
+    }
+    if (typeof SchuelerView !== 'undefined') { try { SchuelerView.render(); return; } catch(e) {} }
+    try { App.renderCurrentView(); } catch(e) {}
+  },
+  getSelected() { return [...document.querySelectorAll('.chk-s:checked, .chk-azubi:checked')].map(c => parseInt(c.value)); },
   toggleAll(checked) { document.querySelectorAll('.chk-s').forEach(c => c.checked = checked); this.updateBar(); },
-  deselectAll() { document.querySelectorAll('.chk-s').forEach(c => c.checked = false); document.getElementById('chkAllS').checked = false; this.updateBar(); },
+  deselectAll() { document.querySelectorAll('.chk-s, .chk-azubi').forEach(c => c.checked = false); const a = document.getElementById('chkAllS'); if (a) a.checked = false; this.updateBar(); },
   updateBar() {
     const ids = this.getSelected();
     const bar = document.getElementById('bulkBarSchueler');
@@ -24173,7 +24592,7 @@ Abt. 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen`;
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${emails.join('; ')}');App.toast('${emails.length} E-Mail-Adressen kopiert','success')">▤ Adressen kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
         <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     
     // Store for the mail opener
@@ -24898,10 +25317,18 @@ const BerichteHandler = {
   doExportKlasse() {
     const klasseId = document.getElementById('mExpKlasse').value;
     const klasse = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?`, [klasseId])[0];
-    const schueler = App.query(`SELECT s.*, ke.ergebnis, ke.fehltage_gesamt, ke.bemerkung as ke_bemerkung
-      FROM schueler s LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
-      WHERE s.klasse_id=? ORDER BY s.nachname`, [klasseId]);
+    // Eine Zeile PRO AZUBI mit dem jeweils letzten Ergebnis. Der frühere JOIN
+    // erzeugte eine Zeile je Kontrolle – wer dreimal kontrolliert wurde, stand
+    // dreimal im PDF, und die Anzahl im Dateinamen war entsprechend falsch.
+    const schueler = App.query(`SELECT s.*,
+        (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS ergebnis,
+        (SELECT ke.fehltage_gesamt FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS fehltage_gesamt,
+        (SELECT ke.bemerkung FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+           WHERE ke.schueler_id=s.id AND ke.ergebnis!='' ORDER BY kt.geplant_datum DESC LIMIT 1) AS ke_bemerkung
+      FROM schueler s
+      WHERE s.klasse_id=? AND s.aktiv=1 ORDER BY s.nachname`, [klasseId]);
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('l', 'mm', 'a4');
@@ -25185,6 +25612,7 @@ const BerichteHandler = {
   },
 
   jahresbericht() {
+    try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
     const { jsPDF } = window.jspdf;
@@ -25200,10 +25628,20 @@ const BerichteHandler = {
     const totalSchueler = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
     const totalInaktiv = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
     const totalAbgeschlossen = App.scalar("SELECT COUNT(*) FROM schueler WHERE status='ap_bestanden'") || 0;
-    const kontrolliert = App.scalar('SELECT COUNT(DISTINCT schueler_id) FROM kontrollergebnisse WHERE ergebnis != ""') || 0;
-    const nichtKontrolliert = totalSchueler - kontrolliert;
-    const okCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis='in_ordnung'") || 0;
-    const mangelCount = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE ergebnis != '' AND ergebnis != 'in_ordnung'") || 0;
+    // Alle Kontroll-Kennzahlen nur über AKTIVE Azubis: sonst zählen archivierte
+    // Jahrgänge weiter als 'kontrolliert', während der Nenner nur die Aktiven
+    // enthält -> die Abdeckung stieg nach jedem Jahrgangsabschluss und lief
+    // über 100 %, 'noch offen' wurde negativ.
+    const kontrolliert = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND s.aktiv=1`) || 0;
+    const nichtKontrolliert = Math.max(0, totalSchueler - kontrolliert);
+    // Kopf-Kennzahlen (nicht Ergebnis-Zeilen): Bei mehreren Durchsichten pro
+    // Azubi ergab die Zeilenzählung Erfolgsquoten weit über 100 %.
+    const okCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis='in_ordnung' AND s.aktiv=1
+      AND ke.schueler_id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')`) || 0;
+    const mangelCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND s.aktiv=1`) || 0;
     const termine = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="durchgefuehrt"') || 0;
     const termineGeplant = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="geplant"') || 0;
     const offeneWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
@@ -25211,9 +25649,14 @@ const BerichteHandler = {
     const einsendungen = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE typ='einsendung' AND status='durchgefuehrt'") || 0;
 
     // Top Mängel-Codes
-    const topCodes = App.query(`SELECT maengel_codes FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H'`);
+    // Nur Wochen aktiver Azubis; 'H' (Fehltage) ist kein Mangelcode und wird
+    // beim Aufsplitten unten einzeln aussortiert – der frühere Filter griff
+    // nur bei GENAU 'H', bei "A,H" wurde das H mitgezählt.
+    const topCodes = App.query(`SELECT kws.maengel_codes FROM kw_status kws
+      JOIN schueler s ON s.id=kws.schueler_id
+      WHERE kws.maengel_codes != '' AND s.aktiv=1`);
     const codeCount = {};
-    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { codeCount[c] = (codeCount[c]||0) + 1; }));
+    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { if (c !== 'H') codeCount[c] = (codeCount[c]||0) + 1; }));
     const sortedCodes = Object.entries(codeCount).sort((a,b) => b[1] - a[1]);
     const totalCodeEntries = sortedCodes.reduce((s, [,c]) => s + c, 0);
     const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'BS-Themen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
@@ -25375,17 +25818,21 @@ const BerichteHandler = {
     const sCols = [{label:'Schule',x:LM+2},{label:'Ort',x:LM+72},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+124,align:'center'},{label:'Mängel',x:LM+140,align:'center'},{label:'Offen',x:LM+156,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
     y = drawTableHeader(doc, y, sCols);
     schoolStats.forEach((s, i) => {
+      // Umbruch VOR der Zeile: ohne diese Prüfung liefen die letzten Zeilen
+      // unter die Fußzeile bzw. aus dem Blatt heraus und fehlten im PDF.
+      if (y > 268) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); y = drawTableHeader(doc, y, sCols); }
       const q = s.ok + s.mangel > 0 ? Math.round(s.ok / (s.ok + s.mangel) * 100) + '%' : '–';
       y = drawTableRow(doc, y, sCols, [s.schule, s.ort || '', s.total, s.ok, s.mangel, s.offen, q], i % 2 === 0);
     });
     y += 6;
 
     // Ergebnisse pro Fachrichtung
-    if (y > 235) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+    if (y > 235) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
     y = drawSectionTitle(doc, y, 'Ergebnisse pro Fachrichtung');
     const fCols = [{label:'Fachrichtung',x:LM+2},{label:'Azubis',x:LM+108,align:'center'},{label:'OK',x:LM+126,align:'center'},{label:'Mängel',x:LM+144,align:'center'},{label:'Quote',x:RM-2,align:'right'}];
     y = drawTableHeader(doc, y, fCols);
     frStats.forEach((f, i) => {
+      if (y > 268) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); y = drawTableHeader(doc, y, fCols); }
       const q = f.ok + f.mangel > 0 ? Math.round(f.ok / (f.ok + f.mangel) * 100) + '%' : '–';
       y = drawTableRow(doc, y, fCols, [f.fachrichtung, f.total, f.ok, f.mangel, q], i % 2 === 0);
     });
@@ -25549,6 +25996,12 @@ const BerichteHandler = {
     App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
     }, 50); // end setTimeout
+    } catch(e) {
+      console.error('Jahresbericht:', e);
+      App.toast('Jahresbericht konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   // ═══════════════════════════════════════════
@@ -25748,8 +26201,11 @@ const BerichteHandler = {
       LEFT JOIN betriebe b ON s.betrieb_id=b.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id`);
     const heute = todayStr();
-    const seenIbk = {};
-    const seenPerson = {};
+    // Object.create(null): Bei einer BAV-Ident namens "constructor" oder
+    // "__proto__" lieferte ein normales Objekt die geerbte Eigenschaft zurück
+    // (truthy, aber kein Array) und die gesamte Prüfung brach ab.
+    const seenIbk = Object.create(null);
+    const seenPerson = Object.create(null);
     alle.forEach(s => {
       if (s.ibykus_id) (seenIbk[s.ibykus_id] = seenIbk[s.ibykus_id] || []).push(s);
       const pKey = ((s.nachname || '') + '|' + (s.vorname || '') + '|' + (s.geburtsdatum || '')).toLowerCase();
@@ -25809,7 +26265,7 @@ const BerichteHandler = {
 
     // ── Betriebe ──
     const betriebe = App.query(`SELECT b.*, (SELECT COUNT(*) FROM schueler WHERE betrieb_id=b.id AND aktiv=1) AS cnt FROM betriebe b`);
-    const seenBnr = {}, seenBName = {};
+    const seenBnr = Object.create(null), seenBName = Object.create(null);
     betriebe.forEach(b => {
       if (b.betriebsnummer) (seenBnr[b.betriebsnummer] = seenBnr[b.betriebsnummer] || []).push(b);
       const key = ((b.name || '') + '|' + (b.ort || '')).toLowerCase();
@@ -25839,6 +26295,27 @@ const BerichteHandler = {
       if (sc.cnt > 0 && !sc.email) add('warnung', 'Schule', sc.name, `Keine E-Mail hinterlegt (${sc.cnt} aktive Azubis) – Anschreiben unmöglich`, 'email', () => { App.closeModal(); StammdatenTab.editSchule(sc.id); });
     });
 
+    // Strukturelle Lücken bündeln: Trifft eine Regel auf über die Hälfte aller
+    // Azubis zu, ist das keine Aussage über einzelne Datensätze, sondern über
+    // den Export (z.B. Geburtsdatum wird gar nicht geliefert). 600 identische
+    // Zeilen würden die echten Befunde sonst unauffindbar machen.
+    const gesamtAzubis = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    if (gesamtAzubis >= 20) {
+      const proProblem = Object.create(null);
+      issues.forEach(i => { if (i.kat === 'Azubi') proProblem[i.problem] = (proProblem[i.problem] || 0) + 1; });
+      const strukturell = new Set(Object.keys(proProblem).filter(k => proProblem[k] > gesamtAzubis * 0.5));
+      if (strukturell.size) {
+        const rest = issues.filter(i => !(i.kat === 'Azubi' && strukturell.has(i.problem)));
+        strukturell.forEach(problem => {
+          rest.push({ sev: 'hinweis', kat: 'Struktur', name: `${proProblem[problem]} Azubis betroffen`,
+            problem: `${problem} – betrifft nahezu alle Datensätze, vermutlich im IBYKUS-Export nicht enthalten`,
+            feld: '(Sammelmeldung)', action: null, ibykusId: '', strukturell: true });
+        });
+        issues.length = 0;
+        issues.push(...rest);
+      }
+    }
+
     const rank = { fehler: 0, warnung: 1, hinweis: 2 };
     issues.sort((a, b) => rank[a.sev] - rank[b.sev] || a.kat.localeCompare(b.kat) || a.name.localeCompare(b.name));
     return issues;
@@ -25850,8 +26327,12 @@ const BerichteHandler = {
     const nF = this._dqIssues.filter(i => i.sev === 'fehler').length;
     const nW = this._dqIssues.filter(i => i.sev === 'warnung').length;
     const nH = this._dqIssues.filter(i => i.sev === 'hinweis').length;
-    const gesamt = App.scalar('SELECT COUNT(*) FROM schueler') || 0;
-    const betroffen = new Set(this._dqIssues.filter(i => i.kat === 'Azubi' && i.sev !== 'hinweis').map(i => i.name)).size;
+    // Nenner nur AKTIVE Azubis: sonst stieg der Wert allein durchs Archivieren.
+    // Dedupliziert wird über die IBYKUS-ID (Namen sind nicht eindeutig).
+    const gesamt = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    const betroffen = new Set(this._dqIssues
+      .filter(i => i.kat === 'Azubi' && i.sev !== 'hinweis')
+      .map(i => i.ibykusId || i.name)).size;
     const score = gesamt ? Math.max(0, Math.round(100 * (1 - betroffen / gesamt))) : 100;
     const scoreColor = score >= 90 ? 'var(--clr-green)' : score >= 70 ? 'var(--clr-amber)' : 'var(--clr-red)';
 
@@ -26418,7 +26899,11 @@ const AzubiRechner = {
     const merged = [];
     for (const p of perioden) {
       const last = merged[merged.length - 1];
+      // +last.bis === +p.von: Ohne diese Prüfung wurden Perioden über eine
+      // LÜCKE hinweg verschmolzen (z.B. unbelegte Monate zwischen zwei Phasen)
+      // und die Lücke als bezahlte Zeit mit Urlaubsanspruch ausgewiesen.
       if (last && !last.unterbrechung && !p.unterbrechung
+          && +last.bis === +p.von
           && last.vergEff === p.vergEff && last.lehrjahr === p.lehrjahr
           && last.urlaubTageJahr === p.urlaubTageJahr && last.quote === p.quote
           && last.betrieb === p.betrieb) {
@@ -26511,7 +26996,12 @@ const AzubiRechner = {
       // Individueller Lohn (z.B. 822€ eigene Wohnung) überschreibt Pauschale
       aktVerg = s.brutto_lohn > 0 ? s.brutto_lohn : this.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt;
     } else {
-      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung) || perioden.filter(p => !p.unterbrechung).pop();
+      // Fällt "heute" in keine Periode (Unterbrechung, Lücke, Ausbildung noch
+      // nicht begonnen), NICHT auf die letzte Periode zurückfallen – das war
+      // die des 3. Lehrjahres und zeigte einem pausierenden oder noch nicht
+      // gestarteten Azubi den höchsten Satz an.
+      aktPeriode = perioden.find(p => heute >= p.von && heute < p.bis && !p.unterbrechung)
+        || perioden.filter(p => !p.unterbrechung && p.bis <= heute).pop() || null;
       aktVerg = aktPeriode ? aktPeriode.vergEff : (hatIndividuellenLohn ? s.brutto_lohn : 0);
     }
 
@@ -26803,11 +27293,19 @@ const AzubiDashboard = {
     if (kz.probleme.some(p => p.typ === 'luecke')) risiken.push('Lücken im Ausbildungsverlauf');
     if (kz.probleme.some(p => p.typ === 'ueberlappung')) risiken.push('Phasen-Überlappungen vorhanden');
     if (kz.aktPhase && kz.aktPhase.typ === 'unterbrechung') risiken.push('Ausbildung aktuell unterbrochen');
-    if (kz.aktVerg > 0) {
+    // §17 BBiG gilt NICHT für Fachwerker/Fachpraktiker (§66 BBiG) – die
+    // erhalten Ausbildungsgeld der Arbeitsagentur. Und maßgeblich ist der
+    // Mindestsatz zum AUSBILDUNGSBEGINN, nicht der aktuell jüngste; sonst
+    // wurde jeder Altvertrag gegen den neuesten Wert geprüft.
+    if (kz.aktVerg > 0 && !kz.isFachwerker) {
+      const beginn = (kz.schueler && kz.schueler.ausbildungsbeginn) || '';
       const miav = AzubiRechner.MINDESTVERGUETUNG;
-      const letztes = miav[miav.length - 1];
+      let stufe = miav[0];
+      for (let i = miav.length - 1; i >= 0; i--) {
+        if (beginn && beginn >= miav[i].ab) { stufe = miav[i]; break; }
+      }
       const ljIdx = Math.max(0, Math.min(2, kz.aktLehrjahr - 1));
-      if (kz.aktVerg < letztes.lj[ljIdx]) risiken.push('Vergütung unter Mindestvergütung (§17 BBiG)');
+      if (kz.aktVerg < stufe.lj[ljIdx]) risiken.push(`Vergütung unter Mindestvergütung (§17 BBiG, Stand ${stufe.ab.substring(0, 4)})`);
     }
     return risiken;
   },
@@ -27282,6 +27780,7 @@ const SchuelerView = {
   },
 
   doAbschliessen() {
+    try {
     const jgId = document.getElementById('mAbschlJG').value;
     if (!jgId) return App.toast('Kein Jahrgang ausgewählt', 'error');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgId]);
@@ -27297,6 +27796,12 @@ const SchuelerView = {
     App.closeModal();
     this.render();
     App.toast(`${count} Schüler im Jahrgang ${jgName} abgeschlossen`, 'success');
+    } catch(e) {
+      console.error('doAbschliessen:', e);
+      App.toast('Vorgang fehlgeschlagen: ' + (e.message || e), 'error');
+    } finally {
+      App.hideLoading();
+    }
   },
 
   render() {
@@ -27304,10 +27809,13 @@ const SchuelerView = {
     if (!c) return;
     const allData = this.getFilteredData();
     const opts = this.getFilterOptions();
-    const totalAll = App.scalar(`SELECT COUNT(*) FROM schueler WHERE ${this.showInaktive ? '1=1' : 'aktiv=1'}`) || 0;
-    const totalInaktive = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
+    // Gesamtzahl auf DERSELBEN Basis wie die Tabelle (inkl. globaler Filter):
+    // sonst stand im Kopf "612", während die Liste 47 Zeilen zeigte.
+    const gfS = App.gf('schueler');
+    const totalAll = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${this.showInaktive ? '1=1' : 's.aktiv=1'}${gfS}`) || 0;
+    const totalInaktive = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=0${gfS}`) || 0;
     const filtered = allData.length;
-    const isFiltered = Object.values(this.filters).some(v => v);
+    const isFiltered = Object.values(this.filters).some(v => v) || filtered !== totalAll;
 
     // Pagination
     const totalPages = Math.ceil(filtered / this.pageSize) || 1;
@@ -27648,6 +28156,13 @@ const SchuelerAkte = {
 
   // ── Aktenvermerk als PDF exportieren ──
   async exportAktenvermerk(schuelerId) {
+    try { return await this._exportAktenvermerk(schuelerId); }
+    catch (e) {
+      console.error('Aktenvermerk-Export:', e);
+      App.toast('Aktenvermerk konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    }
+  },
+  async _exportAktenvermerk(schuelerId) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
     const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
@@ -27656,7 +28171,9 @@ const SchuelerAkte = {
     const fr = s.fachrichtung_id ? App.query('SELECT * FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0] : null;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
     const dateien = App.query('SELECT * FROM schueler_dateien WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
-    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.name as termin_name
+    // kontrolltermine hat keine Spalte "name" – die Abfrage warf deshalb
+    // "no such column" und der Export-Knopf tat kommentarlos nichts.
+    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.bemerkung as termin_name
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
       WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum ASC`, [schuelerId]);
     const wiedervorlagen = App.query(`SELECT w.*, wn.notiz as wv_notiz, wn.erstellt_am as wv_notiz_am

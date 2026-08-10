@@ -150,13 +150,16 @@ const KWNav = {
     const row = parseInt(cell.dataset.row);
     const col = parseInt(cell.dataset.col);
     let targetAj = aj, targetRow = row, targetCol = col;
+    // Obergrenze aus dem tatsächlich gerenderten Raster (Verlängerer haben AJ 4)
+    const ajsVorhanden = this.getAllCells().map(c => parseInt(c.dataset.aj)).filter(n => !isNaN(n));
+    const maxAj = ajsVorhanden.length ? Math.max(...ajsVorhanden) : 3;
 
     switch(direction) {
       case 'right':
         targetCol = col + 1;
         if (targetCol > 12) { targetCol = 0; targetRow++; }
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return null;
+        if (targetAj > maxAj) return null;
         break;
       case 'left':
         targetCol = col - 1;
@@ -167,7 +170,7 @@ const KWNav = {
       case 'down':
         targetRow = row + 1;
         if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > 3) return;
+        if (targetAj > maxAj) return null;
         break;
       case 'up':
         targetRow = row - 1;
@@ -288,8 +291,12 @@ const KWNav = {
 
     // Push undo (restore old state)
     if (!skipUndo && (oldCodes || oldFehltage)) {
+      // behobene_codes des Vorzustands mit einfrieren – sonst bleibt nach dem
+      // Undo derselbe Code gleichzeitig als "offen" UND "behoben" stehen.
+      const vorBehoben = (App.query('SELECT behobene_codes FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?',
+        [sid, aj, kw])[0]?.behobene_codes) || '';
       UndoManager.push(`KW ${kw} geleert`,
-        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid); KontrolleHandler.renderSchueler(); },
+        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehltage, sid, false, vorBehoben); KontrolleHandler.renderSchueler(); },
         () => { this.persistCodes(keId, aj, kw, '', 0, sid); KontrolleHandler.renderSchueler(); }
       );
     }
@@ -314,7 +321,10 @@ const KWNav = {
   // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
   // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
   // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
-  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft) {
+  // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
+  // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
+  // Mängel automatisch als "behoben" protokolliert.
+  persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft, behobenOverride) {
     let sid = sidOpt ? parseInt(sidOpt) : null;
     if (!sid) {
       const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
@@ -325,16 +335,28 @@ const KWNav = {
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
       if (existing.length) {
+        // Entfernte Mängel IMMER als behoben protokollieren – unabhängig davon,
+        // ob sie über Entf, "Leeren", das Modal oder die O-Taste verschwinden.
+        // Sonst ging die Mängelhistorie je nach Bedienweg verloren.
+        const vorher = (existing[0].maengel_codes || '').split(',').filter(Boolean);
+        const neu = (codesStr || '').split(',').filter(Boolean);
+        const entfernt = vorher.filter(c => !neu.includes(c));
+        const prevBehoben = (existing[0].behobene_codes || '').split(',').filter(Boolean);
+        const behoben = behobenOverride !== undefined
+          ? behobenOverride
+          : [...new Set([...prevBehoben, ...entfernt])].join(',');
+
         if (!codesStr && !fehltage) {
-          if (keepGeprueft || existing[0].behobene_codes) {
+          if (keepGeprueft || behoben) {
             // "Keine Beanstandungen" (O) bzw. behobene Codes: Zeile erhalten
-            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
+            App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1, behobene_codes=?, behoben_bei=COALESCE(behoben_bei,?) WHERE id=?',
+              [behoben, entfernt.length ? keId : null, existing[0].id]);
           } else {
             App.run('DELETE FROM kw_status WHERE id=?', [existing[0].id]);
           }
         } else {
-          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
-            [codesStr, fehltage, keId, existing[0].id]);
+          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, behobene_codes=?, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
+            [codesStr, fehltage, behoben, keId, existing[0].id]);
         }
       } else if (codesStr || fehltage || keepGeprueft) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1',
@@ -342,7 +364,11 @@ const KWNav = {
       }
 
       // Track this KW as checked in this session
-      this.trackSessionKW(keId, aj, kw);
+      this.trackSessionKW(keId, aj, kw, sid);
+      // Gesamt-Fehltage nachziehen: lief bisher NUR über die Inline-Tasten,
+      // nicht über Modal/O-Taste/Leeren -> fehltage_gesamt (und damit das PDF)
+      // blieb auf dem alten Wert stehen.
+      try { KontrolleHandler.autoUpdateFehltage(sid, keId); } catch(e) {}
     }
 
     // ── kw_maengel (backward compat per kontrollergebnis) ──
@@ -351,14 +377,18 @@ const KWNav = {
       if (!codesStr && !fehltage) App.run('DELETE FROM kw_maengel WHERE id=?', [exM[0].id]);
       else App.run('UPDATE kw_maengel SET maengel_codes=?, fehltage=? WHERE id=?', [codesStr, fehltage, exM[0].id]);
     } else if (codesStr || fehltage) {
-      App.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?)',
+      App.run('INSERT INTO kw_maengel (kontrollergebnis_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage) VALUES (?,?,?,?,?) ON CONFLICT(kontrollergebnis_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage',
         [keId, aj, kw, codesStr, fehltage]);
     }
   },
 
   // Track session KWs in kontrollergebnisse.geprueft_kws
-  trackSessionKW(keId, aj, kw) {
-    const ke = App.query('SELECT geprueft_kws FROM kontrollergebnisse WHERE id=?', [keId])[0];
+  // sidOpt optional – ohne Angabe wird der Schüler aus dem Kontrollergebnis
+  // abgeleitet. NIEMALS aus currentSchuelerList[currentIndex]: das ist der
+  // gerade ANGEZEIGTE Azubi, nicht der bearbeitete (Undo nach Blättern
+  // markierte sonst dutzende Wochen beim falschen Azubi als geprüft).
+  trackSessionKW(keId, aj, kw, sidOpt) {
+    const ke = App.query('SELECT geprueft_kws, schueler_id FROM kontrollergebnisse WHERE id=?', [keId])[0];
     if (!ke) return;
     let data = {};
     try { data = JSON.parse(ke.geprueft_kws || '{}'); } catch(e) {}
@@ -373,7 +403,8 @@ const KWNav = {
     const clickedIdx = kwOrder.indexOf(kw);
     if (clickedIdx < 0) return;
 
-    const s = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
+    const sid = sidOpt ?? ke.schueler_id;
+    const s = sid ? { id: sid } : null;
     const newlyFilled = [];
 
     // Inaktive KWs (vor AV-Beginn / nach AV-Ende / Unterbrechung) nicht auto-füllen
