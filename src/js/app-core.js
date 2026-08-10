@@ -1069,6 +1069,7 @@ const App = {
       fehltage_gesamt INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
+      zulassung_manuell INTEGER DEFAULT 0,
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
@@ -3530,6 +3531,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -4992,6 +4994,11 @@ const App = {
       if (!keCols.includes('geaendert_von')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN geaendert_von TEXT DEFAULT ''");
       }
+      // Manuelle Abwahl der AP-Zulassung dauerhaft merken (war nur im Speicher →
+      // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
+      if (!keCols.includes('zulassung_manuell')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+      }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
       }
@@ -5505,6 +5512,10 @@ const App = {
   },
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // KW-Modal-Kontext aufräumen: bleibt er stehen, schreibt ein späterer
+    // Tastendruck (O/Enter) in einem FREMDEN Dialog auf die zuletzt
+    // betrachtete Kalenderwoche.
+    try { if (typeof KontrolleHandler !== 'undefined') KontrolleHandler._kwModalContext = null; } catch(e) {}
     // Modal-History-Eintrag wieder entfernen (außer die Zurück-Taste hat ihn
     // bereits konsumiert) – sonst müsste man nach dem X-Klick 2× zurück drücken
     if (this._modalHistoryPushed && !fromPopstate) {

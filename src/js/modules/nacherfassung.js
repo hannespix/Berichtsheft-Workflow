@@ -81,7 +81,10 @@ const NacherfassungHandler = {
               const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
               const lastKE = App.query("SELECT ke.ergebnis, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1", [s.id]);
               const lastInfo = lastKE.length ? formatDate(lastKE[0].geplant_datum).substring(0,6) + (lastKE[0].ergebnis === 'in_ordnung' ? '✓' : '!') : '–';
-              const lastKW = App.scalar("SELECT MAX(kalenderwoche) FROM kw_status WHERE schueler_id=? AND geprueft=1", [s.id]) || '';
+              // Letzte geprüfte KW in SCHULJAHRES-Reihenfolge (36..52, dann 1..35):
+              // ein einfaches MAX() liefert immer 52 statt der tatsächlich letzten Woche.
+              const lastKW = App.scalar(`SELECT kalenderwoche FROM kw_status WHERE schueler_id=? AND geprueft=1
+                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END, kalenderwoche DESC LIMIT 1`, [s.id]) || '';
               const amp = App.getSchuelerAmpel(s.id);
               return `<tr data-sid="${s.id}" class="ne-row">
                 <td>
@@ -89,7 +92,7 @@ const NacherfassungHandler = {
                   <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')} · ${esc(s.jahrgang||'')}</div>
                 </td>
                 <td style="font-size:11px">${esc(s.betrieb_name||s.ausbildungsstaette||'–')}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.betrieb_ort||'')}</div></td>
-                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="${fehlGesamt}" min="0" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Fehltage gesamt"></td>
+                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="7" placeholder="0" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Fehltage in der erfassten KW (bisher gesamt: ${fehlGesamt})"></td>
                 <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${lastKW}" min="1" max="52" placeholder="–" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Letzte geprüfte KW"></td>
                 <td style="font-size:10px;text-align:center">${lastInfo}</td>
                 <td>
@@ -145,13 +148,18 @@ const NacherfassungHandler = {
 
     // Collect rows with data
     const toSave = [];
-    document.querySelectorAll('.ne-ergebnis').forEach((sel, i) => {
+    document.querySelectorAll('.ne-ergebnis').forEach((sel) => {
       if (!sel.value || sel.value === '') return;
+      // Index aus dem Datensatz-Attribut, NICHT aus der DOM-Position: nach dem
+      // Sortieren der Tabelle stimmen die beiden nicht mehr überein und das
+      // Ergebnis würde einem anderen Azubi zugeschrieben.
+      const i = parseInt(sel.dataset.idx, 10);
       const s = this._rows[i];
+      if (!s) return;
       const codes = (document.querySelector(`.ne-codes[data-idx="${i}"]`)?.value || '').toUpperCase().replace(/\s+/g, '');
       const bem = document.querySelector(`.ne-bem[data-idx="${i}"]`)?.value || '';
       const wvDate = document.querySelector(`.ne-wv[data-idx="${i}"]`)?.value || '';
-      const fehl = parseInt(document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value) || 0;
+      const fehl = Math.max(0, Math.min(7, parseInt(document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value) || 0));
       const kw = parseInt(document.querySelector(`.ne-kw[data-idx="${i}"]`)?.value) || 0;
       toSave.push({ schueler: s, ergebnis: sel.value, codes, bemerkung: bem, wvDate, fehltage: fehl, lastKW: kw });
     });

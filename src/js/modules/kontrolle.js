@@ -166,10 +166,8 @@ const KontrolleHandler = {
       // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
       // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
       // der Import es bei jedem Sync zurück und der Toast erscheint endlos).
-      if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
-      const overrideKey = this.currentTerminId + ':' + s.id;
-      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !this._manualZulassungOverride.has(overrideKey)) {
-        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0', [ke.id]);
+      if (autoZulassung && ke.zulassung_ap === 0 && ke.pruefungsausschuss === 0 && !ke.zulassung_manuell) {
+        App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0 AND COALESCE(zulassung_manuell,0)=0', [ke.id]);
         ke.zulassung_ap = 1;
         autoZulCount++;
       }
@@ -356,10 +354,10 @@ const KontrolleHandler = {
   toggleZulassung(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
-    // Manuelles Abwählen merken — sonst setzt die Auto-Zulassung beim nächsten Render sofort wieder auf 1
-    if (!this._manualZulassungOverride) this._manualZulassungOverride = new Set();
-    if (!checked) this._manualZulassungOverride.add(this.currentTerminId + ':' + schuelerId);
-    else this._manualZulassungOverride.delete(this.currentTerminId + ':' + schuelerId);
+    // Manuelles Abwählen DAUERHAFT merken (DB-Spalte, nicht nur im Speicher):
+    // sonst setzt die Auto-Zulassung sie nach einem Reload – oder beim Kollegen,
+    // der dieselbe Übersicht öffnet – kommentarlos wieder auf 1.
+    App.run('UPDATE kontrollergebnisse SET zulassung_manuell=? WHERE id=?', [checked ? 0 : 1, ke.id]);
     if (checked && ke.pruefungsausschuss === 1) {
       // Unset PA when setting Zulassung
       App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=0, zulassung_ap=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
@@ -835,7 +833,7 @@ const KontrolleHandler = {
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
               data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
               onclick="KWNav.focusCell(this,event)"
-              title="${title}">
+              title="${esc(title)}">
               ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
             </div>`;
           }).join('')}
@@ -1436,7 +1434,7 @@ const KontrolleHandler = {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes="", fehltage=0, geprueft=1',
           [s.id, aj, kw, keId]);
       }
-      KWNav.trackSessionKW(keId, aj, kw);
+      KWNav.trackSessionKW(keId, aj, kw, s?.id);
     }
     // Also clear kw_maengel
     App.run('DELETE FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [keId, aj, kw]);
@@ -2234,9 +2232,9 @@ const KontrolleHandler = {
       if (existing.length) {
         App.run('UPDATE kw_status SET geprueft=1 WHERE id=?', [existing[0].id]);
       } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?)', [s.id, aj, kw, ke.id]);
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, aj, kw, ke.id]);
       }
-      KWNav.trackSessionKW(ke.id, aj, kw);
+      KWNav.trackSessionKW(ke.id, aj, kw, ke.schueler_id ?? s?.id);
       count++;
     });
 
@@ -2254,10 +2252,10 @@ const KontrolleHandler = {
             count++;
           }
         } else {
-          App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?)', [s.id, prevAJ, kw, ke.id]);
+          App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, prevAJ, kw, ke.id]);
           count++;
         }
-        KWNav.trackSessionKW(ke.id, prevAJ, kw);
+        KWNav.trackSessionKW(ke.id, prevAJ, kw, ke.schueler_id ?? s?.id);
       });
     });
 
