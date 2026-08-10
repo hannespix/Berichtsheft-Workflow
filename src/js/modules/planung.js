@@ -706,8 +706,7 @@ const PlanungHandler = {
   },
   deleteTermin(id) {
     if (!confirm('Termin löschen?')) return;
-    App.run('DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?', [id]);
-    App.run('DELETE FROM kontrolltermine WHERE id=?', [id]);
+    App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
   },

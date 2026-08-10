@@ -985,7 +985,7 @@ const ImportHandler = {
   },
   deleteSchueler(id) {
     if (!confirm('Schüler wirklich löschen?')) return;
-    App.run('DELETE FROM schueler WHERE id=?', [id]);
+    App.deleteSchuelerKaskade(id);
     try { SchuelerView.render(); } catch(e) {}
   },
   // ═══════════════════════════════════════════
@@ -1307,15 +1307,12 @@ const ImportHandler = {
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
     if (!count) return App.toast('Keine Schüler zum Löschen', 'warning');
     if (!confirm(`Wirklich ALLE ${count} Schüler im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
-    // Delete related data
-    App.run(`DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT ke.id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE kt.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT w.id FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE s.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrollergebnisse WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run('DELETE FROM kontrolltermine WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM klassen WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM schueler WHERE jahrgang_id=?', [jg]);
+    // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
+    // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
+    // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
+    App.query('SELECT id FROM kontrolltermine WHERE jahrgang_id=?', [jg]).forEach(t => App.deleteTerminKaskade(t.id));
+    App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
+    App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
     App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
     try { SchuelerView.render(); } catch(e) {}
   },

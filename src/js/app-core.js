@@ -1121,6 +1121,10 @@ const App = {
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
     );
+    CREATE TABLE IF NOT EXISTS bhk_applied_ops (
+      op_uid TEXT PRIMARY KEY,
+      ts TEXT DEFAULT ''
+    );
     CREATE TABLE IF NOT EXISTS bhk_tombstones (
       tabelle TEXT NOT NULL,
       key TEXT NOT NULL,
@@ -3363,6 +3367,74 @@ const App = {
     } catch(e) {}
   },
 
+  // ═══════════════════════════════════════════
+  //  LÖSCHEN MIT KASKADE
+  //  PRAGMA foreign_keys ist in sql.js standardmäßig AUS, die ON DELETE
+  //  CASCADE im Schema greifen also nie. Ohne diese Helfer blieben nach jedem
+  //  Löschen verwaiste Zeilen liegen: unsichtbar, aber weiterhin in Ampel,
+  //  Statistik und Mängelcode-Auswertung mitgezählt.
+  // ═══════════════════════════════════════════
+  deleteSchuelerKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE schueler_id=?',
+     'DELETE FROM wiedervorlagen WHERE schueler_id=?',
+     'DELETE FROM kontrollergebnisse WHERE schueler_id=?',
+     'DELETE FROM kw_status WHERE schueler_id=?',
+     'DELETE FROM ausbildungsphasen WHERE schueler_id=?',
+     'DELETE FROM schueler_bemerkungen WHERE schueler_id=?',
+     'DELETE FROM schueler_dateien WHERE schueler_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE schueler_id=?',
+     'DELETE FROM aktive_sitzung WHERE schueler_id=?',
+     'DELETE FROM schueler WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
+  },
+  deleteTerminKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?',
+     'DELETE FROM aktive_sitzung WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermine WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteKlasseKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?',
+     'UPDATE kontrolltermine SET klasse_id=NULL WHERE klasse_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE klasse_id=?',
+     'DELETE FROM klassen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteSchuleKaskade(id) {
+    if (!id) return;
+    try {
+      this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
+    } catch(e) {}
+    ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'DELETE FROM berufsschulen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteBetriebKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'DELETE FROM ausbilder WHERE betrieb_id=?',
+     'DELETE FROM betriebe WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteJahrgangKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE klassen SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE kontrolltermine SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'DELETE FROM abschlussjahrgaenge WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+
   scalar(sql, params = []) {
     const r = this.query(sql, params);
     if (!r.length) return null;
@@ -3800,6 +3872,13 @@ const App = {
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
     )`);
     // Tombstones (Replay-Ziel für Lösch-Propagation)
     run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
@@ -5098,6 +5177,17 @@ const App = {
   migrateDB() {
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
+      // wiedervorlage_notizen fehlte als einzige Zusatztabelle in beiden
+      // Migrationen: auf gewachsenen Datenbanken schlugen alle Abfragen darauf fehl.
+      this.db.run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
+    )`);
+      // Idempotenz-Ledger auch in der Arbeitskopie vorhalten
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
       // Tombstones (Lösch-Propagation) – auch auf Bestands-DBs anlegen + alte Einträge räumen
       this.db.run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
         tabelle TEXT NOT NULL, key TEXT NOT NULL,

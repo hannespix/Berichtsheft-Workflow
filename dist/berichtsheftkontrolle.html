@@ -8366,6 +8366,10 @@ const App = {
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
     );
+    CREATE TABLE IF NOT EXISTS bhk_applied_ops (
+      op_uid TEXT PRIMARY KEY,
+      ts TEXT DEFAULT ''
+    );
     CREATE TABLE IF NOT EXISTS bhk_tombstones (
       tabelle TEXT NOT NULL,
       key TEXT NOT NULL,
@@ -10608,6 +10612,74 @@ const App = {
     } catch(e) {}
   },
 
+  // ═══════════════════════════════════════════
+  //  LÖSCHEN MIT KASKADE
+  //  PRAGMA foreign_keys ist in sql.js standardmäßig AUS, die ON DELETE
+  //  CASCADE im Schema greifen also nie. Ohne diese Helfer blieben nach jedem
+  //  Löschen verwaiste Zeilen liegen: unsichtbar, aber weiterhin in Ampel,
+  //  Statistik und Mängelcode-Auswertung mitgezählt.
+  // ═══════════════════════════════════════════
+  deleteSchuelerKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE schueler_id=?',
+     'DELETE FROM wiedervorlagen WHERE schueler_id=?',
+     'DELETE FROM kontrollergebnisse WHERE schueler_id=?',
+     'DELETE FROM kw_status WHERE schueler_id=?',
+     'DELETE FROM ausbildungsphasen WHERE schueler_id=?',
+     'DELETE FROM schueler_bemerkungen WHERE schueler_id=?',
+     'DELETE FROM schueler_dateien WHERE schueler_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE schueler_id=?',
+     'DELETE FROM aktive_sitzung WHERE schueler_id=?',
+     'DELETE FROM schueler WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
+  },
+  deleteTerminKaskade(id) {
+    if (!id) return;
+    ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?',
+     'DELETE FROM aktive_sitzung WHERE kontrolltermin_id=?',
+     'DELETE FROM kontrolltermine WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteKlasseKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?',
+     'UPDATE kontrolltermine SET klasse_id=NULL WHERE klasse_id=?',
+     'DELETE FROM kontrolltermin_klassen WHERE klasse_id=?',
+     'DELETE FROM klassen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteSchuleKaskade(id) {
+    if (!id) return;
+    try {
+      this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
+    } catch(e) {}
+    ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'DELETE FROM berufsschulen WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteBetriebKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'DELETE FROM ausbilder WHERE betrieb_id=?',
+     'DELETE FROM betriebe WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+  deleteJahrgangKaskade(id) {
+    if (!id) return;
+    ['UPDATE schueler SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE klassen SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'UPDATE kontrolltermine SET jahrgang_id=NULL WHERE jahrgang_id=?',
+     'DELETE FROM abschlussjahrgaenge WHERE id=?',
+    ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+
   scalar(sql, params = []) {
     const r = this.query(sql, params);
     if (!r.length) return null;
@@ -11045,6 +11117,13 @@ const App = {
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
+    )`);
+    run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
     )`);
     // Tombstones (Replay-Ziel für Lösch-Propagation)
     run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
@@ -12343,6 +12422,17 @@ const App = {
   migrateDB() {
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
+      // wiedervorlage_notizen fehlte als einzige Zusatztabelle in beiden
+      // Migrationen: auf gewachsenen Datenbanken schlugen alle Abfragen darauf fehl.
+      this.db.run(`CREATE TABLE IF NOT EXISTS wiedervorlage_notizen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wiedervorlage_id INTEGER REFERENCES wiedervorlagen(id),
+      notiz TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime')),
+      erstellt_von TEXT DEFAULT ''
+    )`);
+      // Idempotenz-Ledger auch in der Arbeitskopie vorhalten
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
       // Tombstones (Lösch-Propagation) – auch auf Bestands-DBs anlegen + alte Einträge räumen
       this.db.run(`CREATE TABLE IF NOT EXISTS bhk_tombstones (
         tabelle TEXT NOT NULL, key TEXT NOT NULL,
@@ -14701,7 +14791,7 @@ const Views = {
         if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
       });
     }
-    App.run('DELETE FROM betriebe WHERE id=?', [removeId]);
+    App.deleteBetriebKaskade(removeId);
     App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
     Views.einstellungen();
   },
@@ -16066,14 +16156,9 @@ const StammdatenTab = {
     const ids = this._bulkGetSelected();
     const inp = document.getElementById('bulkDeleteConfirmInput');
     if (!inp || inp.value.trim() !== String(ids.length)) return;
-    const ph = ids.join(',');
-    App.run(`DELETE FROM kontrollergebnisse WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kw_status WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kontrolltermin_schueler WHERE schueler_id IN (${ph})`);
-    try { App.run(`DELETE FROM schueler_bemerkungen WHERE schueler_id IN (${ph})`); } catch(e) {}
-    try { App.run(`DELETE FROM schueler_dateien WHERE schueler_id IN (${ph})`); } catch(e) {}
-    App.run(`DELETE FROM schueler WHERE id IN (${ph})`);
+    // Über die zentrale Kaskade, damit keine abhängige Tabelle vergessen wird
+    // (die frühere Liste ließ Snapshots, Phasen und Mängel-Altdaten zurück).
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
     App.closeModal();
     App.toast(`${ids.length} Azubis und alle verknüpften Daten gelöscht`, 'success');
     this._renderAzubiTable(document.getElementById('stammdatenContent'));
@@ -16260,7 +16345,7 @@ const StammdatenTab = {
   },
   deleteJahrgang(id) {
     if (!confirm('Jahrgang wirklich löschen?')) return;
-    App.run('DELETE FROM abschlussjahrgaenge WHERE id=?', [id]);
+    App.deleteJahrgangKaskade(id);
     // (jahrgang refresh no longer needed)
     StammdatenTab.show('jahrgaenge');
   },
@@ -16317,7 +16402,7 @@ const StammdatenTab = {
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
     ids.forEach(id => {
       App.run('DELETE FROM klassen WHERE berufsschule_id=?', [id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.toast(`${ids.length} Schulen gelöscht`, 'success');
     StammdatenTab.show('schulen');
@@ -16341,7 +16426,7 @@ const StammdatenTab = {
     if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
     others.forEach(id => {
       App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.closeModal();
     App.toast(`${others.length} Schulen in Ziel zusammengeführt`, 'success');
@@ -16452,7 +16537,7 @@ const StammdatenTab = {
   },
   deleteSchule(id) {
     if (!confirm('Berufsschule löschen?')) return;
-    App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+    App.deleteSchuleKaskade(id);
     StammdatenTab.show('schulen');
   },
 
@@ -16515,7 +16600,7 @@ const StammdatenTab = {
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-      App.run('DELETE FROM klassen WHERE id=?', [id]);
+      App.deleteKlasseKaskade(id);
     });
     App.toast(`${ids.length} Klassen gelöscht`, 'success');
     StammdatenTab.show('klassen');
@@ -16646,7 +16731,7 @@ const StammdatenTab = {
   deleteKlasse(id) {
     if (!confirm('Klasse löschen?')) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-    App.run('DELETE FROM klassen WHERE id=?', [id]);
+    App.deleteKlasseKaskade(id);
     StammdatenTab.show('klassen');
   },
 
@@ -17130,7 +17215,7 @@ const StammdatenTab = {
     if (!confirm('Betrieb löschen? (Nur möglich wenn keine Azubis zugeordnet)')) return;
     App.run('UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?', [id]);
     App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
-    App.run('DELETE FROM betriebe WHERE id=?', [id]);
+    App.deleteBetriebKaskade(id);
     StammdatenTab.show('betriebe');
   },
 
@@ -18316,7 +18401,7 @@ const ImportHandler = {
   },
   deleteSchueler(id) {
     if (!confirm('Schüler wirklich löschen?')) return;
-    App.run('DELETE FROM schueler WHERE id=?', [id]);
+    App.deleteSchuelerKaskade(id);
     try { SchuelerView.render(); } catch(e) {}
   },
   // ═══════════════════════════════════════════
@@ -18638,15 +18723,12 @@ const ImportHandler = {
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
     if (!count) return App.toast('Keine Schüler zum Löschen', 'warning');
     if (!confirm(`Wirklich ALLE ${count} Schüler im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
-    // Delete related data
-    App.run(`DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT ke.id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE kt.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT w.id FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE s.jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrollergebnisse WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run(`DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id IN (SELECT id FROM kontrolltermine WHERE jahrgang_id=?)`, [jg]);
-    App.run('DELETE FROM kontrolltermine WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM klassen WHERE jahrgang_id=?', [jg]);
-    App.run('DELETE FROM schueler WHERE jahrgang_id=?', [jg]);
+    // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
+    // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
+    // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
+    App.query('SELECT id FROM kontrolltermine WHERE jahrgang_id=?', [jg]).forEach(t => App.deleteTerminKaskade(t.id));
+    App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
+    App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
     App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
     try { SchuelerView.render(); } catch(e) {}
   },
@@ -19361,8 +19443,7 @@ const PlanungHandler = {
   },
   deleteTermin(id) {
     if (!confirm('Termin löschen?')) return;
-    App.run('DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?', [id]);
-    App.run('DELETE FROM kontrolltermine WHERE id=?', [id]);
+    App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
   },
@@ -24050,9 +24131,29 @@ document.addEventListener('keydown', (e) => {
 
 // ── bulk-schueler.js ──
 const BulkSchueler = {
-  getSelected() { return [...document.querySelectorAll('.chk-s:checked')].map(c => parseInt(c.value)); },
+  // Löschen aus der Bulk-Leiste der Schülerliste. Der Knopf rief bisher eine
+  // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
+  deleteSelected() {
+    const ids = this.getSelected();
+    if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
+    if (!confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`)) return;
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
+    App.toast(`${ids.length} Azubi(s) und alle verknüpften Daten gelöscht`, 'success');
+    this.deselectAll();
+    this._refresh();
+  },
+  // Ansicht aktualisieren – je nachdem, aus welcher Liste die Aktion kam
+  _refresh() {
+    const c = document.getElementById('stammdatenContent');
+    if (c && typeof StammdatenTab !== 'undefined' && StammdatenTab._renderAzubiTable) {
+      try { StammdatenTab._renderAzubiTable(c); return; } catch(e) {}
+    }
+    if (typeof SchuelerView !== 'undefined') { try { SchuelerView.render(); return; } catch(e) {} }
+    try { App.renderCurrentView(); } catch(e) {}
+  },
+  getSelected() { return [...document.querySelectorAll('.chk-s:checked, .chk-azubi:checked')].map(c => parseInt(c.value)); },
   toggleAll(checked) { document.querySelectorAll('.chk-s').forEach(c => c.checked = checked); this.updateBar(); },
-  deselectAll() { document.querySelectorAll('.chk-s').forEach(c => c.checked = false); document.getElementById('chkAllS').checked = false; this.updateBar(); },
+  deselectAll() { document.querySelectorAll('.chk-s, .chk-azubi').forEach(c => c.checked = false); const a = document.getElementById('chkAllS'); if (a) a.checked = false; this.updateBar(); },
   updateBar() {
     const ids = this.getSelected();
     const bar = document.getElementById('bulkBarSchueler');
@@ -27950,6 +28051,13 @@ const SchuelerAkte = {
 
   // ── Aktenvermerk als PDF exportieren ──
   async exportAktenvermerk(schuelerId) {
+    try { return await this._exportAktenvermerk(schuelerId); }
+    catch (e) {
+      console.error('Aktenvermerk-Export:', e);
+      App.toast('Aktenvermerk konnte nicht erstellt werden: ' + (e.message || e), 'error');
+    }
+  },
+  async _exportAktenvermerk(schuelerId) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
     const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
@@ -27958,7 +28066,9 @@ const SchuelerAkte = {
     const fr = s.fachrichtung_id ? App.query('SELECT * FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0] : null;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
     const dateien = App.query('SELECT * FROM schueler_dateien WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
-    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.name as termin_name
+    // kontrolltermine hat keine Spalte "name" – die Abfrage warf deshalb
+    // "no such column" und der Export-Knopf tat kommentarlos nichts.
+    const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.bemerkung as termin_name
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
       WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum ASC`, [schuelerId]);
     const wiedervorlagen = App.query(`SELECT w.*, wn.notiz as wv_notiz, wn.erstellt_am as wv_notiz_am

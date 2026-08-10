@@ -1626,7 +1626,7 @@ const Views = {
         if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
       });
     }
-    App.run('DELETE FROM betriebe WHERE id=?', [removeId]);
+    App.deleteBetriebKaskade(removeId);
     App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
     Views.einstellungen();
   },

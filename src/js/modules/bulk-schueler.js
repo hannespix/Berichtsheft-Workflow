@@ -1,7 +1,27 @@
 const BulkSchueler = {
-  getSelected() { return [...document.querySelectorAll('.chk-s:checked')].map(c => parseInt(c.value)); },
+  // Löschen aus der Bulk-Leiste der Schülerliste. Der Knopf rief bisher eine
+  // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
+  deleteSelected() {
+    const ids = this.getSelected();
+    if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
+    if (!confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`)) return;
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
+    App.toast(`${ids.length} Azubi(s) und alle verknüpften Daten gelöscht`, 'success');
+    this.deselectAll();
+    this._refresh();
+  },
+  // Ansicht aktualisieren – je nachdem, aus welcher Liste die Aktion kam
+  _refresh() {
+    const c = document.getElementById('stammdatenContent');
+    if (c && typeof StammdatenTab !== 'undefined' && StammdatenTab._renderAzubiTable) {
+      try { StammdatenTab._renderAzubiTable(c); return; } catch(e) {}
+    }
+    if (typeof SchuelerView !== 'undefined') { try { SchuelerView.render(); return; } catch(e) {} }
+    try { App.renderCurrentView(); } catch(e) {}
+  },
+  getSelected() { return [...document.querySelectorAll('.chk-s:checked, .chk-azubi:checked')].map(c => parseInt(c.value)); },
   toggleAll(checked) { document.querySelectorAll('.chk-s').forEach(c => c.checked = checked); this.updateBar(); },
-  deselectAll() { document.querySelectorAll('.chk-s').forEach(c => c.checked = false); document.getElementById('chkAllS').checked = false; this.updateBar(); },
+  deselectAll() { document.querySelectorAll('.chk-s, .chk-azubi').forEach(c => c.checked = false); const a = document.getElementById('chkAllS'); if (a) a.checked = false; this.updateBar(); },
   updateBar() {
     const ids = this.getSelected();
     const bar = document.getElementById('bulkBarSchueler');

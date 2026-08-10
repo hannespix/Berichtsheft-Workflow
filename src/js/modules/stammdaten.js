@@ -252,14 +252,9 @@ const StammdatenTab = {
     const ids = this._bulkGetSelected();
     const inp = document.getElementById('bulkDeleteConfirmInput');
     if (!inp || inp.value.trim() !== String(ids.length)) return;
-    const ph = ids.join(',');
-    App.run(`DELETE FROM kontrollergebnisse WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM wiedervorlagen WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kw_status WHERE schueler_id IN (${ph})`);
-    App.run(`DELETE FROM kontrolltermin_schueler WHERE schueler_id IN (${ph})`);
-    try { App.run(`DELETE FROM schueler_bemerkungen WHERE schueler_id IN (${ph})`); } catch(e) {}
-    try { App.run(`DELETE FROM schueler_dateien WHERE schueler_id IN (${ph})`); } catch(e) {}
-    App.run(`DELETE FROM schueler WHERE id IN (${ph})`);
+    // Über die zentrale Kaskade, damit keine abhängige Tabelle vergessen wird
+    // (die frühere Liste ließ Snapshots, Phasen und Mängel-Altdaten zurück).
+    ids.forEach(id => App.deleteSchuelerKaskade(id));
     App.closeModal();
     App.toast(`${ids.length} Azubis und alle verknüpften Daten gelöscht`, 'success');
     this._renderAzubiTable(document.getElementById('stammdatenContent'));
@@ -446,7 +441,7 @@ const StammdatenTab = {
   },
   deleteJahrgang(id) {
     if (!confirm('Jahrgang wirklich löschen?')) return;
-    App.run('DELETE FROM abschlussjahrgaenge WHERE id=?', [id]);
+    App.deleteJahrgangKaskade(id);
     // (jahrgang refresh no longer needed)
     StammdatenTab.show('jahrgaenge');
   },
@@ -503,7 +498,7 @@ const StammdatenTab = {
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
     ids.forEach(id => {
       App.run('DELETE FROM klassen WHERE berufsschule_id=?', [id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.toast(`${ids.length} Schulen gelöscht`, 'success');
     StammdatenTab.show('schulen');
@@ -527,7 +522,7 @@ const StammdatenTab = {
     if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
     others.forEach(id => {
       App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
-      App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+      App.deleteSchuleKaskade(id);
     });
     App.closeModal();
     App.toast(`${others.length} Schulen in Ziel zusammengeführt`, 'success');
@@ -638,7 +633,7 @@ const StammdatenTab = {
   },
   deleteSchule(id) {
     if (!confirm('Berufsschule löschen?')) return;
-    App.run('DELETE FROM berufsschulen WHERE id=?', [id]);
+    App.deleteSchuleKaskade(id);
     StammdatenTab.show('schulen');
   },
 
@@ -701,7 +696,7 @@ const StammdatenTab = {
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-      App.run('DELETE FROM klassen WHERE id=?', [id]);
+      App.deleteKlasseKaskade(id);
     });
     App.toast(`${ids.length} Klassen gelöscht`, 'success');
     StammdatenTab.show('klassen');
@@ -832,7 +827,7 @@ const StammdatenTab = {
   deleteKlasse(id) {
     if (!confirm('Klasse löschen?')) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
-    App.run('DELETE FROM klassen WHERE id=?', [id]);
+    App.deleteKlasseKaskade(id);
     StammdatenTab.show('klassen');
   },
 
@@ -1316,7 +1311,7 @@ const StammdatenTab = {
     if (!confirm('Betrieb löschen? (Nur möglich wenn keine Azubis zugeordnet)')) return;
     App.run('UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?', [id]);
     App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
-    App.run('DELETE FROM betriebe WHERE id=?', [id]);
+    App.deleteBetriebKaskade(id);
     StammdatenTab.show('betriebe');
   },
 
