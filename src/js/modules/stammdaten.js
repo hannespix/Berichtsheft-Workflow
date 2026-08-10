@@ -1097,7 +1097,7 @@ const StammdatenTab = {
     const unlinked = App.query("SELECT id, ausbildungsstaette FROM schueler WHERE betrieb_id IS NULL AND ausbildungsstaette != '' AND aktiv=1");
     if (!unlinked.length) { if (showToast) App.toast('Alle Schüler sind bereits verknüpft', 'success'); return; }
 
-    let linked = 0, created = 0;
+    let linked = 0, created = 0, fehler = 0;
     unlinked.forEach(s => {
       const name = s.ausbildungsstaette.replace(/\s*\(.*\)$/, '').trim(); // Remove "(Ort)" suffix
       // Try exact match
@@ -1110,14 +1110,21 @@ const StammdatenTab = {
         App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [b.id, s.id]);
         linked++;
       } else {
-        // Create minimal betrieb entry from name
-        App.run('INSERT INTO betriebe (name) VALUES (?)', [name]);
-        const newId = App.scalar('SELECT last_insert_rowid()');
-        App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [newId, s.id]);
-        created++;
+        // Create minimal betrieb entry from name.
+        // betriebsnummer ausdrücklich NULL: der Vorgabewert '' ist UNIQUE, der
+        // zweite Betrieb ohne Nummer scheiterte und riss die ganze Schleife mit.
+        try {
+          App.run('INSERT INTO betriebe (name,betriebsnummer) VALUES (?,NULL)', [name]);
+          const newId = App.scalar('SELECT last_insert_rowid()');
+          App.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [newId, s.id]);
+          created++;
+        } catch(e) {
+          console.warn('Betrieb konnte nicht angelegt werden:', name, e.message);
+          fehler++;
+        }
       }
     });
-    if (showToast) App.toast(`${linked} verknüpft, ${created} neue Betriebe erstellt`, 'success');
+    if (showToast) App.toast(`${linked} verknüpft, ${created} neue Betriebe erstellt` + (fehler ? `, ${fehler} fehlgeschlagen` : ''), fehler ? 'warning' : 'success');
   },
 
   addBetrieb() {
@@ -1163,10 +1170,16 @@ const StammdatenTab = {
     const n = document.getElementById('mBeName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
     const zusatz = document.getElementById('mBeZusatz')?.value?.trim()||'';
+    // Doppelte Betriebsnummer vorab abfangen: sonst warf der INSERT eine
+    // Ausnahme, das Fenster blieb offen und der Nutzer bekam keine Erklärung.
+    const bnrNeu = document.getElementById('mBeBnr').value.trim();
+    if (bnrNeu && App.scalar('SELECT COUNT(*) FROM betriebe WHERE betriebsnummer=?', [bnrNeu])) {
+      return App.toast(`Betriebsnummer ${bnrNeu} ist bereits vergeben`, 'error');
+    }
     App.run('INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon,fax,ansprechpartner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [n, document.getElementById('mBeVorname')?.value?.trim()||'',
        zusatz, zusatz,
-       document.getElementById('mBeBnr').value.trim(),
+       document.getElementById('mBeBnr').value.trim() || null,
        document.getElementById('mBeStr').value.trim(), document.getElementById('mBePlz').value.trim(),
        document.getElementById('mBeOrt').value.trim(),
        document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(),

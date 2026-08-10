@@ -133,14 +133,31 @@ const ImportHandler = {
     };
     const fieldKeys = Object.keys(fieldDefs);
 
+    // Jede CSV-Spalte darf nur EINEM Feld zugeordnet werden. Ohne diese Sperre
+    // beanspruchte z.B. eine Spalte "Nr" gleichzeitig Betriebsnummer und
+    // BAV-Ident – jeder Azubi bekam dann einen eigenen Betrieb.
+    const vergeben = new Set();
     function bestMatch(fieldKey, columns) {
       const patterns = fieldDefs[fieldKey]?.[1] || [];
-      for (const col of columns) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) return col; }
-      for (const col of columns) { const cl = col.toLowerCase().trim(); for (const p of patterns) { if (cl.includes(p) || p.includes(cl)) return col; } }
+      const frei = columns.filter(c => !vergeben.has(c));
+      // Runde 1: exakter Treffer
+      for (const col of frei) { const cl = col.toLowerCase().trim(); if (patterns.includes(cl)) { vergeben.add(col); return col; } }
+      // Runde 2: Spaltenname enthält das Muster (Mindestlänge 4, damit kurze
+      // Kürzel wie "nr" nicht wahllos greifen). Die Rückrichtung
+      // (Muster enthält Spaltenname) entfällt – sie erzeugte Fehlzuordnungen
+      // wie Azubi-Nachname -> Ausbildungsstätte.
+      for (const col of frei) {
+        const cl = col.toLowerCase().trim();
+        for (const p of patterns) { if (p.length >= 4 && cl.includes(p)) { vergeben.add(col); return col; } }
+      }
       return '';
     }
 
-    const matchCount = fieldKeys.filter(f => bestMatch(f, fields)).length;
+    // Zuordnung einmal vorab berechnen (bestMatch ist durch die Sperre
+    // zustandsbehaftet und darf pro Feld nur einmal laufen)
+    const autoMap = {};
+    fieldKeys.forEach(f => { autoMap[f] = bestMatch(f, fields); });
+    const matchCount = fieldKeys.filter(f => autoMap[f]).length;
     const preview = document.getElementById('importPreview');
     preview.innerHTML = `
       <div style="margin-top:16px">
@@ -151,7 +168,7 @@ const ImportHandler = {
         </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
           ${fieldKeys.map(f => {
-            const matched = bestMatch(f, fields);
+            const matched = autoMap[f];
             const label = fieldDefs[f][0];
             return `<div class="form-group" style="margin:0">
               <label>${label} ${matched ? '✓' : ''}</label>
@@ -268,11 +285,19 @@ const ImportHandler = {
     // ── Parse date (DD.MM.YYYY) ──
     function parseD(t) {
       if (!t) return null;
-      let m = t.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-      if (m) return new Date(+m[3], m[2]-1, +m[1]);
-      m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-      if (m) return new Date(+m[1], m[2]-1, +m[3]);
-      const d = new Date(t); return isNaN(d) ? null : d;
+      // Streng: nur TT.MM.JJJJ und JJJJ-MM-TT, jeweils mit Gültigkeitsprüfung.
+      // Der frühere new Date(t)-Rückfall las "01.02.24" als 2. Januar (US-Format)
+      // und ließ "31.02.2024" stillschweigend zum 2. März überlaufen.
+      const bau = (j, mo, tg) => {
+        const d = new Date(j, mo - 1, tg);
+        if (d.getFullYear() !== j || d.getMonth() !== mo - 1 || d.getDate() !== tg) return null;
+        return d;
+      };
+      let m = String(t).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (m) return bau(+m[3], +m[2], +m[1]);
+      m = String(t).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (m) return bau(+m[1], +m[2], +m[3]);
+      return null;
     }
 
     // ── Lehrjahr from Ausbildungsbeginn ──
@@ -380,8 +405,11 @@ const ImportHandler = {
         return b.id;
       }
       // Create new
+      // Leere Betriebsnummer als NULL: betriebsnummer ist UNIQUE, und '' gilt in
+      // SQLite als regulärer Wert – der zweite Betrieb ohne Nummer scheiterte,
+      // wodurch der ganze Azubi-Datensatz verworfen wurde.
       App.run('INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        [bnr, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
+        [bnr || null, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
       const n = App.query('SELECT id FROM betriebe WHERE rowid=last_insert_rowid()');
       return n.length ? n[0].id : null;
     }
@@ -461,6 +489,12 @@ const ImportHandler = {
         // Check if data changed → update
         const ex = App.query('SELECT * FROM schueler WHERE id=?', [existingId])[0];
         const changes = [];
+        // Namensänderungen (z.B. Heirat) kamen bisher nie im Tool an, und ein
+        // über den Namen gefundener Datensatz behielt seine leere BAV-Ident –
+        // beim nächsten Import entstand daraus eine Dublette.
+        if (nachname && ex.nachname !== nachname) changes.push(['nachname', nachname, ex.nachname]);
+        if (vorname && ex.vorname !== vorname) changes.push(['vorname', vorname, ex.vorname]);
+        if (ibyk && !ex.ibykus_id) changes.push(['ibykus_id', ibyk, ex.ibykus_id]);
         if (aend && ex.ausbildungsende !== aend) changes.push(['ausbildungsende', aend, ex.ausbildungsende]);
         if (abeg && ex.ausbildungsbeginn !== abeg) changes.push(['ausbildungsbeginn', abeg, ex.ausbildungsbeginn]);
         if (betrieb && ex.ausbildungsstaette !== betrieb) changes.push(['ausbildungsstaette', betrieb, ex.ausbildungsstaette]);
@@ -482,7 +516,11 @@ const ImportHandler = {
         // BAV-Status geändert → aktiv/status synchronisieren
         if (bav_status && ex.bav_status !== bav_status) {
           if (ex.aktiv !== bavAktiv) changes.push(['aktiv', bavAktiv, ex.aktiv]);
-          if (ex.status !== bavStatus) changes.push(['status', bavStatus, ex.status]);
+          // "ENDE" heißt in IBYKUS nur "Vertrag beendet" – auch bei regulärem,
+          // bestandenem Abschluss. Ein bereits gepflegtes Ergebnis (bestanden,
+          // verlängert) darf davon nicht zu "abgebrochen" überschrieben werden.
+          const ergebnisGepflegt = ['ap_bestanden', 'verlaengert', 'abgebrochen'].includes(ex.status);
+          if (ex.status !== bavStatus && !(bavAktiv === 0 && ergebnisGepflegt)) changes.push(['status', bavStatus, ex.status]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
             const today = todayStr();
             if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
@@ -576,9 +614,18 @@ const ImportHandler = {
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
+    // Während des Imports ist die Änderungsverfolgung aus – die Daten stehen
+    // NUR im Arbeitsspeicher. Schlägt das Speichern fehl, sind sie beim
+    // nächsten regulären Speichern verloren, deshalb hier hart melden.
+    this._importGespeichert = false;
     try {
-      if (App.dbFileHandle) await App.fullSave();
-    } catch(e) { console.warn('Post-import save:', e); }
+      if (!App.dbFileHandle) throw new Error('Keine Datenbankdatei verbunden');
+      await App.fullSave();
+      this._importGespeichert = true;
+    } catch(e) {
+      console.error('Import konnte nicht gespeichert werden:', e);
+      App.toast('ACHTUNG: Import wurde NICHT gespeichert (' + (e.message || e) + '). Bitte Netzlaufwerk prüfen und erneut speichern!', 'error');
+    }
     App.hideLoading();
     // Log import in einstellungen
     const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
@@ -591,6 +638,9 @@ const ImportHandler = {
     // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
     this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
+      ${this._importGespeichert === false ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:13px">
+        <strong>Der Import wurde NICHT auf das Netzlaufwerk geschrieben.</strong> Die Daten stehen nur in dieser Sitzung.
+        Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
@@ -1043,7 +1093,7 @@ const ImportHandler = {
     const nrCol = gm('nr');
     const beschCol = gm('beschreibung');
     const lfkCol = gm('landesfachklasse');
-    if (!nrCol && !lfkCol) return App.toast('Bitte mindestens Nr./BAV-Ident und Landesfachklasse zuordnen', 'error');
+    if (!nrCol || !lfkCol) return App.toast('Bitte SOWOHL Nr./BAV-Ident ALS AUCH Landesfachklasse zuordnen', 'error');
 
     App.showLoading('Importiere Landesfachklassen…');
     let updated = 0, skipped = 0, notFound = 0, cleared = 0;
