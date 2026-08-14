@@ -376,5 +376,34 @@ console.log('\n══ T11: Crash-Restore – wiederhergestellte Ops sind sofort 
   check(/_applyRestoredOps\(offen\)/.test(APP_SRC), '_restoreDirtyOps spielt den Puffer lokal nach');
 }
 
+console.log('\n══ T12: Netzlaufwerk-Cache-Fehler → Log-Rotation statt Dauerfehler ══');
+{
+  // Chromium meldet auf Windows-Netzlaufwerken InvalidStateError ("state had
+  // changed since it was read from disk"), wenn sein Datei-Cache nicht mehr
+  // zur Platte passt. Auf DIESELBE Datei schlägt dann jeder Versuch fehl –
+  // die Selbstheilung dreht das eigene Log auf eine neue Generation.
+  const gname = A._myOplogName();
+  const genVor = A._logGen;
+  const origCW = FakeFileHandle.prototype.createWritable;
+  FakeFileHandle.prototype.createWritable = async function(opts) {
+    if (this.name === gname) {
+      const err = new Error('An operation that depends on state cached in an interface object was made but the state had changed since it was read from disk.');
+      err.name = 'InvalidStateError';
+      throw err;
+    }
+    return origCW.call(this, opts);
+  };
+  A.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id,notiz,erstellt_von) VALUES (?,?,?)", [1, 'Cache-Fehler-Notiz', 'anna']);
+  await A.mergeAndSave(true); // scheitert an der "verdorbenen" Datei → Rotation
+  check(A._logGen === genVor + 1, `Eigenes Log rotiert (Generation ${genVor} → ${A._logGen})`);
+  check(A._dirtyOps.length > 0, 'Die Op blieb im Puffer (kein Verlust)');
+  await A.mergeAndSave(true); // zweiter Versuch schreibt in die NEUE Datei
+  FakeFileHandle.prototype.createWritable = origCW;
+  check(A._dirtyOps.length === 0, 'Neue Generation nimmt die Op an');
+  await B._pollOplogs();
+  check(B.scalar("SELECT COUNT(*) FROM wiedervorlage_notizen WHERE notiz='Cache-Fehler-Notiz'") === 1,
+    'B erhält die Änderung über die neue Log-Generation');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
