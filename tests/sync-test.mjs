@@ -405,5 +405,92 @@ console.log('\n══ T12: Netzlaufwerk-Cache-Fehler → Log-Rotation statt Daue
     'B erhält die Änderung über die neue Log-Generation');
 }
 
+console.log('\n══ T13: Rotation ohne Selbst-Replay ══');
+{
+  // Nach einer Rotation gilt die alte eigene Log-Datei als "fremd". Ohne
+  // Offset-Eintrag würde sie ab Byte 0 erneut angewendet – alte eigene Ops
+  // überschrieben dann neuere Änderungen der Kollegen.
+  A.run("UPDATE schueler SET nachname=? WHERE id=?", ['RotA', 1]);
+  await A.mergeAndSave(true);
+  await B._pollOplogs();
+  B.run("UPDATE schueler SET nachname=? WHERE id=?", ['RotB', 1]);
+  await B.mergeAndSave(true);
+  await A._pollOplogs();
+  check(A.scalar('SELECT nachname FROM schueler WHERE id=1') === 'RotB', 'Ausgangslage: A sieht B\'s neueren Stand');
+  const genVor = A._logGen;
+  await A._compact('t13');
+  await A._pollOplogs(); // löst die Rotation aus (Log vollständig abgedeckt)
+  check(A._logGen > genVor, `A hat rotiert (Generation ${genVor} → ${A._logGen})`);
+  await A._pollOplogs(); // früher: las die alte eigene Datei ab 0 erneut ein
+  await A._pollOplogs();
+  check(A.scalar('SELECT nachname FROM schueler WHERE id=1') === 'RotB',
+    'Kein Selbst-Replay: B\'s Stand bleibt nach der Rotation erhalten');
+}
+
+console.log('\n══ T14: Fremder Snapshot verliert keine eigenen Nachzügler-Ops ══');
+{
+  // B kompaktiert, hat A's Log aber nur bis Offset O gelesen. Ops dahinter
+  // müssen bei A nach dem Snapshot-Tausch sichtbar bleiben.
+  const offsetVorher = A._myLogSize;
+  A.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id,notiz,erstellt_von) VALUES (?,?,?)", [1, 'T14-Tail', 'anna']);
+  await A.mergeAndSave(true);
+  // Fremden Snapshot simulieren: B's Speicher (ohne die Tail-Op) + snapmeta,
+  // dessen Offsets A's Log nur bis VOR der Tail-Op abdecken
+  const snapBytes = B.db.export();
+  store.files.set('test.sqlite', { data: new Uint8Array(snapBytes), mtime: Date.now() });
+  const fremdGen = Math.max(A._snapGen || 0, B._snapGen || 0) + 1;
+  store.files.set('snapmeta_test.json', { data: new TextEncoder().encode(JSON.stringify({
+    gen: fremdGen, by: 'fremder-client', t: new Date().toISOString(),
+    offsets: { [A._myOplogName()]: offsetVorher },
+  })), mtime: Date.now() });
+  await A._pollOplogs(); // erkennt fremden Snapshot → Tausch + eigenes Log nachspielen
+  check(A._snapGen === fremdGen, `A hat den fremden Snapshot übernommen (gen ${A._snapGen})`);
+  check(A.scalar("SELECT COUNT(*) FROM wiedervorlage_notizen WHERE notiz='T14-Tail'") === 1,
+    'Eigene Nachzügler-Op überlebt den Snapshot-Tausch');
+  await B._pollOplogs();
+  check(B.scalar("SELECT COUNT(*) FROM wiedervorlage_notizen WHERE notiz='T14-Tail'") === 1,
+    'Auch B erhält die Op weiterhin über das Log');
+}
+
+console.log('\n══ T15: Snapshot-Generation bleibt monoton ══');
+{
+  // Ein Client mit veraltetem _snapGen darf einen neueren fremden Snapshot
+  // nicht mit derselben Generationsnummer überschreiben.
+  const meta = JSON.parse(new TextDecoder().decode(store.files.get('snapmeta_test.json').data));
+  const hoch = (A._snapGen || 0) + 3;
+  meta.gen = hoch; meta.by = 'fremder-client-2';
+  store.files.set('snapmeta_test.json', { data: new TextEncoder().encode(JSON.stringify(meta)), mtime: Date.now() });
+  const ok = await A._compact('t15');
+  check(ok === false, 'Kompaktierung bricht ab, solange ein neuerer fremder Snapshot nicht übernommen ist');
+  await A._pollOplogs(); // fremden Stand übernehmen
+  check(A._snapGen === hoch, `A übernimmt Generation ${hoch}`);
+  const ok2 = await A._compact('t15b');
+  const metaNeu = JSON.parse(new TextDecoder().decode(store.files.get('snapmeta_test.json').data));
+  check(ok2 === true && metaNeu.gen === hoch + 1, `Nächste Kompaktierung schreibt gen ${hoch + 1} (monoton)`);
+}
+
+console.log('\n══ T16: Spaltenbewusster LWW-Guard (Spalten-Merge) ══');
+{
+  // B setzt "ergebnis" NEU; danach trifft eine ÄLTERE Offline-Op ein, die nur
+  // "anwesend" ändert → sie muss ANGEWENDET werden (disjunkte Spalten mergen).
+  // Eine ältere Op auf DIESELBE Spalte muss dagegen verworfen werden.
+  B.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?", ['bernd', 77, 1]);
+  const alt = new Date(Date.now() - 600000);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const altStr = `${alt.getFullYear()}-${p2(alt.getMonth() + 1)}-${p2(alt.getDate())} ${p2(alt.getHours())}:${p2(alt.getMinutes())}:${p2(alt.getSeconds())}`;
+  const opAnwesend = { uid: 't16-anw', ts: Date.now() - 600000, seq: 1, c: 'zzz',
+    sql: `UPDATE kontrollergebnisse SET anwesend=0, geaendert_am='${altStr}' WHERE kontrolltermin_id=? AND schueler_id=?`, params: [77, 1] };
+  B._applyOps([JSON.stringify(opAnwesend)]);
+  check(B.scalar('SELECT anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1') === 0,
+    'Disjunkte Spalte der älteren Op wird gemergt (anwesend übernommen)');
+  check(B.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1') === 'in_ordnung',
+    'Neuere Spalte bleibt dabei unangetastet');
+  const opErgebnis = { uid: 't16-erg', ts: Date.now() - 600000, seq: 2, c: 'zzz',
+    sql: `UPDATE kontrollergebnisse SET ergebnis='post_an_rp', geaendert_am='${altStr}' WHERE kontrolltermin_id=? AND schueler_id=?`, params: [77, 1] };
+  B._applyOps([JSON.stringify(opErgebnis)]);
+  check(B.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=77 AND schueler_id=1') === 'in_ordnung',
+    'Ältere Op auf DIESELBE Spalte wird verworfen (echtes Last-Write-Wins)');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

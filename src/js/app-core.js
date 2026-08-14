@@ -1185,6 +1185,34 @@ const App = {
       datumsformat TEXT DEFAULT '',
       details_json TEXT DEFAULT '[]'
     );
+    CREATE TABLE IF NOT EXISTS schueler_bemerkungen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      text TEXT DEFAULT '',
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    );
+    CREATE TABLE IF NOT EXISTS schueler_dateien (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schueler_id INTEGER REFERENCES schueler(id),
+      dateiname TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      beschreibung TEXT DEFAULT '',
+      dateityp TEXT DEFAULT '',
+      groesse INTEGER DEFAULT 0,
+      erstellt_von TEXT DEFAULT '',
+      erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+    );
+    CREATE TABLE IF NOT EXISTS ausbilder (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      betrieb_id INTEGER REFERENCES betriebe(id),
+      nachname TEXT DEFAULT '',
+      vorname TEXT DEFAULT '',
+      telefon TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      mobil TEXT DEFAULT '',
+      funktion TEXT DEFAULT ''
+    );
     CREATE TABLE IF NOT EXISTS bhk_applied_ops (
       op_uid TEXT PRIMARY KEY,
       ts TEXT DEFAULT ''
@@ -1558,6 +1586,20 @@ const App = {
     this.filterJahrgang = [];
     this.filterFachrichtungen = [];
     this.filterBavStatus = 'aktiv';
+    // Sync-v3-Zustand vollständig zurücksetzen: Sonst bliebe _v3Ready=true mit
+    // dem Op-Puffer und den Offsets der ALTEN Datenbank stehen – nach einem
+    // DB-Wechsel würden fremde Ops in die falsche Datenbank repliziert.
+    this._v3Ready = false;
+    this._dirtyOps = [];
+    this._opsInFlight = null;
+    this._logOffsets = {};
+    this._ownLogUids = null;
+    this._appliedForeignUids = null;
+    this._colStamps = null;
+    this._snapGen = 0;
+    this._logGen = 0;
+    this._myLogSize = 0;
+    this._maxSeenTs = 0;
     // Reset UI
     document.getElementById('dbFileName').textContent = '–';
     document.getElementById('dbLastSaved').textContent = '–';
@@ -2075,15 +2117,19 @@ const App = {
     try {
       const now = new Date();
       const ts = now.toISOString().replace(/[:.]/g, '-').substring(0, 19);
-      const backupName = `backup_${ts}.sqlite`;
+      // Client-Kürzel im Namen: 2-3 Nutzer sichern in DENSELBEN Ordner – ohne
+      // Kürzel überschrieben sich Backups derselben Sekunde gegenseitig.
+      const kuerzel = this._getClientId().slice(-4);
+      const backupName = `backup_${ts}_${kuerzel}.sqlite`;
       const backupHandle = await this.backupsDirHandle.getFileHandle(backupName, { create: true });
       const data = this.db.export();
       const writable = await backupHandle.createWritable();
       await writable.write(data);
       await writable.close();
       console.log('Backup erstellt:', backupName);
-      // Clean old backups (keep last 20)
-      await this.cleanOldBackups(20);
+      // Aufbewahrung: 30 Stück GEMEINSAM über alle Nutzer (Namen sortieren
+      // chronologisch) – bei 3 aktiven Nutzern ≙ mehrere Stunden Historie.
+      await this.cleanOldBackups(30);
     } catch (e) {
       console.warn('Backup failed:', e);
     }
@@ -2111,9 +2157,22 @@ const App = {
     const file = await this.dbFileHandle.getFile();
     const buf = await file.arrayBuffer();
     const SQL = await App._getSqlJs();
+    const alt = this.db;
     this.db = new SQL.Database(new Uint8Array(buf));
+    try { alt?.close(); } catch(e) {}
     this.dbLastModified = file.lastModified; this._lastFileSize = file.size;
-    this.unsavedChanges = false;
+    // Schema der Arbeitskopie auf Stand bringen – die Disk-Datei kann älter sein
+    this.migrateDB();
+    // Sync-v3: Die rohe Snapshot-Datei enthält NICHT die Ops aus den Logs.
+    // Ohne kompletten Re-Bootstrap wären alle Änderungen seit der letzten
+    // Kompaktierung unsichtbar – und die nächste eigene Kompaktierung schriebe
+    // diesen veralteten Stand als Snapshot für ALLE Clients.
+    if (this._v3Active()) {
+      this._v3Ready = false;
+      await this._bootstrapV3();
+    }
+    this.unsavedChanges = this._dirtyOps.length > 0;
+    try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.renderCurrentView();
     this.toast('Datenbank neu geladen', 'success');
   },
@@ -2185,6 +2244,15 @@ const App = {
           });
           if (!gotLock) {
             this._tabIsPrimary = false;
+            // Zweit-Tab bekommt eine EIGENE Log-Identität: mit derselben
+            // clientId schrieben beide Tabs versetzt in dieselbe Log-Datei
+            // (Korruption durch überlappende Positions-Writes), keiner läse
+            // die Ops des anderen, und die Rotation des einen löschte die
+            // aktive Datei des anderen.
+            if (!this._myLogSize && !(this._ownLogUids && this._ownLogUids.size)) {
+              this._clientIdCache = this._getClientId() + 't' + Math.random().toString(36).slice(2, 6);
+              this._logGen = 0;
+            }
             this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten', 'warning');
           }
         }
@@ -2194,8 +2262,13 @@ const App = {
       // angehängt und bei allen Clients doppelt angewendet würden.
       if (this._v3Active()) {
         const warte = async () => {
-          for (let i = 0; i < 100 && !this._v3Ready; i++) await new Promise(r => setTimeout(r, 100));
-          this._restoreDirtyOps();
+          // Bis zu 60s auf den Bootstrap warten. Läuft er dann immer noch,
+          // KEIN Restore: mit halb gefülltem _ownLogUids würden bereits
+          // geloggte Ops mit frischem Zeitstempel erneut angehängt und
+          // überschrieben bei allen Clients neuere Änderungen.
+          for (let i = 0; i < 600 && !this._v3Ready; i++) await new Promise(r => setTimeout(r, 100));
+          if (this._v3Ready) this._restoreDirtyOps();
+          else console.warn('[SyncV3] Bootstrap nach 60s nicht fertig – Crash-Restore übersprungen (Puffer bleibt erhalten)');
         };
         warte();
       } else {
@@ -2421,8 +2494,15 @@ const App = {
       const store = tx.objectStore('dirtyOps');
       store.delete(this._idbOpsKey());
       store.delete('ops'); // Legacy-Key aufräumen
-      if (this._dirtyOps.length > 0) {
-        store.put({ id: this._idbOpsKey(), ops: this._dirtyOps.map(o => ({uid: o.uid, sql: o.sql, params: o.params})), ts: Date.now() });
+      // Auch Ops sichern, die gerade in einem (evtl. hängenden) Append stecken:
+      // _saveV3 nimmt sie per splice aus _dirtyOps – ohne _opsInFlight würde
+      // dieser Persist sie aus dem Crash-Puffer löschen, bevor der Append
+      // bestätigt ist. ts/seq mitschreiben, sonst bekämen die Ops beim
+      // Wiederherstellen einen FRISCHEN Zeitstempel und gewännen fälschlich
+      // Last-Write-Wins gegen zwischenzeitliche Änderungen der Kollegen.
+      const alle = [...(this._opsInFlight || []), ...this._dirtyOps];
+      if (alle.length > 0) {
+        store.put({ id: this._idbOpsKey(), ops: alle.map(o => ({uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params})), ts: Date.now() });
       }
     } catch(e) { /* IndexedDB not available – non-critical */ }
   },
@@ -2442,7 +2522,9 @@ const App = {
             : record.ops;
           if (!offen.length) return;
           this._applyRestoredOps(offen);
-          this._dirtyOps = offen;
+          // MERGEN, nicht überschreiben: der Nutzer kann während des Bootstraps
+          // bereits neue Änderungen gemacht haben – die stehen schon in _dirtyOps.
+          this._dirtyOps = [...offen, ...this._dirtyOps];
           this.unsavedChanges = true;
           this.toast(`↻ ${offen.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
           this.scheduleAutoSave();
@@ -2739,6 +2821,15 @@ const App = {
   // innerhalb einer Millisekunde (INSERT nach UPDATE → Änderung ging verloren).
   _opSeq: 0,
   _nextSeq() { return ++this._opSeq; },
+  // Lamport-Uhr: Ops werden empfängerseitig nach ts sortiert. Eine nachgehende
+  // Windows-Uhr ließe kausal SPÄTERE eigene Ops vor bereits gesehenen fremden
+  // einsortieren – deshalb stempelt ein Client nie hinter das Maximum dessen,
+  // was er von anderen gesehen hat (_maxSeenTs wird in _applyOps gepflegt).
+  _maxSeenTs: 0,
+  _stampTs() {
+    const t = Date.now();
+    return t > (this._maxSeenTs || 0) ? t : (this._maxSeenTs || 0) + 1;
+  },
   _frozenNow() {
     const d = new Date();
     const p2 = (n) => String(n).padStart(2, '0');
@@ -2804,6 +2895,14 @@ const App = {
       out.opSql = out.opSql
         .replace(/datetime\('now',\s*'localtime'\)/g, `'${now.local}'`)
         .replace(/datetime\('now'\)/g, `'${now.utc}'`);
+    }
+    // date('now') ebenso einfrieren – sonst wertet der Empfänger es bei sich
+    // NEU aus (anderer Tag über Mitternacht, dazu UTC statt lokal) und z.B.
+    // ein "Nacherfasst am …"-Terminname divergiert zwischen den Clients.
+    if (out.opSql.includes("date('now'")) {
+      out.opSql = out.opSql
+        .replace(/date\('now',\s*'localtime'\)/g, `'${now.local.slice(0, 10)}'`)
+        .replace(/date\('now'\)/g, `'${now.utc.slice(0, 10)}'`);
     }
     // ── INSERT ──
     const mIns = sql.match(/^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\(/i);
@@ -2913,7 +3012,7 @@ const App = {
     // During bulk import: skip dirty-tracking, full-write happens at end
     if (this._bulkImport) { this.db.run(sql, params); return; }
     const prep = this._prepareOp(sql, params);
-    const stamp = () => ({ uid: this._newUid(), ts: Date.now(), seq: this._nextSeq() });
+    const stamp = () => ({ uid: this._newUid(), ts: this._stampTs(), seq: this._nextSeq() });
     prep.pre.forEach(x => {
       try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
       catch(e) { console.warn('[Sync] Vor-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
@@ -2924,7 +3023,9 @@ const App = {
       catch(e) { console.warn('[Sync] Nach-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
-    this._dirtyOps.push({ ...stamp(), sql: prep.opSql, params: prep.opParams });
+    const rec = { ...stamp(), sql: prep.opSql, params: prep.opParams };
+    this._dirtyOps.push(rec);
+    this._notiereKeSpalten(rec.sql, rec.params, rec.ts);
     // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
     try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.markDirty();
@@ -2942,19 +3043,35 @@ const App = {
     if (!this.dbFileHandle || !this.db) return;
     // Sync-v3: Bulk-Import → Snapshot direkt kompaktieren (Logs werden vorher
     // vollständig eingezogen, danach decken die Offsets alles ab)
-    if (this._v3Active() && this._v3Ready) {
-      const ok = await this._compact('import');
-      if (ok) {
-        this._dirtyOps = [];
-        this.unsavedChanges = false;
-        this.saveCount++;
-        const timeStr = new Date().toLocaleTimeString('de-DE');
-        document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
-        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
-        this._broadcastChange();
-      } else {
-        setTimeout(() => this.fullSave(), 3000);
+    if (this._v3Active()) {
+      // Bootstrap noch nicht fertig? Warten statt in den v2-Direktschreibpfad
+      // zu fallen – der schriebe an snapmeta vorbei und die anderen Clients
+      // erführen nie davon.
+      for (let i = 0; i < 300 && !this._v3Ready; i++) await new Promise(r => setTimeout(r, 100));
+      if (!this._v3Ready) throw new Error('Synchronisation nicht bereit (Bootstrap läuft)');
+      // AWAITED Retries statt setTimeout: Aufrufer (z.B. der Import) müssen
+      // sicher wissen, ob gespeichert wurde. Nach 3 Fehlversuchen wird hart
+      // geworfen – der Import zeigt dann seine rote "NICHT gespeichert"-Warnung
+      // statt fälschlich Erfolg zu melden.
+      let ok = false;
+      for (let versuch = 1; versuch <= 3 && !ok; versuch++) {
+        ok = await this._compact('import');
+        if (!ok) await new Promise(r => setTimeout(r, 3000));
       }
+      if (!ok) throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)');
+      // _dirtyOps NICHT leeren: _saveV3 innerhalb von _compact hat den Puffer
+      // bereits geclaimt und angehängt. Was JETZT noch drin steht, entstand
+      // während des Snapshot-Writes und steckt weder im Export noch im Log –
+      // es wird ganz normal vom nächsten Auto-Save angehängt.
+      this.unsavedChanges = this._dirtyOps.length > 0;
+      if (this._dirtyOps.length) this.scheduleAutoSave();
+      this.saveCount++;
+      const timeStr = new Date().toLocaleTimeString('de-DE');
+      document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
+      document.getElementById('dbStatusIndicator').innerHTML = this._dirtyOps.length
+        ? '<span class="dot dot-yellow"></span>Geändert…'
+        : '<span class="dot dot-green"></span>Gespeichert';
+      this._broadcastChange();
       return;
     }
     if (this._mergeInProgress) { setTimeout(() => this.fullSave(), 2000); return; }
@@ -3077,13 +3194,19 @@ const App = {
 
   // ── Speichern: eigene Ops an das eigene Log anhängen ──
   async _saveV3() {
-    if (this._appendInProgress) return;
+    if (this._appendInProgress) {
+      // NICHT stillschweigend verwerfen: der Aufruf kam von einem Autosave mit
+      // neuen Ops – nach dem laufenden Append erneut versuchen.
+      setTimeout(() => this.scheduleAutoSave(), 1500);
+      return;
+    }
     if (!this._dirtyOps.length) {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
       return;
     }
     this._appendInProgress = true;
     const claimed = this._dirtyOps.splice(0);
+    this._opsInFlight = claimed; // für _persistDirtyOps: Crash-Puffer behält sie
     let writable = null;
     try {
       const dir = this._syncDirV3();
@@ -3114,12 +3237,20 @@ const App = {
       }
       this._myLogSize = size + bytes.length;
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+      this._opsInFlight = null;
       this.unsavedChanges = this._dirtyOps.length > 0;
       this.saveCount++;
       this._saveRetryCount = 0;
       const timeStr = new Date().toLocaleTimeString('de-DE');
       document.getElementById('dbLastSaved').textContent = `✓ ${timeStr} (#${this.saveCount})`;
-      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+      // Ehrlicher Status: Sind während des Appends neue Ops aufgelaufen,
+      // ist noch NICHT alles gespeichert – nachfassen statt grün melden.
+      if (this._dirtyOps.length > 0) {
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Geändert…';
+        setTimeout(() => this.scheduleAutoSave(), 200);
+      } else {
+        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
+      }
       this._broadcastChange();
       this._persistDirtyOps();
       // Kompaktierung fällig? (höchstens alle 5 Min prüfen)
@@ -3130,7 +3261,9 @@ const App = {
     } catch(e) {
       // Ops zurücklegen (an den Anfang – Reihenfolge erhalten), später erneut
       this._dirtyOps = [...claimed, ...this._dirtyOps];
+      this._opsInFlight = null;
       this.unsavedChanges = true;
+      this._persistDirtyOps(); // Crash-Puffer sofort aktualisieren
       console.error('[SyncV3] Append-Fehler:', e);
       // Windows-Netzlaufwerke: Chromium meldet InvalidStateError ("state had
       // changed since it was read from disk"), wenn sein Datei-Metadaten-Cache
@@ -3141,6 +3274,10 @@ const App = {
       // frischen Zustand, Leser erfassen ohnehin alle Generationen.
       if (e && e.name === 'InvalidStateError' && Date.now() - (this._lastCacheRotate || 0) > 5000) {
         this._lastCacheRotate = Date.now();
+        // Lesestand der alten Datei festhalten, BEVOR die Generation wechselt:
+        // sonst gilt sie ab jetzt als "fremdes" Log ohne Offset und würde beim
+        // nächsten Poll komplett neu eingespielt (Selbst-Replay).
+        this._logOffsets[this._myOplogName()] = this._myLogSize;
         this._logGen++;
         this._myLogSize = 0;
         console.warn(`[SyncV3] Datei-Cache-Fehler → eigenes Log rotiert auf Generation ${this._logGen}`);
@@ -3157,8 +3294,13 @@ const App = {
   // ── Fremde Logs inkrementell lesen und anwenden ──
   async _pollOplogs() {
     if (!this._v3Ready) return;
+    // Reentranz-Guard: Timer-Poll und BroadcastChannel-Zustellung können sich
+    // überlappen – zwei parallele Läufe tauschten im Snapshot-Fall die DB
+    // doppelt und verdoppelten Offsets-Fortschritt.
+    if (this._pollBusy) return;
     const dir = this._syncDirV3();
     if (!dir || !this.db) return;
+    this._pollBusy = true;
     try {
       // ZUERST prüfen, ob ein anderer Rechner den Snapshot ersetzt hat: Wird er
       // danach getauscht, wären die soeben gelesenen Ops wieder verworfen.
@@ -3199,6 +3341,8 @@ const App = {
       if (this._reconnectAttempts > 5) {
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Getrennt';
       }
+    } finally {
+      this._pollBusy = false;
     }
   },
 
@@ -3206,7 +3350,9 @@ const App = {
   _applyOps(lines) {
     if (!lines.length) return 0;
     if (!this._appliedForeignUids) this._appliedForeignUids = new Set();
-    if (this._appliedForeignUids.size > 50000) this._appliedForeignUids.clear();
+    // Großzügige Schwelle: Nach einem clear() schützt bei "geschrumpft
+    // gemeldeter Datei + off=0" nur noch dieses Set vor Massen-Re-Apply.
+    if (this._appliedForeignUids.size > 200000) this._appliedForeignUids.clear();
     const ops = [];
     for (const line of lines) {
       try { const op = JSON.parse(line); if (op && op.sql) ops.push(op); } catch(e) {}
@@ -3219,20 +3365,64 @@ const App = {
       || String(a.c || '').localeCompare(String(b.c || ''))
       || (a.seq || 0) - (b.seq || 0));
     let applied = 0;
+    const fehlgeschlagen = [];
     for (const op of ops) {
       if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
+      // Lamport-Uhr: eigene künftige Ops müssen NACH allem liegen, was wir
+      // gesehen haben – sonst verliert ein Client mit nachgehender Uhr jede
+      // kausal spätere Änderung in der ts-Sortierung der Empfänger.
+      if (op.ts && op.ts > (this._maxSeenTs || 0)) this._maxSeenTs = op.ts;
       try {
         if (!this._lwwSkip(op)) {
           this.db.run(op.sql, op.params || []);
+          this._notiereKeSpalten(op.sql, op.params, op.ts);
           applied++;
         }
       } catch(e) {
-        console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
+        fehlgeschlagen.push(op);
       }
       if (op.uid) this._appliedForeignUids.add(op.uid);
     }
+    // Zweiter Durchlauf: Bei Uhren-Versatz zwischen Clients kann eine abhängige
+    // Op (z.B. Ergebnis zu einem Termin) im selben Batch VOR ihrer Grundlage
+    // einsortiert sein. Ein einzelner Wiederholungsversuch heilt das; was dann
+    // noch scheitert, ist wirklich defekt und wird gemeldet.
+    for (const op of fehlgeschlagen) {
+      try {
+        this.db.run(op.sql, op.params || []);
+        this._notiereKeSpalten(op.sql, op.ts);
+        applied++;
+      } catch(e) {
+        console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
+      }
+    }
     if (applied) { try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {} }
     return applied;
+  },
+
+  // Spalten-Zeitstempel für kontrollergebnisse: merkt sich pro Zeile, welche
+  // Spalte zuletzt WANN gesetzt wurde (aus eigenen wie fremden Ops). Grundlage
+  // für den spaltenbewussten Last-Write-Wins-Guard in _lwwSkip.
+  _colStamps: null,
+  _keSpaltenAusSql(setTeil) {
+    return (setTeil.match(/([a-z_]+)\s*=/gi) || [])
+      .map(x => x.replace(/\s*=$/, '').trim().toLowerCase())
+      .filter(c => c !== 'geaendert_am' && c !== 'geaendert_von');
+  },
+  _notiereKeSpalten(sql, params, ts) {
+    try {
+      if (!ts || !params || !/kontrollergebnisse/i.test(sql || '')) return;
+      const m = String(sql).match(/^\s*UPDATE\s+kontrollergebnisse\s+SET\s([\s\S]*?)\s+WHERE\s+kontrolltermin_id=\?\s+AND\s+schueler_id=\?\s*$/i);
+      if (!m || params.length < 2) return;
+      const key = params[params.length - 2] + '_' + params[params.length - 1];
+      const spalten = this._keSpaltenAusSql(m[1]);
+      if (!spalten.length) return;
+      if (!this._colStamps) this._colStamps = new Map();
+      if (this._colStamps.size > 20000) this._colStamps.clear();
+      const eintrag = this._colStamps.get(key) || {};
+      spalten.forEach(c => { if (!eintrag[c] || eintrag[c] < ts) eintrag[c] = ts; });
+      this._colStamps.set(key, eintrag);
+    } catch(e) {}
   },
 
   // Veraltete Ops erkennen: Ein Client, der lange offline war, liefert Ops mit
@@ -3248,21 +3438,28 @@ const App = {
       if (!tsMatch) return false;
       const ktId = op.params[op.params.length - 2];
       const sId = op.params[op.params.length - 1];
-      const lokal = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId])[0];
-      if (!lokal || !lokal.geaendert_am || lokal.geaendert_am <= tsMatch[1]) return false;
-      // Sekundengenaue Zeitstempel: Die Zeile eines INSERT-Replays entsteht beim
-      // Empfänger mit DEFAULT-now und kann dadurch eine Sekunde HINTER dem
-      // eingefrorenen UPDATE aus demselben Schreibschwall liegen – dann würde
-      // das UPDATE fälschlich verworfen. Der Guard schützt vor lange-offline
-      // nachgelieferten Ops; erst ab deutlichem Abstand gilt "lokal ist neuer".
+      const lokal = this.query('SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId])[0];
+      if (!lokal) return false;
+      const spalten = this._keSpaltenAusSql(m[1]);
+      if (!spalten.length) return false;
+      const opTs = op.ts || Date.parse(tsMatch[1].replace(' ', 'T'));
+      // PRIMÄR spaltenbewusst entscheiden: verworfen wird nur, wenn JEDE
+      // Nutzspalte der Op lokal nachweislich SPÄTER gesetzt wurde
+      // (Spaltenstempel aus eigenen und fremden Ops). Andernfalls wird die Op
+      // angewendet – der SQL-Replay mergt disjunkte Spalten von selbst. Das
+      // frühere pauschale Verwerfen ließ z.B. ein offline gesetztes
+      // "anwesend" verschwinden, obwohl der Kollege nur "ergebnis" geändert
+      // hatte. Der Zeilen-Zeitstempel taugt hier nicht als Kriterium: eine
+      // zuvor gemergte ältere Op kann geaendert_am zurückgesetzt haben.
+      const eintrag = this._colStamps && this._colStamps.get(ktId + '_' + sId);
+      if (eintrag) {
+        return spalten.every(c => eintrag[c] && eintrag[c] > opTs);
+      }
+      // Fallback ohne Spaltenkenntnis (frisch nach Reload): Zeilen-Zeitstempel
+      // wie früher – mit 5s-Toleranz gegen DEFAULT-now-Versatz beim Empfänger.
+      if (!lokal.geaendert_am || lokal.geaendert_am <= tsMatch[1]) return false;
       const diffSek = (Date.parse(lokal.geaendert_am.replace(' ', 'T')) - Date.parse(tsMatch[1].replace(' ', 'T'))) / 1000;
-      if (!(diffSek > 5)) return false;
-      // Lokale Zeile ist neuer – nur überspringen, wenn die Op keine Spalte
-      // mitbringt, die lokal noch ihren Ausgangswert hat.
-      const spalten = (m[1].match(/([a-z_]+)\s*=/gi) || [])
-        .map(x => x.replace(/\s*=$/, '').trim().toLowerCase())
-        .filter(c => c !== 'geaendert_am' && c !== 'geaendert_von');
-      return spalten.length > 0;
+      return diffSek > 5;
     } catch(e) { return false; }
   },
 
@@ -3302,9 +3499,17 @@ const App = {
         try { f = await h.getFile(); } catch(e) { continue; }
         let off = baseOffsets[name] || 0;
         if (f.size < off) off = 0;
+        // Offset = KONSUMIERTE Bytes, nicht Dateigröße: Endet die Datei mitten
+        // in einer halb geschriebenen Zeile (SMB-Flush), wird diese Op beim
+        // nächsten Poll ab der Zeilengrenze nachgelesen. Mit "= f.size" wäre
+        // sie für immer übersprungen worden – und eine spätere Kompaktierung
+        // hätte sie als abgedeckt markiert, ohne dass sie je in einem
+        // Snapshot stand.
+        let gelesen = off;
         if (f.size > off) {
           const text = await f.slice(off).text();
           const chunk = text.slice(0, text.lastIndexOf('\n') + 1);
+          gelesen = off + new TextEncoder().encode(chunk).length;
           const istEigenes = name.startsWith(this._oplogPrefix() + this._getClientId() + '_g');
           chunk.split('\n').forEach(l => {
             if (!l.trim()) return;
@@ -3313,9 +3518,23 @@ const App = {
             } else batch.push(l);
           });
         }
-        if (name === mine) this._myLogSize = f.size;
-        else this._logOffsets[name] = f.size;
+        if (name === mine) this._myLogSize = gelesen;
+        else this._logOffsets[name] = gelesen;
       }
+      // Endet das EIGENE aktuelle Log in einer angerissenen Zeile (Absturz
+      // mitten im Append), nicht dahinter weiterschreiben – das ergäbe eine
+      // unlesbare Doppelzeile für alle Leser. Stattdessen sauber auf eine neue
+      // Generation drehen; der Lesestand der alten Datei ist notiert.
+      try {
+        const fh = await dir.getFileHandle(mine, { create: false });
+        const echt = (await fh.getFile()).size;
+        if (echt > this._myLogSize) {
+          this._logOffsets[mine] = this._myLogSize;
+          this._logGen++;
+          this._myLogSize = 0;
+          console.warn('[SyncV3] Eigenes Log endet in halber Zeile – neue Generation ' + this._logGen);
+        }
+      } catch(e) { /* eigenes Log existiert noch nicht */ }
       // Eigene wie fremde Ops in globaler ts-Ordnung anwenden (eigene sind im
       // Snapshot evtl. noch nicht enthalten); _ownLogUids ist bereits gefüllt,
       // daher eigene NICHT über das uid-Set ausschließen: temporär leeren Set nutzen
@@ -3341,17 +3560,27 @@ const App = {
     try {
       const dir = this._syncDirV3();
       if (!dir) return false;
-      let total = 0;
+      // Nur Bytes zählen, die der Snapshot noch NICHT abdeckt. Die Gesamtgröße
+      // wäre irreführend: verwaiste (aber vollständig abgedeckte) Logs toter
+      // Clients ließen sonst jede 5 Minuten eine sinnlose Kompaktierung samt
+      // Lock-Kontention anlaufen.
+      let covered = {};
+      try {
+        const mh = await dir.getFileHandle(this._snapMetaName(), { create: false });
+        covered = JSON.parse(await (await mh.getFile()).text())?.offsets || {};
+      } catch(e) {}
+      let offen = 0;
       const prefix = this._oplogPrefix();
       for await (const entry of dir.entries()) {
         const name = entry[0], h = entry[1];
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
-        try { total += (await h.getFile()).size; } catch(e) {}
+        try { offen += Math.max(0, (await h.getFile()).size - (covered[name] || 0)); } catch(e) {}
       }
-      return total > 1500000; // ~1,5 MB Logs → kompakt
+      return offen > 1500000; // ~1,5 MB ungedeckte Ops → kompakt
     } catch(e) { return false; }
   },
   async _compact(reason) {
+    if (this._tabIsPrimary === false) return false; // Zweit-Tab kompaktiert nie
     if (this._compactInProgress || !this.db || !this.dbFileHandle) return false;
     this._compactInProgress = true;
     let writable = null;
@@ -3367,7 +3596,26 @@ const App = {
       // stammt – sie würden anschließend beim Rotieren verworfen.
       const dir = this._syncDirV3();
       const offsets = { ...this._logOffsets, [this._myOplogName()]: this._myLogSize };
-      // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort)
+      // 2b) Generation MONOTON halten: snapmeta frisch von der Platte lesen.
+      // Der lokale _snapGen kann veraltet sein (fremde Kompaktierung noch nicht
+      // gesehen) – zwei Clients schrieben dann DIESELBE Generationsnummer und
+      // der jeweils andere lud den neuen Snapshot nie.
+      let diskGen = 0;
+      try {
+        const mh = await dir.getFileHandle(this._snapMetaName(), { create: false });
+        diskGen = JSON.parse(await (await mh.getFile()).text())?.gen || 0;
+      } catch(e) {}
+      if (diskGen > (this._snapGen || 0)) {
+        // Es gibt einen Snapshot, den wir noch nicht übernommen haben – NICHT
+        // blind überschreiben, erst regulär nachladen (nächster Poll).
+        console.warn(`[SyncV3] Kompaktierung abgebrochen: fremder Snapshot gen ${diskGen} noch nicht übernommen`);
+        return false;
+      }
+      // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort).
+      // Vorher Lock auffrischen: _saveV3 + _pollOplogs können auf langsamem
+      // Laufwerk zusammen >150s brauchen – ohne Heartbeat gälte unser Lock als
+      // stale und ein zweiter Client kompaktierte parallel.
+      await this._refreshLock();
       const data = this.db.export();
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
@@ -3384,14 +3632,34 @@ const App = {
         if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
         throw err;
       }
-      // 4) snapmeta schreiben
+      // 4) snapmeta schreiben (Lock nochmals auffrischen – der Write kann bis
+      // zu 120s gedauert haben)
+      await this._refreshLock();
       const metaHandle = await dir.getFileHandle(this._snapMetaName(), { create: true });
       const mw = await metaHandle.createWritable();
-      this._snapGen = (this._snapGen || 0) + 1;
+      this._snapGen = Math.max(diskGen, this._snapGen || 0) + 1;
       await mw.write(JSON.stringify({ offsets, gen: this._snapGen, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
       await mw.close();
       try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
       await this._writeSyncMarker();
+      // 5) Tote Logs aufräumen: Dateien verwaister Clients (PC-Tausch, neues
+      // Browserprofil) rotieren nie selbst und ließen _compactionDue sonst
+      // dauerhaft anschlagen. Löschen ist sicher, wenn ALLES im Snapshot steckt
+      // (Offset >= Größe) und die Datei seit Tagen unverändert ist.
+      try {
+        const prefix = this._oplogPrefix();
+        const eigen = prefix + this._getClientId() + '_g';
+        for await (const [name, fh] of dir.entries()) {
+          if (!name.startsWith(prefix) || !name.endsWith('.jsonl') || name.startsWith(eigen)) continue;
+          try {
+            const f = await fh.getFile();
+            if ((offsets[name] || 0) >= f.size && Date.now() - f.lastModified > 3 * 86400000) {
+              await dir.removeEntry(name);
+              console.log('[SyncV3] Verwaistes Log entfernt:', name);
+            }
+          } catch(e) {}
+        }
+      } catch(e) {}
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
       return true;
     } catch(e) {
@@ -3409,7 +3677,7 @@ const App = {
   // seine nächste eigene Kompaktierung den fremden Stand mit seinem älteren
   // Speicherabbild (der komplette Import wäre weg).
   async _pruefeFremdenSnapshot() {
-    if (this._compactInProgress || this._appendInProgress || this._dirtyOps.length) return;
+    if (this._compactInProgress || this._appendInProgress) return;
     try {
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -3433,13 +3701,50 @@ const App = {
       this._logOffsets = { ...(meta.offsets || {}) };
       this._appliedForeignUids = new Set();
       this._ownLogUids = new Set();
-      this._myLogSize = (meta.offsets || {})[this._myOplogName()] || 0;
+      // EIGENE Ops retten: Der fremde Kompaktierer hat unser Log nur bis zu
+      // SEINEM Lesestand in den Snapshot übernommen. Alles dahinter steht zwar
+      // in unserer Log-Datei, würde aber nie wieder eingelesen (_pollOplogs
+      // überspringt das eigene Log) – die Änderungen wären am eigenen
+      // Bildschirm weg und nach unserer nächsten Kompaktierung ÜBERALL.
+      // Deshalb: eigene Log-Dateien ab dem meta-Offset nachspielen.
+      const eigenPrefix = this._oplogPrefix() + this._getClientId() + '_g';
+      for await (const [name, fh] of dir.entries()) {
+        if (!name.startsWith(eigenPrefix) || !name.endsWith('.jsonl')) continue;
+        let f; try { f = await fh.getFile(); } catch(e) { continue; }
+        let off = (meta.offsets || {})[name] || 0;
+        if (f.size < off) off = 0;
+        if (f.size > off) {
+          const text = await f.slice(off).text();
+          const chunk = text.slice(0, text.lastIndexOf('\n') + 1);
+          let nachgespielt = 0;
+          chunk.split('\n').forEach(l => {
+            if (!l.trim()) return;
+            try {
+              const op = JSON.parse(l);
+              if (op.uid) this._ownLogUids.add(op.uid);
+              if (op.sql) { try { this.db.run(op.sql, op.params || []); nachgespielt++; } catch(e) {} }
+            } catch(e) {}
+          });
+          if (nachgespielt) console.log(`[SyncV3] ${nachgespielt} eigene Ops nach Snapshot-Tausch nachgespielt (${name})`);
+        }
+        if (name === this._myOplogName()) this._myLogSize = f.size;
+        else this._logOffsets[name] = f.size;
+      }
+      // Ungespeicherte Puffer-Ops ebenfalls auf die frische DB anwenden –
+      // sie waren nur auf der alten Arbeitskopie sichtbar.
+      if (this._dirtyOps.length) {
+        for (const o of this._dirtyOps) {
+          try { this.db.run(o.sql, o.params || []); } catch(e) {}
+        }
+      }
+      try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       this._smartRefresh();
     } catch(e) { console.warn('[SyncV3] Snapshot-Prüfung:', e.message); }
   },
 
   async _rotateOwnLogIfCovered() {
     try {
+      if (this._tabIsPrimary === false) return; // Zweit-Tab: nicht rotieren/prunen
       if (this._dirtyOps.length || this._appendInProgress || !this._myLogSize) return;
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -3452,9 +3757,15 @@ const App = {
       if (size > 0 && covered >= size) {
         // Neue Generation beginnen; die alte Datei bleibt zunächst liegen,
         // damit Leser sie zu Ende lesen können.
+        // WICHTIG: (a) Lesestand der alten Datei eintragen – sie zählt ab jetzt
+        // in _pollOplogs als "fremdes" Log; ohne Offset würde sie ab Byte 0
+        // gelesen und die eigene komplette Historie erneut angewendet
+        // (Selbst-Replay, überschreibt zwischenzeitliche Änderungen der
+        // Kollegen). (b) _ownLogUids NICHT leeren – es ist die zweite
+        // Verteidigungslinie gegen genau dieses Re-Apply.
+        this._logOffsets[aktuell] = size;
         this._logGen++;
         this._myLogSize = 0;
-        if (this._ownLogUids) this._ownLogUids.clear();
         await this._pruneAlteGenerationen(dir);
         console.log('[SyncV3] Eigenes Log rotiert → Generation ' + this._logGen);
       }
@@ -3582,6 +3893,14 @@ const App = {
 
     // Sync-v3: Ops ans eigene Log anhängen statt die geteilte Datei zu beschreiben
     if (this._v3Active() && this._v3Ready) return this._saveV3();
+    // v3-Verzeichnis vorhanden, aber Bootstrap läuft noch: AUFSCHIEBEN statt in
+    // den v2-Direktschreibpfad zu fallen. Der v2-Pfad ersetzt die geteilte
+    // .sqlite ohne snapmeta-Update – kein anderer v3-Client erführe je davon,
+    // und die nächste fremde Kompaktierung überschriebe die Änderungen.
+    if (this._v3Active() && !this._v3Ready) {
+      setTimeout(() => this.scheduleAutoSave(), 2000);
+      return;
+    }
 
     this._mergeInProgress = true;
     try {
@@ -3927,7 +4246,7 @@ const App = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
       schueler_id INTEGER REFERENCES schueler(id),
-      snapshot_datum TEXT DEFAULT (datetime('now','localtime')),
+      snapshot_datum TEXT NOT NULL,
       kw_daten_json TEXT DEFAULT '{}',
       geprueft_kws_json TEXT DEFAULT '{}',
       pflichtteile_json TEXT DEFAULT '{}',
@@ -3939,15 +4258,26 @@ const App = {
     // Fehlende Spalten auf Bestands-DBs nachrüsten (ältere _migrateDiskDb-Version hatte andere Definition)
     run("ALTER TABLE durchsicht_snapshots ADD COLUMN kontrollergebnis_id INTEGER");
     run("ALTER TABLE durchsicht_snapshots ADD COLUMN erstellt_am TEXT DEFAULT ''");
-    // Blockplan table
+    // Blockplan table (Definition identisch zu SCHEMA)
     run(`CREATE TABLE IF NOT EXISTS blockplan (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       berufsschule_id INTEGER REFERENCES berufsschulen(id),
-      schuljahr TEXT DEFAULT '',
+      schuljahr TEXT DEFAULT '2025/2026',
       lehrjahr INTEGER DEFAULT 1,
-      kalenderwoche INTEGER,
+      kalenderwoche INTEGER NOT NULL,
       UNIQUE(berufsschule_id, schuljahr, lehrjahr, kalenderwoche)
     )`);
+    // Prüfer-Eindeutigkeit wie in der Arbeitskopie: Tabelle sicherstellen,
+    // deduplizieren, dann Unique-Index – sonst verhält sich die Disk-DB bei
+    // INSERTs anders als die In-Memory-DB (ON CONFLICT(name) braucht den Index)
+    run(`CREATE TABLE IF NOT EXISTS pruefer (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      email TEXT DEFAULT '',
+      aktiv INTEGER DEFAULT 1
+    )`);
+    try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
+    run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
     // Ausbildungsphasen + erweiterte Schüler-Felder
     run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4081,6 +4411,9 @@ const App = {
         ['kw_maengel', 'wiedervorlagen', 'durchsicht_snapshots'].forEach(t => {
           try { this._runSilent(`UPDATE ${t} SET kontrollergebnis_id=? WHERE kontrollergebnis_id=?`, [dId, l.id]); } catch(e) {}
         });
+        // Auch die KE-Verweise in kw_status (erstellt_bei / behoben_bei)
+        try { this._runSilent('UPDATE kw_status SET erstellt_bei=? WHERE erstellt_bei=?', [dId, l.id]); } catch(e) {}
+        try { this._runSilent('UPDATE kw_status SET behoben_bei=? WHERE behoben_bei=?', [dId, l.id]); } catch(e) {}
         try {
           this._runSilent('UPDATE kontrollergebnisse SET id=? WHERE id=?', [dId, l.id]);
         } catch(e) {
@@ -5606,6 +5939,19 @@ const App = {
         bemerkung TEXT DEFAULT '',
         pruefer TEXT DEFAULT '',
         erstellt_am TEXT DEFAULT (datetime('now','localtime'))
+      )`);
+      // kw_maengel VOR dem COUNT anlegen: Auf einer Alt-DB ohne diese Tabelle
+      // warf der COUNT und riss das ganze try mit – schueler_bemerkungen,
+      // schueler_dateien und ausbilder wurden dann nie angelegt (Schülerakte
+      // und Ausbilder-Verwaltung liefen still ins Leere).
+      this.db.run(`CREATE TABLE IF NOT EXISTS kw_maengel (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
+        maengel_codes TEXT DEFAULT '',
+        fehltage INTEGER DEFAULT 0,
+        UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
       )`);
       // Migrate kw_maengel → kw_status (if kw_status is empty but kw_maengel has data)
       const kwStatusCount = this.scalar('SELECT COUNT(*) FROM kw_status') || 0;

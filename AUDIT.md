@@ -212,3 +212,47 @@ Der neue Op-Log-Sync hat fünf reproduzierte Defekte. Die automatisierten Tests 
 - Löschungen gewinnen gegen gleichzeitige Änderungen (Tombstone-Prinzip).
 - Stammdaten-Änderungen (Betriebe, Klassen, Schulen) werden zeilenweise
   übernommen, nicht feldweise zusammengeführt.
+
+---
+
+# Audit 2: Multi-User-Schreiben, Netzordner, Datenbank (August 2026)
+
+> **Status: abgearbeitet.** Vier parallele Prüfbereiche (Schreibpfad,
+> Lese-/Apply-Pfad, Kompaktierung/Locking, Schema/Schreibregeln) plus eigene
+> Verifikation. 31 Befunde, davon 8 hoch. Alle Reparaturen mit Regressionstests
+> in `sync-test.mjs` (T13–T16, jetzt 60 Prüfungen) und `integritaet-test.mjs`
+> abgesichert; 11 Suiten grün.
+
+## Behobene Hoch-Befunde (Datenverlust-Szenarien)
+
+| # | Befund | Reparatur |
+|---|---|---|
+| H1 | **Rotation → Selbst-Replay:** Nach dem Log-Rotieren galt die alte eigene Datei als „fremd" ohne Lesestand; die komplette eigene Historie wurde erneut angewendet und überschrieb neuere Änderungen der Kollegen. | Lesestand vor Generationswechsel eintragen, `_ownLogUids` nicht mehr leeren (auch im InvalidStateError-Pfad). Test T13. |
+| H2 | **Snapshot-Tausch verlor eigene Nachzügler-Ops:** Ops, die während einer fremden Kompaktierung angehängt wurden, verschwanden vom eigenen Bildschirm und nach der eigenen nächsten Kompaktierung überall. | Nach dem Tausch werden die eigenen Logs ab dem meta-Offset nachgespielt; ungespeicherte Puffer-Ops werden auf die frische DB angewendet. Test T14. |
+| H3 | **Snapshot-Generation nicht monoton:** Zwei Clients konnten dieselbe gen schreiben; der jeweils andere lud den neuen Snapshot nie (Import konnte von der Platte verschwinden). | `_compact` liest snapmeta frisch unter Lock, bricht bei nicht übernommenem fremden Snapshot ab, `gen = max(disk, lokal)+1`. Test T15. |
+| H4 | **Kein Lock-Heartbeat in `_compact`:** Auf langsamem Laufwerk lief die 150s-Staleness ab → zwei parallele Kompaktierer, Offsets passten nicht zum Snapshot. | `_refreshLock()` vor Snapshot- und vor snapmeta-Write. |
+| H5 | **`_saveV3` verwarf Speicheraufträge still** bei laufendem Append und meldete danach grün „Gespeichert". | Aufschub + erneuter Auto-Save; Status zeigt „Geändert…", solange Ops offen sind. |
+| H6 | **„Neu laden"/Reload zerstörte den v3-Zustand:** Snapshot ohne Log-Replay, veraltete Offsets – die nächste Kompaktierung schrieb den alten Stand für alle. | `reloadFromFile` macht vollständigen Re-Bootstrap (+ `migrateDB`). |
+| H7 | **`bulkDeleteSchulen` löschte Klassen an der Kaskade vorbei** → verwaiste `klasse_id`-Verweise bei allen Nutzern. | Direktes DELETE entfernt; nur noch `deleteSchuleKaskade`. |
+| H8 | **Replay-INSERTs ohne Konfliktbehandlung** (kw_status-Nacherfassung, Klassen, Jahrgänge, Prüfer, Betriebe) scheiterten beim Empfänger still am UNIQUE – dauerhafte Divergenz. | Alle Anlagepfade auf `ON CONFLICT … DO UPDATE` bzw. `OR IGNORE` umgestellt. |
+
+## Behobene Mittel-/Niedrig-Befunde
+
+- **Crash-Puffer:** sichert jetzt auch Ops, die in einem hängenden Append stecken (`_opsInFlight`); speichert `ts`/`seq` mit (wiederhergestellte Ops gewinnen kein falsches Last-Write-Wins mehr); Restore MERGT statt zu überschreiben; Restore läuft nie mehr mit halb gefülltem uid-Set (60s-Wartefenster, sonst Auslassung).
+- **Spaltenbewusster LWW-Guard:** Spaltenstempel je `kontrollergebnisse`-Zeile aus eigenen und fremden Ops; ältere Ops auf *andere* Spalten werden gemergt, auf *dieselbe* Spalte verworfen. Test T16.
+- **Uhren-Versatz:** Lamport-Stempel (`ts ≥ max(gesehen)+1`) + zweiter Anwendungs-Durchlauf für im Batch falsch einsortierte abhängige Ops; `SELECT MAX(id)`-Falle in der Einzelprüfungs-Anlage durch `last_insert_rowid()` ersetzt.
+- **Bootstrap:** Offsets = konsumierte Bytes (halbe Zeilen werden nachgelesen); endet das eigene Log in einer angerissenen Zeile, wird sauber auf eine neue Generation gedreht.
+- **v2-Fallback-Fenster:** Vor Bootstrap-Ende wird nie mehr direkt in die geteilte .sqlite geschrieben (Aufschub); `fullSave` wartet/versucht awaited und wirft bei Misserfolg (Import zeigt ehrlich „NICHT gespeichert"); `_dirtyOps` werden nach dem Import-Snapshot nicht mehr pauschal verworfen.
+- **Zwei Tabs:** Zweit-Tab erhält eine eigene Log-Identität und kompaktiert/rotiert nie mehr (vorher: gemeinsame Log-Datei → Korruption, Prune löschte die aktive Datei des anderen Tabs).
+- **Aufräumen/Last:** `_compactionDue` zählt nur ungedeckte Bytes; vollständig abgedeckte Logs verwaister Clients werden nach 3 Tagen gelöscht (vorher: Kompaktierungs-Dauerschleife alle 5 Minuten).
+- **beforeunload** gibt das Lock nicht mehr frei, während `_compact`/`_append` laufen; sichert auch in-flight-Ops.
+- **Backups:** Client-Kürzel im Dateinamen (keine Kollision in derselben Sekunde), Aufbewahrung 30 statt 20 (geteilt durch 2–3 Nutzer).
+- **Schema-Parität:** `schueler_bemerkungen`/`schueler_dateien`/`ausbilder` jetzt auch in SCHEMA; `kw_maengel` auch in `migrateDB()` (ein ungeschützter COUNT riss sonst die Anlage der Akten-Tabellen mit); `pruefer`-Tabelle+Unique-Index auch auf der Disk-DB; `blockplan`/`durchsicht_snapshots`-Definitionsdrift beseitigt; `_reconcileKeIds` zieht `kw_status.erstellt_bei/behoben_bei` mit um.
+- **Determinismus:** `date('now')` wird im Replay-Op eingefroren (wie `datetime('now')`); der Import-Historie-Cap löscht über eine feste Zeitschwelle statt `NOT IN (… LIMIT 100)` (lief beim Empfänger sonst auseinander).
+- **Kleinvieh:** Reentranz-Guard für parallele Polls (Timer + BroadcastChannel), Dedupe-Set-Schwelle 200k statt 50k, Append-Fehler aktualisieren den Crash-Puffer sofort.
+
+**Bewusst so gelassen:**
+
+- Crash exakt zwischen Snapshot- und snapmeta-Write führt beim nächsten Bootstrap zu einem Doppel-Replay bereits enthaltener Ops. Die Reihenfolge (erst Snapshot, dann meta) ist die sichere Richtung: Doppel-Replay konvergiert (Ops werden in ts-Ordnung erneut angewendet), die umgekehrte Reihenfolge könnte Ops als abgedeckt markieren, die nie geschrieben wurden.
+- Backups sind Speicher-Exporte des jeweiligen Clients (kein Disk-Kopieren) – bewusst, damit auch bei kaputter Snapshot-Datei ein konsistenter Stand existiert.
+- Divergente globale IDs bei ZEITGLEICHER Anlage desselben Jahrgangs/Betriebs auf zwei Rechnern bleiben möglich (die Zeile selbst wird jetzt per ON CONFLICT zusammengeführt, nur die id des Unterlegenen verweist ins Leere). Voll-Reconciliation wie bei Kontrollergebnissen wäre unverhältnismäßig.

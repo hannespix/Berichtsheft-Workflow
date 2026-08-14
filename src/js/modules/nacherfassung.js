@@ -204,7 +204,11 @@ const NacherfassungHandler = {
           App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
             [codes, fehl, keId, ex[0].id]);
         } else {
-          App.run('INSERT INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, fehltage, erstellt_bei) VALUES (?,?,?,?,1,?,?)',
+          // ON CONFLICT: die lokale Vorabprüfung sichert nur DIESEN Client ab –
+          // beim Replay-Empfänger kann die KW bereits existieren (parallel live
+          // geprüft), dann darf die Op nicht still am UNIQUE scheitern
+          App.run(`INSERT INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, fehltage, erstellt_bei) VALUES (?,?,?,?,1,?,?)
+            ON CONFLICT(schueler_id, ausbildungsjahr, kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1, erstellt_bei=COALESCE(kw_status.erstellt_bei, excluded.erstellt_bei)`,
             [s.id, aj, kw, codes, fehl, keId]);
         }
       };

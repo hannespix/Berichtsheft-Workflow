@@ -345,8 +345,12 @@ const ImportHandler = {
          eintrag.zeilen || 0, eintrag.neu || 0, eintrag.aktualisiert || 0,
          eintrag.uebersprungen || 0, eintrag.fehler || 0, eintrag.datumsFehler || 0,
          eintrag.datumsformat || this._datumsFormat || '', details]);
-      // Bestand begrenzen (die letzten 100 Läufe reichen)
-      App.run(`DELETE FROM import_historie WHERE id NOT IN (SELECT id FROM import_historie ORDER BY zeitpunkt DESC, id DESC LIMIT 100)`);
+      // Bestand begrenzen (die letzten 100 Läufe reichen). DETERMINISTISCH über
+      // eine feste Zeitschwelle: ein "NOT IN (… LIMIT 100)" würde beim Replay
+      // gegen den Bestand des EMPFÄNGERS ausgewertet und löschte dort andere
+      // Zeilen – die Historie liefe zwischen den Clients auseinander.
+      const schwelle = App.scalar(`SELECT zeitpunkt FROM import_historie ORDER BY zeitpunkt DESC, id DESC LIMIT 1 OFFSET 100`);
+      if (schwelle) App.run(`DELETE FROM import_historie WHERE zeitpunkt < ?`, [schwelle]);
     } catch(e) { console.warn('Import-Historie:', e.message); }
   },
 
@@ -556,7 +560,8 @@ const ImportHandler = {
       // Leere Betriebsnummer als NULL: betriebsnummer ist UNIQUE, und '' gilt in
       // SQLite als regulärer Wert – der zweite Betrieb ohne Nummer scheiterte,
       // wodurch der ganze Azubi-Datensatz verworfen wurde.
-      App.run('INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      App.run(`INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(betriebsnummer) DO UPDATE SET name=excluded.name, strasse=excluded.strasse, plz=excluded.plz, ort=excluded.ort, telefon=excluded.telefon, email=excluded.email`,
         [bnr || null, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
       const n = App.query('SELECT id FROM betriebe WHERE rowid=last_insert_rowid()');
       return n.length ? n[0].id : null;

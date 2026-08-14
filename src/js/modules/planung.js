@@ -882,7 +882,7 @@ const PlanungHandler = {
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, geplant_datum, pruefer, status) VALUES (?,?,?,?,?)',
         [klasseId, jgId, dStr, pr, 'geplant']);
       const terminId = App.scalar('SELECT last_insert_rowid()');
-      App.run('INSERT INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klasseId]);
+      App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klasseId]);
       count++;
     });
 
