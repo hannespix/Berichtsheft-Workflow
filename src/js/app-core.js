@@ -852,11 +852,18 @@ const App = {
       if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
-      w += jgZp(jg.length ? `kt.jahrgang_id IN (${jgIn})` : '',
-                zp.length ? `kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))` : '');
-      if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn}))`;
-      if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
-      if (extraSql) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
+      // Ein Termin bleibt sichtbar, wenn IRGENDEINE verknüpfte Klasse ODER
+      // IRGENDEIN einzeln verknüpfter Schüler zum Filter passt. Vorher liefen
+      // alle Klauseln nur über kontrolltermin_klassen – reine Einsendungs-
+      // Termine (nur Einzelschüler, keine Klasse) verschwanden bei JEDEM
+      // aktiven Filter komplett aus Planung und Kontrolle.
+      const ueberSchueler = (bed) => `kt.id IN (SELECT DISTINCT kts.kontrolltermin_id FROM kontrolltermin_schueler kts JOIN schueler s2 ON kts.schueler_id=s2.id WHERE ${bed})`;
+      const ueberKlassenSchueler = (bed) => `kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE ${bed})`;
+      w += jgZp(jg.length ? `(kt.jahrgang_id IN (${jgIn}) OR kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.jahrgang_id IN (${jgIn})) OR ${ueberSchueler(`s2.jahrgang_id IN (${jgIn})`)})` : '',
+                zp.length ? `(${ueberKlassenSchueler(`s2.zwischenpruefung IN (${zpIn})`)} OR ${ueberSchueler(`s2.zwischenpruefung IN (${zpIn})`)})` : '');
+      if (bg.length) w += ` AND (kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn})) OR ${ueberSchueler(`s2.fachrichtung_id IN (${bgIn})`)})`;
+      if (amt.length) w += ` AND (${ueberKlassenSchueler(`s2.zustaendiges_amt IN (${amtIn})`)} OR ${ueberSchueler(`s2.zustaendiges_amt IN (${amtIn})`)})`;
+      if (extraSql) w += ` AND (${ueberKlassenSchueler(`1=1${extraSql.replace(/\bs\./g,'s2.')}`)} OR ${ueberSchueler(`1=1${extraSql.replace(/\bs\./g,'s2.')}`)})`;
     }
     return w;
   },
@@ -1170,6 +1177,7 @@ const App = {
       betrieb_id INTEGER REFERENCES betriebe(id),
       klasse_id INTEGER DEFAULT NULL REFERENCES klassen(id),
       jahrgang_id INTEGER REFERENCES abschlussjahrgaenge(id),
+      berufsschule_id INTEGER DEFAULT NULL REFERENCES berufsschulen(id),
       geplant_datum TEXT NOT NULL,
       durchgefuehrt_datum TEXT DEFAULT '',
       pruefer TEXT DEFAULT '',
@@ -4261,6 +4269,7 @@ const App = {
     run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
     // kontrolltermine columns
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
+    run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -4987,18 +4996,44 @@ const App = {
   // Get all Schüler for a Termin (from all linked Klassen)
   getTerminSchueler(terminId) {
     const klassenIds = this.getTerminKlassenIds(terminId);
-    // Students from linked classes
+    // Students from linked classes – nur AKTIVE (konsistent mit der Zählung im
+    // Termin-Dialog und dem Aufräumen in saveTermin; bereits kontrollierte,
+    // inzwischen inaktive Azubis kommen über den KE-Zweig unten wieder herein)
     let schueler = [];
     if (klassenIds.length) {
       const placeholders = klassenIds.map(() => '?').join(',');
-      schueler = this.query(`SELECT * FROM schueler WHERE klasse_id IN (${placeholders})`, klassenIds);
+      schueler = this.query(`SELECT * FROM schueler WHERE klasse_id IN (${placeholders}) AND aktiv=1`, klassenIds);
     }
     // Students directly linked (Einsendungen / manuell hinzugefügt)
     const direkt = this.query(`SELECT s.* FROM schueler s JOIN kontrolltermin_schueler kts ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);
+    // Schüler mit vorhandenem Kontrollergebnis IMMER einbeziehen: sie wurden
+    // real kontrolliert (z.B. am Kontrolltag ad hoc hinzugefügte LFK-Gäste
+    // oder inzwischen inaktive Azubis) – ohne diesen Zweig fehlten genau
+    // ihre Bögen in sämtlichen Termin-Exporten.
+    const mitKE = this.query(`SELECT DISTINCT s.* FROM schueler s JOIN kontrollergebnisse ke ON ke.schueler_id=s.id WHERE ke.kontrolltermin_id=?`, [terminId]);
     // Merge without duplicates
     const ids = new Set(schueler.map(s => s.id));
     direkt.forEach(s => { if (!ids.has(s.id)) { schueler.push(s); ids.add(s.id); } });
+    mitKE.forEach(s => { if (!ids.has(s.id)) { schueler.push(s); ids.add(s.id); } });
     return schueler.sort((a,b) => (a.nachname||'').localeCompare(b.nachname||''));
+  },
+
+  // Eigenes Amt (RP Freiburg): Azubis mit anderem zustaendiges_amt werden an
+  // unseren Schulen MIT kontrolliert; ihre Ergebnisse gehen danach an den
+  // zuständigen Ausbildungsberater des anderen Bezirks.
+  EIGENES_AMT: '93',
+
+  // Schule, AN DER der Termin stattfindet: explizites Feld (berufsschule_id,
+  // z.B. LFK-Standort) mit Fallback auf die Stammschule der ersten Klasse.
+  getTerminSchule(terminId) {
+    const t = this.query('SELECT berufsschule_id FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (t && t.berufsschule_id) {
+      const bs = this.query('SELECT * FROM berufsschulen WHERE id=?', [t.berufsschule_id])[0];
+      if (bs) return bs;
+    }
+    const klassen = this.getTerminKlassen(terminId);
+    if (klassen.length) return this.query('SELECT * FROM berufsschulen WHERE id=?', [klassen[0].berufsschule_id])[0] || null;
+    return null;
   },
 
   // Get Klassen info for a Termin (cached)
@@ -5327,7 +5362,21 @@ const App = {
     if (amts.length) sql += ` AND s.zustaendiges_amt IN (${this._sqlInStr(amts)})`;
     sql += ' ORDER BY s.nachname, s.vorname';
 
-    const schuelerList = this.query(sql);
+    let schuelerList = this.query(sql);
+    // Lehrjahr-Filter, z.B. [2,3] für die Nov./Dez.-Kontrolle "alle 2.+3.
+    // Lehrjahr an der Schule". Primär aus dem AKTUELLEN Ausbildungsjahr des
+    // Azubis berechnet (Ausbildungsbeginn/Phasen – berücksichtigt Verkürzer),
+    // Fallback ist das Lehrjahr-Feld der Stammklasse. Azubis, deren Lehrjahr
+    // sich nicht bestimmen lässt, bleiben SICHTBAR statt still zu verschwinden.
+    const ljs = this._safeIntList(liste(opts.lehrjahre));
+    if (ljs.length) {
+      schuelerList = schuelerList.filter(s => {
+        let aj = null;
+        try { aj = this.getCurrentAJ(s.ausbildungsbeginn, s.id); } catch(e) {}
+        if (aj == null && s.lehrjahr) aj = s.lehrjahr;
+        return aj == null ? true : ljs.includes(aj);
+      });
+    }
     const gruppen = {}; // key = schulName → { schule, isLFK, schueler, klasse_ids }
 
     schuelerList.forEach(s => {
@@ -5842,6 +5891,7 @@ const App = {
       try { this.db.run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''"); } catch(e) {}
       // kontrolltermine: typ (schulkontrolle vs einsendung)
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
       // Relax fachrichtungen CHECK constraint + add new professions
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='fachrichtungen'")[0]?.sql || '';

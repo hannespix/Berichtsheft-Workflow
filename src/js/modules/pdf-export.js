@@ -22,6 +22,23 @@ const PDFExport = {
     const COL_BORDER = [200, 200, 200];
     const COL_WARM = [245, 240, 232];
 
+    // Schule/Klasse JE AZUBI (tatsächlicher Standort inkl. Landesfachklasse) –
+    // nicht pauschal die Termin-Schule: der Bogen eines LFK-Gasts oder
+    // Fremd-Amt-Azubis würde sonst mit falscher Schul-/Klassenangabe
+    // weitergegeben.
+    const schuelerInfo = {};
+    schuelerList.forEach(s => {
+      try {
+        const kl = App.query('SELECT k.klassenbezeichnung, bs.name as schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {};
+        const ak = App.getAktuelleSchule({ ...s, schule: kl.schule || '' });
+        schuelerInfo[s.id] = {
+          schule: (ak && ak.schule) || kl.schule || termin.schule || '',
+          klasse: kl.klassenbezeichnung || termin.klassenbezeichnung || '',
+          lfk: !!(ak && ak.isLandesfachklasse),
+        };
+      } catch(e) { schuelerInfo[s.id] = { schule: termin.schule || '', klasse: termin.klassenbezeichnung || '', lfk: false }; }
+    });
+
     schuelerList.forEach((s, idx) => {
       if (idx > 0) doc.addPage();
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
@@ -63,7 +80,8 @@ const PDFExport = {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0);
       doc.text(`${s.nachname}, ${s.vorname}`, LM + 3, y + 7);
       doc.setFontSize(8);
-      doc.text(`${(termin.schule||'').substring(0,35)} – ${(termin.klassenbezeichnung||'').substring(0,30)}`, LM + PW * 0.55 + 3, y + 7);
+      const si = schuelerInfo[s.id] || { schule: termin.schule || '', klasse: termin.klassenbezeichnung || '', lfk: false };
+      doc.text(`${(si.schule||'').substring(0,35)}${si.lfk ? ' (LFK)' : ''} – ${(si.klasse||'').substring(0,30)}`, LM + PW * 0.55 + 3, y + 7);
       // Row 2
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
       doc.text('AUSBILDUNGSSTÄTTE', LM + 3, y + 11);

@@ -167,12 +167,17 @@ const NacherfassungHandler = {
     if (!toSave.length) return App.toast('Nichts zu speichern – bitte Ergebnisse eintragen', 'warning');
 
     // Create Kontrolltermin
+    // NUR eine explizit gewählte Klasse verknüpfen. Ohne Auswahl KEINE
+    // Klassen-Verknüpfung: "alle Klassen der Schule" machte aus einer
+    // 4-Azubi-Nacherfassung einen Termin mit der kompletten Schülerschaft
+    // der Schule (leere Bögen, falsche Exporte). Die tatsächlich erfassten
+    // Azubis werden unten einzeln an den Termin gebunden.
     const klId = document.getElementById('neKlasse')?.value;
-    const klasseIds = klId ? [parseInt(klId)] : App.query("SELECT DISTINCT k.id FROM klassen k WHERE k.berufsschule_id=?", [bsId]).map(r => r.id);
+    const klasseIds = klId ? [parseInt(klId)] : [];
 
     // typ 'einsendung' — 'nacherfassung' würde den CHECK-Constraint verletzen (SCHEMA erlaubt nur schulkontrolle/einsendung)
-    App.run("INSERT INTO kontrolltermine (geplant_datum, pruefer, status, typ, bemerkung) VALUES (?,?,'durchgefuehrt','einsendung','Nacherfasst am ' || date('now'))",
-      [datum, pruefer]);
+    App.run("INSERT INTO kontrolltermine (geplant_datum, pruefer, status, typ, bemerkung, berufsschule_id) VALUES (?,?,'durchgefuehrt','einsendung','Nacherfasst am ' || date('now'),?)",
+      [datum, pruefer, bsId || null]);
     const terminId = App.scalar("SELECT last_insert_rowid()");
     klasseIds.forEach(kId => {
       App.run("INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)", [terminId, kId]);
@@ -190,6 +195,8 @@ const NacherfassungHandler = {
       // OR IGNORE übersprungen (Schüler doppelt in der Liste, zweiter Klick auf
       // "Alle speichern"), zeigte die Nummer auf einen fremden Datensatz.
       const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
+      // Azubi einzeln an den Termin binden (Exports, Orphan-Schutz)
+      App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [terminId, s.id]);
 
       // Wiedervorlage (Tabelle hat KEINE kontrolltermin_id-Spalte!)
       if (row.ergebnis !== 'in_ordnung' && row.wvDate) {

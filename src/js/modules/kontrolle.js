@@ -184,6 +184,7 @@ const KontrolleHandler = {
         <td>
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
+          ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
@@ -641,6 +642,10 @@ const KontrolleHandler = {
          prev.f_1_2_vertragliche_regelungen || '',
          prev.f_1_6_ausbildungsbetrieb || '']);
     }
+    // Auch als Einzel-Zuordnung an den Termin binden: Ohne diesen Eintrag
+    // fehlte der Azubi in allen Termin-Exporten (PDF, Seriendruck, Gesamtpaket)
+    // und die nächste Termin-Bearbeitung löschte sein Ergebnis als "verwaist".
+    App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [this.currentTerminId, schuelerId]);
     // Reload student list (now includes the extra student via KE)
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     this.currentSchuelerList.push(s);
