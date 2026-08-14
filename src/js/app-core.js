@@ -1128,6 +1128,21 @@ const App = {
       fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
     );
+    CREATE TABLE IF NOT EXISTS import_historie (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+      typ TEXT DEFAULT 'azubis',
+      datei TEXT DEFAULT '',
+      bearbeiter TEXT DEFAULT '',
+      zeilen INTEGER DEFAULT 0,
+      neu INTEGER DEFAULT 0,
+      aktualisiert INTEGER DEFAULT 0,
+      uebersprungen INTEGER DEFAULT 0,
+      fehler INTEGER DEFAULT 0,
+      datums_fehler INTEGER DEFAULT 0,
+      datumsformat TEXT DEFAULT '',
+      details_json TEXT DEFAULT '[]'
+    );
     CREATE TABLE IF NOT EXISTS bhk_applied_ops (
       op_uid TEXT PRIMARY KEY,
       ts TEXT DEFAULT ''
@@ -2631,7 +2646,7 @@ const App = {
     // dieselbe Nummer; ein späteres "WHERE id=?" trifft dann beim Kollegen die
     // falsche Zeile (Mängel landeten beim falschen Azubi, Löschungen beim
     // falschen Prüfer/Jahrgang).
-    'kw_maengel','pruefer','abschlussjahrgaenge']),
+    'kw_maengel','pruefer','abschlussjahrgaenge','import_historie']),
   // Natürliche Schlüssel: Replay-Adressierung (statt divergenter ids) + Tombstone-Keys
   NATURAL_KEYS: {
     kontrollergebnisse: ['kontrolltermin_id','schueler_id'],
@@ -3895,6 +3910,21 @@ const App = {
       tabelle TEXT NOT NULL, key TEXT NOT NULL,
       geloescht_am TEXT DEFAULT (datetime('now','localtime')),
       PRIMARY KEY (tabelle, key))`);
+    run(`CREATE TABLE IF NOT EXISTS import_historie (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+      typ TEXT DEFAULT 'azubis',
+      datei TEXT DEFAULT '',
+      bearbeiter TEXT DEFAULT '',
+      zeilen INTEGER DEFAULT 0,
+      neu INTEGER DEFAULT 0,
+      aktualisiert INTEGER DEFAULT 0,
+      uebersprungen INTEGER DEFAULT 0,
+      fehler INTEGER DEFAULT 0,
+      datums_fehler INTEGER DEFAULT 0,
+      datumsformat TEXT DEFAULT '',
+      details_json TEXT DEFAULT '[]'
+    )`);
     // Idempotenz-Ledger: verhindert Doppel-Anwendung von Ops nach Crash/Retry
     run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
     // UNIQUE-Index gegen doppelte Kontrollergebnisse bei gleichzeitiger Auto-Erstellung
@@ -5195,6 +5225,22 @@ const App = {
       notiz TEXT DEFAULT '',
       erstellt_am TEXT DEFAULT (datetime('now','localtime')),
       erstellt_von TEXT DEFAULT ''
+    )`);
+      // Import-Historie (nachvollziehbar, wer wann was importiert hat)
+      this.db.run(`CREATE TABLE IF NOT EXISTS import_historie (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
+      typ TEXT DEFAULT 'azubis',
+      datei TEXT DEFAULT '',
+      bearbeiter TEXT DEFAULT '',
+      zeilen INTEGER DEFAULT 0,
+      neu INTEGER DEFAULT 0,
+      aktualisiert INTEGER DEFAULT 0,
+      uebersprungen INTEGER DEFAULT 0,
+      fehler INTEGER DEFAULT 0,
+      datums_fehler INTEGER DEFAULT 0,
+      datumsformat TEXT DEFAULT '',
+      details_json TEXT DEFAULT '[]'
     )`);
       // Idempotenz-Ledger auch in der Arbeitskopie vorhalten
       this.db.run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
