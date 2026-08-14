@@ -454,7 +454,10 @@ const StammdatenTab = {
     const autoTitel = names.length <= 3 ? 'Einzelprüfung ' + names.join('; ') : `Einzelprüfung ${names.length} Azubis`;
     App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
       [jgId || null, today, 'einsendung', autoTitel]);
-    const terminId = App.scalar("SELECT MAX(id) FROM kontrolltermine");
+    // last_insert_rowid statt MAX(id): die IDs sind wanduhr-basiert global –
+    // MAX(id) könnte den soeben synchronisierten Termin eines Kollegen mit
+    // vorgehender Uhr treffen und dessen Termin mit fremden Azubis füllen.
+    const terminId = App.scalar("SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()");
     schuelerIds.forEach(sid => {
       App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
     });
@@ -529,7 +532,8 @@ const StammdatenTab = {
     const jahr = parseInt(document.getElementById('mJgJahr').value);
     const pruef = document.getElementById('mJgPruef').value;
     if (!bez || !jahr) return App.toast('Bitte Bezeichnung und Jahr ausfüllen', 'error');
-    App.run('INSERT INTO abschlussjahrgaenge (bezeichnung, typ, jahr, pruefungstermin) VALUES (?,?,?,?)', [bez, typ, jahr, pruef]);
+    App.run(`INSERT INTO abschlussjahrgaenge (bezeichnung, typ, jahr, pruefungstermin) VALUES (?,?,?,?)
+      ON CONFLICT(bezeichnung) DO UPDATE SET typ=excluded.typ, jahr=excluded.jahr, pruefungstermin=excluded.pruefungstermin`, [bez, typ, jahr, pruef]);
     App.closeModal();
     // (jahrgang refresh no longer needed)
     StammdatenTab.show('jahrgaenge');
@@ -592,10 +596,11 @@ const StammdatenTab = {
     const ids = [...document.querySelectorAll('.chk-sch:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
-    ids.forEach(id => {
-      App.run('DELETE FROM klassen WHERE berufsschule_id=?', [id]);
-      App.deleteSchuleKaskade(id);
-    });
+    // NUR die Kaskade: sie löst jede Klasse der Schule einzeln über
+    // deleteKlasseKaskade auf (Schüler-Zuordnung, Termin-Klassen usw.).
+    // Ein direktes DELETE FROM klassen davor machte die Kaskade zum No-Op
+    // und hinterließ verwaiste klasse_id-Verweise.
+    ids.forEach(id => App.deleteSchuleKaskade(id));
     App.toast(`${ids.length} Schulen gelöscht`, 'success');
     StammdatenTab.show('schulen');
   },
@@ -872,7 +877,10 @@ const StammdatenTab = {
     if (id) {
       App.run('UPDATE klassen SET berufsschule_id=?,jahrgang_id=?,lehrjahr=?,fachrichtung_id=?,klassenbezeichnung=? WHERE id=?', [bs,jg,lj,fr,bez,id]);
     } else {
-      App.run('INSERT INTO klassen (berufsschule_id,jahrgang_id,lehrjahr,fachrichtung_id,klassenbezeichnung) VALUES (?,?,?,?,?)',
+      // ON CONFLICT: legt ein Kollege dieselbe Klasse parallel an (oder der
+      // IBYKUS-Import), darf der Replay beim Empfänger nicht still scheitern
+      App.run(`INSERT INTO klassen (berufsschule_id,jahrgang_id,lehrjahr,fachrichtung_id,klassenbezeichnung) VALUES (?,?,?,?,?)
+        ON CONFLICT(berufsschule_id, jahrgang_id, fachrichtung_id) DO UPDATE SET klassenbezeichnung=excluded.klassenbezeichnung, lehrjahr=excluded.lehrjahr`,
         [bs, jg, lj, fr, bez]);
     }
     App.closeModal();
@@ -952,7 +960,8 @@ const StammdatenTab = {
   savePruefer() {
     const n = document.getElementById('mPrName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
-    App.run('INSERT INTO pruefer (name,email) VALUES (?,?)', [n, document.getElementById('mPrEmail').value.trim()]);
+    App.run(`INSERT INTO pruefer (name,email) VALUES (?,?)
+      ON CONFLICT(name) DO UPDATE SET email=excluded.email`, [n, document.getElementById('mPrEmail').value.trim()]);
     App.closeModal();
     StammdatenTab.show('pruefer');
   },
@@ -1267,7 +1276,10 @@ const StammdatenTab = {
     if (bnrNeu && App.scalar('SELECT COUNT(*) FROM betriebe WHERE betriebsnummer=?', [bnrNeu])) {
       return App.toast(`Betriebsnummer ${bnrNeu} ist bereits vergeben`, 'error');
     }
-    App.run('INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon,fax,ansprechpartner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    // ON CONFLICT: hat ein Kollege denselben Betrieb (gleiche Betriebsnummer)
+    // parallel angelegt, aktualisiert der Replay statt still zu scheitern
+    App.run(`INSERT INTO betriebe (name,vorname,zusatzbezeichnung,firma,betriebsnummer,strasse,plz,ort,email,telefon,fax,ansprechpartner) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(betriebsnummer) DO UPDATE SET name=excluded.name, strasse=excluded.strasse, plz=excluded.plz, ort=excluded.ort`,
       [n, document.getElementById('mBeVorname')?.value?.trim()||'',
        zusatz, zusatz,
        document.getElementById('mBeBnr').value.trim() || null,

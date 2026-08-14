@@ -131,7 +131,8 @@ console.log('\n══ Migrations-Parität: Schema / Arbeitskopie / Netzlaufwerk 
 {
   const tabellen = (d) => { const r = []; const st = d.prepare("SELECT name FROM sqlite_master WHERE type='table'"); while (st.step()) r.push(st.getAsObject().name); st.free(); return r; };
   const imSchema = tabellen(db);
-  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie']) {
+  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie',
+    'schueler_bemerkungen', 'schueler_dateien', 'ausbilder', 'kw_maengel']) {
     check(imSchema.includes(t), `${t} existiert nach migrateDB()`);
   }
   // Alt-Datenbank ohne Zusatztabellen durch _migrateDiskDb schicken
@@ -146,9 +147,14 @@ console.log('\n══ Migrations-Parität: Schema / Arbeitskopie / Netzlaufwerk 
   alt.run(`CREATE TABLE wiedervorlagen (id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER)`);
   App._migrateDiskDb(alt);
   const aufDisk = tabellen(alt);
-  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie', 'kw_status', 'kw_maengel', 'ausbildungsphasen']) {
+  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie', 'kw_status', 'kw_maengel', 'ausbildungsphasen',
+    'schueler_bemerkungen', 'schueler_dateien', 'ausbilder']) {
     check(aufDisk.includes(t), `${t} wird auch auf einer Alt-Datenbank angelegt`);
   }
+  // Prüfer-Unique-Index muss auch auf der Disk-DB existieren (ON CONFLICT(name))
+  const idx = []; const st2 = alt.prepare("SELECT name FROM sqlite_master WHERE type='index'");
+  while (st2.step()) idx.push(st2.getAsObject().name); st2.free();
+  check(idx.includes('idx_pruefer_name'), 'idx_pruefer_name existiert auf der Disk-DB');
   alt.close();
 }
 

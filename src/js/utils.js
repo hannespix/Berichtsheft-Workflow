@@ -142,13 +142,18 @@ window.addEventListener('beforeunload', (e) => {
     }
   } catch(ex) {}
   // Persist dirty ops to IndexedDB so they survive tab close
-  if (App._dirtyOps && App._dirtyOps.length > 0) {
+  // (auch die gerade in einem Append steckenden – _persistDirtyOps sichert
+  // _opsInFlight mit)
+  if ((App._dirtyOps && App._dirtyOps.length > 0) || (App._opsInFlight && App._opsInFlight.length > 0)) {
     try { App._persistDirtyOps(); } catch(ex) {}
   }
   // Release lock file – aber NICHT während ein Save läuft: bricht der Nutzer
-  // das Tab-Schließen ab, liefe der Schreibvorgang sonst ungeschützt weiter
-  // (das finally von mergeAndSave gibt das Lock ohnehin frei).
-  try { if (!App._mergeInProgress) App._releaseLock(); } catch(ex) {}
+  // das Tab-Schließen ab, liefe der Schreibvorgang sonst ungeschützt weiter.
+  // Im v3-Modus heißen die laufenden Schreibvorgänge _compactInProgress
+  // (Snapshot-Write unter Lock!) und _appendInProgress – auch dann behalten.
+  try {
+    if (!App._mergeInProgress && !App._compactInProgress && !App._appendInProgress) App._releaseLock();
+  } catch(ex) {}
   if (App.unsavedChanges && !App.demoMode) {
     e.preventDefault();
     e.returnValue = 'Es gibt ungespeicherte Änderungen. Wirklich schließen?';
