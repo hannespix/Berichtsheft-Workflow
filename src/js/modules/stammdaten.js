@@ -433,7 +433,12 @@ const StammdatenTab = {
     if (fil.schule) { const s = App.scalar('SELECT name FROM berufsschulen WHERE id=?', [fil.schule]); if (s) labels.push('Schule: ' + s); }
     if (fil.drillDown) labels.push('Drill-Down: ' + fil.drillDown.label);
     (App.extraFilters || []).forEach(f => {
-      if (!f.value) return;
+      if (!App._efAktiv(f)) return;
+      if (Array.isArray(f.value)) {
+        const def = App.extraFilterDefs[f.field];
+        if (def) labels.push(def.label + ': ' + ((f.labels && f.labels.length ? f.labels : f.value).join(', ')));
+        return;
+      }
       const def = App.extraFilterDefs[f.field];
       if (def) labels.push(def.label + ': ' + f.value);
     });

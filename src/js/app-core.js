@@ -110,6 +110,55 @@ const App = {
     this.renderCurrentView();
   },
 
+  // ── Mehrfachauswahl für Zusatzfilter vom Typ "select" ──
+  // f.value ist dort ein ARRAY gewählter Werte ([] = alle / inaktiv). Damit
+  // lassen sich z.B. mehrere Zwischenprüfungstermine gleichzeitig wählen;
+  // die Werte werden in _extraFilterSql mit ODER verknüpft.
+  _efAktiv(f) { return Array.isArray(f.value) ? f.value.length > 0 : !!f.value; },
+  _efLabel(idx) {
+    const f = this.extraFilters[idx];
+    if (!f || !Array.isArray(f.value) || !f.value.length) return 'Alle';
+    if (f.value.length === 1) {
+      const l = String((f.labels && f.labels[0]) || f.value[0]);
+      return l.length > 20 ? l.slice(0, 19) + '…' : l;
+    }
+    return f.value.length + ' gewählt';
+  },
+  _efToggle(idx) {
+    const dd = document.getElementById('efDd_' + idx);
+    if (!dd) return;
+    document.querySelectorAll('[id^="efDd_"]').forEach(d => { if (d !== dd) d.style.display = 'none'; });
+    const oeffnen = dd.style.display === 'none';
+    dd.style.display = oeffnen ? '' : 'none';
+    if (oeffnen) {
+      this._clampDropdown(dd);
+      setTimeout(() => {
+        const closer = (e) => {
+          if (!dd.contains(e.target) && e.target.id !== 'efBtn_' + idx) {
+            dd.style.display = 'none';
+            document.removeEventListener('click', closer);
+          }
+        };
+        document.addEventListener('click', closer);
+      }, 10);
+    }
+  },
+  _efAll(idx, checked) {
+    document.querySelectorAll('.chk-ef-' + idx).forEach(c => { c.checked = checked; });
+    this._efChange(idx);
+  },
+  _efChange(idx) {
+    const f = this.extraFilters[idx];
+    if (!f) return;
+    const checked = [...document.querySelectorAll('.chk-ef-' + idx)].filter(c => c.checked);
+    f.value = checked.map(c => c.value);
+    f.labels = checked.map(c => c.dataset.l || c.value);
+    const btn = document.getElementById('efBtn_' + idx);
+    if (btn) btn.textContent = this._efLabel(idx) + ' ▾';
+    this._updateFilterCount();
+    this.renderCurrentView();
+  },
+
   _clearAllExtraFilters() {
     this.extraFilters = [];
     this._renderExtraFilterChips();
@@ -142,8 +191,22 @@ const App = {
         if (def.optionsSql) {
           try { const rows = App.query(def.optionsSql); opts = rows.map(r => ({ v: def.optionValue ? String(r[def.optionValue]) : r[def.optionKey], l: def.optionLabel ? def.optionLabel(r) : r[def.optionKey] })); } catch(e) {}
         } else if (def.options) { opts = def.options; }
-        input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px;max-width:160px" onchange="App._onExtraFilterChange(${idx},this.value)">
-          <option value="" style="color:#333">Alle</option>${opts.map(o => `<option value="${esc(String(o.v))}" style="color:#333" ${String(f.value)===String(o.v)?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+        // Alt-Zustand (Einzelwert als String) in die Mehrfachauswahl übernehmen
+        if (!Array.isArray(f.value)) f.value = f.value ? [String(f.value)] : [];
+        const sel = f.value.map(String);
+        input = `<span style="position:relative;display:inline-block">
+          <button type="button" id="efBtn_${idx}" style="font-size:11px;padding:1px 8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
+          <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:white;color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
+            <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
+              <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},true);return false">alle</a>
+              <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},false);return false">keine</a>
+              <span style="margin-left:auto;color:var(--clr-text-light)">Mehrfachauswahl</span>
+            </div>
+            ${opts.map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:11px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+              <input type="checkbox" class="chk-ef-${idx}" value="${esc(String(o.v))}" data-l="${esc(String(o.l))}" ${sel.includes(String(o.v)) ? 'checked' : ''} onchange="App._efChange(${idx})" style="accent-color:var(--clr-forest)"> ${esc(String(o.l))}
+            </label>`).join('')}
+          </div>
+        </span>`;
       }
       return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(255,200,50,0.2);border:1px solid rgba(255,200,50,0.5);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.9)">
         <strong>${esc(def.label)}:</strong> ${input}
@@ -157,10 +220,15 @@ const App = {
     let w = '';
     let overrideAktiv = false;
     this.extraFilters.forEach(f => {
-      if (!f.value) return;
+      if (!this._efAktiv(f)) return;
       const def = this.extraFilterDefs[f.field];
       if (!def || !def.sqlS) return;
-      w += ` AND (${def.sqlS(f.value)})`;
+      if (Array.isArray(f.value)) {
+        // Mehrfachauswahl: gewählte Werte mit ODER verknüpfen
+        w += ` AND (${f.value.map(v => `(${def.sqlS(v)})`).join(' OR ')})`;
+      } else {
+        w += ` AND (${def.sqlS(f.value)})`;
+      }
       if (def.overrideAktiv) overrideAktiv = true;
     });
     return { sql: w, overrideAktiv };
@@ -837,11 +905,18 @@ const App = {
     }
     // Extra filter badges
     this.extraFilters.forEach((f, idx) => {
-      if (!f.value) return;
+      if (!this._efAktiv(f)) return;
       const def = this.extraFilterDefs[f.field];
       if (!def) return;
-      let label = def.label + ': ' + f.value;
-      if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
+      let label;
+      if (Array.isArray(f.value)) {
+        const namen = (f.labels && f.labels.length === f.value.length ? f.labels : f.value).map(String);
+        const kurz = namen.join(', ');
+        label = def.label + ': ' + (kurz.length > 40 ? namen.length + ' gewählt' : kurz);
+      } else {
+        label = def.label + ': ' + f.value;
+        if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
+      }
       parts.push(`<span style="padding:3px 8px;background:rgba(232,213,245,0.6);border:1px solid #d4b8e8;border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
     });
     if (!parts.length) return '';
@@ -876,7 +951,7 @@ const App = {
     if (this.filterFachrichtungen.length) cnt++;
     if (this.filterAmt.length) cnt++;
     if (this.filterBavStatus !== 'aktiv') cnt++;
-    cnt += this.extraFilters.filter(f => f.value).length;
+    cnt += this.extraFilters.filter(f => this._efAktiv(f)).length;
     const el = document.getElementById('filterActiveCount');
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const btn = document.getElementById('filterPanelToggle');

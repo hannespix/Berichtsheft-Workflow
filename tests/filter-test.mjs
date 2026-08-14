@@ -152,5 +152,21 @@ console.log('\n══ Quelltext-Zusicherungen: keine Exklusivität mehr, Planung
     'Stammdaten: alte JG-Einfachauswahl ist ersetzt');
 }
 
+console.log('\n══ Zusatzfilter ("+ Filter"): Mehrfachauswahl mit ODER-Verknüpfung ══');
+{
+  // z.B. mehrere Zwischenprüfungstermine gleichzeitig im Chip-Filter
+  App.extraFilters = [{ field: 'zwischenpruefung', value: ['H2026', 'H2027'] }];
+  const r = ids(`SELECT s.id FROM schueler s WHERE s.aktiv=1${App.gf('s')}`);
+  check(JSON.stringify(r) === '[1,4]', `ZP-Chip {H2026,H2027} → Azubis 1 und 4 (bekommen: ${JSON.stringify(r)})`);
+  check(App._efAktiv({ value: ['x'] }) === true && App._efAktiv({ value: [] }) === false && App._efAktiv({ value: '' }) === false,
+    'Leere Auswahl gilt als inaktiv (kein Filter)');
+  // Alt-Zustand (Einzelwert als String) funktioniert weiter
+  App.extraFilters = [{ field: 'zwischenpruefung', value: 'F2027' }];
+  check(JSON.stringify(ids(`SELECT s.id FROM schueler s WHERE s.aktiv=1${App.gf('s')}`)) === '[2,3]',
+    'Einzelwert (Alt-Format) wird weiterhin unterstützt');
+  App.extraFilters = [];
+  check(/chk-ef-/.test(APP_SRC) && /_efChange/.test(APP_SRC), 'Chip-Filter rendern Häkchen-Dropdowns');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
