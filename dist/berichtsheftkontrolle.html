@@ -10377,8 +10377,23 @@ const App = {
       this._dirtyOps = [...claimed, ...this._dirtyOps];
       this.unsavedChanges = true;
       console.error('[SyncV3] Append-Fehler:', e);
+      // Windows-Netzlaufwerke: Chromium meldet InvalidStateError ("state had
+      // changed since it was read from disk"), wenn sein Datei-Metadaten-Cache
+      // nicht mehr zur Platte passt (SMB-Zeitstempel, Virenscanner, fremdes
+      // Aufräumen). Ein erneuter Versuch auf DIESELBE Datei scheitert dann
+      // dauerhaft – der Client könnte nie wieder speichern. Selbstheilung:
+      // eigenes Log auf die nächste Generation drehen; die neue Datei hat
+      // frischen Zustand, Leser erfassen ohnehin alle Generationen.
+      if (e && e.name === 'InvalidStateError' && Date.now() - (this._lastCacheRotate || 0) > 5000) {
+        this._lastCacheRotate = Date.now();
+        this._logGen++;
+        this._myLogSize = 0;
+        console.warn(`[SyncV3] Datei-Cache-Fehler → eigenes Log rotiert auf Generation ${this._logGen}`);
+        setTimeout(() => this.scheduleAutoSave(), 500);
+      } else {
+        setTimeout(() => this.scheduleAutoSave(), 5000);
+      }
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
-      setTimeout(() => this.scheduleAutoSave(), 5000);
     } finally {
       this._appendInProgress = false;
     }
