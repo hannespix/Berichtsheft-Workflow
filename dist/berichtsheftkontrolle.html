@@ -16115,10 +16115,7 @@ const StammdatenTab = {
     c.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
       <input class="form-control" id="azubiSearchInput" placeholder="Name, Betrieb, Ort, Schule, Tel, E-Mail..." value="${esc(q)}" style="flex:1;min-width:200px"
         oninput="StammdatenTab._azubiDoSearch(this.value)">
-      <select class="form-control" style="width:auto" onchange="StammdatenTab._azubiFilter.jahrgang=this.value?parseInt(this.value):null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">
-        <option value="">Alle JG</option>
-        ${jahrgaenge.map(j => `<option value="${j.id}" ${fil.jahrgang==j.id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
-      </select>
+      ${this._jgzpDropdownHtml(fil, jahrgaenge)}
       <select class="form-control" style="width:auto" onchange="StammdatenTab._azubiFilter.schule=this.value?parseInt(this.value):null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">
         <option value="">Alle Schulen</option>
         ${schulen.map(s2 => `<option value="${s2.id}" ${fil.schule==s2.id?'selected':''}>${esc(s2.name)}</option>`).join('')}
@@ -16132,6 +16129,94 @@ const StammdatenTab = {
       </div>
     </div>
     <div id="azubiTableContainer"></div>`;
+  },
+
+  // ── Jahrgangs-/ZP-Mehrfachauswahl in der Azubi-Liste ──
+  // Wie im globalen Filter und in der Planung: mehrere AP-Jahrgänge und
+  // mehrere ZP-Kohorten gleichzeitig wählbar; sind beide Dimensionen
+  // eingeschränkt, gilt die VEREINIGUNG (AP-Jahrgang ODER ZP-Kohorte).
+  // Alles angehakt = keine Einschränkung in dieser Dimension.
+  _jgzpDropdownHtml(fil, jahrgaenge) {
+    const zpCodes = App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE aktiv=1 AND zwischenpruefung != '' ORDER BY zwischenpruefung").map(r => r.zwischenpruefung)
+      .sort((a, b) => { const ya = parseInt(a.substring(1)), yb = parseInt(b.substring(1)); return ya !== yb ? yb - ya : (a < b ? -1 : 1); });
+    const jgs = fil.jgs || [], zps = fil.zps || [];
+    const allJg = jgs.length === 0, allZp = zps.length === 0;
+    const links = (cls) => `<span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0">
+      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="StammdatenTab._jgzpAll('${cls}',true);return false">alle</a>
+      <span style="color:var(--clr-sand)">·</span>
+      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="StammdatenTab._jgzpAll('${cls}',false);return false">keine</a>
+    </span>`;
+    return `<div style="position:relative">
+      <button type="button" class="form-control" id="azubiJgZpBtn" style="width:auto;cursor:pointer;text-align:left" onclick="StammdatenTab._jgzpToggle();event.stopPropagation()">${this._jgzpLabel(fil)} ▾</button>
+      <div id="azubiJgZpDd" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:210px;max-height:280px;overflow-y:auto;padding:2px 0">
+        <div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em">Abschlussprüfung (AP)${links('chk-az-jg')}</div>
+        ${jahrgaenge.map(j => `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="chk-az-jg" value="${j.id}" ${allJg || jgs.includes(j.id) ? 'checked' : ''} onchange="StammdatenTab._jgzpChange()" style="accent-color:var(--clr-forest)">
+          <strong>${esc(j.bezeichnung)}</strong>
+        </label>`).join('')}
+        ${zpCodes.length ? `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-amber);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)${links('chk-az-zp')}</div>` : ''}
+        ${zpCodes.map(z => `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="chk-az-zp" value="${esc(z)}" ${allZp || zps.includes(z) ? 'checked' : ''} onchange="StammdatenTab._jgzpChange()" style="accent-color:var(--clr-amber)">
+          <strong>${esc(z)}</strong> <span style="color:var(--clr-text-light);font-size:10px">${esc(App.zpLabel(z))}</span>
+        </label>`).join('')}
+        <div style="padding:3px 12px;font-size:10px;color:var(--clr-text-light);border-top:1px solid var(--clr-sand);margin-top:2px">AP + ZP kombiniert = alle gewählten Kohorten</div>
+      </div>
+    </div>`;
+  },
+  _jgzpLabel(fil) {
+    const jgs = fil.jgs || [], zps = fil.zps || [];
+    if (!jgs.length && !zps.length) return 'JG/ZP: Alle';
+    const teile = [];
+    if (jgs.length) {
+      if (jgs[0] === -1) teile.push('Keine AP');
+      else if (jgs.length === 1) teile.push(App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgs[0]]) || '?');
+      else teile.push(jgs.length + ' AP');
+    }
+    if (zps.length) {
+      if (zps[0] === '---') teile.push('Keine ZP');
+      else teile.push(zps.length === 1 ? zps[0] : zps.length + ' ZP');
+    }
+    return teile.join(' + ');
+  },
+  _jgzpToggle() {
+    const dd = document.getElementById('azubiJgZpDd');
+    if (!dd) return;
+    const oeffnen = dd.style.display === 'none';
+    dd.style.display = oeffnen ? '' : 'none';
+    if (oeffnen) {
+      setTimeout(() => {
+        const closer = (e) => {
+          if (!dd.contains(e.target) && e.target.id !== 'azubiJgZpBtn') {
+            dd.style.display = 'none';
+            document.removeEventListener('click', closer);
+          }
+        };
+        document.addEventListener('click', closer);
+      }, 10);
+    }
+  },
+  _jgzpAll(cls, checked) {
+    document.querySelectorAll('.' + cls).forEach(c => { c.checked = checked; });
+    this._jgzpChange();
+  },
+  _jgzpChange() {
+    const fil = this._azubiFilter || (this._azubiFilter = {});
+    const allJg = [...document.querySelectorAll('.chk-az-jg')];
+    const chkJg = allJg.filter(c => c.checked).map(c => parseInt(c.value));
+    fil.jgs = chkJg.length === allJg.length ? [] : (chkJg.length === 0 ? [-1] : chkJg);
+    const allZp = [...document.querySelectorAll('.chk-az-zp')];
+    const chkZp = allZp.filter(c => c.checked).map(c => c.value);
+    fil.zps = chkZp.length === allZp.length ? [] : (chkZp.length === 0 ? ['---'] : chkZp);
+    fil.jahrgang = null; // Alt-Einfachauswahl ablösen
+    const btn = document.getElementById('azubiJgZpBtn');
+    if (btn) {
+      btn.innerHTML = this._jgzpLabel(fil) + ' ▾';
+      const aktiv = fil.jgs.length || fil.zps.length;
+      btn.style.background = aktiv ? 'var(--clr-green-light)' : '';
+      btn.style.fontWeight = aktiv ? '600' : '';
+    }
+    this._azubiPage = 0;
+    this._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
 
   _renderAzubiTable(c) {
@@ -16153,6 +16238,16 @@ const StammdatenTab = {
     }
     // Local filters (additional refinement on top of global)
     if (fil.jahrgang) { where += ' AND s.jahrgang_id=?'; params.push(fil.jahrgang); }
+    // Mehrfachauswahl JG/ZP: beide Dimensionen zusammen = Vereinigung
+    if ((fil.jgs && fil.jgs.length) || (fil.zps && fil.zps.length)) {
+      const teile = [];
+      if (fil.jgs && fil.jgs.length) teile.push(`s.jahrgang_id IN (${App._safeIntList(fil.jgs).join(',') || '-1'})`);
+      if (fil.zps && fil.zps.length) {
+        const zpSafe = App._safeStrList(fil.zps);
+        teile.push(zpSafe.length ? `s.zwischenpruefung IN (${App._sqlInStr(zpSafe)})` : '1=0');
+      }
+      where += ` AND (${teile.join(' OR ')})`;
+    }
     if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
     // Drill-down filter (from dashboard clicks)
     if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
@@ -16367,6 +16462,7 @@ const StammdatenTab = {
     const fil = this._azubiFilter || {};
     if (this._azubiSearch) labels.push('Suche: ' + this._azubiSearch);
     if (fil.jahrgang) { const j = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [fil.jahrgang]); if (j) labels.push('Jahrgang: ' + j); }
+    if ((fil.jgs && fil.jgs.length) || (fil.zps && fil.zps.length)) labels.push('JG/ZP: ' + this._jgzpLabel(fil));
     if (fil.schule) { const s = App.scalar('SELECT name FROM berufsschulen WHERE id=?', [fil.schule]); if (s) labels.push('Schule: ' + s); }
     if (fil.drillDown) labels.push('Drill-Down: ' + fil.drillDown.label);
     (App.extraFilters || []).forEach(f => {
@@ -16434,7 +16530,7 @@ const StammdatenTab = {
           <td>${esc(r.typ)}</td>
           <td>${r.jahr}</td>
           <td>${r.pruefungstermin ? formatDate(r.pruefungstermin) : '–'}</td>
-          <td>${cntAktiv > 0 ? `<a href="#" onclick="StammdatenTab._azubiFilter={jahrgang:${r.id}};StammdatenTab._azubiSearch='';StammdatenTab._azubiPage=0;StammdatenTab.show('azubis');return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubis dieses Jahrgangs anzeigen">${cntAktiv}</a>` : '0'}${cnt !== cntAktiv ? ` <span style="color:var(--clr-text-light);font-size:11px">(+${cnt-cntAktiv} inaktiv)</span>` : ''}</td>
+          <td>${cntAktiv > 0 ? `<a href="#" onclick="StammdatenTab._azubiFilter={jgs:[${r.id}]};StammdatenTab._azubiSearch='';StammdatenTab._azubiPage=0;StammdatenTab.show('azubis');return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubis dieses Jahrgangs anzeigen">${cntAktiv}</a>` : '0'}${cnt !== cntAktiv ? ` <span style="color:var(--clr-text-light);font-size:11px">(+${cnt-cntAktiv} inaktiv)</span>` : ''}</td>
           <td class="btn-group">
             <button class="btn btn-sm btn-secondary" onclick="App.setJgFilterDirect(${r.id});App.navigate('dashboard')" title="Dashboard auf diesen Jahrgang filtern">▤ Filtern</button>
             <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteJahrgang(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
