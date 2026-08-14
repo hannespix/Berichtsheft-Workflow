@@ -319,28 +319,57 @@ const App = {
     }
   },
 
-  _applyJgExclusive(source) {
-    if (source === 'ap') {
-      // AP changed → deactivate ZP
+  // AP und ZP sind KOMBINIERBAR: beide Dimensionen können gleichzeitig
+  // eingeschränkt sein. Sind beide aktiv, wirkt die Auswahl als VEREINIGUNG
+  // (Azubi gehört zu einem der gewählten AP-Jahrgänge ODER einer der
+  // gewählten ZP-Kohorten) – siehe gf(). Eine komplett angehakte Sektion
+  // bedeutet weiterhin "keine Einschränkung in dieser Dimension".
+  _applyJgZp() {
+    // Nur aus den Checkboxen ableiten, wenn das Dropdown gerendert ist –
+    // sonst bleibt ein programmatisch gesetzter Filter (z.B. "Filtern"-Knopf
+    // in den Stammdaten) unangetastet.
+    const allJgCount = document.querySelectorAll('.chk-jg').length;
+    if (allJgCount > 0) {
       const checkedJg = [...document.querySelectorAll('.chk-jg:checked')].map(c => parseInt(c.value));
-      const allJgCount = document.querySelectorAll('.chk-jg').length;
       this.filterJahrgang = checkedJg.length === allJgCount ? [] : (checkedJg.length === 0 ? [-1] : checkedJg);
-      this.filterZp = []; // clear ZP
-    } else {
-      // ZP changed → deactivate AP
-      const checkedZp = [...document.querySelectorAll('.chk-zp:checked')].map(c => c.value);
-      const allZpCount = document.querySelectorAll('.chk-zp').length;
-      this.filterZp = checkedZp.length === allZpCount ? [] : (checkedZp.length === 0 ? ['---'] : checkedZp);
-      this.filterJahrgang = []; // clear AP
     }
-    this.refreshJgDropdown(); // rebuild UI to show disabled state
+    const allZpCount = document.querySelectorAll('.chk-zp').length;
+    if (allZpCount > 0) {
+      const checkedZp = [...document.querySelectorAll('.chk-zp:checked')].map(c => c.value);
+      this.filterZp = checkedZp.length === allZpCount ? [] : (checkedZp.length === 0 ? ['---'] : checkedZp);
+    }
+    this._updateJgUnionHint();
+    this._updateJgButton();
     this._updateFilterCount();
     this.renderCurrentView();
   },
+  // Hinweiszeile im Dropdown aktualisieren, ohne die Checkboxen neu zu bauen
+  _updateJgUnionHint() {
+    const el = document.getElementById('jgUnionHint');
+    if (!el) return;
+    const beide = this.filterJahrgang.length > 0 && this.filterJahrgang[0] !== -1
+      && this.filterZp.length > 0 && this.filterZp[0] !== '---';
+    el.style.display = beide ? '' : 'none';
+  },
+  // Ganze Sektion (AP oder ZP) auf einmal an-/abwählen
+  _jgSectionAll(cls, checked) {
+    document.querySelectorAll('.' + cls).forEach(c => { c.checked = checked; });
+    this._applyJgZp();
+  },
 
   // Legacy compat
-  _applyJgFilter() { this._applyJgExclusive('ap'); },
-  _updateZpFromJgDropdown() { this._applyJgExclusive('zp'); },
+  _applyJgExclusive() { this._applyJgZp(); },
+  _applyJgFilter() { this._applyJgZp(); },
+  _updateZpFromJgDropdown() { this._applyJgZp(); },
+  // Filter programmatisch auf genau einen AP-Jahrgang setzen (z.B. aus den
+  // Stammdaten) – unabhängig vom aktuellen Checkbox-Zustand des Dropdowns
+  setJgFilterDirect(id) {
+    this.filterJahrgang = [id];
+    this.filterZp = [];
+    this.refreshJgDropdown();
+    this._updateJgButton();
+    this._updateFilterCount();
+  },
 
   _toggleJgAll() {
     const isAll = this.filterJahrgang.length === 0 && this.filterZp.length === 0;
@@ -716,39 +745,49 @@ const App = {
     const ef = this._extraFilterSql();
     const extraSql = ef.sql; // Always schueler-level WHERE clauses (using alias s/s2)
 
+    // AP- und ZP-Filter: sind BEIDE aktiv, gilt die Vereinigung (ODER) –
+    // der Nutzer stellt sich Kohorten zusammen (z.B. ZP 2026 + AP Sommer 2027).
+    // Ist nur einer aktiv, wirkt er allein wie bisher.
+    const jgZp = (jgClause, zpClause) => {
+      if (jgClause && zpClause) return ` AND (${jgClause} OR ${zpClause})`;
+      if (jgClause) return ` AND ${jgClause}`;
+      if (zpClause) return ` AND ${zpClause}`;
+      return '';
+    };
+
     if (entity === 'schueler' || entity === 's') {
-      if (jg.length) w += ` AND s.jahrgang_id IN (${jgIn})`;
+      w += jgZp(jg.length ? `s.jahrgang_id IN (${jgIn})` : '',
+                zp.length ? `s.zwischenpruefung IN (${zpIn})` : '');
       if (bg.length) w += ` AND s.fachrichtung_id IN (${bgIn})`;
       if (amt.length) w += ` AND s.zustaendiges_amt IN (${amtIn})`;
-      if (zp.length) w += ` AND s.zwischenpruefung IN (${zpIn})`;
       if (this.filterBavStatus === 'aktiv') w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`;
       else if (this.filterBavStatus === 'ende') w += ` AND s.bav_status LIKE '%Ende%'`;
       // Extra filters apply directly (already use alias 's')
       if (extraSql) w += extraSql;
     } else if (entity === 'klassen' || entity === 'k') {
-      if (jg.length) w += ` AND k.jahrgang_id IN (${jgIn})`;
+      w += jgZp(jg.length ? `k.jahrgang_id IN (${jgIn})` : '',
+                zp.length ? `k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.klasse_id IS NOT NULL)` : '');
       if (bg.length) w += ` AND k.fachrichtung_id IN (${bgIn})`;
       if (amt.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.klasse_id IS NOT NULL)`;
-      if (zp.length) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.klasse_id IS NOT NULL)`;
       // Extra filters cascade via subquery
       if (extraSql) w += ` AND k.id IN (SELECT DISTINCT s2.klasse_id FROM schueler s2 WHERE s2.klasse_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'schulen' || entity === 'bs') {
-      if (jg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jgIn}))`;
+      w += jgZp(jg.length ? `bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.jahrgang_id IN (${jgIn}))` : '',
+                zp.length ? `bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))` : '');
       if (bg.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 WHERE k2.fachrichtung_id IN (${bgIn}))`;
       if (amt.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
-      if (zp.length) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
       if (extraSql) w += ` AND bs.id IN (SELECT DISTINCT k2.berufsschule_id FROM klassen k2 JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'betriebe' || entity === 'b') {
-      if (jg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jgIn}) AND s2.betrieb_id IS NOT NULL)`;
+      w += jgZp(jg.length ? `b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.jahrgang_id IN (${jgIn}) AND s2.betrieb_id IS NOT NULL)` : '',
+                zp.length ? `b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.betrieb_id IS NOT NULL)` : '');
       if (bg.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.fachrichtung_id IN (${bgIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (amt.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zustaendiges_amt IN (${amtIn}) AND s2.betrieb_id IS NOT NULL)`;
-      if (zp.length) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.zwischenpruefung IN (${zpIn}) AND s2.betrieb_id IS NOT NULL)`;
       if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
-      if (jg.length) w += ` AND kt.jahrgang_id IN (${jgIn})`;
+      w += jgZp(jg.length ? `kt.jahrgang_id IN (${jgIn})` : '',
+                zp.length ? `kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))` : '');
       if (bg.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id WHERE k2.fachrichtung_id IN (${bgIn}))`;
       if (amt.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zustaendiges_amt IN (${amtIn}))`;
-      if (zp.length) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE s2.zwischenpruefung IN (${zpIn}))`;
       if (extraSql) w += ` AND kt.id IN (SELECT DISTINCT tkk.kontrolltermin_id FROM kontrolltermin_klassen tkk JOIN klassen k2 ON tkk.klasse_id=k2.id JOIN schueler s2 ON s2.klasse_id=k2.id WHERE 1=1${extraSql.replace(/\bs\./g,'s2.')})`;
     }
     return w;
@@ -810,7 +849,7 @@ const App = {
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
       ${parts.join('')}
-      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App._updateZpButton();App._applyBgFilter();App._applyJgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
+      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App.refreshJgDropdown();App._updateJgButton();App._applyBgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
     </div>`;
   },
 
@@ -885,40 +924,43 @@ const App = {
       return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
     });
 
-    // Determine active mode: 'all', 'ap', or 'zp'
-    const mode = (!isAllJg && isAllZp) ? 'ap' : (!isAllZp && isAllJg) ? 'zp' : 'all';
-    const apOff = mode === 'zp';
-    const zpOff = mode === 'ap';
+    // AP und ZP sind kombinierbar; bei Auswahl in beiden Sektionen gilt die
+    // VEREINIGUNG (AP-Jahrgang ODER ZP-Kohorte) – so lassen sich z.B.
+    // ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028 gemeinsam anzeigen.
+    const beideAktiv = !isAllJg && activeJg[0] !== -1 && !isAllZp && activeZp[0] !== '---';
+    const sektionLinks = (cls) => `<span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0">
+      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',true);return false">alle</a>
+      <span style="color:var(--clr-sand)">·</span>
+      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',false);return false">keine</a>
+    </span>`;
 
     let html = `<div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
       <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
         <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleJgAll()" style="accent-color:var(--clr-forest)"> Alle (kein Filter)
       </label>
-    </div>`;
-    if (mode !== 'all') {
-      html += `<div style="padding:3px 12px;font-size:10px;color:${mode==='zp'?'var(--clr-amber)':'var(--clr-forest)'};background:${mode==='zp'?'var(--clr-amber-light)':'var(--clr-green-light)'};border-bottom:1px solid var(--clr-sand)">↯ ${mode==='ap'?'AP':'ZP'}-Filter aktiv – ${mode==='ap'?'ZP':'AP'} deaktiviert <span style="font-size:9px;color:var(--clr-text-light)">(entweder AP oder ZP, nicht beides)</span></div>`;
-    }
+    </div>
+    <div id="jgUnionHint" style="display:${beideAktiv ? '' : 'none'};padding:3px 12px;font-size:10px;color:var(--clr-forest);background:var(--clr-green-light);border-bottom:1px solid var(--clr-sand)">AP + ZP kombiniert: zeigt Azubis aus <strong>allen</strong> gewählten Kohorten</div>`;
 
     // ── AP Section ──
-    html += `<div style="padding:4px 12px 2px;font-size:9px;font-weight:700;color:${apOff?'var(--clr-text-light)':'var(--clr-forest)'};text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)</div>`;
+    html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)${sektionLinks('chk-jg')}</div>`;
     jgs.forEach(j => {
       const label = this._prefixLabel(j.bezeichnung) || j.typ;
-      const chk = !apOff && (isAllJg || activeJg.includes(j.id));
-      html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px;${apOff?'opacity:0.4':''}" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
-        <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} ${apOff?'disabled':''} onchange="App._applyJgExclusive('ap')" style="accent-color:var(--clr-forest)">
+      const chk = isAllJg || activeJg.includes(j.id);
+      html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+        <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-forest)">
         <strong>${esc(j.bezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:10px">${label} ${j.jahr}</span>
       </label>`;
     });
 
     // ── ZP Section ──
     if (zpSorted.length) {
-      html += `<div style="padding:4px 12px 2px;font-size:9px;font-weight:700;color:${zpOff?'var(--clr-text-light)':'var(--clr-amber)'};text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)</div>`;
+      html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-amber);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)${sektionLinks('chk-zp')}</div>`;
       zpSorted.forEach(code => {
         const sem = this._prefixLabel(code) || code[0];
         const yr = code.substring(1);
-        const chk = !zpOff && (isAllZp || activeZp.includes(code));
-        html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px;${zpOff?'opacity:0.4':''}" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
-          <input type="checkbox" class="chk-zp" value="${esc(code)}" ${chk?'checked':''} ${zpOff?'disabled':''} onchange="App._applyJgExclusive('zp')" style="accent-color:var(--clr-amber)">
+        const chk = isAllZp || activeZp.includes(code);
+        html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="chk-zp" value="${esc(code)}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-amber)">
           <strong>${esc(code)}</strong> <span style="color:var(--clr-text-light);font-size:10px">${sem} ${yr}</span>
         </label>`;
       });
@@ -4832,9 +4874,16 @@ const App = {
   // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
   // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
   // opts: { jahrgangId, fachrichtungId, amt, zwischenpruefung, refDate }
+  // Jeder Filter akzeptiert auch eine LISTE von Werten (Mehrfachauswahl).
+  // Jahrgang + ZP zusammen wirken als VEREINIGUNG (siehe gf()).
   // Gibt Array von { schule, isLFK, schueler: [...], klasse_ids: Set } zurück.
   getStandortgruppen(opts) {
     if (!opts) opts = {};
+    const liste = (v) => v == null || v === '' ? [] : (Array.isArray(v) ? v : [v]);
+    const jgIds = this._safeIntList(liste(opts.jahrgangId));
+    const frIds = this._safeIntList(liste(opts.fachrichtungId));
+    const amts = this._safeStrList(liste(opts.amt));
+    const zps = this._safeStrList(liste(opts.zwischenpruefung));
     let sql = `SELECT s.*,
       f.code as fr_code, f.bezeichnung as fr_bez, f.typ as fr_typ,
       k.klassenbezeichnung, k.lehrjahr, k.berufsschule_id,
@@ -4846,14 +4895,16 @@ const App = {
       LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       WHERE s.aktiv=1`;
-    const params = [];
-    if (opts.jahrgangId) { sql += ' AND s.jahrgang_id=?'; params.push(opts.jahrgangId); }
-    if (opts.fachrichtungId) { sql += ' AND s.fachrichtung_id=?'; params.push(opts.fachrichtungId); }
-    if (opts.amt) { sql += ' AND s.zustaendiges_amt=?'; params.push(opts.amt); }
-    if (opts.zwischenpruefung) { sql += ' AND s.zwischenpruefung=?'; params.push(opts.zwischenpruefung); }
+    const jgC = jgIds.length ? `s.jahrgang_id IN (${jgIds.join(',')})` : '';
+    const zpC = zps.length ? `s.zwischenpruefung IN (${this._sqlInStr(zps)})` : '';
+    if (jgC && zpC) sql += ` AND (${jgC} OR ${zpC})`;
+    else if (jgC) sql += ` AND ${jgC}`;
+    else if (zpC) sql += ` AND ${zpC}`;
+    if (frIds.length) sql += ` AND s.fachrichtung_id IN (${frIds.join(',')})`;
+    if (amts.length) sql += ` AND s.zustaendiges_amt IN (${this._sqlInStr(amts)})`;
     sql += ' ORDER BY s.nachname, s.vorname';
 
-    const schuelerList = this.query(sql, params);
+    const schuelerList = this.query(sql);
     const gruppen = {}; // key = schulName → { schule, isLFK, schueler, klasse_ids }
 
     schuelerList.forEach(s => {

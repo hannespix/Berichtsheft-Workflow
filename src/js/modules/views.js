@@ -2158,7 +2158,7 @@ const Views = {
               <p>Für jeden Auszubildenden werden sowohl der Termin der <strong>Abschlussprüfung (AP)</strong> als auch der Termin der <strong>Zwischenprüfung (ZP)</strong> geführt. Beide Werte stammen aus dem IBYKUS-Export und werden als getrennte Felder gespeichert:</p>
               <p style="margin-top:4px">• <strong>AP</strong> (S2027, W2027): Bestimmt den Abschlussjahrgang → Klassen- und Termin-Zuordnung</p>
               <p>• <strong>ZP</strong> (H2026, F2027): Wird im ZP-Filter und in der Anzeige verwendet</p>
-              <p style="margin-top:4px">Im Jahrgänge-Filter kann <strong>entweder</strong> nach AP oder nach ZP gefiltert werden (nicht beides gleichzeitig), weil die Zeitpunkte unterschiedlich sind und eine AND-Verknüpfung keine sinnvollen Ergebnisse liefert.</p>
+              <p style="margin-top:4px">Im Jahrgänge-Filter sind AP und ZP <strong>kombinierbar</strong>: Es können mehrere AP-Jahrgänge und mehrere ZP-Kohorten gleichzeitig gewählt werden (z.B. ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028). Die Auswahl wirkt als <strong>Vereinigung</strong> – angezeigt werden Azubis, die zu <em>irgendeiner</em> der gewählten Kohorten gehören. Dieselbe Mehrfachauswahl gibt es auch im Filter des Kontrolltermin-Dialogs (Planung).</p>
               <p style="margin-top:4px">Beim IBYKUS-Import werden AP und ZP <strong>nie vermischt</strong>. Wenn sich Werte in IBYKUS ändern (z.B. Verschiebung der AP), werden sie beim nächsten Import automatisch aktualisiert.</p>
             </div>
           </div>
