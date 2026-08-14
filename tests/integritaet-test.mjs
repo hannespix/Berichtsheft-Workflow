@@ -131,7 +131,7 @@ console.log('\n══ Migrations-Parität: Schema / Arbeitskopie / Netzlaufwerk 
 {
   const tabellen = (d) => { const r = []; const st = d.prepare("SELECT name FROM sqlite_master WHERE type='table'"); while (st.step()) r.push(st.getAsObject().name); st.free(); return r; };
   const imSchema = tabellen(db);
-  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops']) {
+  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie']) {
     check(imSchema.includes(t), `${t} existiert nach migrateDB()`);
   }
   // Alt-Datenbank ohne Zusatztabellen durch _migrateDiskDb schicken
@@ -146,7 +146,7 @@ console.log('\n══ Migrations-Parität: Schema / Arbeitskopie / Netzlaufwerk 
   alt.run(`CREATE TABLE wiedervorlagen (id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER)`);
   App._migrateDiskDb(alt);
   const aufDisk = tabellen(alt);
-  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'kw_status', 'kw_maengel', 'ausbildungsphasen']) {
+  for (const t of ['wiedervorlage_notizen', 'bhk_tombstones', 'bhk_applied_ops', 'import_historie', 'kw_status', 'kw_maengel', 'ausbildungsphasen']) {
     check(aufDisk.includes(t), `${t} wird auch auf einer Alt-Datenbank angelegt`);
   }
   alt.close();

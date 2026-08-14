@@ -779,6 +779,7 @@ const Views = {
         <h2>Import</h2>
         <p>Auszubildende, Ausbilder und Landesfachklassen importieren und verwalten</p>
       </div>
+      ${ImportHandler.historieHtml()}
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('csvSection').style.display=document.getElementById('csvSection').style.display==='none'?'':'none'">
@@ -1402,22 +1403,8 @@ const Views = {
         </div>`;
       })()}
 
-      <!-- Import-History -->
-      ${(() => {
-        const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
-        if (!history.length) return '';
-        return `<div class="card" style="margin-top:16px">
-          <div class="card-header">Import-Verlauf (letzte ${history.length})</div>
-          <table class="data-table"><thead><tr><th>Datum</th><th>Importiert</th><th>Übersprungen</th><th>CSV-Zeilen</th></tr></thead><tbody>
-            ${history.map(h => `<tr>
-              <td>${new Date(h.datum).toLocaleString('de-DE')}</td>
-              <td><strong>${h.importiert}</strong></td>
-              <td>${h.uebersprungen}</td>
-              <td>${h.zeilen}</td>
-            </tr>`).join('')}
-          </tbody></table>
-        </div>`;
-      })()}
+      <!-- Import-Historie (aus der Datenbank, mit Detail-Ansicht) -->
+      <div style="margin-top:16px">${ImportHandler.historieHtml(20)}</div>
 
       <!-- Betrieb-Duplikate -->
       ${(() => {
@@ -1859,7 +1846,9 @@ const Views = {
             <p>• Berufsschulen, Klassen und Jahrgänge werden beim Import <strong>automatisch angelegt</strong>, sofern sie noch nicht existieren</p>
             <p>• Bei erneutem Import (Re-Import) werden bestehende Datensätze anhand der BAV-Identnummer <strong>aktualisiert</strong>, nicht dupliziert</p>
             <p>• Die Fachrichtung wird aus dem IBYKUS-Berufscode abgeleitet (z.B. 010 = Garten- und Landschaftsbau, 036 = Baumschule)</p>
-          </div>
+                      <p style="margin-top:8px">• <strong>Datumsformat:</strong> Der Import erkennt automatisch, ob die Datei deutsche (01.09.2024) oder US-Daten (9/1/07, häufig nach Excel-Bearbeitung) enthält, und zeigt die Erkennung im Dialog an. Bei mehrdeutigen Dateien bitte anhand der Beispielwerte prüfen – eine falsche Wahl vertauscht Tag und Monat.</p>
+            <p>• <strong>Import-Historie:</strong> Jeder Lauf wird mit Datei, Bearbeiter, Zahlen und Fehlerliste protokolliert (oben in der Import-Ansicht). Die Fehlerliste lässt sich als Excel exportieren.</p>
+</div>
 
           <div id="help_6" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Kontrollplanung</div>

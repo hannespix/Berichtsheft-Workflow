@@ -18,23 +18,54 @@ const IMP_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/import-handler.j
 let failed = 0, passed = 0;
 const check = (c, m) => { if (c) { passed++; console.log('  ✓ ' + m); } else { failed++; console.error('  ✗ FEHLER: ' + m); } };
 
-console.log('══ Datumsformate: keine stillen Fehlinterpretationen ══');
-{
-  // parseD 1:1 aus dem Quelltext ziehen
-  const start = IMP_SRC.indexOf('function parseD(t) {');
-  const ende = IMP_SRC.indexOf('\n    }', start) + 6;
-  const parseD = new Function('return ' + IMP_SRC.slice(start, ende).replace('function parseD', 'function'))();
-  const iso = (d) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null;
+// ImportHandler in einer Sandbox laden, um _parseD/_datumsfolgeErkennen real zu testen
+import vm from 'node:vm';
+const sandbox = { console, Date, Math, JSON, Set, Map,
+  document: { getElementById: () => null, querySelectorAll: () => [] },
+  App: { query: () => [], scalar: () => null, run() {}, toast() {}, openModal() {}, closeModal() {} },
+  Papa: {}, XLSX: {}, FileReader: class {}, KontrolleHandler: { activePruefer: 't' },
+  esc: (x) => String(x ?? ''), todayStr: () => '2026-08-14', formatDate: (d) => String(d || ''),
+  SchuelerView: {}, Views: {}, AzubiRechner: { getPhasen: () => [] }, setTimeout: (f) => f, localStorage: { getItem: () => null, setItem() {} } };
+sandbox.window = sandbox; sandbox.globalThis = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(IMP_SRC + '\n;globalThis.__IH = ImportHandler;', sandbox, { filename: 'import-handler.js' });
+const IH = sandbox.__IH;
+const iso = (d) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null;
 
-  check(iso(parseD('15.03.2024')) === '2024-03-15', 'TT.MM.JJJJ wird korrekt gelesen');
-  check(iso(parseD('2024-03-15')) === '2024-03-15', 'JJJJ-MM-TT wird korrekt gelesen');
-  check(iso(parseD('01.02.24')) === null, '2-stelliges Jahr wird abgelehnt statt als 2. Januar gelesen');
-  check(iso(parseD('31.02.2024')) === null, 'Ungültiges Datum (31. Februar) wird abgelehnt');
-  check(iso(parseD('44562')) === null, 'Excel-Seriennummer wird abgelehnt');
-  check(iso(parseD('2024')) === null, 'Bloße Jahreszahl wird abgelehnt');
-  check(iso(parseD('')) === null && iso(parseD(null)) === null, 'Leerwerte ergeben null');
-  check(iso(parseD('29.02.2024')) === '2024-02-29', 'Schalttag 2024 ist gültig');
-  check(iso(parseD('29.02.2023')) === null, 'Schalttag 2023 wird abgelehnt');
+console.log('══ Datumsformate: alle realen Export-Varianten ══');
+{
+  IH._datumsFormat = 'TMJ';
+  check(iso(IH._parseD('15.03.2024')) === '2024-03-15', 'TT.MM.JJJJ wird korrekt gelesen');
+  check(iso(IH._parseD('2024-03-15')) === '2024-03-15', 'JJJJ-MM-TT wird korrekt gelesen');
+  check(iso(IH._parseD('01.09.07')) === '2007-09-01', 'TT.MM.JJ (zweistelliges Jahr) wird gelesen');
+  check(iso(IH._parseD('1/9/07')) === '2007-09-01', 'T/M/JJ im deutschen Modus: 1. September');
+  check(iso(IH._parseD('31.02.2024')) === null, 'Ungültiges Datum (31. Februar) wird abgelehnt');
+  check(iso(IH._parseD('44562')) === null, 'Excel-Seriennummer wird abgelehnt');
+  check(iso(IH._parseD('')) === null && iso(IH._parseD(null)) === null, 'Leerwerte ergeben null');
+  check(iso(IH._parseD('29.02.2024')) === '2024-02-29', 'Schalttag 2024 ist gültig');
+  check(iso(IH._parseD('29.02.2023')) === null, 'Schalttag 2023 wird abgelehnt');
+
+  // Der Fall aus dem echten Export: "9/1/07" = 1. September 2007 (US-Reihenfolge)
+  IH._datumsFormat = 'MTJ';
+  check(iso(IH._parseD('9/1/07')) === '2007-09-01', '"9/1/07" im US-Modus → 1. September 2007');
+  check(iso(IH._parseD('9/15/07')) === '2007-09-15', '"9/15/07" → 15. September (Tag > 12 hinten)');
+  IH._datumsFormat = 'TMJ';
+  check(iso(IH._parseD('15/9/07')) === '2007-09-15', '"15/9/07" → 15. September (Tag > 12 vorn)');
+  // Eindeutige Werte übersteuern ein FALSCH eingestelltes Format
+  IH._datumsFormat = 'MTJ';
+  check(iso(IH._parseD('15/9/07')) === '2007-09-15', 'Tag > 12 gewinnt gegen die eingestellte Reihenfolge');
+  IH._datumsFormat = 'TMJ';
+}
+
+console.log('\n══ Spaltenanalyse erkennt die Reihenfolge ══');
+{
+  check(IH._datumsfolgeErkennen(['9/1/07', '9/15/07', '10/1/07']) === 'MTJ',
+    'US-Spalte (Tag hinten) wird als Monat/Tag/Jahr erkannt');
+  check(IH._datumsfolgeErkennen(['1.9.2024', '15.9.2024', '31.8.2025']) === 'TMJ',
+    'Deutsche Spalte (Tag vorn) wird als Tag.Monat.Jahr erkannt');
+  check(IH._datumsfolgeErkennen(['9/1/07', '8/1/07']) === null,
+    'Durchweg mehrdeutige Spalte wird als unklar gemeldet (Dialog fragt nach)');
+  check(IH._datumsfolgeErkennen([]) === null, 'Leere Spalte → unklar');
 }
 
 console.log('\n══ Spaltenzuordnung: jede Spalte nur einmal ══');
@@ -102,6 +133,10 @@ console.log('\n══ Quelltext-Zusicherungen ══');
   check(/changes\.push\(\['ibykus_id'/.test(IMP_SRC), 'Fehlende BAV-Ident wird nachgetragen');
   check(/ergebnisGepflegt/.test(IMP_SRC), 'BAV-Status ENDE überschreibt kein gepflegtes Prüfungsergebnis');
   check(/Import wurde NICHT gespeichert/.test(IMP_SRC), 'Fehlgeschlagenes Speichern wird deutlich gemeldet');
+  check(/map_datumsformat/.test(IMP_SRC), 'Datumsformat-Auswahl ist im Import-Dialog vorhanden');
+  check(/datumsFehler\.push/.test(IMP_SRC), 'Datumsfehler werden getrennt von übersprungenen Zeilen gezählt');
+  check(/_logImportHistorie/.test(IMP_SRC), 'Jeder Import wird in der Historie protokolliert');
+  check(/INSERT INTO import_historie/.test(IMP_SRC), 'Historie schreibt in die Datenbanktabelle');
   const stammdaten = fs.readFileSync(path.join(ROOT, 'src/js/modules/stammdaten.js'), 'utf8');
   check(/INSERT INTO betriebe \(name,betriebsnummer\) VALUES \(\?,NULL\)|INSERT INTO betriebe \(name\) VALUES \(\?\)[\s\S]{0,200}catch/.test(stammdaten)
     || /_autoLinkBetriebe/.test(stammdaten), 'Automatische Betriebsverknüpfung vorhanden');

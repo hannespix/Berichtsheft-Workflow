@@ -50,7 +50,7 @@ const ImportHandler = {
     if (mode === 'lfk') {
       this.showLFKMapping(data, headers);
     } else {
-      this.showMapping(data, headers);
+      this.showMapping(data, headers, 'Zwischenablage');
     }
   },
 
@@ -72,7 +72,7 @@ const ImportHandler = {
           // Get field names from first row keys
           const fields = Object.keys(data[0]).map(f => f.replace(/^\uFEFF/, ''));
           App.toast(`${data.length} Zeilen aus "${file.name}" (Blatt: ${sheetName})`, 'success');
-          this.showMapping(data, fields);
+          this.showMapping(data, fields, file.name);
         } catch (err) {
           console.warn('Excel:', err); App.toast('Excel-Datei konnte nicht gelesen werden', 'error');
           console.error(err);
@@ -92,14 +92,15 @@ const ImportHandler = {
             results.meta.fields[0] = results.meta.fields[0].replace(/^\uFEFF/, '');
           }
           App.toast(`${results.data.length} Zeilen erkannt (Trennzeichen: "${results.meta.delimiter}")`, 'success');
-          this.showMapping(results.data, results.meta.fields);
+          this.showMapping(results.data, results.meta.fields, file.name);
         },
         error: (err) => { console.warn('CSV:', err); App.toast('CSV-Datei konnte nicht gelesen werden', 'error'); }
       });
     }
   },
 
-  showMapping(data, fields) {
+  showMapping(data, fields, quelle) {
+    this._importQuelle = quelle || '';
     // Field mapping: internal key → [Label, [IBYKUS column patterns]]
     const fieldDefs = {
       nachname:          ['Nachname *',         ['name','nachname','familienname']],
@@ -158,6 +159,21 @@ const ImportHandler = {
     const autoMap = {};
     fieldKeys.forEach(f => { autoMap[f] = bestMatch(f, fields); });
     const matchCount = fieldKeys.filter(f => autoMap[f]).length;
+
+    // ── Datumsformat über ALLE Datumsspalten erkennen ──
+    // Der echte IBYKUS-Export kommt teils durch Excel gedreht ("9/1/07",
+    // US-Reihenfolge, zweistelliges Jahr). Ein einzelner Wert ist mehrdeutig,
+    // die ganze Spalte fast nie: irgendwo steht ein Tag > 12.
+    const datumsSpalten = ['ausbildungsbeginn', 'ausbildungsende', 'geburtsdatum', 'pruefungstermin']
+      .map(f => autoMap[f]).filter(Boolean);
+    const datumsWerte = [];
+    data.forEach(row => datumsSpalten.forEach(c => { if (row[c]) datumsWerte.push(row[c]); }));
+    const erkannteFolge = this._datumsfolgeErkennen(datumsWerte);
+    this._datumsFormat = erkannteFolge || 'TMJ';
+    const datumsBeispiele = [...new Set(datumsWerte.map(w => String(w).trim()).filter(Boolean))].slice(0, 4);
+    const folgeText = erkannteFolge === 'MTJ' ? 'Monat/Tag/Jahr (US/Excel)'
+      : erkannteFolge === 'TMJ' ? 'Tag.Monat.Jahr (deutsch)' : null;
+
     const preview = document.getElementById('importPreview');
     preview.innerHTML = `
       <div style="margin-top:16px">
@@ -166,6 +182,21 @@ const ImportHandler = {
           <strong>${matchCount} von ${fieldKeys.length}</strong> Spalten automatisch erkannt
           ${matchCount >= fieldKeys.length ? ' – alle Felder zugeordnet ✓' : ' – bitte restliche prüfen'}
         </p>
+        ${datumsWerte.length ? `<div class="card" style="margin-bottom:12px;padding:10px 14px;${folgeText ? '' : 'background:#fff3cd;border-color:#ffc107'}">
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <strong style="font-size:13px">Datumsformat:</strong>
+            <select class="form-control" id="map_datumsformat" style="width:auto;font-size:12px;padding:4px 8px" onchange="ImportHandler._datumsFormat=this.value">
+              <option value="TMJ" ${this._datumsFormat === 'TMJ' ? 'selected' : ''}>Tag.Monat.Jahr (deutsch, z.B. 01.09.2024)</option>
+              <option value="MTJ" ${this._datumsFormat === 'MTJ' ? 'selected' : ''}>Monat/Tag/Jahr (US/Excel, z.B. 9/1/07)</option>
+            </select>
+            <span style="font-size:11px;color:var(--clr-text-light)">Beispiele aus der Datei: ${datumsBeispiele.map(b => `<code>${esc(b)}</code>`).join(' · ')}</span>
+          </div>
+          <div style="font-size:11px;margin-top:6px;color:${folgeText ? 'var(--clr-green)' : 'var(--clr-amber)'}">
+            ${folgeText
+              ? `✓ Automatisch erkannt: ${folgeText} – bei Bedarf oben ändern.`
+              : `⚠︎ Reihenfolge nicht eindeutig erkennbar (kein Tageswert über 12 gefunden). Bitte anhand der Beispiele prüfen! Falsche Wahl vertauscht Tag und Monat.`}
+          </div>
+        </div>` : ''}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
           ${fieldKeys.map(f => {
             const matched = autoMap[f];
@@ -233,6 +264,135 @@ const ImportHandler = {
     } catch(e) { console.warn('Preview:', e); }
   },
 
+  // ── Import-Historie: Anzeige ──
+  historieHtml(limit = 12) {
+    let rows = [];
+    try { rows = App.query('SELECT * FROM import_historie ORDER BY zeitpunkt DESC, id DESC LIMIT ?', [limit]); } catch(e) {}
+    if (!rows.length) return '';
+    const typLabel = { azubis: 'Azubis', lfk: 'LFK', ausbilder: 'Ausbilder' };
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header">Import-Historie</div>
+      <div style="overflow-x:auto"><table class="data-table" style="font-size:12px"><thead><tr>
+        <th>Zeitpunkt</th><th>Typ</th><th>Datei</th><th>Bearbeiter</th><th>Zeilen</th><th>Neu</th><th>Aktualisiert</th><th>Übersprungen</th><th>Probleme</th><th></th>
+      </tr></thead><tbody>
+        ${rows.map(h => {
+          const probleme = (h.fehler || 0) + (h.datums_fehler || 0);
+          return `<tr>
+            <td style="white-space:nowrap">${esc((h.zeitpunkt || '').substring(0, 16))}</td>
+            <td>${esc(typLabel[h.typ] || h.typ)}</td>
+            <td title="${esc(h.datei)}">${esc((h.datei || '–').substring(0, 28))}</td>
+            <td>${esc(h.bearbeiter || '–')}</td>
+            <td style="text-align:right">${h.zeilen}</td>
+            <td style="text-align:right"><strong>${h.neu}</strong></td>
+            <td style="text-align:right">${h.aktualisiert}</td>
+            <td style="text-align:right">${h.uebersprungen}</td>
+            <td style="text-align:right">${probleme ? `<span class="badge-status ${h.fehler ? 'badge-overdue' : 'badge-open'}">${probleme}</span>` : '<span style="color:var(--clr-green)">0</span>'}</td>
+            <td>${probleme ? `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 8px" onclick="ImportHandler.zeigeImportDetails(${h.id})">Details</button>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
+    </div>`;
+  },
+  zeigeImportDetails(id) {
+    const h = App.query('SELECT * FROM import_historie WHERE id=?', [id])[0];
+    if (!h) return;
+    let details = [];
+    try { details = JSON.parse(h.details_json || '[]'); } catch(e) {}
+    const datum = details.filter(d => d.art === 'datum');
+    const fehler = details.filter(d => d.art !== 'datum');
+    App.openModal(`Import vom ${esc((h.zeitpunkt || '').substring(0, 16))}`, `
+      <div style="font-size:13px;line-height:1.9">
+        <div><strong>${esc(h.datei || 'Unbekannte Quelle')}</strong> · ${esc(h.bearbeiter || '–')} · Format: ${h.datumsformat === 'MTJ' ? 'Monat/Tag/Jahr (US)' : 'Tag.Monat.Jahr'}</div>
+        <div>${h.zeilen} Zeilen · ${h.neu} neu · ${h.aktualisiert} aktualisiert · ${h.uebersprungen} übersprungen</div>
+      </div>
+      ${datum.length ? `<div style="margin-top:10px;padding:8px 12px;background:#fff3cd;border-radius:var(--radius);font-size:12px">
+        <strong>Unlesbare Datumswerte (${h.datums_fehler}):</strong>
+        <div style="max-height:160px;overflow-y:auto;margin-top:4px">${datum.map(e => `<div>Zeile ${e.zeile}: ${esc(e.name || '')} – ${esc(e.fehler)}</div>`).join('')}</div>
+        ${h.datums_fehler > datum.length ? `<div style="color:var(--clr-text-light)">…${h.datums_fehler - datum.length} weitere nicht protokolliert</div>` : ''}
+      </div>` : ''}
+      ${fehler.length ? `<div style="margin-top:10px;padding:8px 12px;background:#ffeef0;border-radius:var(--radius);font-size:12px">
+        <strong>Übersprungene Zeilen (${h.fehler}):</strong>
+        <div style="max-height:160px;overflow-y:auto;margin-top:4px">${fehler.map(e => `<div>${e.zeile ? 'Zeile ' + e.zeile + ': ' : ''}${esc(e.name || '')} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}</div>
+        ${h.fehler > fehler.length ? `<div style="color:var(--clr-text-light)">…${h.fehler - fehler.length} weitere nicht protokolliert</div>` : ''}
+      </div>` : ''}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        ${details.length ? `<button class="btn btn-primary" onclick="ImportHandler.exportImportFehler(${h.id})">Fehlerliste als Excel</button>` : ''}`);
+  },
+  exportImportFehler(id) {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
+    const h = App.query('SELECT * FROM import_historie WHERE id=?', [id])[0];
+    if (!h) return;
+    let details = [];
+    try { details = JSON.parse(h.details_json || '[]'); } catch(e) {}
+    if (!details.length) return App.toast('Keine Details protokolliert', 'info');
+    const ws = XLSX.utils.json_to_sheet(details.map(d => ({
+      Zeile: d.zeile || '', Name: d.name || '', Art: d.art === 'datum' ? 'Datum unlesbar' : 'Übersprungen', Problem: d.fehler || '',
+    })));
+    ws['!cols'] = [{ wch: 7 }, { wch: 28 }, { wch: 15 }, { wch: 60 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Importfehler');
+    XLSX.writeFile(wb, `Importfehler_${(h.zeitpunkt || '').substring(0, 10)}.xlsx`);
+  },
+
+  // ── Import-Historie: jeder Lauf wird dauerhaft protokolliert ──
+  _logImportHistorie(eintrag) {
+    try {
+      const details = JSON.stringify((eintrag.details || []).slice(0, 200));
+      App.run(`INSERT INTO import_historie (zeitpunkt, typ, datei, bearbeiter, zeilen, neu, aktualisiert, uebersprungen, fehler, datums_fehler, datumsformat, details_json)
+               VALUES (datetime('now','localtime'),?,?,?,?,?,?,?,?,?,?,?)`,
+        [eintrag.typ || 'azubis', eintrag.datei || this._importQuelle || '',
+         (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '',
+         eintrag.zeilen || 0, eintrag.neu || 0, eintrag.aktualisiert || 0,
+         eintrag.uebersprungen || 0, eintrag.fehler || 0, eintrag.datumsFehler || 0,
+         eintrag.datumsformat || this._datumsFormat || '', details]);
+      // Bestand begrenzen (die letzten 100 Läufe reichen)
+      App.run(`DELETE FROM import_historie WHERE id NOT IN (SELECT id FROM import_historie ORDER BY zeitpunkt DESC, id DESC LIMIT 100)`);
+    } catch(e) { console.warn('Import-Historie:', e.message); }
+  },
+
+  // ── Datumsparser für alle real vorkommenden Export-Formate ──
+  //   TT.MM.JJJJ · JJJJ-MM-TT · T/M/JJ(JJ) · T.M.JJ · M/T/JJ (Excel-US)
+  // Bei Schrägstrich/zweistelligem Jahr ist die Reihenfolge mehrdeutig
+  // ("9/1/07") – sie kommt aus der Spaltenanalyse bzw. der Auswahl im Dialog.
+  _datumsFormat: 'TMJ',
+  _jahr4(j) { return j >= 100 ? j : (j <= 49 ? 2000 + j : 1900 + j); },
+  _parseD(t, fmtOverride) {
+    if (!t) return null;
+    const fmt = fmtOverride || this._datumsFormat || 'TMJ';
+    const bau = (j, mo, tg) => {
+      const d = new Date(j, mo - 1, tg);
+      if (d.getFullYear() !== j || d.getMonth() !== mo - 1 || d.getDate() !== tg) return null;
+      return d;
+    };
+    const str = String(t).trim();
+    let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return bau(+m[1], +m[2], +m[3]);
+    m = str.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
+    if (!m) return null;
+    const a = +m[1], b = +m[2];
+    const jahr = this._jahr4(+m[3]);
+    if (a > 12 && b <= 12) return bau(jahr, b, a);       // a muss der Tag sein
+    if (b > 12 && a <= 12) return bau(jahr, a, b);       // b muss der Tag sein
+    return fmt === 'MTJ' ? bau(jahr, a, b) : bau(jahr, b, a);
+  },
+  // Reihenfolge aus einer ganzen Spalte ableiten: Werte mit einer Zahl > 12
+  // verraten die Position des Tages. Rückgabe: 'TMJ' | 'MTJ' | null (unklar).
+  _datumsfolgeErkennen(werte) {
+    let tagVorn = 0, tagHinten = 0;
+    for (const w of werte) {
+      const m = String(w || '').trim().match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
+      if (!m) continue;
+      const a = +m[1], b = +m[2];
+      if (a > 12 && b <= 12) tagVorn++;
+      else if (b > 12 && a <= 12) tagHinten++;
+    }
+    if (tagVorn && !tagHinten) return 'TMJ';
+    if (tagHinten && !tagVorn) return 'MTJ';
+    if (tagVorn > tagHinten * 10) return 'TMJ';
+    if (tagHinten > tagVorn * 10) return 'MTJ';
+    return null;
+  },
+
   async doImport(data) {
     if (!data || !data.length) return App.toast('Keine Daten zum Importieren', 'warning');
 
@@ -283,22 +443,10 @@ const ImportHandler = {
     }
 
     // ── Parse date (DD.MM.YYYY) ──
-    function parseD(t) {
-      if (!t) return null;
-      // Streng: nur TT.MM.JJJJ und JJJJ-MM-TT, jeweils mit Gültigkeitsprüfung.
-      // Der frühere new Date(t)-Rückfall las "01.02.24" als 2. Januar (US-Format)
-      // und ließ "31.02.2024" stillschweigend zum 2. März überlaufen.
-      const bau = (j, mo, tg) => {
-        const d = new Date(j, mo - 1, tg);
-        if (d.getFullYear() !== j || d.getMonth() !== mo - 1 || d.getDate() !== tg) return null;
-        return d;
-      };
-      let m = String(t).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      if (m) return bau(+m[3], +m[2], +m[1]);
-      m = String(t).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-      if (m) return bau(+m[1], +m[2], +m[3]);
-      return null;
-    }
+    // Format aus dem Dialog übernehmen (Fallback: zuletzt erkanntes)
+    const fmtSel = document.getElementById('map_datumsformat');
+    if (fmtSel && fmtSel.value) this._datumsFormat = fmtSel.value;
+    const parseD = (t, fmt) => ImportHandler._parseD(t, fmt);
 
     // ── Lehrjahr from Ausbildungsbeginn ──
     function calcLJ(beg) {
@@ -417,7 +565,8 @@ const ImportHandler = {
     // ═══ MAIN IMPORT LOOP ═══
     let jgCounter = {};
     let noKlasseCount = 0;
-    let errorRows = [];
+    let errorRows = [];      // echte Fehler – Zeile wurde übersprungen
+    let datumsFehler = [];   // Datum unlesbar – Zeile wurde OHNE Datum importiert
    try {
     data.forEach((row, rowIdx) => {
      try {
@@ -435,7 +584,7 @@ const ImportHandler = {
       const abeg = (() => { const d = parseD(abegRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
       const aend = (() => { const d = parseD(aendRaw); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : ''; })();
       if ((abegRaw && !abeg) || (aendRaw && !aend)) {
-        errorRows.push({ zeile: rowIdx + 2, fehler: `Unlesbares Datum: "${abegRaw && !abeg ? abegRaw : aendRaw}"`, name: nachname + ', ' + vorname });
+        datumsFehler.push({ zeile: rowIdx + 2, fehler: `Unlesbares Datum: "${abegRaw && !abeg ? abegRaw : aendRaw}"`, name: nachname + ', ' + vorname });
       }
       const ibyk      = (row[getMap('ibykus_id')]||'').trim();
       const apCode    = (row[getMap('pruefungstermin')]||'').trim();
@@ -610,7 +759,8 @@ const ImportHandler = {
     if (stats.bavReaktiviert) parts.push(`✓ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
-    if (errorRows.length) parts.push(`⚠︎ <strong>${errorRows.length}</strong> Zeilen mit Fehlern (übersprungen)`);
+    if (datumsFehler.length) parts.push(`⚠︎ <strong>${datumsFehler.length}</strong> Zeilen mit unlesbarem Datum – Datensätze wurden <strong>ohne Datum</strong> importiert (Datumsformat im Dialog prüfen!)`);
+    if (errorRows.length) parts.push(`⚠︎ <strong>${errorRows.length}</strong> Zeilen übersprungen (Fehler)`);
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
@@ -628,6 +778,11 @@ const ImportHandler = {
     }
     App.hideLoading();
     // Log import in einstellungen
+    this._logImportHistorie({
+      typ: 'azubis', zeilen: data.length, neu: imported, aktualisiert: stats.updated || 0,
+      uebersprungen: skipped - (stats.updated || 0), fehler: errorRows.length, datumsFehler: datumsFehler.length,
+      details: [...datumsFehler.map(e => ({ ...e, art: 'datum' })), ...errorRows.map(e => ({ ...e, art: 'fehler' }))],
+    });
     const history = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='import_history'") || '[]');
     history.unshift({ datum: new Date().toISOString(), importiert: imported, uebersprungen: skipped, zeilen: data.length });
     if (history.length > 20) history.length = 20;
@@ -653,8 +808,13 @@ const ImportHandler = {
           </div>`).join('')}
         </div>
       </div>` : ''}
+      ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:12px">
+        <strong>⚠︎ Unlesbare Datumswerte (${datumsFehler.length}) – Datensätze OHNE Datum importiert:</strong>
+        <div style="font-size:11px;margin:4px 0">Häufigste Ursache: falsches Datumsformat gewählt. Format im Import-Dialog umstellen und erneut importieren – die Daten werden dann nachgetragen.</div>
+        <div style="max-height:100px;overflow-y:auto;margin-top:4px">${datumsFehler.slice(0, 10).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`).join('')}${datumsFehler.length > 10 ? `<div style="color:var(--clr-text-light)">…und ${datumsFehler.length - 10} weitere</div>` : ''}</div>
+      </div>` : ''}
       ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
-        <strong>⚠︎ Fehlerhafte Zeilen (${errorRows.length}):</strong>
+        <strong>⚠︎ Übersprungene Zeilen (${errorRows.length}):</strong>
         <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
@@ -1141,6 +1301,9 @@ const ImportHandler = {
     if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
     if (notFound) parts.push(`⚠︎ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
 
+    this._logImportHistorie({ typ: 'lfk', zeilen: data.length, aktualisiert: updated,
+      uebersprungen: skipped + cleared, fehler: notFound,
+      details: notFound ? [{ fehler: notFound + ' Schüler nicht gefunden (Nr./BAV-Ident)', art: 'fehler' }] : [] });
     App.openModal('LFK-Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
@@ -1301,6 +1464,9 @@ const ImportHandler = {
     if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
     if (noMatch) parts.push(`${noMatch} Betriebe nicht gefunden`);
 
+    this._logImportHistorie({ typ: 'ausbilder', zeilen: (data || []).length, neu: imported,
+      aktualisiert: typeof updated !== 'undefined' ? updated : 0,
+      uebersprungen: typeof skipped !== 'undefined' ? skipped : 0, fehler: 0, details: [] });
     App.openModal('Ausbilder-Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
