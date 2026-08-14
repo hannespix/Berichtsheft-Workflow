@@ -3,10 +3,16 @@ const Workflows = {
   emailSchule(terminId) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
-    if (termin.typ === 'einsendung') return App.toast('Einsendungen haben keine zugeordnete Schule – E-Mail nicht möglich', 'warning');
     const klassen = App.getTerminKlassen(terminId);
-    if (!klassen.length) return App.toast('Keine Klassen zugeordnet', 'error');
-    const schule = App.query('SELECT * FROM berufsschulen WHERE id=?', [klassen[0].berufsschule_id])[0] || {};
+    // Schule = ORT des Termins (explizit gesetzt, z.B. LFK-Standort) – nicht
+    // die Stammschule der ersten Klasse: sonst ging die Terminankündigung
+    // eines Landesfachklassen-Termins an die falsche Schule.
+    const schule = App.getTerminSchule(terminId);
+    if (!schule) {
+      return App.toast(termin.typ === 'einsendung'
+        ? 'Diesem Termin ist keine Schule zugeordnet (Ort im Termin-Dialog wählbar)'
+        : 'Keine Schule zugeordnet – Ort im Termin-Dialog wählen', 'warning');
+    }
     const schuelerList = App.getTerminSchueler(terminId);
     const count = schuelerList.length;
     const rpAdresse = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_persoenlich'") || 'Regierungspräsidium Freiburg, Abt. 3 / Ref. 31';

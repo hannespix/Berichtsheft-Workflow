@@ -256,3 +256,39 @@ Der neue Op-Log-Sync hat fünf reproduzierte Defekte. Die automatisierten Tests 
 - Crash exakt zwischen Snapshot- und snapmeta-Write führt beim nächsten Bootstrap zu einem Doppel-Replay bereits enthaltener Ops. Die Reihenfolge (erst Snapshot, dann meta) ist die sichere Richtung: Doppel-Replay konvergiert (Ops werden in ts-Ordnung erneut angewendet), die umgekehrte Reihenfolge könnte Ops als abgedeckt markieren, die nie geschrieben wurden.
 - Backups sind Speicher-Exporte des jeweiligen Clients (kein Disk-Kopieren) – bewusst, damit auch bei kaputter Snapshot-Datei ein konsistenter Stand existiert.
 - Divergente globale IDs bei ZEITGLEICHER Anlage desselben Jahrgangs/Betriebs auf zwei Rechnern bleiben möglich (die Zeile selbst wird jetzt per ON CONFLICT zusammengeführt, nur die id des Unterlegenen verweist ins Leere). Voll-Reconciliation wie bei Kontrollergebnissen wäre unverhältnismäßig.
+
+---
+
+# Audit 3: Kontrollplanung – Logik & Workflow (August 2026)
+
+> **Status: abgearbeitet.** Zwei Prüfbereiche (Planungslogik; Datenfluss
+> Termin→Kontrolle→Export) + eigene Verifikation. Leitbild lt. Nutzer:
+> **Termin = Berufsschule**, dort werden ALLE anwesenden Azubis kontrolliert
+> (maßgeblich 2.+3. Lehrjahr, inkl. Landesfachklassen-Gäste und Azubis
+> fremder Ämter); deren Ergebnisse gehen danach an die zuständigen
+> Ausbildungsberater. Neue Suite `planung-test.mjs` (29 Prüfungen),
+> End-to-End im Browser verifiziert (15 Prüfungen).
+
+## Kernbefunde und Reparaturen
+
+| Befund | Reparatur |
+|---|---|
+| Globale Filter (Amt-Auto-Default '93', Fachrichtungs-Vorbelegung) blendeten im Termin-Dialog genau die Azubis/Klassen aus, die mitkontrolliert werden sollen; Klassen mit fachrichtung_id NULL waren strukturell unerreichbar. | Termin-Dialog lädt Klassen und Azubis UNGEFILTERT; eingegrenzt wird nur über die Dialog-Filter (Kohorten werden aus dem globalen Filter vorbelegt, Amt/Fachrichtung bewusst nicht). |
+| `gf('termine')` lief nur über kontrolltermin_klassen → reine Einsendungs-/Einzelschüler-Termine verschwanden bei JEDEM aktiven Filter aus Planung und Kontrolle. | Termin matcht, wenn irgendeine Klasse ODER irgendein Einzelschüler passt. |
+| „Schule" eines Termins war überall die Stammschule der ersten Klasse – die Terminankündigung eines LFK-Termins ging an die falsche Schule. | Neue Spalte `kontrolltermine.berufsschule_id` (Ort des Termins, im Dialog wählbar, 3 Schema-Stellen) + `App.getTerminSchule()`; E-Mail/Tabelle/PDF nutzen sie. |
+| Standortgruppen-Klick hakte die STAMMklassen an (holte ganze Klassen anderer Schulen herein) und löschte die bisherige Auswahl. | Übernimmt nur noch die Azubis der Gruppe als Einzel-Zuordnung, mergt, Klassen bleiben unangetastet. |
+| „+ Schüler hinzufügen" in der Kontrolle erzeugte nur ein Kontrollergebnis ohne Termin-Zuordnung → fehlte in ALLEN Exporten, und die nächste Termin-Bearbeitung löschte das erfasste Ergebnis als „verwaist". | Bindet als kontrolltermin_schueler; `getTerminSchueler` nimmt zusätzlich alle Azubis mit Kontrollergebnis auf; das Aufräumen schützt Bögen mit Inhalt (bindet sie statt zu löschen) und löscht nur leere. |
+| `aktiv`-Inkonsistenz: Terminliste zählte inaktive mit, Aufräumen löschte deren dokumentierte Ergebnisse. | Einheitlich aktiv=1 für Klassenmitglieder; Kontrollierte bleiben über den Ergebnis-Zweig erhalten. |
+| Legacy `klasse_id` wurde beim Abwählen aller Klassen nicht geleert → gelöschte Klasse kam über den Fallback zurück. | Wird immer gesetzt (auch NULL). |
+| „2.+3. Lehrjahr" war als Planungsbegriff nicht abbildbar; die Kohorten-Vorlage verlor Winter-Jahrgänge, Azubis ohne ZP-Eintrag und Verkürzer. | Lehrjahr-Mehrfachauswahl im Dialog + `getStandortgruppen({lehrjahre})`: primär aus dem AKTUELLEN Ausbildungsjahr des Azubis berechnet (Verkürzer korrekt), Fallback Klassen-Lehrjahr, Unbestimmbare bleiben sichtbar. |
+| Jahresplanungs-Assistent: 1 Termin pro KLASSE, übers Jahr verstreut, ohne Schulen/LFK/Ämter/Blockplan. | Ersetzt durch den **Kampagnen-Assistenten**: Vorlage wählen → Standortgruppen je Schule (Azubis, fremde Ämter, LFK ausgewiesen) → Datum je Schule (mit KW-/Blockplan-Hinweis) → je Schule EIN Termin mit exakter Azubi-Menge. Funktioniert für ALLE Vorlagen. |
+| Kontroll-Vorlagen ließen den Amt-Filter '93' aktiv – im Widerspruch zum Workflow. | Vorlagen schalten den Amt-Filter aus. |
+| KEINE Weitergabe-Funktion für Ergebnisse fremder Ämter. | Neu: „§ Ämter" am Termin – gruppiert die Azubis fremder Zuständigkeit je Amt, erzeugt PDF-Bögen und Excel-Übergabeliste; Amt-Badge (§ 94 …) in der Kontroll-Schülerliste. |
+| Durchsichtsbogen trug pauschal Schule/Klasse des TERMINS – der Bogen eines LFK-Gasts wurde mit falschen Angaben weitergegeben. | Kopfzeile je Azubi: tatsächliche Schule (inkl. „(LFK)") + eigene Klasse. |
+| Nacherfassung ohne Klassenwahl verknüpfte ALLE Klassen der Schule (120 leere Bögen). | Verknüpft nur explizit gewählte Klassen; erfasste Azubis werden einzeln gebunden; Ort (Schule) wird am Termin gespeichert. |
+
+**Bewusst so gelassen:** `kontrolltermine.jahrgang_id` bleibt die erste
+Klasse (nach dem gf-Umbau ohne Schadwirkung, nur Anzeige). Ein expliziter
+Azubi-AUSSCHLUSS aus einem Klassen-Termin existiert weiterhin nicht – der
+empfohlene Weg ist der Kampagnen-Assistent/Standort-Klick mit exakter
+Einzel-Zuordnung statt Klassen-Verknüpfung.

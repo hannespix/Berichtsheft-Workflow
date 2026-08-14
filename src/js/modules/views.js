@@ -937,8 +937,8 @@ const Views = {
             Neuer Termin
           </button>
           ${PlanungHandler._vorlagenButtonHtml()}
-          <button class="btn btn-secondary" onclick="PlanungHandler.jahresplanAssistent()">
-            Jahresplanung
+          <button class="btn btn-secondary" onclick="PlanungHandler.jahresplanAssistent()" title="Je Schule einen Termin mit genau den dort anwesenden Azubis anlegen (inkl. LFK und fremder Ämter)">
+            Kampagnen-Assistent
           </button>
         </div>
         <div class="toolbar-right">
@@ -1010,8 +1010,9 @@ const Views = {
         ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
-            const schule = klassen.length ? klassen[0].schule : '–';
-            const ort = klassen.length ? klassen[0].schule_ort : '';
+            const ortBs = App.getTerminSchule(t.id);
+            const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '–');
+            const ort = ortBs ? (ortBs.ort || '') : (klassen.length ? klassen[0].schule_ort : '');
             const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
             const frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ') || '–';
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
@@ -1031,6 +1032,7 @@ const Views = {
               <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
               <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${t.id})" title="Betriebe anschreiben (Brief/CSV)">▤ Betriebe</button>
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">▤ PDF</button>
+              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${t.id})" title="Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)">§ Ämter</button>
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
               <button class="btn-icon btn-sm" onclick="PlanungHandler.editTermin(${t.id})" title="Bearbeiten">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
@@ -2162,6 +2164,7 @@ const Views = {
               <p>• <strong>ZP</strong> (H2026, F2027): Wird im ZP-Filter und in der Anzeige verwendet</p>
               <p style="margin-top:4px">Im Jahrgänge-Filter sind AP und ZP <strong>kombinierbar</strong>: Es können mehrere AP-Jahrgänge und mehrere ZP-Kohorten gleichzeitig gewählt werden (z.B. ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028). Die Auswahl wirkt als <strong>Vereinigung</strong> – angezeigt werden Azubis, die zu <em>irgendeiner</em> der gewählten Kohorten gehören. Dieselbe Mehrfachauswahl gibt es auch im Filter des Kontrolltermin-Dialogs (Planung).</p>
               <p style="margin-top:4px">Die drei wiederkehrenden Kampagnen (Kontrolle 2.+3. AJ im Nov./Dez. · ZP-Kontrollen Frühjahr/Herbst · Zulassungskontrollen AP Sommer/Winter) gibt es in der <strong>Kontrollplanung</strong> als <strong>★ Kontroll-Vorlagen</strong>: Ein Klick stellt die passenden Kohorten-Filter mit automatisch berechneten Jahren ein und blendet die organisatorische Checkliste (Hersendung-Schulen, Fachrichtungs-Ausnahmen) ein.</p>
+              <p style="margin-top:4px">Der <strong>Kampagnen-Assistent</strong> legt daraus mit wenigen Klicks die Schultermine an: je Berufsschule <strong>ein</strong> Termin mit genau den dort anwesenden Azubis – inklusive Landesfachklassen-Gästen und Azubis <strong>fremder Ämter</strong> (der Amt-Filter greift hier bewusst nicht). Nach der Kontrolle bündelt <strong>„§ Ämter"</strong> am Termin die Ergebnisse der Azubis fremder Zuständigkeitsbereiche je Amt als PDF-Bögen + Excel-Übergabeliste für den Versand an den zuständigen Ausbildungsberater.</p>
               <p style="margin-top:4px">Beim IBYKUS-Import werden AP und ZP <strong>nie vermischt</strong>. Wenn sich Werte in IBYKUS ändern (z.B. Verschiebung der AP), werden sie beim nächsten Import automatisch aktualisiert.</p>
             </div>
           </div>

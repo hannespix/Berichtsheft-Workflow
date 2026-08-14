@@ -134,6 +134,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `search-test.mjs` | Fuzzy-Suche, Mehrwortsuche, Ranking |
 | `dq-test.mjs` | Datenqualitäts-Regeln |
 | `filter-test.mjs` | Globale Filter: Mehrfachauswahl, AP∪ZP-Vereinigung, Standortgruppen |
+| `planung-test.mjs` | Schultermin-Workflow: gf(termine), Termin-Azubi-Menge, fremde Ämter, Lehrjahre |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
 **Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.
