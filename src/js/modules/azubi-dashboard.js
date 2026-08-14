@@ -148,7 +148,7 @@ const AzubiDashboard = {
           <div style="overflow-x:auto">
             <table class="data-table" style="font-size:12px;width:100%">
               <thead><tr>
-                <th>Zeitraum</th><th>Betrieb</th><th>LJ</th><th>TZ-%</th><th>Brutto (VZ)</th><th>Brutto (eff.)</th><th>Urlaub</th>
+                <th>Zeitraum</th><th>Betrieb</th><th style="text-align:center">LJ</th><th style="text-align:center">TZ-%</th><th style="text-align:right">Brutto (VZ)</th><th style="text-align:right">Brutto (eff.)</th><th style="text-align:right">Urlaub</th>
               </tr></thead>
               <tbody>
                 ${kz.perioden.map(p => p.unterbrechung

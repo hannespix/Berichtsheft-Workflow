@@ -273,7 +273,7 @@ const ImportHandler = {
     return `<div class="card" style="margin-bottom:16px">
       <div class="card-header">Import-Historie</div>
       <div style="overflow-x:auto"><table class="data-table" style="font-size:12px"><thead><tr>
-        <th>Zeitpunkt</th><th>Typ</th><th>Datei</th><th>Bearbeiter</th><th>Zeilen</th><th>Neu</th><th>Aktualisiert</th><th>Übersprungen</th><th>Probleme</th><th></th>
+        <th>Zeitpunkt</th><th>Typ</th><th>Datei</th><th>Bearbeiter</th><th style="text-align:right">Zeilen</th><th style="text-align:right">Neu</th><th style="text-align:right">Aktualisiert</th><th style="text-align:right">Übersprungen</th><th style="text-align:right">Probleme</th><th></th>
       </tr></thead><tbody>
         ${rows.map(h => {
           const probleme = (h.fehler || 0) + (h.datums_fehler || 0);
