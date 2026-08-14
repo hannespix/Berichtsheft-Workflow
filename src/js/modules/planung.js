@@ -15,6 +15,133 @@ const PlanungHandler = {
     }
   },
 
+  // ── Kontroll-Vorlagen: die drei wiederkehrenden Kampagnen aus der Praxis ──
+  // Ein Klick stellt die Kohorten-Filter (AP ∪ ZP, siehe gf()) für die
+  // jeweilige Kontrolle ein; die Jahre werden aus dem heutigen Datum
+  // abgeleitet und gegen die Stammdaten geprüft. Die organisatorischen
+  // Merkhinweise (Hersendung-Schulen, Fachrichtungs-Ausnahmen) erscheinen
+  // als Checkliste unter der Werkzeugleiste.
+  _aktiveVorlage: null,
+  _kontrollVorlagen() {
+    const heute = new Date();
+    const jahr = heute.getFullYear();
+    const monat = heute.getMonth(); // 0 = Januar
+    // Kampagnen-Jahre relativ zum typischen Planungszeitpunkt:
+    const folgeJahr = monat >= 6 ? jahr + 1 : jahr;   // Nov./Dez.-Kontrolle zielt auf AP S + ZP F des Folgejahres
+    const zpFJahr = monat <= 2 ? jahr : jahr + 1;     // ZP Frühjahr (~Februar)
+    const zpHJahr = monat <= 10 ? jahr : jahr + 1;    // ZP Herbst (Sept.–Nov.)
+    const apSJahr = monat <= 6 ? jahr : jahr + 1;     // Zulassungskontrolle AP S (April)
+    const jgRow = (typ, j) => App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE typ=? AND jahr=?', [typ, j])[0];
+    const apW = App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE typ=? AND jahr>=? ORDER BY jahr LIMIT 1', ['Winter', jahr])[0];
+    const zpVorhanden = new Set(App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE aktiv=1 AND zwischenpruefung != ''").map(r => r.zwischenpruefung));
+
+    const bau = (key, titel, termin, jgWuensche, zpWuensche, hinweise) => {
+      const jgIds = [], jgLabels = [], zps = [], fehlt = [];
+      jgWuensche.forEach(([typ, j, label]) => {
+        const row = typ === 'Winter' && j == null ? apW : jgRow(typ, j);
+        if (row) { jgIds.push(row.id); jgLabels.push(row.bezeichnung); }
+        else fehlt.push(label);
+      });
+      zpWuensche.forEach(code => {
+        if (zpVorhanden.has(code)) zps.push(code);
+        else fehlt.push('ZP ' + code);
+      });
+      return { key, titel, termin, jgIds, jgLabels, zps, fehlt, hinweise };
+    };
+
+    return [
+      bau('kontrolle23', 'Kontrolle 2.+3. Ausbildungsjahr', 'Ende Nov. – Mitte Dez.',
+        [['Sommer', folgeJahr, 'AP S' + folgeJahr]],
+        ['F' + folgeJahr, 'H' + (folgeJahr - 1)],
+        ['Alle Fachrichtungen 2.+3. AJ – Kontrolle an den Schulen',
+         'NICHT die Azubis, die im Herbst bereits an der ZP Produktion kontrolliert wurden (i.d.R. Gemüsebau, Obstbau, Friedhof am RPK)',
+         'Hersendung ans RP: Christiane-Herzog-Schule Heilbronn*, Johannes-Gutenberg-Schule Heidelberg*, Freie Landbauschule Bodensee Überlingen* (Standort erfragen!), Justus-von-Liebig-Schule Göppingen, Paulinenpflege Winnenden, Landw. Schule Stuttgart-Hohenheim, alle OHNE Beschulung',
+         '* nur die, die noch nicht an der ZP H kontrolliert wurden']),
+      bau('zpF', 'Kontrolle zur Zwischenprüfung Frühjahr', '~Februar',
+        [], ['F' + zpFJahr],
+        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+         'GaLaBau: immer · Zierpflanzenbau: ab ZP F27',
+         'Ggf. Kontrolle bei der ZP eines anderen RP (meist Friedhof)']),
+      bau('zpH', 'Kontrolle zur Zwischenprüfung Herbst', 'Sept. – Nov.',
+        [], ['H' + zpHJahr],
+        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+         'GaLaBau: immer · Produktion vorgezogen: Gemüsebau, Obstbau (Baumschule nur bis H25 – danach Schuländerung Offenburg)',
+         'Übrige Fachrichtungen erst bei der Nov./Dez.-Kontrolle (2.+3. AJ)']),
+      bau('apS', 'Zulassungskontrolle AP Sommer', 'zum April',
+        [['Sommer', apSJahr, 'AP S' + apSJahr]], [],
+        ['Alle Fachrichtungen – Kontrolle an den Schulen',
+         'Hersendung ans RP: Heilbronn, Heidelberg, Überlingen, Göppingen, Winnenden, Stuttgart-Hohenheim, alle OHNE Beschulung']),
+      bau('apW', 'Zulassungskontrolle AP Winter', 'zum November',
+        [['Winter', null, 'AP Winter (nächster Jahrgang)']], [],
+        ['Reguläre und Verkürzer senden ihre Berichtshefte per Post ans RP – mit der Anmeldung zum 1.11.']),
+    ];
+  },
+  _vorlagenButtonHtml() {
+    return `<span style="position:relative;display:inline-block">
+      <button class="btn btn-secondary" id="planVorlagenBtn" onclick="PlanungHandler._toggleVorlagen();event.stopPropagation()">★ Kontroll-Vorlagen ▾</button>
+      <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
+        <div style="padding:4px 14px;font-size:10px;color:var(--clr-text-light);border-bottom:1px solid var(--clr-sand)">Stellt die Kohorten-Filter für die jeweilige Kontrolle ein (aktive BAV, Jahre automatisch)</div>
+        ${this._kontrollVorlagen().map(v => {
+          const teile = [...v.jgLabels, ...v.zps];
+          return `<div style="padding:7px 14px;cursor:pointer;border-bottom:1px solid var(--clr-sand-light)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._applyVorlage('${v.key}')">
+            <div style="font-size:13px;font-weight:600;color:var(--clr-forest-dark)">${esc(v.titel)} <span style="font-weight:400;font-size:11px;color:var(--clr-text-light)">· ${esc(v.termin)}</span></div>
+            <div style="font-size:11px;margin-top:1px">${teile.length ? '→ ' + esc(teile.join(' + ')) : ''}${v.fehlt.length ? ` <span style="color:var(--clr-red)">fehlt: ${esc(v.fehlt.join(', '))}</span>` : ''}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </span>`;
+  },
+  _toggleVorlagen() {
+    const dd = document.getElementById('planVorlagenDd');
+    if (!dd) return;
+    const oeffnen = dd.style.display === 'none';
+    dd.style.display = oeffnen ? '' : 'none';
+    if (oeffnen) {
+      setTimeout(() => {
+        const closer = (e) => {
+          if (!dd.contains(e.target) && e.target.id !== 'planVorlagenBtn') {
+            dd.style.display = 'none';
+            document.removeEventListener('click', closer);
+          }
+        };
+        document.addEventListener('click', closer);
+      }, 10);
+    }
+  },
+  _applyVorlage(key) {
+    const v = this._kontrollVorlagen().find(x => x.key === key);
+    if (!v) return;
+    App.filterJahrgang = v.jgIds.slice();
+    App.filterZp = v.zps.slice();
+    App.filterBavStatus = 'aktiv'; // „(nicht) ENDE" = aktive BAV
+    this._aktiveVorlage = key;
+    App.refreshJgDropdown();
+    App._updateJgButton();
+    App._updateFilterCount();
+    App.renderCurrentView();
+    const teile = [...v.jgLabels, ...v.zps];
+    App.toast('Kohorten-Filter gesetzt: ' + (teile.join(' + ') || '–')
+      + (v.fehlt.length ? ' · fehlt in den Stammdaten: ' + v.fehlt.join(', ') : ''),
+      v.fehlt.length ? 'warning' : 'success');
+  },
+  _vorlagenHinweisHtml() {
+    if (!this._aktiveVorlage) return '';
+    const v = this._kontrollVorlagen().find(x => x.key === this._aktiveVorlage);
+    if (!v) return '';
+    const teile = [...v.jgLabels, ...v.zps];
+    return `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong style="font-size:14px">★ ${esc(v.titel)}</strong>
+        <span style="font-size:12px;color:var(--clr-text-light)">${esc(v.termin)}</span>
+        ${teile.length ? `<span style="font-size:11px;padding:2px 8px;background:var(--clr-green-light);border-radius:8px">Filter: ${esc(teile.join(' + '))}</span>` : ''}
+        <span style="margin-left:auto;cursor:pointer;color:var(--clr-red);font-weight:bold" title="Vorlagen-Hinweis ausblenden (Filter bleiben)" onclick="PlanungHandler._aktiveVorlage=null;App.renderCurrentView()">✕</span>
+      </div>
+      <div style="font-size:12px;line-height:1.8;margin-top:6px">
+        ${v.hinweise.map(h => `<div>• ${esc(h)}</div>`).join('')}
+      </div>
+    </div>`;
+  },
+
   addTermin() {
     this._editTerminId = null;
     const gfK = App.gf('klassen');
