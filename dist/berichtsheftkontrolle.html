@@ -9640,16 +9640,37 @@ const App = {
         const record = req.result;
         if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 3600000) {
           // Sync-v3: Ops, die bereits im eigenen Log stehen, nicht erneut puffern
-          this._dirtyOps = this._ownLogUids
+          const offen = this._ownLogUids
             ? record.ops.filter(o => !o.uid || !this._ownLogUids.has(o.uid))
             : record.ops;
-          if (!this._dirtyOps.length) return;
+          if (!offen.length) return;
+          this._applyRestoredOps(offen);
+          this._dirtyOps = offen;
           this.unsavedChanges = true;
-          this.toast(`↻ ${record.ops.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
+          this.toast(`↻ ${offen.length} nicht-gespeicherte Änderung(en) aus vorheriger Sitzung wiederhergestellt`, 'info');
           this.scheduleAutoSave();
         }
       };
     } catch(e) { /* IndexedDB not available */ }
+  },
+  // Wiederhergestellte Ops LOKAL nachspielen: die Arbeitskopie wurde beim Start
+  // frisch vom Snapshot geladen und enthält diese Änderungen noch NICHT (sie
+  // standen nur im Speicherpuffer der abgebrochenen Sitzung). Ohne Replay
+  // blieben sie bis zum nächsten Neustart unsichtbar – und eine Kompaktierung
+  // schriebe den Snapshot ohne die Zeilen, obwohl die Log-Offsets sie als
+  // enthalten markieren: endgültiger Verlust. Doppelt vorhandene INSERTs
+  // scheitern an UNIQUE und werden übersprungen (unkritisch).
+  _applyRestoredOps(ops) {
+    let n = 0;
+    for (const o of ops) {
+      try { this.db.run(o.sql, o.params || []); n++; }
+      catch(e) { console.warn('[Restore] Op nicht anwendbar:', e.message, (o.sql || '').slice(0, 60)); }
+    }
+    if (n) {
+      try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
+      try { this._smartRefresh(); } catch(e) {}
+    }
+    return n;
   },
 
   // ── Position file system (no DB lock needed!) ──
@@ -10417,6 +10438,13 @@ const App = {
       const sId = op.params[op.params.length - 1];
       const lokal = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [ktId, sId])[0];
       if (!lokal || !lokal.geaendert_am || lokal.geaendert_am <= tsMatch[1]) return false;
+      // Sekundengenaue Zeitstempel: Die Zeile eines INSERT-Replays entsteht beim
+      // Empfänger mit DEFAULT-now und kann dadurch eine Sekunde HINTER dem
+      // eingefrorenen UPDATE aus demselben Schreibschwall liegen – dann würde
+      // das UPDATE fälschlich verworfen. Der Guard schützt vor lange-offline
+      // nachgelieferten Ops; erst ab deutlichem Abstand gilt "lokal ist neuer".
+      const diffSek = (Date.parse(lokal.geaendert_am.replace(' ', 'T')) - Date.parse(tsMatch[1].replace(' ', 'T'))) / 1000;
+      if (!(diffSek > 5)) return false;
       // Lokale Zeile ist neuer – nur überspringen, wenn die Op keine Spalte
       // mitbringt, die lokal noch ihren Ausgangswert hat.
       const spalten = (m[1].match(/([a-z_]+)\s*=/gi) || [])

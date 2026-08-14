@@ -349,5 +349,32 @@ console.log('\n══ T7: datetime-Freeze + Lock-Respekt (Kompaktierungspfad) �
   store.files.delete('lock_test');
 }
 
+console.log('\n══ T11: Crash-Restore – wiederhergestellte Ops sind sofort sichtbar ══');
+{
+  // Szenario Shift+F5: Die Änderung stand nur im Speicherpuffer (per
+  // beforeunload nach IndexedDB gesichert), aber noch NICHT im eigenen Op-Log.
+  // Nach dem Reload muss sie lokal nachgespielt werden, sonst ist sie bis zum
+  // nächsten Neustart unsichtbar (und eine Kompaktierung verlöre sie endgültig).
+  const R = await makeClient(SQL, store, 'rita', new Uint8Array(seedBytes));
+  R.run("INSERT INTO import_historie (typ,datei,zeilen,neu) VALUES (?,?,?,?)", ['azubis', 'ibykus_export.csv', 4308, 11]);
+  const gepuffert = R._dirtyOps.splice(0).map(o => ({ uid: o.uid, sql: o.sql, params: o.params }));
+  // "Reload": frischer Client derselben Person – Snapshot und Logs enthalten die Zeile nicht
+  const R2 = await makeClient(SQL, store, 'rita', new Uint8Array(seedBytes));
+  check(R2.scalar("SELECT COUNT(*) FROM import_historie WHERE datei='ibykus_export.csv'") === 0,
+    'Ausgangslage: Zeile fehlt nach dem Reload (stand nur im Puffer)');
+  const n = R2._applyRestoredOps(gepuffert);
+  check(n === 1 && R2.scalar("SELECT COUNT(*) FROM import_historie WHERE datei='ibykus_export.csv'") === 1,
+    'Wiederhergestellte Op wird lokal nachgespielt – sofort wieder sichtbar');
+  R2._applyRestoredOps(gepuffert);
+  check(R2.scalar("SELECT COUNT(*) FROM import_historie WHERE datei='ibykus_export.csv'") === 1,
+    'Doppeltes Nachspielen erzeugt keine Duplikate (UNIQUE auf id)');
+  R2._dirtyOps = gepuffert;
+  await R2.mergeAndSave(true);
+  await B._pollOplogs();
+  check(B.scalar("SELECT COUNT(*) FROM import_historie WHERE datei='ibykus_export.csv'") === 1,
+    'Nach dem Speichern erreicht die Zeile auch die anderen Clients');
+  check(/_applyRestoredOps\(offen\)/.test(APP_SRC), '_restoreDirtyOps spielt den Puffer lokal nach');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
