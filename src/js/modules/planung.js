@@ -70,28 +70,7 @@ const PlanungHandler = {
       <!-- GEMEINSAM: Filter + Klassenauswahl + Smart-Standort (für beide Modi) -->
       <div class="form-group">
         <label>Klassen / Gruppen auswählen</label>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Abschlussprüfung: Alle</option>
-            ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">✎ Zwischenprüfung: Alle</option>
-            ${zpValues.map(z => `<option value="${esc(z.zwischenpruefung)}">${App.zpLabel(z.zwischenpruefung)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Schule: Alle</option>
-            ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">§ Amt: Alle</option>
-            ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Fachrichtung: Alle</option>
-            ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
-          </select>
-        </div>
+        ${this._terminFilterHtml(jahrgaenge, zpValues.map(z => z.zwischenpruefung), schulen, amtValues.map(a => a.zustaendiges_amt), fachrichtungen)}
         <div id="terminKlassenList" style="max-height:200px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px">
           ${Object.entries(bySchool).map(([schule, kls]) => `
             <div class="termin-school-group" data-school="${esc(schule)}" style="margin-bottom:8px">
@@ -166,27 +145,107 @@ const PlanungHandler = {
   _terminClassZP: {},
   _terminClassAmt: {},
 
+  // ── Mehrfachauswahl-Filter im Termin-Dialog ──
+  // Jede Dimension erlaubt MEHRERE Werte gleichzeitig ([] = alle, ['∅'] = keine).
+  // AP und ZP wirken zusammen als VEREINIGUNG: die Klassenliste zeigt Klassen,
+  // die zu einem gewählten AP-Jahrgang ODER einer gewählten ZP-Kohorte gehören
+  // (z.B. ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028 in einem Termin).
+  _terminFilter: { jg: [], zp: [], bs: [], amt: [], fr: [] },
+  _terminFilterOpts: {},
+  _tfNamen: { jg: 'Abschlussprüfung', zp: '✎ Zwischenprüfung', bs: 'Schule', amt: '§ Amt', fr: 'Fachrichtung' },
+
+  _terminFilterHtml(jahrgaenge, zpCodes, schulen, aemter, fachrichtungen) {
+    this._terminFilter = { jg: [], zp: [], bs: [], amt: [], fr: [] };
+    this._terminFilterOpts = {
+      jg: jahrgaenge.map(j => ({ v: j, l: App.jgLabel(j) })),
+      zp: zpCodes.map(z => ({ v: z, l: App.zpLabel(z) })),
+      bs: schulen.map(s => ({ v: s, l: s })),
+      amt: aemter.map(a => ({ v: a, l: a + ' ' + (App.AEMTER[a] || '') })),
+      fr: fachrichtungen.map(f => ({ v: f, l: f })),
+    };
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
+      ${Object.keys(this._tfNamen).map(k => `<div style="position:relative">
+        <button type="button" class="form-control" id="tfBtn_${k}" style="width:auto;font-size:11px;padding:2px 8px;cursor:pointer;text-align:left" onclick="PlanungHandler._tfToggle('${k}');event.stopPropagation()">${this._tfNamen[k]}: Alle ▾</button>
+        <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
+          <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
+            <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',true);return false">alle</a>
+            <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',false);return false">keine</a>
+          </div>
+          ${(this._terminFilterOpts[k] || []).map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:11px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+            <input type="checkbox" class="chk-tf-${k}" value="${esc(o.v)}" checked onchange="PlanungHandler._tfChange('${k}')" style="accent-color:var(--clr-forest)"> ${esc(o.l)}
+          </label>`).join('')}
+        </div>
+      </div>`).join('')}
+      <span style="font-size:10px;color:var(--clr-text-light);align-self:center">Mehrfachauswahl möglich · AP + ZP kombiniert = alle gewählten Kohorten</span>
+    </div>`;
+  },
+  _tfToggle(k) {
+    Object.keys(this._tfNamen).forEach(x => {
+      const d = document.getElementById('tfDd_' + x);
+      if (d && x !== k) d.style.display = 'none';
+    });
+    const dd = document.getElementById('tfDd_' + k);
+    if (!dd) return;
+    const oeffnen = dd.style.display === 'none';
+    dd.style.display = oeffnen ? '' : 'none';
+    if (oeffnen) {
+      setTimeout(() => {
+        const closer = (e) => {
+          if (!dd.contains(e.target) && e.target.id !== 'tfBtn_' + k) {
+            dd.style.display = 'none';
+            document.removeEventListener('click', closer);
+          }
+        };
+        document.addEventListener('click', closer);
+      }, 10);
+    }
+  },
+  _tfAll(k, checked) {
+    document.querySelectorAll('.chk-tf-' + k).forEach(c => { c.checked = checked; });
+    this._tfChange(k);
+  },
+  _tfChange(k) {
+    const alle = [...document.querySelectorAll('.chk-tf-' + k)];
+    const checked = alle.filter(c => c.checked).map(c => c.value);
+    this._terminFilter[k] = checked.length === alle.length ? [] : (checked.length === 0 ? ['∅'] : checked);
+    this._tfUpdateButton(k);
+    this._filterTerminKlassen();
+  },
+  _tfUpdateButton(k) {
+    const btn = document.getElementById('tfBtn_' + k);
+    if (!btn) return;
+    const sel = this._terminFilter[k];
+    if (!sel.length) {
+      btn.textContent = this._tfNamen[k] + ': Alle ▾';
+      btn.style.background = ''; btn.style.fontWeight = '';
+    } else if (sel[0] === '∅') {
+      btn.textContent = this._tfNamen[k] + ': Keine ▾';
+      btn.style.background = 'var(--clr-red-light)'; btn.style.fontWeight = '600';
+    } else {
+      const einzel = String(sel[0]);
+      btn.textContent = this._tfNamen[k] + ': ' + (sel.length === 1 ? (einzel.length > 18 ? einzel.slice(0, 17) + '…' : einzel) : sel.length + ' gewählt') + ' ▾';
+      btn.style.background = 'var(--clr-green-light)'; btn.style.fontWeight = '600';
+    }
+  },
+
   _filterTerminKlassen() {
     const container = document.getElementById('terminKlassenList');
     if (!container) return;
-    const selects = container.parentElement.querySelectorAll('select');
-    const fJg = selects[0]?.value || '';
-    const fZp = selects[1]?.value || '';
-    const fBs = selects[2]?.value || '';
-    const fAmt = selects[3]?.value || '';
-    const fFr = selects[4]?.value || '';
-
-    let visibleCount = 0;
+    const f = this._terminFilter;
     container.querySelectorAll('.termin-kl-row').forEach(row => {
       const kid = parseInt(row.dataset.kid);
       let show = true;
-      if (fJg && row.dataset.jg !== fJg) show = false;
-      if (fBs && row.dataset.bs !== fBs) show = false;
-      if (fFr && row.dataset.fr !== fFr) show = false;
-      if (fZp && !(this._terminClassZP[kid] || []).includes(fZp)) show = false;
-      if (fAmt && !(this._terminClassAmt[kid] || []).includes(fAmt)) show = false;
+      // AP/ZP als Vereinigung: sobald eine der beiden Dimensionen eingeschränkt
+      // ist, muss die Klasse zu einer der gewählten Kohorten gehören
+      if (f.jg.length || f.zp.length) {
+        const jgHit = f.jg.length ? f.jg.includes(row.dataset.jg) : false;
+        const zpHit = f.zp.length ? (this._terminClassZP[kid] || []).some(z => f.zp.includes(z)) : false;
+        show = jgHit || zpHit;
+      }
+      if (show && f.bs.length && !f.bs.includes(row.dataset.bs)) show = false;
+      if (show && f.fr.length && !f.fr.includes(row.dataset.fr)) show = false;
+      if (show && f.amt.length && !(this._terminClassAmt[kid] || []).some(a => f.amt.includes(a))) show = false;
       row.style.display = show ? '' : 'none';
-      if (show) visibleCount++;
     });
     // Hide empty school groups
     container.querySelectorAll('.termin-school-group').forEach(g => {
@@ -196,39 +255,45 @@ const PlanungHandler = {
     });
 
     // Smart-Standort aktualisieren bei jedem aktiven Filter
-    this._updateSmartStandort({ jg: fJg, zp: fZp, bs: fBs, amt: fAmt, fr: fFr });
+    this._updateSmartStandort();
   },
 
-  _updateSmartStandort(filters) {
+  _updateSmartStandort() {
     const box = document.getElementById('smartStandortBox');
     const content = document.getElementById('smartStandortContent');
     if (!box || !content) return;
 
-    const { jg, zp, bs, amt, fr } = filters || {};
+    const f = this._terminFilter;
+    const { jg, zp, bs, amt, fr } = f;
 
     // Nur anzeigen wenn mindestens ein Filter aktiv
-    if (!jg && !fr && !amt && !zp && !bs) { box.style.display = 'none'; return; }
+    if (!jg.length && !fr.length && !amt.length && !zp.length && !bs.length) { box.style.display = 'none'; return; }
 
-    // Jahrgang-ID ermitteln
-    let jgId = null;
-    if (jg) {
-      const jgRow = App.query('SELECT id FROM abschlussjahrgaenge WHERE bezeichnung=?', [jg])[0];
-      if (jgRow) jgId = jgRow.id;
+    // "Keine"-Auswahl in einer Dimension → leere Menge, gar nicht erst suchen
+    if ([jg, zp, bs, amt, fr].some(sel => sel[0] === '∅')) {
+      box.style.display = '';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      return;
     }
-    // Fachrichtung-ID ermitteln
-    let frId = null;
-    if (fr) {
-      const cleanLabel = fr.replace(/^FW:\s*/, '');
-      const isFW = fr.startsWith('FW:');
+
+    // Jahrgangs-Bezeichnungen → IDs
+    const jgIds = jg.length
+      ? App.query(`SELECT id FROM abschlussjahrgaenge WHERE bezeichnung IN (${jg.map(() => '?').join(',')})`, jg).map(r => r.id)
+      : [];
+    // Fachrichtungs-Labels → IDs
+    const frIds = [];
+    fr.forEach(frLabel => {
+      const cleanLabel = frLabel.replace(/^FW:\s*/, '');
+      const isFW = frLabel.startsWith('FW:');
       const frRow = App.query('SELECT id FROM fachrichtungen WHERE bezeichnung=? AND typ=?', [cleanLabel, isFW ? 'Fachwerker' : 'Gärtner'])[0];
-      if (frRow) frId = frRow.id;
-    }
+      if (frRow) frIds.push(frRow.id);
+    });
 
     const opts = {};
-    if (jgId) opts.jahrgangId = jgId;
-    if (frId) opts.fachrichtungId = frId;
-    if (amt) opts.amt = amt;
-    if (zp) opts.zwischenpruefung = zp;
+    if (jgIds.length) opts.jahrgangId = jgIds;
+    if (frIds.length) opts.fachrichtungId = frIds;
+    if (amt.length) opts.amt = amt;
+    if (zp.length) opts.zwischenpruefung = zp;
 
     const gruppen = App.getStandortgruppen(opts);
     if (!gruppen.length) {
@@ -237,19 +302,19 @@ const PlanungHandler = {
       return;
     }
 
-    // Wenn Schule gefiltert: nur Gruppen an dieser Schule ODER LFK-Gruppen dort zeigen
-    const filtered = bs ? gruppen.filter(g => g.schule.toLowerCase().includes(bs.toLowerCase())) : gruppen;
+    // Wenn Schule gefiltert: nur Gruppen an diesen Schulen ODER LFK-Gruppen dort zeigen
+    const filtered = bs.length ? gruppen.filter(g => bs.some(b => g.schule.toLowerCase().includes(b.toLowerCase()))) : gruppen;
 
     // Check ob es LFK-Schüler gibt
     const hasAnyLFK = filtered.some(g => g.hasLFK);
 
     // Filter-Label für Anzeige
     const activeFilters = [];
-    if (jg) activeFilters.push(jg);
-    if (fr) activeFilters.push(fr);
-    if (amt) activeFilters.push(`Amt ${amt}`);
-    if (zp) activeFilters.push(`ZP ${zp}`);
-    if (bs) activeFilters.push(bs);
+    if (jg.length) activeFilters.push(jg.join(', '));
+    if (fr.length) activeFilters.push(fr.join(', '));
+    if (amt.length) activeFilters.push(`Amt ${amt.join('/')}`);
+    if (zp.length) activeFilters.push(`ZP ${zp.join(', ')}`);
+    if (bs.length) activeFilters.push(bs.join(', '));
 
     box.style.display = '';
     content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
@@ -609,28 +674,7 @@ const PlanungHandler = {
 
       <div class="form-group">
         <label>Klassen / Gruppen auswählen</label>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Abschlussprüfung: Alle</option>
-            ${jahrgaenge.map(j => `<option value="${esc(j)}">${App.jgLabel(j)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">✎ Zwischenprüfung: Alle</option>
-            ${zpValues.map(z => `<option value="${esc(z.zwischenpruefung)}">${App.zpLabel(z.zwischenpruefung)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Schule: Alle</option>
-            ${schulen.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">§ Amt: Alle</option>
-            ${amtValues.map(a => `<option value="${esc(a.zustaendiges_amt)}">${a.zustaendiges_amt} ${App.AEMTER[a.zustaendiges_amt]||''}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:11px;padding:2px 6px" onchange="PlanungHandler._filterTerminKlassen()">
-            <option value="">Fachrichtung: Alle</option>
-            ${fachrichtungen.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}
-          </select>
-        </div>
+        ${this._terminFilterHtml(jahrgaenge, zpValues.map(z => z.zwischenpruefung), schulen, amtValues.map(a => a.zustaendiges_amt), fachrichtungen)}
         <div id="terminKlassenList" style="max-height:200px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px">
           ${Object.entries(bySchool).map(([schule, kls]) => `
             <div class="termin-school-group" data-school="${esc(schule)}" style="margin-bottom:8px">

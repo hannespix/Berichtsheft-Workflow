@@ -403,7 +403,7 @@ const StammdatenTab = {
           <td>${r.pruefungstermin ? formatDate(r.pruefungstermin) : '–'}</td>
           <td>${cntAktiv > 0 ? `<a href="#" onclick="StammdatenTab._azubiFilter={jahrgang:${r.id}};StammdatenTab._azubiSearch='';StammdatenTab._azubiPage=0;StammdatenTab.show('azubis');return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubis dieses Jahrgangs anzeigen">${cntAktiv}</a>` : '0'}${cnt !== cntAktiv ? ` <span style="color:var(--clr-text-light);font-size:11px">(+${cnt-cntAktiv} inaktiv)</span>` : ''}</td>
           <td class="btn-group">
-            <button class="btn btn-sm btn-secondary" onclick="App.filterJahrgang=[${r.id}];App._applyJgFilter();App.navigate('dashboard')" title="Dashboard auf diesen Jahrgang filtern">▤ Filtern</button>
+            <button class="btn btn-sm btn-secondary" onclick="App.setJgFilterDirect(${r.id});App.navigate('dashboard')" title="Dashboard auf diesen Jahrgang filtern">▤ Filtern</button>
             <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteJahrgang(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
           </td>
         </tr>`;}).join('')}
