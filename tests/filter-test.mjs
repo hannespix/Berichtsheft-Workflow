@@ -168,5 +168,41 @@ console.log('\n══ Zusatzfilter ("+ Filter"): Mehrfachauswahl mit ODER-Verkn�
   check(/chk-ef-/.test(APP_SRC) && /_efChange/.test(APP_SRC), 'Chip-Filter rendern Häkchen-Dropdowns');
 }
 
+console.log('\n══ Kontroll-Vorlagen: Kohorten aus Datum + Stammdaten ══');
+{
+  // PlanungHandler in derselben Sandbox laden (nutzt das App-Objekt oben)
+  sandbox.esc = (x) => String(x ?? '');
+  sandbox.todayStr = () => '2026-08-14';
+  sandbox.formatDate = (d) => String(d || '');
+  vm.runInContext(PLANUNG_SRC + '\n;globalThis.__PH = PlanungHandler;', sandbox, { filename: 'planung.js' });
+  const PH = sandbox.__PH;
+  // Erwartungswerte mit denselben Formeln aus dem echten Datum ableiten
+  // (der Test muss in jedem Monat laufen) und die nötigen Kohorten anlegen
+  const heute = new Date(), j = heute.getFullYear(), m = heute.getMonth();
+  const folgeJahr = m >= 6 ? j + 1 : j;
+  const zpHJahr = m <= 10 ? j : j + 1;
+  db.run(`INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung,typ,jahr) VALUES ('S${folgeJahr}','Sommer',${folgeJahr})`);
+  db.run(`INSERT INTO schueler (nachname,vorname,aktiv,zwischenpruefung) VALUES
+    ('VorlF','T',1,'F${folgeJahr}'),('VorlH','T',1,'H${folgeJahr - 1}'),('VorlZH','T',1,'H${zpHJahr}')`);
+  const vorlagen = PH._kontrollVorlagen();
+  const v23 = vorlagen.find(v => v.key === 'kontrolle23');
+  check(v23.jgLabels.includes('S' + folgeJahr) && v23.zps.includes('F' + folgeJahr) && v23.zps.includes('H' + (folgeJahr - 1)),
+    `2.+3. AJ: AP S${folgeJahr} ∪ ZP F${folgeJahr} ∪ ZP H${folgeJahr - 1} (${[...v23.jgLabels, ...v23.zps].join(' + ')})`);
+  check(v23.fehlt.length === 0, 'Alle Kohorten der Vorlage in den Stammdaten gefunden');
+  const vApW = vorlagen.find(v => v.key === 'apW');
+  check(vApW.jgLabels.length === 1 && vApW.jgLabels[0].startsWith('W'),
+    `AP Winter: nächster Winter-Jahrgang aus den Stammdaten (${vApW.jgLabels[0]})`);
+  const vZpH = vorlagen.find(v => v.key === 'zpH');
+  check(vZpH.zps.length === 1 && vZpH.zps[0] === 'H' + zpHJahr, `ZP Herbst: ${vZpH.zps[0]}`);
+  // Anwenden setzt die globalen Filter (Vereinigung greift dann über gf())
+  App.renderCurrentView = () => {};
+  PH._applyVorlage('kontrolle23');
+  check(App.filterJahrgang.length === v23.jgIds.length && App.filterZp.length === v23.zps.length,
+    'Ein Klick setzt AP- und ZP-Filter gleichzeitig');
+  const treffer = ids(`SELECT s.id FROM schueler s WHERE s.aktiv=1${App.gf('s')}`);
+  check(treffer.length > 0, `Vorlage liefert Azubis über die Vereinigung (${treffer.length} Treffer)`);
+  App.filterJahrgang = []; App.filterZp = []; App.extraFilters = [];
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

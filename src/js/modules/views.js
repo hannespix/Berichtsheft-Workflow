@@ -924,6 +924,7 @@ const Views = {
         <p>Termine für Berichtsheftdurchsichten planen und verwalten</p>
       </div>
       ${App.filterBadgeHtml()}
+      ${PlanungHandler._vorlagenHinweisHtml()}
       <div class="toolbar">
         <div class="toolbar-left">
           <select class="form-control" style="width:auto" onchange="PlanungHandler.filterStatus(this.value)" id="planFilter">
@@ -935,6 +936,7 @@ const Views = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Neuer Termin
           </button>
+          ${PlanungHandler._vorlagenButtonHtml()}
           <button class="btn btn-secondary" onclick="PlanungHandler.jahresplanAssistent()">
             Jahresplanung
           </button>
@@ -2159,6 +2161,7 @@ const Views = {
               <p style="margin-top:4px">• <strong>AP</strong> (S2027, W2027): Bestimmt den Abschlussjahrgang → Klassen- und Termin-Zuordnung</p>
               <p>• <strong>ZP</strong> (H2026, F2027): Wird im ZP-Filter und in der Anzeige verwendet</p>
               <p style="margin-top:4px">Im Jahrgänge-Filter sind AP und ZP <strong>kombinierbar</strong>: Es können mehrere AP-Jahrgänge und mehrere ZP-Kohorten gleichzeitig gewählt werden (z.B. ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028). Die Auswahl wirkt als <strong>Vereinigung</strong> – angezeigt werden Azubis, die zu <em>irgendeiner</em> der gewählten Kohorten gehören. Dieselbe Mehrfachauswahl gibt es auch im Filter des Kontrolltermin-Dialogs (Planung).</p>
+              <p style="margin-top:4px">Die drei wiederkehrenden Kampagnen (Kontrolle 2.+3. AJ im Nov./Dez. · ZP-Kontrollen Frühjahr/Herbst · Zulassungskontrollen AP Sommer/Winter) gibt es in der <strong>Kontrollplanung</strong> als <strong>★ Kontroll-Vorlagen</strong>: Ein Klick stellt die passenden Kohorten-Filter mit automatisch berechneten Jahren ein und blendet die organisatorische Checkliste (Hersendung-Schulen, Fachrichtungs-Ausnahmen) ein.</p>
               <p style="margin-top:4px">Beim IBYKUS-Import werden AP und ZP <strong>nie vermischt</strong>. Wenn sich Werte in IBYKUS ändern (z.B. Verschiebung der AP), werden sie beim nächsten Import automatisch aktualisiert.</p>
             </div>
           </div>
