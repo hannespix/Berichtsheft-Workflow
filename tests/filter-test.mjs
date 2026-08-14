@@ -20,6 +20,7 @@ const initSqlJs = require(path.join(ROOT, 'libs/sql-wasm.js'));
 const SQL = await initSqlJs({ locateFile: f => path.join(ROOT, 'libs', f) });
 const APP_SRC = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
 const PLANUNG_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/planung.js'), 'utf8');
+const STAMM_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/stammdaten.js'), 'utf8');
 
 const db = new SQL.Database();
 db.run(APP_SRC.match(/SCHEMA: `([\s\S]*?)`,/)[1]);
@@ -142,6 +143,13 @@ console.log('\n══ Quelltext-Zusicherungen: keine Exklusivität mehr, Planung
     'Mehrfachauswahl in BEIDEN Dialogen (Neu + Bearbeiten)');
   check(!/option value="">Abschlussprüfung: Alle/.test(PLANUNG_SRC),
     'Alte Einfachauswahl-Selects sind entfernt');
+  // Stammdaten-Azubi-Liste: eigene JG/ZP-Mehrfachauswahl mit Vereinigung
+  check(/chk-az-jg/.test(STAMM_SRC) && /chk-az-zp/.test(STAMM_SRC),
+    'Stammdaten: JG- und ZP-Checkboxen in der Azubi-Liste');
+  check(/teile\.join\(' OR '\)/.test(STAMM_SRC),
+    'Stammdaten: JG/ZP-Auswahl wirkt als Vereinigung');
+  check(!/option value="">Alle JG</.test(STAMM_SRC),
+    'Stammdaten: alte JG-Einfachauswahl ist ersetzt');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
