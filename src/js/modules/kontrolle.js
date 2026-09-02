@@ -125,12 +125,12 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           [terminId, s.id,
            prev.geprueft_kws || '{}',
-           prev.fehltage_gesamt || 0,
+           prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
            (prev.durchsicht_nr || 0) + 1,
            prev.p_1_1_ausbildungsplan || '',
            prev.p_1_4_auszubildende || '',
@@ -628,12 +628,12 @@ const KontrolleHandler = {
         FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
         WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [schuelerId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, schuelerId,
          prev.geprueft_kws || '{}',
-         prev.fehltage_gesamt || 0,
+         prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
          (prev.durchsicht_nr || 0) + 1,
          prev.p_1_1_ausbildungsplan || '',
          prev.p_1_4_auszubildende || '',
@@ -730,12 +730,12 @@ const KontrolleHandler = {
         WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
         ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, this.currentTerminId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, s.id,
          prev.geprueft_kws || '{}',
-         prev.fehltage_gesamt || 0,
+         prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
          (prev.durchsicht_nr || 0) + 1,
          prev.p_1_1_ausbildungsplan || '',
          prev.p_1_4_auszubildende || '',
@@ -1194,7 +1194,12 @@ const KontrolleHandler = {
           <span style="font-size:11px;color:var(--clr-text-light)">│</span>
           <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
           <input type="hidden" id="fehlGesamtInput" value="${ke.fehltage_gesamt}">
-          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">automatisch aus KW-Einträgen berechnet</span>
+          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
+          <label style="font-size:11px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
+            <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:11px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
+            <span id="fehlPauschalAnzeige" style="display:none">${ke.fehltage_pauschal || 0}</span>
+          </label>
+          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -2035,10 +2040,10 @@ const KontrolleHandler = {
         const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
           WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, (prev.durchsicht_nr||0)+1,
+          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, prev.fehltage_pauschal||0, (prev.durchsicht_nr||0)+1,
            prev.p_1_1_ausbildungsplan||'', prev.p_1_4_auszubildende||'', prev.p_1_5_bescheinigungen||'',
            prev.bescheinigungen_anzahl||0, prev.f_1_2_vertragliche_regelungen||'', prev.f_1_6_ausbildungsbetrieb||'']);
         ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
@@ -2469,6 +2474,13 @@ const KontrolleHandler = {
   },
 
   // Calculate total Fehltage across all AJs and auto-update the DB + UI
+  // Pauschale Fehltage (nicht KW-genau) am Kontrollergebnis setzen
+  setFehltagePauschal(schuelerId, keId, wert) {
+    const v = Math.max(0, Math.min(999, parseInt(wert) || 0));
+    App.run(`UPDATE kontrollergebnisse SET fehltage_pauschal=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [v, this.activePruefer || '', keId]);
+    this.autoUpdateFehltage(schuelerId, keId);
+  },
+
   autoUpdateFehltage(schuelerId, keId) {
     let total = 0;
     const ajs = App.getSchuelerAJs(schuelerId);
@@ -2480,8 +2492,14 @@ const KontrolleHandler = {
       const displayEl = document.getElementById(`fehlSumAj${aj}_display`);
       if (displayEl) displayEl.textContent = sum;
     }
+    // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. vom Papierbogen)
+    // kommen obendrauf – sie stehen bewusst in KEINER Kalenderwoche
+    const pauschal = App.scalar('SELECT COALESCE(fehltage_pauschal,0) FROM kontrollergebnisse WHERE id=?', [keId]) || 0;
+    total += pauschal;
     App.run(`UPDATE kontrollergebnisse SET fehltage_gesamt=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [total, this.activePruefer || '', keId]);
     const totalEl = document.getElementById('fehlGesamt');
     if (totalEl) totalEl.textContent = total;
+    const pEl = document.getElementById('fehlPauschalAnzeige');
+    if (pEl) pEl.textContent = pauschal;
   },
 };

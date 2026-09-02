@@ -8444,6 +8444,7 @@ const App = {
       f_1_2_vertragliche_regelungen TEXT DEFAULT '' CHECK (f_1_2_vertragliche_regelungen IN ('','ja','nein','nicht_vorhanden')),
       f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','nicht_vorhanden')),
       fehltage_gesamt INTEGER DEFAULT 0,
+      fehltage_pauschal INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
       zulassung_manuell INTEGER DEFAULT 0,
@@ -11488,6 +11489,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -11842,7 +11844,7 @@ const App = {
 
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
-        'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
+        'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
@@ -12469,6 +12471,42 @@ const App = {
     return Math.min(Math.floor(months / 12) + 1, maxAj);
   },
 
+  // Ausbildungsjahr, in dem sich der Azubi an einem STICHTAG befindet (nicht
+  // heute): Monate seit Ausbildungsbeginn / 12, gedeckelt auf die Zahl der
+  // tatsächlichen Ausbildungsjahre (Verkürzer/Verlängerer).
+  getAJAtDate(beginn, datum, schuelerId) {
+    const d = this._parseDate(beginn);
+    const ref = datum instanceof Date ? datum : this._parseDate(datum);
+    if (!d || !ref) return null;
+    const months = (ref.getFullYear() - d.getFullYear()) * 12 + (ref.getMonth() - d.getMonth());
+    if (months < 0) return 1;
+    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
+    return Math.min(Math.floor(months / 12) + 1, maxAj);
+  },
+
+  // Zu welchem Ausbildungsjahr gehört eine Kalenderwoche, die bei einer
+  // Durchsicht am Stichtag "bis KW x geprüft" gemeldet wird? Liegt die KW in
+  // der Schuljahres-Reihenfolge (36…52, 1…35) NICHT hinter der KW des
+  // Stichtags, ist es das Ausbildungsjahr des Stichtags – sonst das davor
+  // (z.B. Nacherfassung im September für "geprüft bis KW 30").
+  // Rückgabe: { aj, kw } oder null.
+  ajKwFuerStichtag(schuelerId, datum, kw) {
+    kw = parseInt(kw);
+    if (!kw || kw < 1 || kw > 53) return null;
+    if (kw === 53) kw = 52;
+    const s = this.query('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [schuelerId])[0];
+    const ref = datum instanceof Date ? datum : this._parseDate(datum);
+    if (!s || !ref) return null;
+    const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
+    const order = [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35];
+    let aj = this.getAJAtDate(s.ausbildungsbeginn, ref, schuelerId) || ajs[0];
+    const kwStichtag = this._isoKW(ref);
+    if (order.indexOf(kw) > order.indexOf(kwStichtag)) aj = aj - 1;
+    if (aj < ajs[0]) aj = ajs[0];
+    if (aj > ajs[ajs.length - 1]) aj = ajs[ajs.length - 1];
+    return { aj, kw };
+  },
+
   // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
   // Nutzt getAJKWBounds: aktive KWs × 5 Werktage − Feiertage (BW)
   calcArbeitstage(beginn, ende, schuelerId) {
@@ -13067,6 +13105,11 @@ const App = {
       // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
       if (!keCols.includes('zulassung_manuell')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+      }
+      // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. aus dem Papierbogen):
+      // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert
+      if (!keCols.includes('fehltage_pauschal')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
@@ -15423,7 +15466,9 @@ const Views = {
   // ════════════════════════════════════════════
   nacherfassung() {
     const mc = document.getElementById('mainContent');
-    const schulen = App.query("SELECT DISTINCT bs.* FROM berufsschulen bs WHERE 1=1" + App.gf('schulen') + " ORDER BY bs.name");
+    // Ungefiltert: Nacherfassung hat eigene Filter; der globale Amt-Filter
+    // würde sonst Schulen mit Azubis fremder Ämter ausblenden
+    const schulen = App.query("SELECT bs.* FROM berufsschulen bs ORDER BY bs.name");
     const jahrgaenge = App.query("SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, CASE typ WHEN 'Sommer' THEN 1 WHEN 'Winter' THEN 2 WHEN 'Frühjahr' THEN 3 WHEN 'Herbst' THEN 4 ELSE 5 END");
     const aemter = App.query("SELECT DISTINCT zustaendiges_amt FROM schueler WHERE aktiv=1 AND zustaendiges_amt != '' ORDER BY zustaendiges_amt");
 
@@ -15434,12 +15479,17 @@ const Views = {
       </div>
       ${App.filterBadgeHtml()}
 
+      <div style="padding:10px 14px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:12px">
+        <strong>Nacherfassung</strong> übernimmt vergangene Durchsichten (z.B. vom Papierbogen) mit denselben Datenregeln wie die Live-Kontrolle:
+        Datum der Durchsicht und Schule wählen → je Azubi <strong>geprüft bis KW</strong>, <strong>Fehltage gesamt</strong>, <strong>Ergebnis</strong> (und ggf. Codes/Wiedervorlage) eintragen → „Alle speichern".
+        Das Ergebnis erscheint danach im KW-Raster, in der Ampel, in den Statistiken und im Archiv – als eigener Nacherfassungs-Termin je Schule und Datum.
+      </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">1. Termin & Filter wählen</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Datum der Durchsicht</label>
-            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px">
+            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px" onchange="NacherfassungHandler._datumGeaendert()">
           </div>
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Prüfer</label>
@@ -15924,11 +15974,13 @@ const Views = {
               <p style="margin-top:6px"><strong>Schritt 1:</strong> Sidebar → <em>Nacherfassung</em> öffnen</p>
               <p><strong>Schritt 2:</strong> Datum der letzten Durchsicht eintragen, Ausbildungsberater wählen, Berufsschule auswählen</p>
               <p><strong>Schritt 3:</strong> In der Tabelle je Auszubildendem eintragen:</p>
-              <p style="margin-left:16px">• <strong>Ergebnis:</strong> "In Ordnung" oder entsprechendes Mängel-Ergebnis</p>
+              <p style="margin-left:16px">• <strong>Geprüft bis KW:</strong> Bis einschließlich dieser Kalenderwoche gilt das Berichtsheft als kontrolliert – alle Wochen davor (auch in früheren Ausbildungsjahren) werden im KW-Raster als geprüft markiert. Vorschlag: die Woche vor dem Durchsichtsdatum. Eine KW-Nummer, die in der Schuljahresreihenfolge hinter der Durchsichtswoche liegt, wird dem Vorjahr zugeordnet (z.B. „bis KW 30" bei einer Durchsicht im September).</p>
+              <p style="margin-left:16px">• <strong>Fehltage gesamt:</strong> Stand laut Berichtsheft, pauschal ohne Wochenzuordnung (kein Maximum). Das Tool merkt sich diesen Pauschalanteil am Kontrollergebnis; wochengenau erfasste Fehltage kommen später obendrauf. Leer lassen = unverändert. In der Live-Kontrolle ist der Pauschalwert im Feld „pauschal" korrigierbar.</p>
+              <p style="margin-left:16px">• <strong>Ergebnis:</strong> "In Ordnung" oder entsprechendes Mängel-Ergebnis („Alle offenen → In Ordnung" füllt leere Zeilen)</p>
               <p style="margin-left:16px">• <strong>WV-Frist:</strong> Erscheint automatisch bei Mängeln (+4 Wochen, anpassbar)</p>
-              <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte</p>
+              <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte – sie werden der zuletzt geprüften KW zugeordnet</p>
               <p style="margin-left:16px">• <strong>Bemerkung:</strong> Optional, Freitext</p>
-              <p><strong>Schritt 4:</strong> "Alle speichern" → Kontrolltermin + Ergebnisse + WV werden angelegt</p>
+              <p><strong>Schritt 4:</strong> "Alle speichern" → ein Nacherfassungs-Termin je Schule und Datum (mehrfaches Speichern ergänzt ihn), Kontrollergebnisse mit Durchsichtsnummer und Archiv-Snapshot, KW-Markierungen, Wiedervorlagen. Auch Azubis fremder Ämter sind wählbar (§-Kennzeichen).</p>
               <p style="margin-top:6px"><strong>Tipp:</strong> Die aufklappbare Liste <em>„Noch nicht kontrollierte Auszubildende"</em> zeigt, welche Auszubildenden noch keine Durchsicht im Datenbestand haben – gruppiert nach Berufsschule.</p>
             </div>
 
@@ -20867,8 +20919,24 @@ const PlanungHandler = {
 };
 
 // ── nacherfassung.js ──
+// ═══════════════════════════════════════════════════════════════════
+//  Nacherfassung: vergangene Durchsichten (Papierbogen / Altdaten) schnell
+//  in den Datenbestand übernehmen.
+//
+//  Datenmodell – identisch zur Live-Kontrolle:
+//  • „Geprüft bis KW" → alle Kalenderwochen vom Ausbildungsbeginn bis
+//    einschließlich dieser KW gelten als geprüft (kw_status.geprueft=1,
+//    kaskadiert über frühere Ausbildungsjahre) – über KWNav.persistCodes /
+//    trackSessionKW, also EXAKT der Mechanismus der Live-Kontrolle.
+//  • Fehltage gesamt (pauschal, laut Papierbogen) → kontrollergebnisse.
+//    fehltage_pauschal; fehltage_gesamt = KW-Einträge + pauschal.
+//  • Mängelcodes → der zuletzt geprüften KW zugeordnet.
+//  • Pro Speichern entsteht/wächst EIN Nacherfassungs-Termin je Schule+Datum;
+//    jeder Azubi wird einzeln daran gebunden (kontrolltermin_schueler).
+// ═══════════════════════════════════════════════════════════════════
 const NacherfassungHandler = {
   _rows: [],
+  _kwDefault: null,
 
   loadKlassen() {
     const bsId = document.getElementById('neSchule')?.value;
@@ -20876,11 +20944,29 @@ const NacherfassungHandler = {
     if (!sel) return;
     sel.innerHTML = '<option value="">– alle Klassen –</option>';
     if (!bsId) return;
-    const klassen = App.query("SELECT k.*, j.bezeichnung as jg, fr.bezeichnung as fr_name FROM klassen k LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON k.fachrichtung_id=fr.id WHERE k.berufsschule_id=?" + App.gf('klassen') + " ORDER BY k.klassenbezeichnung", [bsId]);
+    // Ungefiltert (kein App.gf): auch Klassen mit Azubis fremder Ämter
+    const klassen = App.query("SELECT k.*, j.bezeichnung as jg, fr.bezeichnung as fr_name FROM klassen k LEFT JOIN abschlussjahrgaenge j ON k.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON k.fachrichtung_id=fr.id WHERE k.berufsschule_id=? ORDER BY k.klassenbezeichnung", [bsId]);
     klassen.forEach(k => {
       sel.insertAdjacentHTML('beforeend', `<option value="${k.id}">${esc(k.klassenbezeichnung)} (${esc(k.jg||'')} – ${esc(k.fr_name||'')})</option>`);
     });
     this.loadSchueler();
+  },
+
+  // KW-Vorschlag für „geprüft bis": die Woche VOR dem Durchsichtsdatum
+  // (die laufende Woche ist am Durchsichtstag meist noch nicht im Heft)
+  _kwVorschlag(datumStr) {
+    const d = App._parseDate(datumStr);
+    if (!d) return '';
+    d.setDate(d.getDate() - 7);
+    return App._isoKW(d);
+  },
+  _datumGeaendert() {
+    const neu = this._kwVorschlag(document.getElementById('neTerminDatum')?.value);
+    document.querySelectorAll('.ne-kw').forEach(inp => {
+      // Nur Felder aktualisieren, die noch den alten Vorschlag tragen
+      if (String(inp.value) === String(this._kwDefault ?? '')) inp.value = neu;
+    });
+    this._kwDefault = neu;
   },
 
   loadSchueler() {
@@ -20896,12 +20982,15 @@ const NacherfassungHandler = {
       return;
     }
 
-    let where = (App._extraFilterSql().overrideAktiv ? "1=1" : "s.aktiv=1") + App.gf('schueler');
+    // Bewusst OHNE globale Filter: die Nacherfassung hat eigene Filter
+    // (Schule/Klasse/Jahrgang/Amt) – der globale Amt-Filter würde sonst genau
+    // die mitkontrollierten Azubis fremder Ämter ausblenden.
+    let where = 's.aktiv=1';
     const params = [];
-    where += " AND k.berufsschule_id=?"; params.push(bsId);
-    if (klId) { where += " AND s.klasse_id=?"; params.push(klId); }
-    if (jgId) { where += " AND s.jahrgang_id=?"; params.push(jgId); }
-    if (amt) { where += " AND s.zustaendiges_amt=?"; params.push(amt); }
+    where += ' AND k.berufsschule_id=?'; params.push(bsId);
+    if (klId) { where += ' AND s.klasse_id=?'; params.push(klId); }
+    if (jgId) { where += ' AND s.jahrgang_id=?'; params.push(jgId); }
+    if (amt) { where += ' AND s.zustaendiges_amt=?'; params.push(amt); }
 
     const schueler = App.query(`SELECT s.*, k.klassenbezeichnung, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung,
       b.name as betrieb_name, b.ort as betrieb_ort
@@ -20925,6 +21014,8 @@ const NacherfassungHandler = {
     };
 
     this._rows = schueler;
+    const datum = document.getElementById('neTerminDatum')?.value || todayStr();
+    this._kwDefault = this._kwVorschlag(datum);
 
     area.innerHTML = `
     <div class="card">
@@ -20932,45 +21023,58 @@ const NacherfassungHandler = {
         <span>2. Ergebnisse erfassen – ${schueler.length} Schüler</span>
         <span id="neProgress" style="font-size:11px;color:var(--clr-sage)">0/${schueler.length} erfasst</span>
       </div>
+      <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;line-height:1.7;margin-bottom:8px">
+        <strong>So wird gespeichert:</strong>
+        <strong>Geprüft bis KW</strong> = alle Wochen vom Ausbildungsbeginn bis einschließlich dieser Woche gelten als kontrolliert (auch frühere Ausbildungsjahre) und erscheinen so im KW-Raster; Vorschlag ist die Woche vor dem Durchsichtsdatum – KW-Nummern vor der Durchsichtswoche zählen zum Vorjahr des Rasters.
+        <strong>Fehltage gesamt</strong> = Stand laut Berichtsheft, pauschal (nicht wochengenau) – spätere wochengenaue Einträge kommen obendrauf.
+        <strong>Codes</strong> werden der zuletzt geprüften KW zugeordnet.
+        Es werden nur Zeilen mit einem <strong>Ergebnis</strong> gespeichert.
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-secondary" onclick="NacherfassungHandler._alleInOrdnung()" title="Setzt bei allen Zeilen ohne Ergebnis „In Ordnung"">Alle offenen → In Ordnung</button>
+        <button class="btn btn-sm btn-secondary" onclick="NacherfassungHandler._kwFuerAlle()" title="Trägt den KW-Vorschlag bei allen Zeilen ein">KW-Vorschlag für alle</button>
+      </div>
       <div style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
           <thead><tr>
             <th style="min-width:140px">Name</th>
             <th style="min-width:100px">Betrieb</th>
-            <th title="Fehltage gesamt – editierbar für Nacherfassung" style="width:55px">Fehl.</th>
-            <th title="Letzte geprüfte Kalenderwoche – editierbar" style="width:55px">KW</th>
-            <th title="Letzte Kontrolle (Datum + Ergebnis)" style="width:70px">Letzte</th>
+            <th title="Letzte Kontrolle (Datum + Ergebnis) und bisher geprüfter Stand" style="width:90px">Bisher</th>
+            <th title="Bis einschließlich dieser Kalenderwoche gilt das Berichtsheft als geprüft" style="width:70px;text-align:center">Geprüft bis KW</th>
+            <th title="Fehltage gesamt laut Berichtsheft (pauschal, nicht wochengenau) – leer = unverändert" style="width:70px;text-align:center">Fehltage gesamt</th>
             <th style="min-width:120px">Ergebnis</th>
             <th title="Wiedervorlage-Frist" style="width:100px">WV-Frist</th>
-            <th title="Mängelcodes (kommagetrennt: A,B,C...)" style="width:80px">Codes</th>
+            <th title="Mängelcodes (kommagetrennt: A,B,C…) – der zuletzt geprüften KW zugeordnet" style="width:80px">Codes</th>
             <th style="min-width:120px">Bemerkung</th>
           </tr></thead>
           <tbody>
             ${schueler.map((s, i) => {
-              const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
-              const lastKE = App.query("SELECT ke.ergebnis, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1", [s.id]);
-              const lastInfo = lastKE.length ? formatDate(lastKE[0].geplant_datum).substring(0,6) + (lastKE[0].ergebnis === 'in_ordnung' ? '✓' : '!') : '–';
-              // Letzte geprüfte KW in SCHULJAHRES-Reihenfolge (36..52, dann 1..35):
-              // ein einfaches MAX() liefert immer 52 statt der tatsächlich letzten Woche.
-              const lastKW = App.scalar(`SELECT kalenderwoche FROM kw_status WHERE schueler_id=? AND geprueft=1
-                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END, kalenderwoche DESC LIMIT 1`, [s.id]) || '';
+              const lastKE = App.query("SELECT ke.ergebnis, ke.fehltage_gesamt, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1", [s.id])[0];
+              const lastInfo = lastKE ? formatDate(lastKE.geplant_datum).substring(0,6) + (lastKE.ergebnis === 'in_ordnung' ? ' ✓' : ' !') : '–';
+              // Bisher geprüfter Stand in SCHULJAHRES-Reihenfolge (36..52, dann 1..35)
+              const bisher = App.query(`SELECT ausbildungsjahr, kalenderwoche FROM kw_status WHERE schueler_id=? AND geprueft=1
+                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END, kalenderwoche DESC LIMIT 1`, [s.id])[0];
+              const bisherTxt = bisher ? `bis KW ${bisher.kalenderwoche} (AJ${bisher.ausbildungsjahr})` : 'nichts geprüft';
+              const fehlBisher = lastKE ? (lastKE.fehltage_gesamt || 0) : (App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0);
               const amp = App.getSchuelerAmpel(s.id);
+              const fremd = s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT;
               return `<tr data-sid="${s.id}" class="ne-row">
                 <td>
                   <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
+                  ${fremd ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes Amt: ${esc(App.amtLabel(s.zustaendiges_amt))}">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
                   <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')} · ${esc(s.jahrgang||'')}</div>
                 </td>
                 <td style="font-size:11px">${esc(s.betrieb_name||s.ausbildungsstaette||'–')}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.betrieb_ort||'')}</div></td>
-                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="7" placeholder="0" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Fehltage in der erfassten KW (bisher gesamt: ${fehlGesamt})"></td>
-                <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${lastKW}" min="1" max="52" placeholder="–" style="font-size:11px;padding:3px 4px;width:48px;text-align:center" title="Letzte geprüfte KW"></td>
-                <td style="font-size:10px;text-align:center">${lastInfo}</td>
+                <td style="font-size:10px"><div>${lastInfo}</div><div style="color:var(--clr-text-light)">${bisherTxt}</div><div style="color:var(--clr-text-light)">${fehlBisher} Fehltage</div></td>
+                <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${this._kwDefault}" min="1" max="53" placeholder="–" style="font-size:11px;padding:3px 4px;width:56px;text-align:center" title="Bis einschließlich dieser KW geprüft (Vorschlag: Woche vor dem Durchsichtsdatum)"></td>
+                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="999" placeholder="${fehlBisher}" style="font-size:11px;padding:3px 4px;width:56px;text-align:center" title="Fehltage gesamt laut Berichtsheft (bisher im Tool: ${fehlBisher}) – leer lassen = unverändert"></td>
                 <td>
                   <select class="form-control ne-ergebnis" data-idx="${i}" style="font-size:11px;padding:3px 6px" onchange="NacherfassungHandler._onErgebnis(${i},this.value)">
                     ${Object.entries(eLbl).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
                   </select>
                 </td>
                 <td><input type="date" class="form-control ne-wv" data-idx="${i}" style="font-size:11px;padding:3px 6px;display:none"></td>
-                <td><input class="form-control ne-codes" data-idx="${i}" placeholder="A,B,F..." style="font-size:11px;padding:3px 6px;width:70px;text-transform:uppercase"></td>
+                <td><input class="form-control ne-codes" data-idx="${i}" placeholder="A,B,F…" style="font-size:11px;padding:3px 6px;width:70px;text-transform:uppercase"></td>
                 <td><input class="form-control ne-bem" data-idx="${i}" placeholder="optional" style="font-size:11px;padding:3px 6px"></td>
               </tr>`;
             }).join('')}
@@ -20979,9 +21083,19 @@ const NacherfassungHandler = {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px">
         <button class="btn btn-primary" onclick="NacherfassungHandler.saveAll()" style="font-size:14px;padding:10px 24px">Alle speichern</button>
-        <span style="font-size:11px;color:var(--clr-text-light)">Nur Zeilen mit einem Ergebnis (≠ "–") werden gespeichert.</span>
+        <span style="font-size:11px;color:var(--clr-text-light)">Nur Zeilen mit einem Ergebnis (≠ "–") werden gespeichert. Mehrfaches Speichern ergänzt denselben Nacherfassungs-Termin (Schule + Datum).</span>
       </div>
     </div>`;
+  },
+
+  _alleInOrdnung() {
+    document.querySelectorAll('.ne-ergebnis').forEach(sel => {
+      if (!sel.value) { sel.value = 'in_ordnung'; this._onErgebnis(parseInt(sel.dataset.idx, 10), 'in_ordnung'); }
+    });
+  },
+  _kwFuerAlle() {
+    const v = this._kwVorschlag(document.getElementById('neTerminDatum')?.value);
+    document.querySelectorAll('.ne-kw').forEach(inp => { inp.value = v; });
   },
 
   _onErgebnis(idx, val) {
@@ -20990,7 +21104,7 @@ const NacherfassungHandler = {
       const needsWV = val && val !== '' && val !== 'in_ordnung';
       wvInput.style.display = needsWV ? '' : 'none';
       if (needsWV && !wvInput.value) {
-        // Default: +4 weeks from Datum
+        // Default: +4 Wochen ab Durchsichtsdatum
         const d = document.getElementById('neTerminDatum')?.value;
         if (d) {
           const dt = new Date(d + 'T00:00:00'); dt.setDate(dt.getDate() + 28);
@@ -21009,104 +21123,126 @@ const NacherfassungHandler = {
     if (el) el.textContent = `${count}/${this._rows.length} erfasst`;
   },
 
+  // Nacherfassungs-Termin je Schule + Datum finden oder anlegen
+  _terminFuer(datum, bsId, pruefer, klId) {
+    const vorhanden = App.query(`SELECT id FROM kontrolltermine WHERE geplant_datum=? AND berufsschule_id=? AND bemerkung LIKE 'Nacherfassung%' ORDER BY id DESC LIMIT 1`, [datum, bsId])[0];
+    if (vorhanden) {
+      if (klId) App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [vorhanden.id, klId]);
+      return vorhanden.id;
+    }
+    const schule = App.scalar('SELECT name FROM berufsschulen WHERE id=?', [bsId]) || '';
+    const titel = `Nacherfassung – ${schule} (Durchsicht vom ${formatDate(datum)})`;
+    App.run(`INSERT INTO kontrolltermine (geplant_datum, durchgefuehrt_datum, pruefer, status, typ, bemerkung, berufsschule_id) VALUES (?,?,?,'durchgefuehrt','schulkontrolle',?,?)`,
+      [datum, datum, pruefer, titel, bsId]);
+    const terminId = App.scalar('SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()');
+    // NUR eine explizit gewählte Klasse verknüpfen – „alle Klassen der Schule"
+    // machte aus 4 nacherfassten Azubis einen Termin mit der ganzen Schule.
+    if (klId && terminId) App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [terminId, klId]);
+    return terminId;
+  },
+
+  // Einen Azubi nacherfassen (DOM-frei, testbar).
+  // row: { ergebnis, codes, bemerkung, wvDate, fehltageGesamt (Zahl|null), bisKW (Zahl|0) }
+  erfasseAzubi(terminId, s, row, datum, pruefer) {
+    // 1) Kontrollergebnis – mit Übernahme aus der letzten abgeschlossenen
+    //    Durchsicht (Durchsichtsnummer, Pflichtteile), wie in der Live-Kontrolle
+    const prev = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId])[0] || {};
+    const vorhanden = App.query('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
+    if (vorhanden) {
+      App.run(`UPDATE kontrollergebnisse SET ergebnis=?, bemerkung=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`,
+        [row.ergebnis, row.bemerkung || '', pruefer, vorhanden.id]);
+    } else {
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, durchsicht_nr, geprueft_kws, fehltage_pauschal,
+          p_1_1_ausbildungsplan, p_1_4_auszubildende, p_1_5_bescheinigungen, bescheinigungen_anzahl, f_1_2_vertragliche_regelungen, f_1_6_ausbildungsbetrieb,
+          erstellt_am, geaendert_am, geaendert_von)
+        VALUES (?,?,?,?,?,'{}',?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?)`,
+        [terminId, s.id, row.ergebnis, row.bemerkung || '', (prev.durchsicht_nr || 0) + 1, prev.fehltage_pauschal || 0,
+         prev.p_1_1_ausbildungsplan || '', prev.p_1_4_auszubildende || '', prev.p_1_5_bescheinigungen || '', prev.bescheinigungen_anzahl || 0,
+         prev.f_1_2_vertragliche_regelungen || '', prev.f_1_6_ausbildungsbetrieb || '', pruefer]);
+    }
+    const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
+    if (!keId) throw new Error('Kontrollergebnis konnte nicht angelegt werden');
+    // 2) Einzel-Zuordnung zum Termin (Exporte, Schutz vor dem Aufräumen)
+    App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [terminId, s.id]);
+
+    // 3) Wiedervorlage
+    if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
+      const wvDa = App.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]);
+      if (!wvDa) App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
+        [s.id, keId, row.ergebnis, row.wvDate]);
+    }
+
+    // 4) Geprüft bis KW – derselbe Mechanismus wie in der Live-Kontrolle:
+    //    persistCodes/trackSessionKW markieren ALLE Wochen bis zur Ziel-KW
+    //    (inkl. Kaskade in frühere Ausbildungsjahre) und hängen die Codes an.
+    let ziel = null;
+    if (row.bisKW) ziel = App.ajKwFuerStichtag(s.id, datum, row.bisKW);
+    else if (row.codes) ziel = App.ajKwFuerStichtag(s.id, datum, this._kwVorschlag(datum));
+    if (ziel) {
+      KWNav.persistCodes(keId, ziel.aj, ziel.kw, row.codes || '', 0, s.id, true);
+    }
+
+    // 5) Fehltage gesamt (pauschal): Eingabe = Gesamtstand laut Berichtsheft.
+    //    Pauschalanteil so setzen, dass Gesamt = Eingabe (KW-genaue Einträge
+    //    bleiben unangetastet und zählen weiter mit).
+    if (row.fehltageGesamt != null && !isNaN(row.fehltageGesamt)) {
+      const kwSumme = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
+      const pauschal = Math.max(0, Math.min(999, Math.round(row.fehltageGesamt) - kwSumme));
+      App.run('UPDATE kontrollergebnisse SET fehltage_pauschal=? WHERE id=?', [pauschal, keId]);
+    }
+    KontrolleHandler.autoUpdateFehltage(s.id, keId);
+
+    // 6) Archiv-Snapshot wie beim Abschluss einer Live-Kontrolle
+    try {
+      const ke = App.query('SELECT * FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      const kwRows = App.query('SELECT * FROM kw_status WHERE schueler_id=?', [s.id]);
+      const pflicht = { p_1_1: ke.p_1_1_ausbildungsplan, p_1_4: ke.p_1_4_auszubildende, p_1_5: ke.p_1_5_bescheinigungen,
+        besch_anz: ke.bescheinigungen_anzahl, f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb };
+      const snapDa = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [keId]);
+      if (!snapDa) {
+        App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [keId, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', pruefer]);
+      }
+    } catch(e) { console.warn('Nacherfassung Snapshot:', e.message); }
+    return keId;
+  },
+
   saveAll() {
     const datum = document.getElementById('neTerminDatum')?.value;
     const pruefer = document.getElementById('neTerminPruefer')?.value || '';
-    const bsId = document.getElementById('neSchule')?.value;
+    const bsId = parseInt(document.getElementById('neSchule')?.value) || null;
     if (!datum || !bsId) return App.toast('Bitte Datum und Schule angeben', 'warning');
 
-    // Collect rows with data
     const toSave = [];
     document.querySelectorAll('.ne-ergebnis').forEach((sel) => {
       if (!sel.value || sel.value === '') return;
       // Index aus dem Datensatz-Attribut, NICHT aus der DOM-Position: nach dem
-      // Sortieren der Tabelle stimmen die beiden nicht mehr überein und das
-      // Ergebnis würde einem anderen Azubi zugeschrieben.
+      // Sortieren der Tabelle stimmen die beiden nicht mehr überein.
       const i = parseInt(sel.dataset.idx, 10);
       const s = this._rows[i];
       if (!s) return;
-      const codes = (document.querySelector(`.ne-codes[data-idx="${i}"]`)?.value || '').toUpperCase().replace(/\s+/g, '');
+      const codes = (document.querySelector(`.ne-codes[data-idx="${i}"]`)?.value || '').toUpperCase().replace(/[^A-I,]/g, '');
       const bem = document.querySelector(`.ne-bem[data-idx="${i}"]`)?.value || '';
       const wvDate = document.querySelector(`.ne-wv[data-idx="${i}"]`)?.value || '';
-      const fehl = Math.max(0, Math.min(7, parseInt(document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value) || 0));
-      const kw = parseInt(document.querySelector(`.ne-kw[data-idx="${i}"]`)?.value) || 0;
-      toSave.push({ schueler: s, ergebnis: sel.value, codes, bemerkung: bem, wvDate, fehltage: fehl, lastKW: kw });
+      const fehlRaw = document.querySelector(`.ne-fehl[data-idx="${i}"]`)?.value;
+      const fehltageGesamt = fehlRaw === '' || fehlRaw == null ? null : Math.max(0, parseInt(fehlRaw) || 0);
+      const bisKW = parseInt(document.querySelector(`.ne-kw[data-idx="${i}"]`)?.value) || 0;
+      toSave.push({ s, row: { ergebnis: sel.value, codes, bemerkung: bem, wvDate, fehltageGesamt, bisKW } });
     });
-
     if (!toSave.length) return App.toast('Nichts zu speichern – bitte Ergebnisse eintragen', 'warning');
 
-    // Create Kontrolltermin
-    // NUR eine explizit gewählte Klasse verknüpfen. Ohne Auswahl KEINE
-    // Klassen-Verknüpfung: "alle Klassen der Schule" machte aus einer
-    // 4-Azubi-Nacherfassung einen Termin mit der kompletten Schülerschaft
-    // der Schule (leere Bögen, falsche Exporte). Die tatsächlich erfassten
-    // Azubis werden unten einzeln an den Termin gebunden.
-    const klId = document.getElementById('neKlasse')?.value;
-    const klasseIds = klId ? [parseInt(klId)] : [];
+    const klId = parseInt(document.getElementById('neKlasse')?.value) || null;
+    const terminId = this._terminFuer(datum, bsId, pruefer, klId);
+    if (!terminId) return App.toast('Termin konnte nicht angelegt werden', 'error');
 
-    // typ 'einsendung' — 'nacherfassung' würde den CHECK-Constraint verletzen (SCHEMA erlaubt nur schulkontrolle/einsendung)
-    App.run("INSERT INTO kontrolltermine (geplant_datum, pruefer, status, typ, bemerkung, berufsschule_id) VALUES (?,?,'durchgefuehrt','einsendung','Nacherfasst am ' || date('now'),?)",
-      [datum, pruefer, bsId || null]);
-    const terminId = App.scalar("SELECT last_insert_rowid()");
-    klasseIds.forEach(kId => {
-      App.run("INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)", [terminId, kId]);
+    let saved = 0, fehler = 0;
+    toSave.forEach(({ s, row }) => {
+      try { this.erfasseAzubi(terminId, s, row, datum, pruefer); saved++; }
+      catch(rowErr) { fehler++; console.warn('Nacherfassung Zeile:', rowErr.message); }
     });
-
-    // Save results
-    let saved = 0;
-    toSave.forEach(row => {
-     try {
-      const s = row.schueler;
-      // Kontrollergebnis (with fehltage)
-      App.run("INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, fehltage_gesamt, erstellt_am, geaendert_von) VALUES (?,?,?,?,?,datetime('now'),?)",
-        [terminId, s.id, row.ergebnis, row.bemerkung, row.fehltage || 0, pruefer]);
-      // Gezielt nachladen statt last_insert_rowid(): Wurde der INSERT wegen
-      // OR IGNORE übersprungen (Schüler doppelt in der Liste, zweiter Klick auf
-      // "Alle speichern"), zeigte die Nummer auf einen fremden Datensatz.
-      const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
-      // Azubi einzeln an den Termin binden (Exports, Orphan-Schutz)
-      App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [terminId, s.id]);
-
-      // Wiedervorlage (Tabelle hat KEINE kontrolltermin_id-Spalte!)
-      if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
-        App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
-          [s.id, keId, row.ergebnis, row.wvDate]);
-      }
-
-      // KW-Status: Upsert der behobene_codes/bemerkung NICHT zerstört (kein REPLACE!)
-      const upsertKw = (kw, codes, fehl) => {
-        const ex = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
-        if (ex.length) {
-          App.run('UPDATE kw_status SET maengel_codes=?, fehltage=?, geprueft=1, erstellt_bei=COALESCE(erstellt_bei,?) WHERE id=?',
-            [codes, fehl, keId, ex[0].id]);
-        } else {
-          // ON CONFLICT: die lokale Vorabprüfung sichert nur DIESEN Client ab –
-          // beim Replay-Empfänger kann die KW bereits existieren (parallel live
-          // geprüft), dann darf die Op nicht still am UNIQUE scheitern
-          App.run(`INSERT INTO kw_status (schueler_id, ausbildungsjahr, kalenderwoche, maengel_codes, geprueft, fehltage, erstellt_bei) VALUES (?,?,?,?,1,?,?)
-            ON CONFLICT(schueler_id, ausbildungsjahr, kalenderwoche) DO UPDATE SET maengel_codes=excluded.maengel_codes, fehltage=excluded.fehltage, geprueft=1, erstellt_bei=COALESCE(kw_status.erstellt_bei, excluded.erstellt_bei)`,
-            [s.id, aj, kw, codes, fehl, keId]);
-        }
-      };
-      // Aktuelles Ausbildungsjahr, nicht das letzte: sonst landen nacherfasste
-      // Mängel eines Erstjahres-Azubis im Raster des 3. Ausbildungsjahres.
-      const ajListe = App.getSchuelerAJs(s.id) || [1];
-      const ajAktuell = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
-      const aj = (ajAktuell && ajListe.includes(ajAktuell)) ? ajAktuell : (ajListe[ajListe.length - 1] || 1);
-      const kw = row.lastKW || 0;
-      if (kw > 0) {
-        upsertKw(kw, row.codes || '', row.fehltage || 0);
-      } else if (row.codes) {
-        const roughKw = parseInt(document.getElementById('neTerminDatum').value.substring(5,7)) <= 6 ? 1 : 36;
-        upsertKw(roughKw, row.codes, 0);
-      }
-      saved++;
-     } catch(rowErr) {
-      console.warn('Nacherfassung Zeile:', rowErr.message);
-     }
-    });
-
-    App.toast(`✓ ${saved} Kontrollergebnisse nacherfasst (Termin ${formatDate(datum)})`, 'success');
+    App.invalidateTerminCache && App.invalidateTerminCache();
+    App.toast(`✓ ${saved} Durchsicht(en) nacherfasst (Termin ${formatDate(datum)})${fehler ? ` · ${fehler} Fehler (Konsole)` : ''}`, fehler ? 'warning' : 'success');
     this.loadSchueler(); // Refresh
     this._updateNichtErfasst();
   },
@@ -21117,8 +21253,8 @@ const NacherfassungHandler = {
     if (!body) return;
 
     const gf = App.gf('schueler');
-    const nichtErfasst = App.query(`SELECT s.nachname, s.vorname, s.id, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung,
-      bs.name as schule, k.klassenbezeichnung, s.zustaendiges_amt
+    const nichtErfasst = App.query(`SELECT s.*, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung,
+      bs.name as schule, k.klassenbezeichnung
       FROM schueler s
       LEFT JOIN klassen k ON s.klasse_id=k.id
       LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
@@ -21135,19 +21271,20 @@ const NacherfassungHandler = {
       return;
     }
 
-    // Group by school
+    // Nach TATSÄCHLICHEM Schulstandort gruppieren (Landesfachklassen)
     const bySchool = {};
     nichtErfasst.forEach(s => {
-      const key = s.schule || 'Ohne Schule';
+      let key = s.schule || 'Ohne Schule';
+      try { const ak = App.getAktuelleSchule(s); if (ak && ak.schule) key = ak.schule + (ak.isLandesfachklasse ? ' (LFK)' : ''); } catch(e) {}
       if (!bySchool[key]) bySchool[key] = [];
       bySchool[key].push(s);
     });
 
-    body.innerHTML = Object.entries(bySchool).map(([school, students]) => `
+    body.innerHTML = Object.entries(bySchool).sort((a, b) => a[0].localeCompare(b[0])).map(([school, students]) => `
       <div style="margin:8px 0">
         <div style="font-weight:600;font-size:12px;color:var(--clr-forest);padding:4px 0">${esc(school)} (${students.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${students.map(s => `<span style="font-size:11px;padding:2px 6px;background:var(--clr-amber-light);border-radius:4px" title="${esc(s.fachrichtung||'')} · ${esc(s.jahrgang||'')} · ${App.amtLabel(s.zustaendiges_amt)}">${esc(s.nachname)}, ${esc(s.vorname)}</span>`).join('')}
+          ${students.map(s => `<span style="font-size:11px;padding:2px 6px;background:var(--clr-amber-light);border-radius:4px" title="${esc(s.fachrichtung||'')} · ${esc(s.jahrgang||'')} · ${App.amtLabel(s.zustaendiges_amt)}">${esc(s.nachname)}, ${esc(s.vorname)}${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? ' <small>§' + esc(s.zustaendiges_amt) + '</small>' : ''}</span>`).join('')}
         </div>
       </div>
     `).join('');
@@ -21768,12 +21905,12 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           [terminId, s.id,
            prev.geprueft_kws || '{}',
-           prev.fehltage_gesamt || 0,
+           prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
            (prev.durchsicht_nr || 0) + 1,
            prev.p_1_1_ausbildungsplan || '',
            prev.p_1_4_auszubildende || '',
@@ -22271,12 +22408,12 @@ const KontrolleHandler = {
         FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
         WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [schuelerId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, schuelerId,
          prev.geprueft_kws || '{}',
-         prev.fehltage_gesamt || 0,
+         prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
          (prev.durchsicht_nr || 0) + 1,
          prev.p_1_1_ausbildungsplan || '',
          prev.p_1_4_auszubildende || '',
@@ -22373,12 +22510,12 @@ const KontrolleHandler = {
         WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
         ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, this.currentTerminId]);
       const prev = prevKE.length ? prevKE[0] : {};
-      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+      App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
         p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [this.currentTerminId, s.id,
          prev.geprueft_kws || '{}',
-         prev.fehltage_gesamt || 0,
+         prev.fehltage_gesamt || 0, prev.fehltage_pauschal || 0,
          (prev.durchsicht_nr || 0) + 1,
          prev.p_1_1_ausbildungsplan || '',
          prev.p_1_4_auszubildende || '',
@@ -22837,7 +22974,12 @@ const KontrolleHandler = {
           <span style="font-size:11px;color:var(--clr-text-light)">│</span>
           <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
           <input type="hidden" id="fehlGesamtInput" value="${ke.fehltage_gesamt}">
-          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">automatisch aus KW-Einträgen berechnet</span>
+          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
+          <label style="font-size:11px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
+            <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:11px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
+            <span id="fehlPauschalAnzeige" style="display:none">${ke.fehltage_pauschal || 0}</span>
+          </label>
+          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -23678,10 +23820,10 @@ const KontrolleHandler = {
         const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
           WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
         const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,durchsicht_nr,
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
           p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, (prev.durchsicht_nr||0)+1,
+          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, prev.fehltage_pauschal||0, (prev.durchsicht_nr||0)+1,
            prev.p_1_1_ausbildungsplan||'', prev.p_1_4_auszubildende||'', prev.p_1_5_bescheinigungen||'',
            prev.bescheinigungen_anzahl||0, prev.f_1_2_vertragliche_regelungen||'', prev.f_1_6_ausbildungsbetrieb||'']);
         ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
@@ -24112,6 +24254,13 @@ const KontrolleHandler = {
   },
 
   // Calculate total Fehltage across all AJs and auto-update the DB + UI
+  // Pauschale Fehltage (nicht KW-genau) am Kontrollergebnis setzen
+  setFehltagePauschal(schuelerId, keId, wert) {
+    const v = Math.max(0, Math.min(999, parseInt(wert) || 0));
+    App.run(`UPDATE kontrollergebnisse SET fehltage_pauschal=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [v, this.activePruefer || '', keId]);
+    this.autoUpdateFehltage(schuelerId, keId);
+  },
+
   autoUpdateFehltage(schuelerId, keId) {
     let total = 0;
     const ajs = App.getSchuelerAJs(schuelerId);
@@ -24123,9 +24272,15 @@ const KontrolleHandler = {
       const displayEl = document.getElementById(`fehlSumAj${aj}_display`);
       if (displayEl) displayEl.textContent = sum;
     }
+    // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. vom Papierbogen)
+    // kommen obendrauf – sie stehen bewusst in KEINER Kalenderwoche
+    const pauschal = App.scalar('SELECT COALESCE(fehltage_pauschal,0) FROM kontrollergebnisse WHERE id=?', [keId]) || 0;
+    total += pauschal;
     App.run(`UPDATE kontrollergebnisse SET fehltage_gesamt=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [total, this.activePruefer || '', keId]);
     const totalEl = document.getElementById('fehlGesamt');
     if (totalEl) totalEl.textContent = total;
+    const pEl = document.getElementById('fehlPauschalAnzeige');
+    if (pEl) pEl.textContent = pauschal;
   },
 };
 
@@ -26696,7 +26851,7 @@ const BerichteHandler = {
         (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis,
         (SELECT MAX(kt.geplant_datum) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as letzte_kontrolle,
         (SELECT COUNT(*) FROM kontrollergebnisse ke WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as anzahl_kontrollen,
-        (SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=s.id) as fehltage_gesamt,
+        COALESCE((SELECT ke.fehltage_gesamt FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1), (SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=s.id)) as fehltage_gesamt,
         (SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=s.id AND status IN ('offen','ueberfaellig')) as offene_wv
         FROM schueler s
         LEFT JOIN betriebe b ON s.betrieb_id=b.id

@@ -292,3 +292,18 @@ Klasse (nach dem gf-Umbau ohne Schadwirkung, nur Anzeige). Ein expliziter
 Azubi-AUSSCHLUSS aus einem Klassen-Termin existiert weiterhin nicht – der
 empfohlene Weg ist der Kampagnen-Assistent/Standort-Klick mit exakter
 Einzel-Zuordnung statt Klassen-Verknüpfung.
+
+---
+
+# Audit 4: Nacherfassung – Logik & Datenfluss (August 2026)
+
+> **Status: abgearbeitet.** Neue Suite `nacherfassung-test.mjs` (33 Prüfungen), End-to-End im Browser verifiziert.
+
+| Befund | Reparatur |
+|---|---|
+| Nur die EINE eingetragene KW wurde als geprüft markiert – alle Wochen davor (und frühere Ausbildungsjahre) blieben im KW-Raster offen. | „Geprüft bis KW" läuft jetzt über `KWNav.persistCodes`/`trackSessionKW` – exakt die Kaskade der Live-Kontrolle (inkl. `geprueft_kws`-Session-Tracking). |
+| Fehltage wurden mit `Math.min(7, …)` gekappt, in EINE Kalenderwoche geschrieben und beim nächsten KW-Eintrag von `autoUpdateFehltage` überschrieben. | Neue Spalte `kontrollergebnisse.fehltage_pauschal` (3 Schema-Stellen); `fehltage_gesamt = KW-Summe + pauschal`; Eingabe = Gesamtstand laut Berichtsheft (kein Maximum), Pauschalanteil wird so gesetzt, dass Gesamt = Eingabe; wird in Folge-Kontrollen mitübernommen und ist im Raster korrigierbar; Statistik nutzt den Wert des letzten Kontrollergebnisses. |
+| KW wurde immer dem HEUTIGEN Ausbildungsjahr zugeordnet – „bis KW 30" bei einer Durchsicht im September landete im falschen Raster; Codes ohne KW landeten auf KW 1/36. | `App.ajKwFuerStichtag()`: Ausbildungsjahr zum Stichtag der Durchsicht; KW-Nummern hinter der Durchsichtswoche → Vorjahr. Codes ohne KW → Woche vor dem Durchsichtsdatum. |
+| Kontrollergebnis ohne Durchsichtsnummer/Pflichtteil-Übernahme/Snapshot; UTC-Zeitstempel; jedes Speichern erzeugte einen neuen Termin; Ergebnisse doppelten sich. | Übernahme aus der letzten Durchsicht wie in der Live-Kontrolle, Archiv-Snapshot, `localtime`; EIN Nacherfassungs-Termin je Schule + Datum (wird ergänzt); erneutes Speichern aktualisiert. |
+| Globale Filter (Amt '93') blendeten Azubis fremder Ämter und deren Schulen aus. | Nacherfassung nutzt ausschließlich ihre eigenen Filter; §-Kennzeichen an fremden Azubis; „Noch nicht kontrolliert" gruppiert nach tatsächlichem Standort (LFK). |
+| UI ohne Erklärung: KW-Feld mit ALTEM Stand vorbelegt, Fehltage-Feld mehrdeutig. | KW-Vorschlag = Woche vor dem Durchsichtsdatum (folgt Datumsänderungen), Spalte „Bisher" (letzte Kontrolle, geprüft bis, Fehltage), Erläuterungsbox, Schnellaktionen „Alle offenen → In Ordnung" / „KW-Vorschlag für alle", Hilfe aktualisiert. |
