@@ -1632,7 +1632,9 @@ const Views = {
   // ════════════════════════════════════════════
   nacherfassung() {
     const mc = document.getElementById('mainContent');
-    const schulen = App.query("SELECT DISTINCT bs.* FROM berufsschulen bs WHERE 1=1" + App.gf('schulen') + " ORDER BY bs.name");
+    // Ungefiltert: Nacherfassung hat eigene Filter; der globale Amt-Filter
+    // würde sonst Schulen mit Azubis fremder Ämter ausblenden
+    const schulen = App.query("SELECT bs.* FROM berufsschulen bs ORDER BY bs.name");
     const jahrgaenge = App.query("SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, CASE typ WHEN 'Sommer' THEN 1 WHEN 'Winter' THEN 2 WHEN 'Frühjahr' THEN 3 WHEN 'Herbst' THEN 4 ELSE 5 END");
     const aemter = App.query("SELECT DISTINCT zustaendiges_amt FROM schueler WHERE aktiv=1 AND zustaendiges_amt != '' ORDER BY zustaendiges_amt");
 
@@ -1643,12 +1645,17 @@ const Views = {
       </div>
       ${App.filterBadgeHtml()}
 
+      <div style="padding:10px 14px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:12px">
+        <strong>Nacherfassung</strong> übernimmt vergangene Durchsichten (z.B. vom Papierbogen) mit denselben Datenregeln wie die Live-Kontrolle:
+        Datum der Durchsicht und Schule wählen → je Azubi <strong>geprüft bis KW</strong>, <strong>Fehltage gesamt</strong>, <strong>Ergebnis</strong> (und ggf. Codes/Wiedervorlage) eintragen → „Alle speichern".
+        Das Ergebnis erscheint danach im KW-Raster, in der Ampel, in den Statistiken und im Archiv – als eigener Nacherfassungs-Termin je Schule und Datum.
+      </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">1. Termin & Filter wählen</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Datum der Durchsicht</label>
-            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px">
+            <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px" onchange="NacherfassungHandler._datumGeaendert()">
           </div>
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Prüfer</label>
@@ -2133,11 +2140,13 @@ const Views = {
               <p style="margin-top:6px"><strong>Schritt 1:</strong> Sidebar → <em>Nacherfassung</em> öffnen</p>
               <p><strong>Schritt 2:</strong> Datum der letzten Durchsicht eintragen, Ausbildungsberater wählen, Berufsschule auswählen</p>
               <p><strong>Schritt 3:</strong> In der Tabelle je Auszubildendem eintragen:</p>
-              <p style="margin-left:16px">• <strong>Ergebnis:</strong> "In Ordnung" oder entsprechendes Mängel-Ergebnis</p>
+              <p style="margin-left:16px">• <strong>Geprüft bis KW:</strong> Bis einschließlich dieser Kalenderwoche gilt das Berichtsheft als kontrolliert – alle Wochen davor (auch in früheren Ausbildungsjahren) werden im KW-Raster als geprüft markiert. Vorschlag: die Woche vor dem Durchsichtsdatum. Eine KW-Nummer, die in der Schuljahresreihenfolge hinter der Durchsichtswoche liegt, wird dem Vorjahr zugeordnet (z.B. „bis KW 30" bei einer Durchsicht im September).</p>
+              <p style="margin-left:16px">• <strong>Fehltage gesamt:</strong> Stand laut Berichtsheft, pauschal ohne Wochenzuordnung (kein Maximum). Das Tool merkt sich diesen Pauschalanteil am Kontrollergebnis; wochengenau erfasste Fehltage kommen später obendrauf. Leer lassen = unverändert. In der Live-Kontrolle ist der Pauschalwert im Feld „pauschal" korrigierbar.</p>
+              <p style="margin-left:16px">• <strong>Ergebnis:</strong> "In Ordnung" oder entsprechendes Mängel-Ergebnis („Alle offenen → In Ordnung" füllt leere Zeilen)</p>
               <p style="margin-left:16px">• <strong>WV-Frist:</strong> Erscheint automatisch bei Mängeln (+4 Wochen, anpassbar)</p>
-              <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte</p>
+              <p style="margin-left:16px">• <strong>Codes:</strong> Optional, z.B. A,F für fehlende Unterschriften + fehlende Berichte – sie werden der zuletzt geprüften KW zugeordnet</p>
               <p style="margin-left:16px">• <strong>Bemerkung:</strong> Optional, Freitext</p>
-              <p><strong>Schritt 4:</strong> "Alle speichern" → Kontrolltermin + Ergebnisse + WV werden angelegt</p>
+              <p><strong>Schritt 4:</strong> "Alle speichern" → ein Nacherfassungs-Termin je Schule und Datum (mehrfaches Speichern ergänzt ihn), Kontrollergebnisse mit Durchsichtsnummer und Archiv-Snapshot, KW-Markierungen, Wiedervorlagen. Auch Azubis fremder Ämter sind wählbar (§-Kennzeichen).</p>
               <p style="margin-top:6px"><strong>Tipp:</strong> Die aufklappbare Liste <em>„Noch nicht kontrollierte Auszubildende"</em> zeigt, welche Auszubildenden noch keine Durchsicht im Datenbestand haben – gruppiert nach Berufsschule.</p>
             </div>
 

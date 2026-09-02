@@ -1199,6 +1199,7 @@ const App = {
       f_1_2_vertragliche_regelungen TEXT DEFAULT '' CHECK (f_1_2_vertragliche_regelungen IN ('','ja','nein','nicht_vorhanden')),
       f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','nicht_vorhanden')),
       fehltage_gesamt INTEGER DEFAULT 0,
+      fehltage_pauschal INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
       zulassung_manuell INTEGER DEFAULT 0,
@@ -4243,6 +4244,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -4597,7 +4599,7 @@ const App = {
 
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
-        'fehltage_gesamt','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
+        'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
@@ -5224,6 +5226,42 @@ const App = {
     return Math.min(Math.floor(months / 12) + 1, maxAj);
   },
 
+  // Ausbildungsjahr, in dem sich der Azubi an einem STICHTAG befindet (nicht
+  // heute): Monate seit Ausbildungsbeginn / 12, gedeckelt auf die Zahl der
+  // tatsächlichen Ausbildungsjahre (Verkürzer/Verlängerer).
+  getAJAtDate(beginn, datum, schuelerId) {
+    const d = this._parseDate(beginn);
+    const ref = datum instanceof Date ? datum : this._parseDate(datum);
+    if (!d || !ref) return null;
+    const months = (ref.getFullYear() - d.getFullYear()) * 12 + (ref.getMonth() - d.getMonth());
+    if (months < 0) return 1;
+    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
+    return Math.min(Math.floor(months / 12) + 1, maxAj);
+  },
+
+  // Zu welchem Ausbildungsjahr gehört eine Kalenderwoche, die bei einer
+  // Durchsicht am Stichtag "bis KW x geprüft" gemeldet wird? Liegt die KW in
+  // der Schuljahres-Reihenfolge (36…52, 1…35) NICHT hinter der KW des
+  // Stichtags, ist es das Ausbildungsjahr des Stichtags – sonst das davor
+  // (z.B. Nacherfassung im September für "geprüft bis KW 30").
+  // Rückgabe: { aj, kw } oder null.
+  ajKwFuerStichtag(schuelerId, datum, kw) {
+    kw = parseInt(kw);
+    if (!kw || kw < 1 || kw > 53) return null;
+    if (kw === 53) kw = 52;
+    const s = this.query('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [schuelerId])[0];
+    const ref = datum instanceof Date ? datum : this._parseDate(datum);
+    if (!s || !ref) return null;
+    const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
+    const order = [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35];
+    let aj = this.getAJAtDate(s.ausbildungsbeginn, ref, schuelerId) || ajs[0];
+    const kwStichtag = this._isoKW(ref);
+    if (order.indexOf(kw) > order.indexOf(kwStichtag)) aj = aj - 1;
+    if (aj < ajs[0]) aj = ajs[0];
+    if (aj > ajs[ajs.length - 1]) aj = ajs[ajs.length - 1];
+    return { aj, kw };
+  },
+
   // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
   // Nutzt getAJKWBounds: aktive KWs × 5 Werktage − Feiertage (BW)
   calcArbeitstage(beginn, ende, schuelerId) {
@@ -5822,6 +5860,11 @@ const App = {
       // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
       if (!keCols.includes('zulassung_manuell')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+      }
+      // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. aus dem Papierbogen):
+      // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert
+      if (!keCols.includes('fehltage_pauschal')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");

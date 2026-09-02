@@ -99,7 +99,7 @@ const BerichteHandler = {
         (SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1) as letztes_ergebnis,
         (SELECT MAX(kt.geplant_datum) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as letzte_kontrolle,
         (SELECT COUNT(*) FROM kontrollergebnisse ke WHERE ke.schueler_id=s.id AND ke.ergebnis != '') as anzahl_kontrollen,
-        (SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=s.id) as fehltage_gesamt,
+        COALESCE((SELECT ke.fehltage_gesamt FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=s.id AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1), (SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=s.id)) as fehltage_gesamt,
         (SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=s.id AND status IN ('offen','ueberfaellig')) as offene_wv
         FROM schueler s
         LEFT JOIN betriebe b ON s.betrieb_id=b.id
