@@ -129,6 +129,8 @@ const KWNav = {
   },
 
   _bulkOk(cells) {
+    const undoData = cells.map(c => ({ keId: +c.dataset.ke, aj: +c.dataset.aj, kw: +c.dataset.kw, sid: +c.dataset.sid,
+      oldCodes: c.dataset.codes || '', oldFehl: +c.dataset.fehltage || 0 }));
     cells.forEach(c => {
       // keepGeprueft=true: geprueft=1 setzen statt Zeile löschen
       this.persistCodes(+c.dataset.ke, +c.dataset.aj, +c.dataset.kw, '', 0, +c.dataset.sid, true);
@@ -136,7 +138,29 @@ const KWNav = {
       c.classList.add('kw-ok', 'kw-session');
       c.classList.remove('kw-issue');
     });
+    UndoManager.push(`${cells.length} KWs ✓ OK`,
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, d.oldCodes, d.oldFehl, d.sid)); KontrolleHandler.renderSchueler(); },
+      () => { undoData.forEach(d => this.persistCodes(d.keId, d.aj, d.kw, '', 0, d.sid, true)); KontrolleHandler.renderSchueler(); }
+    );
     this.showFeedback(cells[0], `${cells.length}× ✓ OK`);
+  },
+
+  // Einzelzelle mit Undo-Eintrag schreiben (für O / 1-5 / 0 / Fehltage-Popover)
+  _setCellMitUndo(cell, codesStr, fehltage, label, keepGeprueft) {
+    const keId = parseInt(cell.dataset.ke);
+    const aj = parseInt(cell.dataset.aj);
+    const kw = parseInt(cell.dataset.kw);
+    const sid = parseInt(cell.dataset.sid);
+    const oldCodes = cell.dataset.codes || '';
+    const oldFehl = parseInt(cell.dataset.fehltage) || 0;
+    if (oldCodes !== codesStr || oldFehl !== fehltage || keepGeprueft) {
+      UndoManager.push(`KW ${kw} ${label}`,
+        () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehl, sid); KontrolleHandler.renderSchueler(); },
+        () => { this.persistCodes(keId, aj, kw, codesStr, fehltage, sid, !!keepGeprueft); KontrolleHandler.renderSchueler(); }
+      );
+    }
+    this.persistCodes(keId, aj, kw, codesStr, fehltage, sid, !!keepGeprueft);
+    this.updateCellVisual(cell, codesStr, fehltage);
   },
 
   // Get all navigable cells in order
@@ -252,8 +276,7 @@ const KWNav = {
         currentCodes = currentCodes.filter(c => c !== 'H');
       }
       const codesStr = currentCodes.join(',');
-      this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
-      this.updateCellVisual(cell, codesStr, val);
+      this._setCellMitUndo(cell, codesStr, val, val > 0 ? `H:${val}` : '−H');
       this.closePopover();
       cell.focus();
       if (val > 0) this.showFeedback(cell, `H:${val}`);
@@ -268,8 +291,9 @@ const KWNav = {
       }
       e.stopPropagation();
     });
+    // Fokusverlust (Klick woanders hin) verwirft die Eingabe — übernommen wird nur mit Enter
     input.addEventListener('blur', () => {
-      setTimeout(() => { if (this.activePopover) confirm(); }, 150);
+      setTimeout(() => { if (this.activePopover && this.activePopover.element === pop) this.closePopover(); }, 150);
     });
   },
 
@@ -474,6 +498,11 @@ const KWNav = {
           if (!cell.dataset.codes) cell.classList.add('kw-ok');
         }
       });
+      // Bei größeren Sprüngen kurz sagen, was passiert ist (nur einmal pro Sitzung/Azubi nötig)
+      if (newlyFilled.length >= 8 && typeof App !== 'undefined' && App.toast) {
+        const ajs = [...new Set(newlyFilled.map(x => x.aj))].sort();
+        App.toast(`${newlyFilled.length} Wochen bis KW ${kw} automatisch als geprüft markiert` + (ajs.length > 1 ? ` (${ajs.length} Ausbildungsjahre)` : ''), 'info');
+      }
     }
   },
 
@@ -685,12 +714,8 @@ const KWNav = {
       const targets = this._getSelectedOrFocused();
       if (targets.length > 1) { this._bulkOk(targets); this.clearSelection(); }
       else {
-        const keId = parseInt(cell.dataset.ke);
-        const aj = parseInt(cell.dataset.aj);
-        const kw = parseInt(cell.dataset.kw);
         // keepGeprueft=true: geprueft-Zeile bleibt erhalten (kein DELETE)
-        this.persistCodes(keId, aj, kw, '', 0, cell.dataset.sid, true);
-        this.updateCellVisual(cell, '', 0);
+        this._setCellMitUndo(cell, '', 0, '✓ OK', true);
         cell.classList.add('kw-ok', 'kw-session');
         cell.classList.remove('kw-issue');
         this.showFeedback(cell, '✓ OK');
@@ -705,14 +730,9 @@ const KWNav = {
       const targets = this._getSelectedOrFocused();
       if (targets.length > 1) { this._bulkSetFehltage(targets, val); this.clearSelection(); }
       else {
-        const keId = parseInt(cell.dataset.ke);
-        const aj = parseInt(cell.dataset.aj);
-        const kw = parseInt(cell.dataset.kw);
         let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
         if (!currentCodes.includes('H')) { currentCodes.push('H'); currentCodes.sort(); }
-        const codesStr = currentCodes.join(',');
-        this.persistCodes(keId, aj, kw, codesStr, val, cell.dataset.sid);
-        this.updateCellVisual(cell, codesStr, val);
+        this._setCellMitUndo(cell, currentCodes.join(','), val, `H:${val}`);
         this.showFeedback(cell, `H:${val}`);
       }
       return;
@@ -724,13 +744,8 @@ const KWNav = {
       const targets = this._getSelectedOrFocused();
       if (targets.length > 1) { this._bulkSetFehltage(targets, 0); this.clearSelection(); }
       else {
-        const keId = parseInt(cell.dataset.ke);
-        const aj = parseInt(cell.dataset.aj);
-        const kw = parseInt(cell.dataset.kw);
-        let currentCodes = (cell.dataset.codes || '').split(',').filter(c => c && c !== 'H');
-        const codesStr = currentCodes.join(',');
-        this.persistCodes(keId, aj, kw, codesStr, 0, cell.dataset.sid);
-        this.updateCellVisual(cell, codesStr, 0);
+        const currentCodes = (cell.dataset.codes || '').split(',').filter(c => c && c !== 'H');
+        this._setCellMitUndo(cell, currentCodes.join(','), 0, '−H');
         this.showFeedback(cell, '−H');
       }
       return;

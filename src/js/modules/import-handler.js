@@ -700,13 +700,15 @@ const ImportHandler = {
           // Datums-Felder NICHT überschreiben, Rest schon
           const safeChanges = changes.filter(([f]) => f !== 'ausbildungsbeginn' && f !== 'ausbildungsende');
           if (safeChanges.length) {
-            safeChanges.forEach(([field, newVal]) => {
+            safeChanges.forEach(([field, newVal, oldVal]) => {
               App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
+              ImportHandler._logUeberschrieben(existingId, field, oldVal, newVal);
             });
           }
         } else if (changes.length) {
-          changes.forEach(([field, newVal]) => {
+          changes.forEach(([field, newVal, oldVal]) => {
             App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, existingId]);
+            ImportHandler._logUeberschrieben(existingId, field, oldVal, newVal);
           });
         }
         if (changes.length) {
@@ -738,13 +740,19 @@ const ImportHandler = {
       // Zeilen ohne Jahrgang landen unter dem String-Key "null" — der darf NICHT
       // gewinnen, sonst werden ALLE Jahrgänge deaktiviert und keiner wieder aktiviert
       const mostUsedJgId = Object.entries(jgCounter).filter(([k]) => k !== 'null' && k !== 'undefined').sort((a,b) => b[1]-a[1])[0]?.[0];
-      if (mostUsedJgId) {
-        // Set as active (MUST use App.run for dirty-tracking + auto-save!)
-        App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
-        App.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
-        // Jahrgänge updated → auto-selects aktiv
+      const aktivJg = App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE aktiv=1')[0];
+      if (mostUsedJgId && (!aktivJg || aktivJg.id !== parseInt(mostUsedJgId))) {
+        // Nicht mehr stillschweigend umschalten: Der aktive Jahrgang steuert
+        // die Filter ALLER Nutzer – ein Nachimport eines älteren Jahrgangs
+        // ließ die Kollegen sonst plötzlich in der falschen Kohorte arbeiten.
         const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [parseInt(mostUsedJgId)]);
-        stats.switchedTo = jgName;
+        const nImp = jgCounter[mostUsedJgId];
+        if (confirm(`${nImp} der importierten Azubis gehören zum Jahrgang „${jgName}".\n\nDiesen Jahrgang jetzt als aktiven Jahrgang setzen (gilt für alle Nutzer)?` + (aktivJg ? `\nAktuell aktiv: „${aktivJg.bezeichnung}"` : ''))) {
+          // Set as active (MUST use App.run for dirty-tracking + auto-save!)
+          App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
+          App.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
+          stats.switchedTo = jgName;
+        }
       }
     } else {
       // (jahrgang refresh no longer needed)
@@ -1149,9 +1157,24 @@ const ImportHandler = {
     App.toast('Schüler reaktiviert', 'success');
   },
   deleteSchueler(id) {
-    if (!confirm('Schüler wirklich löschen?')) return;
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
+    if (!s) return;
+    const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=?', [id]) || 0;
+    const nWv = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status!='erledigt'", [id]) || 0;
+    const nKw = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes!=''", [id]) || 0;
+    let text = `${s.nachname}, ${s.vorname} wirklich löschen?`;
+    text += `\n\nMit gelöscht werden: ${nKe} Kontrollergebnis(se), ${nKw} Wochen mit Mängeln, ${nWv} offene Wiedervorlage(n), Phasen, Bemerkungen und Dateien.`;
+    text += `\n\nDer Datensatz landet 90 Tage im Papierkorb (Einstellungen) und kann von dort wiederhergestellt werden.`;
+    if (s.aktiv) text += `\n\nHinweis: Für beendete Ausbildungen ist „Ausbildung beenden" (Status inaktiv) meist die bessere Wahl – der Verlauf bleibt dann auswertbar.`;
+    if (!confirm(text)) return;
     App.deleteSchuelerKaskade(id);
-    try { SchuelerView.render(); } catch(e) {}
+    App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Einstellungen → Papierkorb`, 'success');
+    try { App.navigate('stammdaten'); } catch(e) {}
+  },
+  // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – bisher
+  // verschwand der alte Wert spurlos (z.B. eine manuell korrigierte E-Mail).
+  _logUeberschrieben(schuelerId, field, oldVal, newVal) {
+    try { App.logChange(schuelerId, field, oldVal, newVal, 'import_ueberschrieben'); } catch(e) {}
   },
   // ═══════════════════════════════════════════
   //  LANDESFACHKLASSE-IMPORT

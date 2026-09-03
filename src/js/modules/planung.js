@@ -958,10 +958,27 @@ const PlanungHandler = {
     setTimeout(() => { PlanungHandler._updateKwHighlight(); PlanungHandler.updateBpHint(); }, 50);
   },
   deleteTermin(id) {
-    if (!confirm('Termin löschen?')) return;
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [id])[0];
+    if (!t) return;
+    const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]) || 0;
+    const nErg = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND ergebnis IS NOT NULL AND ergebnis!=''", [id]) || 0;
+    const nWv = App.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)', [id]) || 0;
+    const nSnap = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)', [id]) || 0;
+    const bs = App.getTerminSchule(id);
+    const label = `${formatDate(t.geplant_datum)}${bs ? ' · ' + bs.name : ''}${t.bemerkung ? ' · ' + t.bemerkung : ''}`;
+    let text = `Termin „${label}" wirklich löschen?`;
+    if (nErg || nWv || nSnap) {
+      text += `\n\nDabei gehen unwiderruflich verloren:\n• ${nErg} erfasste Kontrollergebnis(se)` +
+        (nWv ? `\n• ${nWv} Wiedervorlage(n)` : '') + (nSnap ? `\n• ${nSnap} Durchsichtsbogen-Snapshot(s)` : '') +
+        `\n\nTipp: Ein durchgeführter Termin kann stattdessen im Zustand „abgeschlossen" bleiben.`;
+    } else if (nKe) {
+      text += `\n\n${nKe} Azubi-Zeile(n) ohne erfasstes Ergebnis werden mit entfernt.`;
+    }
+    if (!confirm(text)) return;
     App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
+    App.toast(`Termin gelöscht${nErg ? ` (inkl. ${nErg} Ergebnis(se))` : ''}`, 'success');
   },
   exportICS() {
     const termine = App.query(`SELECT kt.*
@@ -970,15 +987,17 @@ const PlanungHandler = {
     if (!termine.length) return App.toast('Keine Termine zum Exportieren', 'warning');
     App.exportICS(termine.map(t => {
       const klassen = App.getTerminKlassen(t.id);
-      const schule = klassen.length ? klassen[0].schule : '?';
+      const bs = App.getTerminSchule(t.id);
+      const schule = bs ? bs.name : (klassen.length ? klassen[0].schule : 'Einsendung');
       const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+      const n = App.getTerminSchueler(t.id).length;
       return {
         date: t.geplant_datum,
-        title: `BH-Kontrolle: ${schule} – ${klassenStr}`,
-        description: `Prüfer: ${t.pruefer}`
+        title: `BH-Kontrolle: ${schule}${klassenStr ? ' – ' + klassenStr : ''}${t.bemerkung && !klassenStr ? ' – ' + t.bemerkung : ''}`,
+        description: `Prüfer: ${t.pruefer || '–'}\n${n} Azubi(s)${bs && bs.ort ? '\nOrt: ' + bs.ort : ''}${t.bemerkung ? '\n' + t.bemerkung : ''}`
       };
-    }));
-    App.toast('ICS-Datei exportiert', 'success');
+    }), App.safeFilename(['BH-Kontrolltermine', todayStr()], 'ics'));
+    App.toast(`${termine.length} Termin(e) als ICS exportiert – in Outlook per Datei → Öffnen importieren`, 'success');
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
@@ -1080,10 +1099,56 @@ const PlanungHandler = {
         </tr>`;
       }).join('')}
     </tbody></table>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-secondary" onclick="PlanungHandler._kampVorschlaege()">📅 Datumsvorschläge für alle</button>
+      <span style="font-size:11px;color:var(--clr-text-light)">${esc(this._kampFenster(key).label)} – je Schule die erste Blockplan-Woche im Zeitfenster (Dienstag); ohne Blockplan der erste Dienstag</span>
+    </div>
     <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">
       „§ n" = Azubis fremder Zuständigkeitsbereiche – sie werden mitkontrolliert;
       die Weitergabe der Ergebnisse läuft danach über „§ Ämter" am Termin.
     </div>`;
+  },
+  // Zeitfenster der Kampagne (von/bis als Date) – Grundlage für die Datumsvorschläge
+  _kampFenster(key) {
+    const heute = new Date(); const j = heute.getFullYear(); const m = heute.getMonth();
+    const D = (y, mo, d) => new Date(y, mo, d, 12);
+    const v = this._kontrollVorlagen().find(x => x.key === key);
+    let von, bis;
+    if (key === 'kontrolle23') { const y = m >= 6 ? j : j - 1; von = D(y, 10, 20); bis = D(y, 11, 18); }
+    else if (key === 'zpF') { const y = m <= 2 ? j : j + 1; von = D(y, 0, 20); bis = D(y, 2, 10); }
+    else if (key === 'zpH') { const y = m <= 10 ? j : j + 1; von = D(y, 8, 1); bis = D(y, 10, 20); }
+    else if (key === 'apS') { const y = m <= 6 ? j : j + 1; von = D(y, 2, 1); bis = D(y, 3, 30); }
+    else if (key === 'apW') { const y = m <= 10 ? j : j + 1; von = D(y, 9, 1); bis = D(y, 10, 15); }
+    else { von = D(j, m, 1); bis = new Date(j, m + 3, 0, 12); }
+    if (bis < heute) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
+    const fmt = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return { von, bis, label: (v ? v.termin + ': ' : '') + fmt(von) + ' – ' + fmt(bis) };
+  },
+  _kampVorschlaege() {
+    const key = document.getElementById('kampVorlage')?.value;
+    const { von, bis } = this._kampFenster(key);
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    let gesetzt = 0, ohneBp = 0;
+    document.querySelectorAll('.kamp-datum').forEach(inp => {
+      if (inp.value) return; // vorhandene Eingaben nicht überschreiben
+      const g = this._kampGruppen[parseInt(inp.dataset.idx)];
+      if (!g) return;
+      const bsId = App.scalar('SELECT id FROM berufsschulen WHERE name=?', [g.schule]);
+      const bpKws = bsId ? new Set(App.query('SELECT DISTINCT kalenderwoche FROM blockplan WHERE berufsschule_id=?', [bsId]).map(r => r.kalenderwoche)) : new Set();
+      let treffer = null, ersterDienstag = null;
+      for (let d = new Date(von); d <= bis; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 2) continue; // Dienstag
+        if (!ersterDienstag) ersterDienstag = new Date(d);
+        if (bpKws.has(App._isoKW(d))) { treffer = new Date(d); break; }
+      }
+      const wahl = treffer || ersterDienstag;
+      if (!wahl) return;
+      if (!treffer) ohneBp++;
+      inp.value = iso(wahl);
+      this._kampKw(inp);
+      gesetzt++;
+    });
+    App.toast(gesetzt ? `${gesetzt} Datum(s) vorgeschlagen${ohneBp ? ` – ${ohneBp} ohne Blockplan-Treffer, bitte prüfen` : ''}` : 'Alle Zeilen haben bereits ein Datum', gesetzt ? 'success' : 'info');
   },
   _kampKw(inp) {
     const i = parseInt(inp.dataset.idx);
@@ -1140,7 +1205,9 @@ const PlanungHandler = {
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:10px;line-height:1.6">
         Diese Azubis wurden bei uns mitkontrolliert, gehören aber in die Zuständigkeit anderer
         Ausbildungsberater. Je Amt lassen sich die <strong>Durchsichtsbögen (PDF)</strong> und eine
-        <strong>Übergabeliste (Excel)</strong> erzeugen – zum Versand an den zuständigen Berater.
+        <strong>Übergabeliste (Excel)</strong> erzeugen; „✉︎ Übergabeschreiben" öffnet die fertige
+        E-Mail (Textbaustein „Übergabe an anderes Amt", E-Mail-Adresse des Amts wird gemerkt) –
+        PDF/Excel dann als Anhang hinzufügen.
       </div>
       ${Object.keys(nachAmt).sort().map(amt => {
         const liste = nachAmt[amt];
@@ -1151,6 +1218,7 @@ const PlanungHandler = {
             <span style="margin-left:auto;display:flex;gap:6px">
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportAmtPDF(${terminId},'${esc(amt)}')">Bögen (PDF)</button>
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportAmtExcel(${terminId},'${esc(amt)}')">Liste (Excel)</button>
+              <button class="btn btn-sm btn-primary" onclick="Workflows.emailAmtUebergabe(${terminId},'${esc(amt)}')">✉︎ Übergabeschreiben</button>
             </span>
           </div>
           <div style="font-size:11px;margin-top:4px;color:var(--clr-text)">${liste.map(s => esc(s.nachname + ', ' + s.vorname)).join(' · ')}</div>
@@ -1201,6 +1269,6 @@ const PlanungHandler = {
     ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:22},{wch:14},{wch:12},{wch:20},{wch:16},{wch:8},{wch:30},{wch:18}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Übergabe Amt ' + amt);
-    XLSX.writeFile(wb, `Uebergabe_Amt_${amt}_${(termin.geplant_datum || '').substring(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, App.safeFilename(['Uebergabe', 'Amt ' + amt, termin.schule, (termin.durchgefuehrt_datum || termin.geplant_datum || '').substring(0, 10)], 'xlsx'));
   }
 };

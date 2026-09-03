@@ -1078,6 +1078,13 @@ const Views = {
       </div>
       <div id="kontrolleContent"></div>
     </div>`;
+    // Zuletzt geöffneten Termin wieder aufrufen – ein Wechsel in eine andere
+    // Ansicht (Wiedervorlagen, Stammdaten) warf die laufende Kontrolle sonst weg
+    const letzter = KontrolleHandler.currentTerminId;
+    if (letzter && termine.some(t => t.id === letzter)) {
+      document.getElementById('selKontrolltermin').value = letzter;
+      KontrolleHandler.loadTermin(letzter);
+    }
   },
 
   // ════════════════════════════════════════════
@@ -1147,6 +1154,7 @@ const Views = {
               ${w.status !== 'erledigt' ? '<button class="btn btn-sm" style="background:var(--clr-warm);color:var(--clr-forest);border:1.5px solid var(--clr-sage);font-weight:600;font-size:11px" onclick="WiedervorlagenHandler.erledigen(' + w.id + ')" title="Durchsicht öffnen und als in Ordnung markieren">→ Durchsicht</button>' : ''}
               ${w.kontrolltermin_id ? '<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(' + w.kontrolltermin_id + ',' + w.schueler_id + ')" title="Durchsichtsbogen PDF">▤</button>' : ''}
               ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${w.id})" title="E-Mail an Betrieb">✉︎</button>` : ''}
+              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.erledigenDirekt(${w.id})" title="Ohne Durchsicht als erledigt markieren (z.B. Nachweis per E-Mail eingegangen)">✓ Erledigt</button>` : ''}
               <button class="btn-icon btn-sm" onclick="WiedervorlagenHandler.details(${w.id})" title="Details + History">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
               </button>
@@ -1199,6 +1207,7 @@ const Views = {
             <td>
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
               <button class="btn btn-sm btn-primary" onclick="PlanungHandler.exportTerminPDF(${t.id})">▤ Alle Bögen (PDF)</button>
+              <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.exportTerminExcel(${t.id})" title="Ergebnisliste aller Azubis dieses Termins als Excel">▤ Excel</button>
               <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.gesamtpaket(${t.id})" title="PDFs + Seriendruck + E-Mail in einem Schritt">Gesamtpaket</button>
             </td>
           </tr>`;}).join('')}
@@ -1252,6 +1261,7 @@ const Views = {
     const emailFreisprechung = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='email_freisprechung'") || '';
     const rpAdresseP = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_persoenlich'") || '';
     const rpAdressePost = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_post'") || '';
+    const rpEmail = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
     const isDark = document.body.classList.contains('dark-mode');
 
     mc.innerHTML = `<div class="fade-in">
@@ -1327,7 +1337,69 @@ const Views = {
         <div class="form-group"><label>RP-Adresse (Post, für Serienbriefe)</label>
           <textarea class="form-control" id="setRPPost" rows="2" style="font-size:12px">${esc(rpAdressePost)}</textarea>
         </div>
+        <div class="form-group"><label>Funktions-E-Mail Berichtsheftkontrolle (Absender/Kopie bei allen E-Mails)</label>
+          <input class="form-control" id="setRPEmail" value="${esc(rpEmail)}" placeholder="berichtsheft.GB@rpf.bwl.de">
+          <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Wird bei Sammel-E-Mails an Betriebe als Empfänger („An") eingesetzt und in Vorlagen als {rp_email}. Prüfer-E-Mails werden unter Stammdaten → Prüfer gepflegt.</div>
+        </div>
         <button class="btn btn-primary" onclick="Views.saveEinstellungen()">Einstellungen speichern</button>
+      </div>
+
+      <!-- E-Mail-Adressen fremder Ämter -->
+      ${(() => {
+        const aemter = App.query(`SELECT DISTINCT zustaendiges_amt AS amt FROM schueler WHERE zustaendiges_amt IS NOT NULL AND zustaendiges_amt != '' AND zustaendiges_amt != ? ORDER BY 1`, [App.EIGENES_AMT]).map(r => r.amt);
+        const gespeichert = App.aemterEmails();
+        Object.keys(gespeichert).forEach(a => { if (!aemter.includes(a)) aemter.push(a); });
+        if (!aemter.length) return '';
+        return `<div class="card" style="margin-top:16px">
+          <div class="card-header">§ E-Mail-Adressen der zuständigen Ämter</div>
+          <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+            Azubis anderer Zuständigkeitsbereiche werden an unseren Schulen mitkontrolliert. Für das Übergabeschreiben
+            (Termin → „§ Ämter") wird hier die Adresse des jeweiligen Ausbildungsberaters hinterlegt.
+          </p>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center;max-width:640px">
+            ${aemter.map(a => `<label style="font-size:13px;white-space:nowrap">${esc(App.amtLabel(a))}</label>
+              <input class="form-control amt-email" data-amt="${esc(a)}" value="${esc(gespeichert[a] || '')}" placeholder="ausbildungsberatung@rp….bwl.de" style="font-size:12px">`).join('')}
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="Views.saveAemterEmails()">Ämter-Adressen speichern</button>
+        </div>`;
+      })()}
+
+      <!-- Vorlagen für E-Mails & Briefe -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">✉︎ Vorlagen für E-Mails &amp; Briefe</div>
+        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+          Alle automatisch erzeugten Schreiben (Schule, Betriebe, Wiedervorlagen, Nachholung, Übergabe an andere Ämter)
+          basieren auf diesen Vorlagen. Platzhalter in geschweiften Klammern werden beim Öffnen automatisch gefüllt;
+          geänderte Vorlagen gelten für alle Nutzer dieser Datenbank.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <select class="form-control" id="vorlTyp" style="max-width:420px" onchange="Views._vorlageLaden()">
+            ${Object.entries(App.VORLAGEN).map(([k, v]) => `<option value="${k}">${esc(v.titel)}${App.getVorlage(k).angepasst ? ' ✎' : ''}</option>`).join('')}
+          </select>
+          <span id="vorlStatus" style="font-size:11px;color:var(--clr-text-light)"></span>
+        </div>
+        <div class="form-group"><label>Betreff</label><input class="form-control" id="vorlBetreff" style="font-size:12px"></div>
+        <div class="form-group"><label>Text</label><textarea class="form-control" id="vorlBody" rows="14" style="font-size:12px;font-family:inherit;line-height:1.45"></textarea></div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:4px">Platzhalter (Klick fügt an der Cursorposition ein):</div>
+        <div id="vorlPlatzhalter" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="Views.saveVorlage()">Vorlage speichern</button>
+          <button class="btn btn-secondary btn-sm" onclick="Views.resetVorlage()">Standardtext wiederherstellen</button>
+          <button class="btn btn-secondary btn-sm" onclick="Views.vorschauVorlage()">Vorschau mit Beispieldaten</button>
+        </div>
+      </div>
+
+      <!-- Backups & Papierkorb -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">⟲ Backups &amp; Papierkorb</div>
+        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+          <strong>Papierkorb:</strong> Gelöschte Azubis und Kontrolltermine bleiben 90 Tage samt aller Ergebnisse,
+          Wiedervorlagen und Bemerkungen wiederherstellbar. <strong>Backups:</strong> Sicherungen der gesamten
+          Datenbank aus <code>_bhk/backups/</code>; eine Wiederherstellung ersetzt den gemeinsamen Datenstand
+          <em>für alle Nutzer</em> – der aktuelle Stand wird vorher automatisch gesichert.
+        </p>
+        <div id="papierkorbBox">${Views._papierkorbHtml()}</div>
+        <div id="backupBox" style="margin-top:12px"><div style="font-size:12px;color:var(--clr-text-light)">Backups werden geladen…</div></div>
       </div>
 
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
@@ -1354,7 +1426,7 @@ const Views = {
           <input type="file" id="wordTemplateUpload" accept=".docx" style="display:none" onchange="Views.uploadWordTemplate(this.files[0])">
           <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">Vorlage hochladen (.docx)</button>
           ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") ? `<span style="font-size:12px;color:var(--clr-green)">✓ ${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") || '')}</span>
-          <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen()">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
+          <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.')){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
         </div>
         <details>
           <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600">Verfügbare Platzhalter anzeigen</summary>
@@ -1433,7 +1505,127 @@ const Views = {
         </div>`;
       })()}
     </div>`;
-    setTimeout(() => this.renderTextbausteine(), 50);
+    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); }, 50);
+  },
+
+  // ── Vorlagen-Editor ──
+  _vorlageLaden() {
+    const typ = document.getElementById('vorlTyp')?.value;
+    if (!typ) return;
+    const v = App.getVorlage(typ);
+    document.getElementById('vorlBetreff').value = v.betreff;
+    document.getElementById('vorlBody').value = v.body;
+    document.getElementById('vorlStatus').textContent = v.angepasst ? '✎ angepasst (weicht vom Standardtext ab)' : 'Standardtext';
+    const ph = [...new Set([...(v.platzhalter || []), 'rp_email', 'datum_heute'])];
+    document.getElementById('vorlPlatzhalter').innerHTML = ph.map(p =>
+      `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px;font-family:monospace" onclick="Views._vorlagePlatzhalterEinfuegen('${p}')">{${p}}</button>`).join('');
+  },
+  _vorlagePlatzhalterEinfuegen(p) {
+    const ta = document.getElementById('vorlBody');
+    if (!ta) return;
+    const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+    ta.value = ta.value.slice(0, a) + '{' + p + '}' + ta.value.slice(b);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = a + p.length + 2;
+  },
+  saveVorlage() {
+    const typ = document.getElementById('vorlTyp')?.value;
+    if (!typ) return;
+    App.saveVorlage(typ, document.getElementById('vorlBetreff').value, document.getElementById('vorlBody').value);
+    App.toast('Vorlage gespeichert', 'success');
+    Views.einstellungen();
+    setTimeout(() => { const sel = document.getElementById('vorlTyp'); if (sel) { sel.value = typ; Views._vorlageLaden(); } }, 80);
+  },
+  resetVorlage() {
+    const typ = document.getElementById('vorlTyp')?.value;
+    if (!typ) return;
+    if (!App.getVorlage(typ).angepasst) return App.toast('Diese Vorlage ist bereits der Standardtext', 'info');
+    if (!confirm('Eigene Änderungen an dieser Vorlage verwerfen und den Standardtext wiederherstellen?')) return;
+    App.resetVorlage(typ);
+    App.toast('Standardtext wiederhergestellt', 'success');
+    Views.einstellungen();
+    setTimeout(() => { const sel = document.getElementById('vorlTyp'); if (sel) { sel.value = typ; Views._vorlageLaden(); } }, 80);
+  },
+  vorschauVorlage() {
+    const typ = document.getElementById('vorlTyp')?.value;
+    if (!typ) return;
+    const beispiel = {
+      schule: 'Gewerbliche Schule Musterstadt', schule_ort: ' in Musterstadt', datum: '15.11.2026', wochentag: 'Dienstag',
+      gruppen: 'GaLaBau 2. AJ (12), Zierpflanzenbau 3. AJ (5)', gruppen_kurz: 'GaLaBau/ZPB 2.+3. AJ', azubi_liste: '– Muster, Anna (Gärtnerei Beispiel)\n– Beispiel, Ben (GaLaBau Muster GmbH)',
+      anzahl: 17, dauer: '3 Std.', anzahl_pruefer: 2, raumhinweis: 'einen Raum mit zwei Tischen', klassen: 'G2a, G3b', fachrichtung: 'GaLaBau',
+      ergebnisse: '– Muster, Anna: In Ordnung\n– Beispiel, Ben: Nachholung bis nächste Durchsicht',
+      betrieb: 'Gärtnerei Beispiel', betrieb_anrede: 'Sehr geehrte Damen und Herren', ausbilder: 'Herr Beispiel',
+      azubi: 'Anna Muster', azubi_name: 'Muster, Anna', ergebnis: 'Nachholung bis nächste Durchsicht', maengel: '– KW 40–43: Berichte fehlen komplett (F)\n– KW 45: Unterschrift Ausbilder fehlt (B)',
+      frist: '15.12.2026', frist_alt: '01.12.2026', fehltage: 3, bemerkung: 'Berichte teilweise ohne Datum.',
+      amt: '94 RP Stuttgart', amt_name: 'Regierungspräsidium Stuttgart', anlagen: 'Durchsichtsbögen (PDF), Übergabeliste (Excel)',
+      azubi_liste_amt: '– Muster, Anna (Gärtnerei Beispiel) – In Ordnung', pruefer: App.currentUser || 'Max Mustermann',
+    };
+    const ctx = { ...App.absenderCtx(beispiel.pruefer), ...beispiel };
+    const betreff = App.fuellePlatzhalter(document.getElementById('vorlBetreff').value, ctx);
+    const body = App.fuellePlatzhalter(document.getElementById('vorlBody').value, ctx);
+    const offen = [...new Set((betreff + body).match(/\{[a-z_]+\}/g) || [])];
+    App.openModal('Vorschau – ' + App.VORLAGEN[typ].titel, `
+      <div style="font-size:12px;margin-bottom:6px"><strong>Betreff:</strong> ${esc(betreff)}</div>
+      <pre style="white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.45;background:var(--clr-warm);padding:10px;border-radius:var(--radius);max-height:60vh;overflow:auto">${esc(body)}</pre>
+      ${offen.length ? `<div style="font-size:11px;color:var(--clr-amber);margin-top:6px">Unbekannte Platzhalter bleiben im Schreiben stehen: ${esc(offen.join(' '))}</div>` : ''}
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>');
+  },
+  saveAemterEmails() {
+    const map = {};
+    document.querySelectorAll('.amt-email').forEach(i => { const v = i.value.trim(); if (v) map[i.dataset.amt] = v; });
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('aemter_email',?)", [JSON.stringify(map)]);
+    App.toast('Ämter-Adressen gespeichert', 'success');
+  },
+
+  // ── Papierkorb & Backups ──
+  _papierkorbHtml() {
+    const liste = App.papierkorbListe();
+    if (!liste.length) return '<div style="font-size:12px;color:var(--clr-text-light)">Papierkorb ist leer.</div>';
+    return `<table class="data-table" style="font-size:12px"><thead><tr><th>Gelöscht am</th><th>Art</th><th>Bezeichnung</th><th>Von</th><th style="text-align:right">Aktion</th></tr></thead><tbody>
+      ${liste.map(e => `<tr>
+        <td style="white-space:nowrap">${esc(formatDateTime(e.geloescht_am))}</td>
+        <td>${e.art === 'schueler' ? 'Azubi' : 'Kontrolltermin'}</td>
+        <td>${esc(e.label)}</td>
+        <td>${esc(e.geloescht_von || '–')}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-primary" onclick="Views.papierkorbRestore(${e.id})">⟲ Wiederherstellen</button>
+          <button class="btn btn-sm" style="background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Diesen Papierkorb-Eintrag endgültig löschen?')){App.papierkorbEintragLoeschen(${e.id});Views._papierkorbRefresh()}">✕</button>
+        </td></tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="if(confirm('Papierkorb komplett leeren? Die Einträge sind danach nicht mehr wiederherstellbar.')){App.papierkorbLeeren();Views._papierkorbRefresh();App.toast('Papierkorb geleert','success')}">Papierkorb leeren (${liste.length})</button></div>`;
+  },
+  _papierkorbRefresh() { const b = document.getElementById('papierkorbBox'); if (b) b.innerHTML = this._papierkorbHtml(); },
+  papierkorbRestore(pkId) {
+    const r = App.papierkorbWiederherstellen(pkId);
+    if (r.ok) App.toast(`Wiederhergestellt (${r.zeilen} Zeilen)`, 'success');
+    else { App.toast(r.grund, r.vorhanden ? 'warning' : 'error'); if (r.vorhanden) App.papierkorbEintragLoeschen(pkId); }
+    this._papierkorbRefresh();
+  },
+  async _backupsLaden() {
+    const box = document.getElementById('backupBox');
+    if (!box) return;
+    if (!App.backupsDirHandle) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Backups sind nur bei verbundenem Datenbank-Ordner verfügbar.</div>'; return; }
+    const backups = await App.listBackups();
+    if (!document.getElementById('backupBox')) return;
+    if (!backups.length) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Noch keine Backups vorhanden (werden beim Speichern automatisch angelegt).</div>'; return; }
+    const fmt = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+    const lesbar = (name) => {
+      const m = name.match(/^backup_(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})_([^_.]+)(?:_([^.]+))?\.sqlite$/);
+      if (!m) return name;
+      const d = new Date(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
+      return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + (m[6] ? ` · ${m[6].replace(/-/g, ' ')}` : '');
+    };
+    box.innerHTML = `<div style="font-size:12px;font-weight:600;margin-bottom:4px">Backups (${backups.length}, neueste zuerst)</div>
+      <div style="max-height:220px;overflow:auto"><table class="data-table" style="font-size:12px"><thead><tr><th>Zeitpunkt</th><th>Datei</th><th style="text-align:right">Größe</th><th style="text-align:right">Aktion</th></tr></thead><tbody>
+      ${backups.map(b => `<tr><td style="white-space:nowrap">${esc(lesbar(b.name))}</td><td style="font-family:monospace;font-size:10px;color:var(--clr-text-light)">${esc(b.name)}</td>
+        <td style="text-align:right">${fmt(b.size)}</td>
+        <td style="text-align:right"><button class="btn btn-sm btn-secondary" onclick="Views.backupRestore('${esc(b.name)}')">⟲ Wiederherstellen</button></td></tr>`).join('')}
+      </tbody></table></div>`;
+  },
+  async backupRestore(name) {
+    const text = `Backup „${name}" wiederherstellen?\n\nDer gemeinsame Datenstand wird FÜR ALLE NUTZER auf diesen Zeitpunkt zurückgesetzt. Alles, was seitdem erfasst wurde (Kontrollen, Wiedervorlagen, Importe), geht verloren.\n\nDer aktuelle Stand wird vorher als Backup „vor-wiederherstellung" gesichert.`;
+    if (!confirm(text)) return;
+    if (prompt('Zur Sicherheit bitte WIEDERHERSTELLEN eingeben:') !== 'WIEDERHERSTELLEN') return App.toast('Abgebrochen', 'info');
+    await App.restoreBackup(name);
   },
 
   _pinClicked() {
@@ -1462,6 +1654,7 @@ const Views = {
       ['email_freisprechung', document.getElementById('setEmailFreispr').value.trim()],
       ['rp_adresse_persoenlich', document.getElementById('setRPPers').value.trim()],
       ['rp_adresse_post', document.getElementById('setRPPost').value.trim()],
+      ['rp_email', document.getElementById('setRPEmail').value.trim()],
     ];
     sets.forEach(([k,v]) => {
       App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]);
@@ -2186,6 +2379,10 @@ const Views = {
             <p>• <strong>Word-Vorlage</strong> – DOCX-Vorlage für Serienbriefe an Betriebe/Schulen hochladen</p>
             <p>• <strong>RP-Adressen</strong> – Adresse für persönliche Vorlage und Post-Versand</p>
             <p>• <strong>E-Mail-Vorlage Freisprechung</strong> – Text für Freisprechungseinladungen</p>
+            <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
+            <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
+            <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
+            <p>• <strong>Backups wiederherstellen</strong> – Gesamten Datenstand auf einen Sicherungszeitpunkt zurücksetzen (gilt für alle Nutzer, aktueller Stand wird vorher gesichert)</p>
             <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
           </div>

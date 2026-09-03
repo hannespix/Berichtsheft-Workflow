@@ -545,8 +545,16 @@ const StammdatenTab = {
     App.toast('Jahrgang angelegt', 'success');
   },
   deleteJahrgang(id) {
-    if (!confirm('Jahrgang wirklich löschen?')) return;
+    const jg = App.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [id])[0];
+    if (!jg) return;
+    const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [id]) || 0;
+    const nK = App.scalar('SELECT COUNT(*) FROM klassen WHERE jahrgang_id=?', [id]) || 0;
+    const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE jahrgang_id=?', [id]) || 0;
+    let text = `Jahrgang „${jg.bezeichnung}" löschen?`;
+    if (nS || nK || nT) text += `\n\nDie Zuordnung wird entfernt bei:\n• ${nS} Azubi(s)\n• ${nK} Klasse(n)\n• ${nT} Kontrolltermin(en)\n\nDie Datensätze selbst bleiben erhalten, verlieren aber ihren Jahrgang (Filter!).`;
+    if (!confirm(text)) return;
     App.deleteJahrgangKaskade(id);
+    App.toast(`Jahrgang „${jg.bezeichnung}" gelöscht`, 'success');
     // (jahrgang refresh no longer needed)
     StammdatenTab.show('jahrgaenge');
   },
@@ -738,8 +746,16 @@ const StammdatenTab = {
     _makeModalWide();
   },
   deleteSchule(id) {
-    if (!confirm('Berufsschule löschen?')) return;
+    const bs = App.query('SELECT * FROM berufsschulen WHERE id=?', [id])[0];
+    if (!bs) return;
+    const nK = App.scalar('SELECT COUNT(*) FROM klassen WHERE berufsschule_id=?', [id]) || 0;
+    const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id=?)', [id]) || 0;
+    const nB = App.scalar('SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=?', [id]) || 0;
+    let text = `Berufsschule „${bs.name}" löschen?`;
+    if (nK || nS || nB) text += `\n\nMit gelöscht werden:\n• ${nK} Klasse(n) – ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nB} Blockplan-Einträge`;
+    if (!confirm(text)) return;
     App.deleteSchuleKaskade(id);
+    App.toast(`Berufsschule „${bs.name}" gelöscht`, 'success');
     StammdatenTab.show('schulen');
   },
 
@@ -934,9 +950,16 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="StammdatenTab.saveKlasse(${id})">Speichern</button>`);
   },
   deleteKlasse(id) {
-    if (!confirm('Klasse löschen?')) return;
+    const kl = App.query('SELECT * FROM klassen WHERE id=?', [id])[0];
+    if (!kl) return;
+    const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [id]) || 0;
+    const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermin_klassen WHERE klasse_id=?', [id]) || 0;
+    let text = `Klasse „${kl.klassenbezeichnung}" löschen?`;
+    if (nS || nT) text += `\n\n• ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nT} Kontrolltermin(e) verlieren die Klassen-Verknüpfung (bereits erfasste Ergebnisse bleiben erhalten)`;
+    if (!confirm(text)) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
     App.deleteKlasseKaskade(id);
+    App.toast(`Klasse „${kl.klassenbezeichnung}" gelöscht`, 'success');
     StammdatenTab.show('klassen');
   },
 
@@ -971,8 +994,14 @@ const StammdatenTab = {
     StammdatenTab.show('pruefer');
   },
   deletePruefer(id) {
-    if (!confirm('Prüfer löschen?')) return;
+    const pr = App.query('SELECT * FROM pruefer WHERE id=?', [id])[0];
+    if (!pr) return;
+    const nT = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE pruefer=? OR pruefer LIKE ? OR pruefer LIKE ?", [pr.name, pr.name + ',%', '%, ' + pr.name]) || 0;
+    let text = `Prüfer „${pr.name}" löschen?`;
+    if (nT) text += `\n\n${nT} Kontrolltermin(e) tragen diesen Namen – sie bleiben unverändert, der Name kann aber nicht mehr ausgewählt werden.`;
+    if (!confirm(text)) return;
     App.run('DELETE FROM pruefer WHERE id=?', [id]);
+    App.toast(`Prüfer „${pr.name}" gelöscht`, 'success');
     StammdatenTab.show('pruefer');
   },
 
@@ -1421,10 +1450,15 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">Bearbeiten</button>`);
   },
   deleteBetrieb(id) {
-    if (!confirm('Betrieb löschen? (Nur möglich wenn keine Azubis zugeordnet)')) return;
-    App.run('UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?', [id]);
-    App.run('DELETE FROM ausbilder WHERE betrieb_id=?', [id]);
+    const b = App.query('SELECT * FROM betriebe WHERE id=?', [id])[0];
+    if (!b) return;
+    const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [id]) || 0;
+    const nA = App.scalar('SELECT COUNT(*) FROM ausbilder WHERE betrieb_id=?', [id]) || 0;
+    let text = `Betrieb „${b.name}" löschen?`;
+    if (nS || nA) text += `\n\n• ${nS} Azubi(s) verlieren die Betriebszuordnung (Anschreiben an den Betrieb sind dann nicht mehr möglich)\n• ${nA} Ausbilder-Kontakt(e) werden mit gelöscht`;
+    if (!confirm(text)) return;
     App.deleteBetriebKaskade(id);
+    App.toast(`Betrieb „${b.name}" gelöscht`, 'success');
     StammdatenTab.show('betriebe');
   },
 

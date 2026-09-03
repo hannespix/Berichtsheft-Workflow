@@ -46,9 +46,12 @@ const BulkWV = {
   deleteSelected() {
     const ids = this.getSelected();
     if (!ids.length) return;
-    if (!confirm(`Wirklich ${ids.length} Wiedervorlagen löschen?`)) return;
-    ids.forEach(id => App.run('DELETE FROM wiedervorlagen WHERE id=?', [id]));
-    App.toast(`${ids.length} Wiedervorlagen gelöscht`, 'success');
+    const ph = ids.map(() => '?').join(',');
+    const nNot = App.scalar(`SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (${ph})`, ids) || 0;
+    const nOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE id IN (${ph}) AND status!='erledigt'`, ids) || 0;
+    if (!confirm(`Wirklich ${ids.length} Wiedervorlage(n) löschen?${nOffen ? `\n• davon ${nOffen} noch offen` : ''}${nNot ? `\n• inkl. ${nNot} Notiz(en)` : ''}\n\nDie Mängel im KW-Raster bleiben bestehen. Erledigte Wiedervorlagen dienen als Nachweis – im Zweifel lieber behalten.`)) return;
+    ids.forEach(id => { App.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=?', [id]); App.run('DELETE FROM wiedervorlagen WHERE id=?', [id]); });
+    App.toast(`${ids.length} Wiedervorlage(n) gelöscht${nNot ? ` (inkl. ${nNot} Notizen)` : ''}`, 'success');
     Views.wiedervorlagen();
   },
 };

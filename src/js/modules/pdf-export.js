@@ -480,5 +480,16 @@ const PDFExport = {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);
+  },
+
+  // Einheitliche Fußzeile für alle erzeugten PDFs (Anschreiben, Listen)
+  footer(doc, seite, gesamt) {
+    try {
+      doc.setDrawColor(45, 80, 22); doc.setLineWidth(0.5); doc.line(25, 283, 185, 283);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(108, 108, 108);
+      doc.text('Regierungspräsidium Freiburg · Berichtsheftkontrolle Gärtner', 25, 287);
+      doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}${gesamt ? ` · Seite ${seite} von ${gesamt}` : ''}`, 185, 287, { align: 'right' });
+      doc.setTextColor(0); doc.setLineWidth(0.2);
+    } catch(e) {}
   }
 };

@@ -254,7 +254,7 @@ const BerichteHandler = {
           <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> Seriendruck-CSV für Betriebe (${mangelCount} beanstandet)
+          <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> Seriendruck-CSV für Betriebe (${mangelCount} Azubi(s) mit Beanstandung)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" id="gpEmail" style="accent-color:var(--clr-forest)"> ✉︎ E-Mail an Schule öffnen
@@ -265,11 +265,11 @@ const BerichteHandler = {
         ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" id="gpWord" checked style="accent-color:var(--clr-forest)"> ✎ Word-Serienbriefe (aus Vorlage)
         </label>` : ''}
-        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpStatistik" style="accent-color:var(--clr-forest)"> Excel-Dashboard
+          <input type="checkbox" id="gpICS" style="accent-color:var(--clr-forest)"> ▤ Ergebnisliste des Termins (Excel, alle Azubis)
         </label>
       </div>
+      <div style="font-size:11px;color:var(--clr-text-light);margin-top:10px">Die Dateien werden nacheinander heruntergeladen – der Browser fragt ggf. einmal nach der Erlaubnis für mehrere Downloads.</div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="BerichteHandler.doGesamtpaket(${terminId})">Alles exportieren</button>`);
   },
@@ -294,8 +294,8 @@ const BerichteHandler = {
       setTimeout(() => Workflows.exportSeriendruckWord(terminId), delay);
       delay += 800;
     }
-    if (document.getElementById('gpStatistik')?.checked) {
-      setTimeout(() => BerichteHandler.exportStatistik(), delay);
+    if (document.getElementById('gpICS')?.checked) {
+      setTimeout(() => BerichteHandler.exportTerminExcel(terminId), delay);
       delay += 500;
     }
     if (document.getElementById('gpEmail')?.checked) {
@@ -782,6 +782,44 @@ const BerichteHandler = {
         <button class="btn btn-sm btn-secondary" onclick="BerichteHandler.exportZulassungExcel()">Excel</button>
         <button class="btn btn-primary" onclick="BerichteHandler.exportZulassungPDF()">▤ PDF</button>`);
     _makeModalWide();
+  },
+
+  // Ergebnisliste eines Termins (alle Azubis) als Excel – für Ablage,
+  // Weitergabe an die Schule oder als Grundlage für eigene Auswertungen
+  exportTerminExcel(terminId) {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
+    const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!termin) return App.toast('Termin nicht gefunden', 'error');
+    const bs = App.getTerminSchule(terminId);
+    const liste = App.getTerminSchueler(terminId);
+    if (!liste.length) return App.toast('Keine Azubis in diesem Termin', 'warning');
+    const eLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht', sachberichte_wetter_email: 'Sachberichte (Wetter) per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail bis Termin', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP', abwesend: 'Abwesend' };
+    const rows = liste.map(s => {
+      const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0] || {};
+      const kl = App.query('SELECT k.klassenbezeichnung, bs.name as schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {};
+      const betrieb = s.betrieb_id ? (App.scalar('SELECT name FROM betriebe WHERE id=?', [s.betrieb_id]) || '') : (s.ausbildungsstaette || '');
+      const maengel = App.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes, COALESCE(behobene_codes,'') AS behobene_codes FROM kw_status WHERE schueler_id=? AND maengel_codes!='' ORDER BY ausbildungsjahr, kalenderwoche", [s.id])
+        .map(m => ({ ...m, offen: m.maengel_codes.split(',').filter(c => c && !m.behobene_codes.split(',').includes(c)).join(',') }))
+        .filter(m => m.offen);
+      const wv = App.query("SELECT frist_datum, status FROM wiedervorlagen WHERE schueler_id=? AND kontrollergebnis_id=? ORDER BY frist_datum DESC LIMIT 1", [s.id, ke.id || -1])[0];
+      return {
+        'Nachname': s.nachname, 'Vorname': s.vorname, 'Betrieb': betrieb,
+        'Schule': kl.schule || (bs ? bs.name : ''), 'Klasse': kl.klassenbezeichnung || '',
+        'Zuständiges Amt': s.zustaendiges_amt ? App.amtLabel(s.zustaendiges_amt) : '',
+        'Ergebnis': ke.ergebnis ? (eLbl[ke.ergebnis] || ke.ergebnis) : '(nicht erfasst)',
+        'Fehltage': ke.fehltage_gesamt ?? '',
+        'Offene Mängel (AJ/KW: Codes)': maengel.map(m => `${m.ausbildungsjahr}/${m.kalenderwoche}: ${m.offen}`).join('; '),
+        'Wiedervorlage Frist': wv ? formatDate(wv.frist_datum) : '', 'WV-Status': wv ? wv.status : '',
+        'Bemerkung': ke.bemerkung || '', 'Prüfer': ke.geaendert_von || termin.pruefer || '',
+        'Kontrolliert am': formatDate(termin.durchgefuehrt_datum || termin.geplant_datum),
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:30},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ergebnisse');
+    XLSX.writeFile(wb, App.safeFilename(['Ergebnisse', bs ? bs.name : 'Termin', (termin.durchgefuehrt_datum || termin.geplant_datum || '').substring(0, 10)], 'xlsx'));
+    App.toast(`Ergebnisliste mit ${rows.length} Azubis exportiert`, 'success');
   },
 
   exportZulassungExcel() {
