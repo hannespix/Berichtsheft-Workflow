@@ -307,3 +307,54 @@ Einzel-Zuordnung statt Klassen-Verknüpfung.
 | Kontrollergebnis ohne Durchsichtsnummer/Pflichtteil-Übernahme/Snapshot; UTC-Zeitstempel; jedes Speichern erzeugte einen neuen Termin; Ergebnisse doppelten sich. | Übernahme aus der letzten Durchsicht wie in der Live-Kontrolle, Archiv-Snapshot, `localtime`; EIN Nacherfassungs-Termin je Schule + Datum (wird ergänzt); erneutes Speichern aktualisiert. |
 | Globale Filter (Amt '93') blendeten Azubis fremder Ämter und deren Schulen aus. | Nacherfassung nutzt ausschließlich ihre eigenen Filter; §-Kennzeichen an fremden Azubis; „Noch nicht kontrolliert" gruppiert nach tatsächlichem Standort (LFK). |
 | UI ohne Erklärung: KW-Feld mit ALTEM Stand vorbelegt, Fehltage-Feld mehrdeutig. | KW-Vorschlag = Woche vor dem Durchsichtsdatum (folgt Datumsänderungen), Spalte „Bisher" (letzte Kontrolle, geprüft bis, Fehltage), Erläuterungsbox, Schnellaktionen „Alle offenen → In Ordnung" / „KW-Vorschlag für alle", Hilfe aktualisiert. |
+
+---
+
+# Audit 5: Bedienfluss, Exporte & Textbausteine, Sicherheit (September 2026)
+
+> **Status: abgearbeitet.** Neue Suite `workflow-test.mjs` (41 Prüfungen), Browser-Verifikation der neuen Bedienelemente (Kontroll-Übersicht, Vorlagen-Editor, Papierkorb, Kampagnen-Datumsvorschlag, Übergabeschreiben) ohne Konsolenfehler.
+
+Leitfrage: Ist der komplette Weg *Planung → Kontrolle → Nachbereitung → Wiedervorlage* so
+unkompliziert, einheitlich und sicher wie möglich – und werden an allen geeigneten Stellen
+fertige Schreiben und Exporte angeboten?
+
+## Bedienfluss
+
+| Befund | Reparatur |
+|---|---|
+| Kontroll-Übersicht war eine reine Liste: für „in Ordnung" musste jeder Azubi einzeln geöffnet, das Ergebnis gesetzt und zurücknavigiert werden. | „✓ i.O." direkt in der Zeile, Sammelleiste („Alle offenen → i.O.", „Nächster offener Azubi"), Fortschritt „offen / abwesend / fremde Ämter"; Abschluss-Block in der Übersicht. |
+| Nach „In Ordnung" blieb man im Bogen stehen; „Nächster" sprang auch auf bereits erledigte Azubis. | Auto-Weiter zum nächsten OFFENEN Azubi (abschaltbar), Schnellnavigation färbt sich mit. |
+| Ansichtswechsel (z.B. zu den Wiedervorlagen) warf die laufende Kontrolle weg – Termin musste neu gewählt werden. | Kontroll-Ansicht öffnet den zuletzt geöffneten Termin wieder. |
+| Abschluss-Assistent kannte weder Abwesende noch fremde Ämter; Nachholungen mussten von Hand als Wiedervorlage angelegt werden. | Assistent listet offene Azubis (klickbar), legt für Abwesende Nachholungs-Wiedervorlagen mit Frist an, öffnet auf Wunsch die Nachholungs-E-Mail und den Ämter-Dialog. |
+| Einzelzellen-Aktionen im KW-Raster (`O`, `1–5`, `0`, Fehltage-Popover, Sammel-„OK") hatten KEINEN Undo-Eintrag – Strg+Z sprang unbemerkt an eine ältere Aktion. | Alle Zellaktionen erzeugen Undo-Einträge; Sammel-OK als EIN aggregierter Eintrag. |
+| Fehltage-Popover übernahm bei Fokusverlust (Klick daneben) stillschweigend den halbfertigen Wert. | Übernahme nur mit Enter; Fokusverlust verwirft. Größere automatische „geprüft bis"-Sprünge werden per Hinweis gemeldet. |
+| Kampagnen-Assistent verlangte je Schule ein Datum von Hand. | „📅 Datumsvorschläge für alle": erster Dienstag im Kampagnen-Zeitfenster mit Blockplan-Treffer (sonst erster Dienstag), vorhandene Eingaben bleiben. |
+| Wiedervorlage ohne Durchsicht (Nachweis per Post/E-Mail) ließ sich nur über den Umweg „→ Durchsicht" schließen. | „✓ Erledigt" in der Zeile mit Datum/Bemerkung; Hinweis, wann die Durchsicht der bessere Weg ist. |
+
+## Exporte & Textbausteine
+
+| Befund | Reparatur |
+|---|---|
+| E-Mail-Texte waren im Code verstreut und fest verdrahtet (Schule, Betrieb, Wiedervorlage) – ohne gemeinsame Absenderdaten, ohne Anpassbarkeit. | Zentrales Vorlagen-System (`App.VORLAGEN`, 11 Typen: Terminanfrage/Ergebnis Schule, Betrieb BCC/Ankündigung/Mängel/i.O./Brief, Wiedervorlage Mahnung/Erinnerung, Nachholung, Übergabe an anderes Amt). Editor in den Einstellungen mit Platzhalter-Chips, Vorschau mit Beispieldaten, Standardtext wiederherstellbar; gilt für alle Nutzer der Datenbank. |
+| Absender/Funktions-E-Mail fehlten; Prüfer-E-Mail wurde nirgends genutzt. | Einstellung `rp_email` (An-Adresse bei BCC-Sammelmails, Platzhalter), Prüfer-E-Mail aus den Stammdaten (`absenderCtx`), RP-Postadresse in allen Schreiben. |
+| Betriebe ohne E-Mail fielen bei Sammelmails stumm heraus. | Zähler „Briefe für n Betriebe ohne E-Mail" → PDF-Anschreiben nur für diese; „✎ E-Mail nachtragen" direkt aus dem Dialog. |
+| `mailto:` wurde bei langen Texten abgeschnitten (Ergebnislisten). | Über ~1900 Zeichen: Text in die Zwischenablage, Mail mit Betreff öffnet sich, Hinweis zum Einfügen. |
+| Fremde Ämter: nur PDF + Excel, kein Anschreiben, Adressen nicht hinterlegbar. | „✉︎ Übergabeschreiben" je Amt (Vorlage `amt_uebergabe`), Ämter-E-Mails in den Einstellungen (werden beim ersten Versand gemerkt). |
+| Dateinamen uneinheitlich (Umlaute, Leerzeichen, Kommas), ICS-Export ohne Ort/Anzahl und mit falscher Schule bei LFK-Terminen. | `App.safeFilename()` für alle Downloads; ICS mit Kontrollort, Prüfer, Azubi-Anzahl, Bemerkung; RFC-5545-Maskierung. |
+| Keine tabellarische Ergebnisliste je Termin; Gesamtpaket-Dialog mit kaputtem Markup und irreführendem „Excel-Dashboard". | „▤ Excel" je Termin (Ergebnis, Fehltage, offene Mängel je AJ/KW, WV-Frist, Amt) – auch im Gesamtpaket; Dialog bereinigt; PDF-Anschreiben mit einheitlicher Fußzeile (`PDFExport.footer`). |
+
+## Sicherheit / Datenverlust
+
+| Befund | Reparatur |
+|---|---|
+| Löschen von Azubi, Termin, Jahrgang, Schule, Klasse, Prüfer, Betrieb, Wiedervorlagen: nackte `confirm()`-Abfragen ohne Angabe, was mitgelöscht wird. | Rückfragen nennen die betroffenen Mengen (Ergebnisse, Wiedervorlagen, Notizen, Zuordnungen) und Alternativen („Ausbildung beenden" statt löschen); Erfolgsmeldungen. |
+| Gelöschte Azubis/Termine waren unwiederbringlich weg (nur über Datei-Backups). | **Papierkorb** (`bhk_papierkorb`, 3 Schema-Stellen, 90 Tage): Kaskaden legen die Hauptzeile samt ALLER abhängigen Zeilen als JSON ab; Wiederherstellung mit unveränderten IDs (Verknüpfungen intakt), hebt Tombstones auf, verweigert Doppelanlage; Größenschutz (Snapshots werden bei Bedarf weggelassen). |
+| Löschungen tauchten nicht im Änderungs-Logbuch auf; Re-Import überschrieb manuell korrigierte Felder spurlos. | Löschung/Wiederherstellung mit Name + IBYKUS-ID im Logbuch; überschriebene Felder als `import_ueberschrieben` protokolliert. |
+| Import schaltete den aktiven Jahrgang FÜR ALLE NUTZER stillschweigend um (Nachimport eines älteren Jahrgangs → Kollegen arbeiten plötzlich in der falschen Kohorte). | Umschaltung nur nach Rückfrage, mit Angabe des bisher aktiven Jahrgangs. |
+| Backups ließen sich nur über den Dateimanager zurückspielen – ohne Rücksicht auf Op-Logs/Snapshot-Generation (andere Rechner hätten weitergearbeitet, als wäre nichts passiert). | Backup-Liste in den Einstellungen; `App.restoreBackup()`: Integritätsprüfung, eigene Änderungen wegschreiben, aktuellen Stand als `…_vor-wiederherstellung` sichern, Backup als neue Snapshot-Generation kompaktieren → alle Clients übernehmen ihn beim nächsten Abgleich. Doppelte Bestätigung (Tippwort). |
+| F5 (Neu-Laden von der Platte) und „Word-Vorlage entfernen" ohne Rückfrage; Sammel-Löschen von Wiedervorlagen ließ Notizen als Datenleichen zurück. | Rückfragen; Notizen werden mitgelöscht und mitgezählt. |
+
+**Bewusst so gelassen:** Der Papierkorb speichert ein JSON-Paket pro Löschung (kein
+Zeilen-Versionierung); sehr große Termin-Pakete (>400 KB) werden ohne PDF-Snapshots abgelegt.
+Die Backup-Wiederherstellung ist absichtlich ein „harter" Schnitt für alle Nutzer – ein
+selektives Zurückholen einzelner Datensätze läuft über den Papierkorb.

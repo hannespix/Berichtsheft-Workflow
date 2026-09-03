@@ -99,6 +99,8 @@ const KontrolleHandler = {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     const klassen = App.getTerminKlassen(terminId);
     const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+    const ortBs = App.getTerminSchule(terminId);
+    const schuleName = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '');
     const schueler = this.currentSchuelerList;
 
     // Fachrichtung-Lookup
@@ -195,7 +197,8 @@ const KontrolleHandler = {
         </td>
         <td style="text-align:center" title="${esc(ampel.label)}">${ampel.icon}</td>
         <td data-sort="${ke.ergebnis || ''}">
-          ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:11px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>` : '<span style="color:var(--clr-text-light);font-size:11px">–</span>'}
+          ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:11px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>`
+            : (isAnw ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-green-light);color:var(--clr-forest-dark);border:1px solid var(--clr-green)" onclick="KontrolleHandler.quickMarkOK(${s.id})" title="Berichtsheft in Ordnung – Ergebnis + Pflichtteile setzen (Mängel/Bemerkungen bitte in der Einzelansicht)">✓ i.O.</button>` : '<span style="color:var(--clr-text-light);font-size:11px">– abwesend</span>')}
           ${wvOffen ? '<span style="color:var(--clr-red);font-size:10px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
         </td>
         <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage / ${arbeitstage} Arbeitstage (${Math.round(arbeitstage/5)} aktive KWs) = ${fehlProzent.toFixed(1)}%">${fehlGesamt}<span style="font-size:9px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
@@ -239,13 +242,24 @@ const KontrolleHandler = {
       App.toast(`${autoZulCount} Auszubildende${autoZulCount > 1 ? '' : 'r'} automatisch zur AP zugelassen (alle Kriterien erfüllt)`, 'success');
     }
 
+    // Abwesende zählen nicht als "offen": der Nenner des Fortschritts sind
+    // die anwesenden Azubis (plus bereits Bewertete)
+    const abwesend = schueler.length - anwCount;
+    const nenner = Math.max(anwCount, doneCount);
+    const offen = Math.max(0, nenner - doneCount);
+    const fremdeCount = schueler.filter(s => s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT).length;
+    const istAbgeschlossen = termin.status === 'durchgefuehrt';
     const container = document.getElementById('kontrolleContent');
     container.innerHTML = `
       <div class="card" style="margin-top:12px;margin-bottom:12px">
+        ${istAbgeschlossen ? `<div style="padding:8px 12px;background:var(--clr-green-light);border-left:4px solid var(--clr-green);border-radius:var(--radius);font-size:12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <strong>✓ Kontrolle abgeschlossen am ${formatDate(termin.durchgefuehrt_datum || termin.geplant_datum)}</strong> – die Durchsichtsbögen sind archiviert. Spätere Änderungen wirken nicht mehr auf die archivierten Bögen.
+          <button class="btn btn-sm btn-secondary" style="margin-left:auto" onclick="KontrolleHandler.reopenKontrolle()">Wieder öffnen</button>
+        </div>` : ''}
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div>
-            <strong style="font-size:16px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(klassenStr)}</strong>
-            <div style="font-size:12px;color:var(--clr-text-light)">${formatDate(termin.geplant_datum)} · ${esc(termin.pruefer||'')} · ${schueler.length} Schüler</div>
+            <strong style="font-size:16px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(klassenStr || termin.bemerkung || 'Kontrolltermin')}</strong>
+            <div style="font-size:12px;color:var(--clr-text-light)">${schuleName ? esc(schuleName) + ' · ' : ''}${formatDate(termin.geplant_datum)} · ${esc(termin.pruefer||'')} · ${schueler.length} Azubis${abwesend ? ` (${abwesend} abwesend)` : ''}${fremdeCount ? ` · § ${fremdeCount} fremde Ämter` : ''}</div>
           </div>
           <div class="btn-group">
             <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">▤ Übersicht</button>
@@ -265,8 +279,8 @@ const KontrolleHandler = {
           <div style="padding:6px 12px;background:${mangelCount?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:var(--radius);font-size:12px">
             ✗ <strong>${mangelCount}</strong> beanstandet
           </div>
-          <div style="padding:6px 12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px">
-            <strong>${schueler.length - doneCount}</strong> noch offen
+          <div style="padding:6px 12px;background:${offen ? 'var(--clr-blue-light)' : 'var(--clr-green-light)'};border-radius:var(--radius);font-size:12px">
+            <strong>${offen}</strong> noch offen${abwesend ? ` <span style="color:var(--clr-text-light)">· ${abwesend} abwesend</span>` : ''}
           </div>
           ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
             ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> zugelassen
@@ -278,13 +292,13 @@ const KontrolleHandler = {
 
         <!-- Fortschrittsbalken -->
         ${(() => {
-          const pctDone = schueler.length ? Math.round(doneCount / schueler.length * 100) : 0;
-          const pctOK = schueler.length ? Math.round(okCount / schueler.length * 100) : 0;
-          const pctMangel = schueler.length ? Math.round(mangelCount / schueler.length * 100) : 0;
+          const pctDone = nenner ? Math.round(doneCount / nenner * 100) : 0;
+          const pctOK = nenner ? Math.round(okCount / nenner * 100) : 0;
+          const pctMangel = nenner ? Math.round(mangelCount / nenner * 100) : 0;
           return `<div style="margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;color:var(--clr-text-light)">
-              <span>Fortschritt: ${doneCount}/${schueler.length} bewertet (${pctDone}%)</span>
-              <span>${pctDone === 100 ? '✓ Alle bewertet!' : `${schueler.length - doneCount} offen`}</span>
+              <span>Fortschritt: ${doneCount}/${nenner} anwesende Azubis bewertet (${pctDone}%)${abwesend ? ` · ${abwesend} abwesend` : ''}</span>
+              <span>${offen === 0 ? '✓ Alle Anwesenden bewertet!' : `${offen} offen`}</span>
             </div>
             <div style="height:8px;background:var(--clr-sand);border-radius:4px;overflow:hidden;display:flex">
               <div style="width:${pctOK}%;background:var(--clr-green);transition:width 0.3s" title="${okCount} in Ordnung"></div>
@@ -318,17 +332,111 @@ const KontrolleHandler = {
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">✓ Alle anwesend</button>
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">✗ Alle abwesend</button>
-          <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()">Einzelkontrolle starten</button>
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.showAddSchueler()" title="Schüler aus anderer Klasse oder neuen Schüler hinzufügen">+ Schüler hinzufügen</button>
+          <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
+          ${offen ? `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.markOffeneOK()" title="Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen">✓ ${offen} offene → In Ordnung</button>` : ''}
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.showAddSchueler()" title="Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)">+ Azubi hinzufügen</button>
           <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht()" title="Übersichtstabelle drucken">⎙ Drucken</button>
-            <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${terminId})" title="E-Mail an Schule">✉︎ Schule</button>
+            <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${terminId})" title="${istAbgeschlossen ? 'Ergebnis-Mitteilung an die Schule' : 'Terminanfrage an die Schule'}">✉︎ ${istAbgeschlossen ? 'Ergebnisse an Schule' : 'Termin anfragen'}</button>
             <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${terminId})" title="Betriebe anschreiben">▤ Betriebe</button>
+            ${fremdeCount ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${terminId})" title="Ergebnisse der Azubis fremder Ämter je Amt weitergeben">§ Ämter (${fremdeCount})</button>` : ''}
             <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${terminId})">▤ Alle PDFs</button>
           </div>
         </div>
+
+        <!-- Abschluss – direkt hier, wo man am Ende des Kontrolltags steht -->
+        ${!istAbgeschlossen ? `<div style="display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 12px;background:${offen === 0 ? 'var(--clr-green-light)' : 'var(--clr-warm)'};border-radius:var(--radius);flex-wrap:wrap">
+          <div style="font-size:12px;flex:1;min-width:200px">${offen === 0 ? '<strong>Alle anwesenden Azubis sind bewertet.</strong> Beim Abschließen werden Archiv-Bögen, Wiedervorlagen und die Folgeaktionen (PDF, Schule, Betriebe, fremde Ämter) erzeugt.' : `<strong>${offen} Azubi(s) noch ohne Ergebnis.</strong> Abschließen ist trotzdem möglich – offene Azubis werden im Abschluss-Dialog aufgelistet.`}</div>
+          <button class="btn ${offen === 0 ? 'btn-success' : 'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${offen === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${offen} offen)`}</button>
+        </div>` : ''}
       </div>
     `;
+  },
+
+  // Einen Azubi direkt aus der Übersicht als "In Ordnung" markieren
+  quickMarkOK(schuelerId) {
+    if (!this._pruefeAbgeschlossen()) return;
+    const r = this._markOK([schuelerId]);
+    const s = this.currentSchuelerList.find(x => x.id === schuelerId);
+    App.toast(`${s ? s.nachname : 'Azubi'}: In Ordnung${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
+    this.renderUebersicht();
+  },
+  // Alle anwesenden Azubis ohne Ergebnis auf "In Ordnung"
+  markOffeneOK() {
+    if (!this._pruefeAbgeschlossen()) return;
+    const tid = this.currentTerminId;
+    const ids = this.currentSchuelerList.filter(s => {
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
+      return ke && (!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0;
+    }).map(s => s.id);
+    if (!ids.length) return App.toast('Keine offenen anwesenden Azubis', 'info');
+    const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
+    if (!confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`)) return;
+    const r = this._markOK(ids);
+    App.toast(`${r.count} Azubis als „In Ordnung" markiert${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
+    this.renderUebersicht();
+  },
+  // Gemeinsame Kernlogik von quickMarkOK / markOffeneOK / bulkMarkOK
+  _markOK(ids) {
+    const tid = this.currentTerminId;
+    const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
+    let count = 0, wv = 0;
+    ids.forEach(sid => {
+      let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
+      if (!ke) {
+        const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+          WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
+        const prev = prevKE.length ? prevKE[0] : {};
+        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
+          p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
+          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, prev.fehltage_pauschal||0, (prev.durchsicht_nr||0)+1,
+           prev.p_1_1_ausbildungsplan||'', prev.p_1_4_auszubildende||'', prev.p_1_5_bescheinigungen||'',
+           prev.bescheinigungen_anzahl||0, prev.f_1_2_vertragliche_regelungen||'', prev.f_1_6_ausbildungsbetrieb||'']);
+        ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
+      }
+      if (!ke.ergebnis || ke.ergebnis === '') {
+        App.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?", [this.activePruefer || '', ke.id]);
+        pflichtFields.forEach(pf => App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]));
+        const offene = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [sid]);
+        offene.forEach(w => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [todayStr(), w.id]));
+        wv += offene.length;
+        count++;
+      }
+    });
+    return { count, wv };
+  },
+  // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen
+  _pruefeAbgeschlossen() {
+    const t = App.query('SELECT status, durchgefuehrt_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
+    if (!t || t.status !== 'durchgefuehrt') return true;
+    if (this._abgeschlossenBestaetigt === this.currentTerminId) return true;
+    if (!confirm(`Diese Kontrolle ist abgeschlossen (Archiv-Bögen vom ${formatDate(t.durchgefuehrt_datum) || '–'} vorhanden).\nÄnderungen wirken ab jetzt vom archivierten Stand ab. Trotzdem ändern?`)) return false;
+    this._abgeschlossenBestaetigt = this.currentTerminId;
+    return true;
+  },
+  // Nächsten Azubi ohne Ergebnis (und anwesend) öffnen
+  nextOffen(vonUebersicht) {
+    const tid = this.currentTerminId;
+    const n = this.currentSchuelerList.length;
+    if (!n) return;
+    const start = vonUebersicht ? -1 : this.currentIndex;
+    for (let k = 1; k <= n; k++) {
+      const i = (start + k) % n;
+      const s = this.currentSchuelerList[i];
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
+      if (!ke || ((!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0)) {
+        if (!vonUebersicht) this.saveAndRelease();
+        this.currentIndex = i;
+        this._viewMode = 'einzeln';
+        this.enterSchüler();
+        return;
+      }
+    }
+    App.toast('Alle anwesenden Azubis sind bewertet – zurück zur Übersicht', 'success');
+    if (!vonUebersicht) this.saveAndRelease();
+    this._viewMode = 'uebersicht';
+    this.renderUebersicht();
   },
 
   // Quick toggle anwesend from overview table
@@ -393,7 +501,8 @@ const KontrolleHandler = {
     const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
     const frAj = App.formatTerminFrAj(terminId);
     const isEinsendung = termin.typ === 'einsendung';
-    const schule = klassen.length ? klassen[0].schule : (isEinsendung ? 'Einsendung' : '–');
+    const ortBs = App.getTerminSchule(terminId);
+    const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : (isEinsendung ? 'Einsendung' : '–'));
     const schueler = terminIdOverride ? App.getTerminSchueler(terminId) : this.currentSchuelerList;
     const alleKE = {};
     App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(ke => { alleKE[ke.schueler_id] = ke; });
@@ -472,7 +581,7 @@ const KontrolleHandler = {
   quickSetAllAnwesend(anwesend) {
     const count = this.currentSchuelerList.length;
     const label = anwesend ? 'anwesend' : 'abwesend';
-    if (!confirm(`${count} Auszubildende als „${label}" markieren?`)) return;
+    // Keine Rückfrage: ist mit einem Klick rückgängig zu machen
     this.currentSchuelerList.forEach(s => {
       App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`,
         [anwesend ? 1 : 0, this.activePruefer || '', this.currentTerminId, s.id]);
@@ -1245,7 +1354,9 @@ const KontrolleHandler = {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px">
         <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''}>← Vorheriger</button>
         <div class="btn-group" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
-          <button class="btn btn-success" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Änderungen speichern und Schüler für andere freigeben" style="font-weight:600">Speichern & Freigeben</button>
+          <button class="btn btn-success" onclick="KontrolleHandler.nextOffen()" title="Änderungen sind bereits gespeichert – zum nächsten Azubi ohne Ergebnis springen" style="font-weight:600">✓ Nächster offener Azubi →</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Azubi für andere Prüfer freigeben (Änderungen werden ohnehin automatisch gespeichert)">Freigeben</button>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
           <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">▤ PDF Einzeln</button>
           <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">▤ PDF Alle (${total})</button>
         </div>
@@ -1284,6 +1395,17 @@ const KontrolleHandler = {
         </div>`;
       })()}
     </div>`;
+    // Tastaturbedienung sofort möglich: erste ungeprüfte aktive KW fokussieren
+    setTimeout(() => {
+      const c = document.querySelector('.kw-cell:not(.kw-inactive):not(.kw-ok):not(.kw-session)') || document.querySelector('.kw-cell:not(.kw-inactive)');
+      if (c && c.focus) { try { c.focus({ preventScroll: true }); } catch(e) { c.focus(); } }
+    }, 40);
+  },
+  _wvDefaultFuer(ergebnis) {
+    const termin = App.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
+    const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
+    const map = { nachholung_naechste_durchsicht: nextTermin || addDaysStr(28), sachberichte_wetter_email: addDaysStr(28), berichte_bis_termin_email: addDaysStr(28), persoenliche_vorlage_rp: addDaysStr(14), post_an_rp: addDaysStr(21) };
+    return map[ergebnis] || addDaysStr(28);
   },
 
   getWVDate(keId) {
@@ -1301,6 +1423,7 @@ const KontrolleHandler = {
     }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
+    if (!this._pruefeAbgeschlossen()) { this.renderSchueler(); return; }
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -1309,9 +1432,23 @@ const KontrolleHandler = {
 
     // Push undo entry
     const fieldLabels = {ergebnis:'Ergebnis',bemerkung:'Bemerkung',p_1_1_ausbildungsplan:'Ausbildungsplan',p_1_4_auszubildende:'Auszubildende',p_1_5_bescheinigungen:'Bescheinigungen',f_1_2_vertragliche_regelungen:'Vertragliches',f_1_6_ausbildungsbetrieb:'Betrieb/Skizze',sachberichte_anzahl:'Sachberichte',anwesend:'Anwesend'};
+    // Nebenwirkungen von "In Ordnung" (Pflichtteile → ja, Wiedervorlagen →
+    // erledigt) VOR der Änderung einfrieren, damit Undo sie mit zurücknimmt
+    const pflichtVorher = {};
+    let wvVorher = [];
+    if (field === 'ergebnis' && value === 'in_ordnung') {
+      ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'].forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
+      wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
+    }
+    const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '');
     UndoManager.push(
-      `${fieldLabels[field]||field} bei ${s.nachname}`,
-      () => { App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [oldVal, pruefer, keId]); this.renderSchueler(); },
+      `${fieldLabels[field]||field}${nebenwirkungen} bei ${s.nachname}`,
+      () => {
+        App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [oldVal, pruefer, keId]);
+        Object.entries(pflichtVorher).forEach(([pf, v]) => App.run(`UPDATE kontrollergebnisse SET ${pf}=? WHERE id=?`, [v, keId]));
+        wvVorher.forEach(w => App.run("UPDATE wiedervorlagen SET status=?, erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [w.status, w.id]));
+        this.renderSchueler();
+      },
       () => { App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]); this.renderSchueler(); }
     );
 
@@ -1332,6 +1469,19 @@ const KontrolleHandler = {
     if (field === 'ergebnis') {
       const wvSec = document.getElementById('wvSection');
       if (wvSec) wvSec.style.display = (value && value !== 'in_ordnung') ? '' : 'none';
+      // Wiedervorlage-Frist gleich sinnvoll vorbelegen (wie im Abschluss-Dialog)
+      if (value && value !== 'in_ordnung') {
+        const inp = document.getElementById('wvDatum');
+        if (inp && !inp.value) { const d = this._wvDefaultFuer(value); inp.value = d; this.saveWV(keId, d); }
+      }
+      // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
+      const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
+      if (btn) { btn.classList.toggle('btn-success', !!value); }
+      // Nach "In Ordnung" automatisch zum nächsten offenen Azubi (abschaltbar)
+      if (value === 'in_ordnung' && App.uGet('auto_next', '1') !== '0') {
+        App.toast('✓ In Ordnung – weiter zum nächsten offenen Azubi', 'success');
+        setTimeout(() => this.nextOffen(), 700);
+      }
 
       // Auto-erledige offene Wiedervorlagen wenn "in Ordnung"
       if (value === 'in_ordnung') {
@@ -2029,38 +2179,11 @@ const KontrolleHandler = {
   bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
     if (!ids.length) return App.toast('Bitte Schüler auswählen', 'warning');
-    if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?`)) return;
-    const tid = this.currentTerminId;
-    const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
-    let count = 0;
-    ids.forEach(sid => {
-      let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
-      if (!ke) {
-        // Carry forward cumulative data
-        const prevKE = App.query(`SELECT ke.* FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
-          WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [sid]);
-        const prev = prevKE.length ? prevKE[0] : {};
-        App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id,schueler_id,geprueft_kws,fehltage_gesamt,fehltage_pauschal,durchsicht_nr,
-          p_1_1_ausbildungsplan,p_1_4_auszubildende,p_1_5_bescheinigungen,bescheinigungen_anzahl,
-          f_1_2_vertragliche_regelungen,f_1_6_ausbildungsbetrieb) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [tid, sid, prev.geprueft_kws||'{}', prev.fehltage_gesamt||0, prev.fehltage_pauschal||0, (prev.durchsicht_nr||0)+1,
-           prev.p_1_1_ausbildungsplan||'', prev.p_1_4_auszubildende||'', prev.p_1_5_bescheinigungen||'',
-           prev.bescheinigungen_anzahl||0, prev.f_1_2_vertragliche_regelungen||'', prev.f_1_6_ausbildungsbetrieb||'']);
-        ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
-      }
-      if (!ke.ergebnis || ke.ergebnis === '') {
-        App.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?", [this.activePruefer || '', ke.id]);
-        // Also set all Pflichtteile to 'ja'
-        pflichtFields.forEach(pf => {
-          App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
-        });
-        // Auto-erledige offene WVs
-        const today = todayStr();
-        App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [today, sid]);
-        count++;
-      }
-    });
-    App.toast(`${count} Schüler als "In Ordnung" markiert (inkl. Pflichtteile ✓)`, 'success');
+    if (!this._pruefeAbgeschlossen()) return;
+    const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
+    if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`)) return;
+    const r = this._markOK(ids);
+    App.toast(`${r.count} Azubis als „In Ordnung" markiert (inkl. Pflichtteile ✓)${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderSchueler();
   },
 
@@ -2069,20 +2192,24 @@ const KontrolleHandler = {
     const tid = this.currentTerminId;
     const total = this.currentSchuelerList.length;
     const klassen = App.getTerminKlassen(tid);
-    const schule = klassen.length ? klassen[0].schule : '?';
+    const ortBs = App.getTerminSchule(tid);
+    const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '?');
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [tid])[0];
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'Sachberichte (E-Mail)',berichte_bis_termin_email:'Berichte (E-Mail)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
     // Collect results + mangelhafte
     const results = {}; let done = 0, open = 0;
-    const mangelhafte = [];
-    this.currentSchuelerList.forEach(s => {
+    const mangelhafte = [], offene = [], abwesende = [];
+    this.currentSchuelerList.forEach((s, idx) => {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
       const e = ke?.ergebnis || '';
+      if (ke && ke.anwesend === 0 && !e) { abwesende.push({ ...s, ke }); return; }
       if (e) { done++; results[e] = (results[e]||0) + 1; }
-      else { open++; }
+      else { open++; offene.push({ ...s, idx }); }
       if (e && e !== 'in_ordnung') mangelhafte.push({...s, ke, ergebnis: e});
     });
+    const fremde = this.currentSchuelerList.filter(s => s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT);
+    const fremdeAemter = [...new Set(fremde.map(s => s.zustaendiges_amt))];
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
@@ -2099,9 +2226,24 @@ const KontrolleHandler = {
 
     App.openModal('Kontrolle abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
-      <div style="font-size:14px;margin-bottom:12px">
-        <strong>${done} von ${total}</strong> kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''} · ${esc(schule)}
+      <div style="font-size:14px;margin-bottom:8px">
+        <strong>${done} von ${total - abwesende.length}</strong> anwesenden Azubis kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''}${abwesende.length ? ` · ${abwesende.length} abwesend` : ''} · ${esc(schule)}
       </div>
+      ${offene.length ? `<div style="font-size:12px;margin-bottom:10px;padding:8px 10px;background:var(--clr-red-light);border-radius:var(--radius)">
+        <strong>Noch ohne Ergebnis</strong> (Klick öffnet die Einzelansicht):
+        ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:white;border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
+      </div>` : ''}
+      ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+        <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>
+        <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname)).join(' · ')}</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
+          <input type="checkbox" id="wizNachholungWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Nachholung" anlegen, Frist
+          <input type="date" class="form-control" id="wizNachholungFrist" value="${addDaysStr(21)}" style="width:140px;padding:3px 6px;font-size:12px">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:4px">
+          <input type="checkbox" id="wizNachholungMail" checked style="accent-color:var(--clr-forest)"> ✉︎ Nachhol-Aufforderung an die Betriebe öffnen
+        </label>
+      </div>` : ''}
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         ${Object.entries(results).map(([k,v]) => `<span style="padding:4px 10px;background:${k==='in_ordnung'?'var(--clr-green-light)':'var(--clr-red-light)'};border-radius:10px;font-size:12px">${eLbl[k]||k}: <strong>${v}</strong></span>`).join('')}
       </div>
@@ -2139,6 +2281,9 @@ const KontrolleHandler = {
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="wizBetriebe" ${mangelhafte.length?'checked':''} style="accent-color:var(--clr-forest)"> ▤ Betriebe bei Mängeln anschreiben (Seriendruck)
           </label>
+          ${fremde.length ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="wizAemter" checked style="accent-color:var(--clr-forest)"> § Ergebnisse an ${fremdeAemter.length} fremde(s) Amt/Ämter weitergeben (${fremde.length} Azubis: ${esc(fremdeAemter.map(a => App.amtLabel(a)).join(', '))})
+          </label>` : ''}
         </div>
       </div>
 
@@ -2163,9 +2308,30 @@ const KontrolleHandler = {
         p_1_5: ke.p_1_5_bescheinigungen, besch_anz: ke.bescheinigungen_anzahl,
         f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb
       };
-      App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-        [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.geaendert_von || termin?.pruefer || '']);
+      // Erneutes Abschließen (nach "wieder öffnen") aktualisiert den vorhandenen
+      // Archiv-Eintrag statt einen zweiten anzulegen
+      const vorhanden = App.query('SELECT id FROM durchsicht_snapshots WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [ke.id])[0];
+      if (vorhanden) {
+        App.run(`UPDATE durchsicht_snapshots SET snapshot_datum=?, kw_daten_json=?, geprueft_kws_json=?, pflichtteile_json=?, ergebnis=?, bemerkung=?, pruefer=? WHERE id=?`,
+          [datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
+      } else {
+        App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.geaendert_von || termin?.pruefer || '']);
+      }
     });
+
+    // 1b) Abwesende → Wiedervorlage "Nachholung"
+    const nachholIds = [];
+    if (document.getElementById('wizNachholungWV')?.checked) {
+      const frist = document.getElementById('wizNachholungFrist')?.value || addDaysStr(21);
+      this.currentSchuelerList.forEach(s => {
+        const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
+        if (!ke || ke.anwesend !== 0 || ke.ergebnis) return;
+        nachholIds.push(s.id);
+        const da = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [ke.id]);
+        if (!da) App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,'nachholung_naechste_durchsicht',?,'offen')", [ke.id, s.id, frist]);
+      });
+    }
 
     // 2) Auto-create Wiedervorlagen
     document.querySelectorAll('[data-wv-ke]').forEach(row => {
@@ -2204,16 +2370,24 @@ const KontrolleHandler = {
         setTimeout(() => PlanungHandler.exportTerminPDF(tid), 300);
       }
     }
-    if (doEmail) setTimeout(() => Workflows.emailSchule(tid), doPDF ? 1000 : 300);
-    if (doBetriebe) setTimeout(() => Workflows.seriendruckBetriebe(tid), (doPDF ? 1000 : 0) + (doEmail ? 700 : 300));
+    const doAemter = document.getElementById('wizAemter')?.checked;
+    const doNachholMail = document.getElementById('wizNachholungMail')?.checked && nachholIds.length;
+    const anzWV = document.querySelectorAll('.wv-auto:checked').length;
+    let delay = doPDF ? 1000 : 300;
+    if (doEmail) { setTimeout(() => Workflows.emailSchule(tid), delay); delay += 700; }
+    if (doBetriebe) { setTimeout(() => Workflows.seriendruckBetriebe(tid), delay); delay += 700; }
+    if (doAemter) { setTimeout(() => PlanungHandler.fremdeAemter(tid), delay); delay += 700; }
+    if (doNachholMail) { const frist = document.getElementById('wizNachholungFrist')?.value; setTimeout(() => Workflows.emailNachholung(tid, nachholIds, frist), delay); }
 
     App.hideLoading();
-    App.toast(`Kontrolle abgeschlossen – Snapshots + ${document.querySelectorAll('.wv-auto:checked').length} Wiedervorlagen erstellt`, 'success');
-    this.renderKontrolleView();
+    App.toast(`Kontrolle abgeschlossen – Archiv-Bögen erstellt, ${anzWV} Wiedervorlage(n)${nachholIds.length ? `, ${nachholIds.length} Nachholung(en) für Abwesende` : ''}`, 'success');
+    // Zurück in die Übersicht (mit Abschluss-Banner), nicht auf einen beliebigen Azubi
+    this._viewMode = 'uebersicht';
+    this.renderUebersicht();
   },
 
   reopenKontrolle() {
-    if (!confirm('Kontrolle wieder öffnen? Status wird auf "geplant" zurückgesetzt.')) return;
+    if (!confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).')) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
     this.renderSchueler();

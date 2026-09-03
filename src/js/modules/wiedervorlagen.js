@@ -22,6 +22,16 @@ const WiedervorlagenHandler = {
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
+  // Direkt erledigen ohne Durchsicht (Nachweis kam z.B. per E-Mail/Post)
+  erledigenDirekt(id) {
+    const w = App.query('SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.id=?', [id])[0];
+    if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
+    App.openModal('Wiedervorlage als erledigt markieren – ' + w.nachname + ', ' + w.vorname,
+      '<div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die Mängel im KW-Raster bleiben dabei unverändert; nur die Wiedervorlage wird geschlossen. Wenn das Berichtsheft tatsächlich nachgeholt wurde, besser „→ Durchsicht" nutzen und die Wochen als behoben markieren.</div>' +
+      '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + todayStr() + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2" placeholder="z.B. Nachweis per E-Mail eingegangen"></textarea></div>',
+      '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
+    setTimeout(() => document.getElementById('mWvBem')?.focus(), 50);
+  },
   doErledigen(id) {
     const datum = document.getElementById('mWvDatum').value;
     const bem = document.getElementById('mWvBem').value.trim();

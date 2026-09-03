@@ -71,6 +71,7 @@ document.addEventListener('keydown', (e) => {
   // F5 = Reload from disk (not browser refresh)
   if (e.key === 'F5' && App.dbFileHandle && !App.demoMode) {
     e.preventDefault();
+    if (App.unsavedChanges && !confirm('Es gibt noch nicht gespeicherte Änderungen. Trotzdem von der Platte neu laden?\n(Eigene Änderungen werden vorher weggeschrieben, sofern möglich.)')) return;
     App.reloadFromFile();
     return;
   }

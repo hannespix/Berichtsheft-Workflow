@@ -1307,6 +1307,15 @@ const App = {
       geloescht_am TEXT DEFAULT (datetime('now','localtime')),
       PRIMARY KEY (tabelle, key)
     );
+    CREATE TABLE IF NOT EXISTS bhk_papierkorb (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      art TEXT NOT NULL,
+      ref_id INTEGER,
+      label TEXT DEFAULT '',
+      daten TEXT NOT NULL,
+      geloescht_von TEXT DEFAULT '',
+      geloescht_am TEXT DEFAULT (datetime('now','localtime'))
+    );
     CREATE TABLE IF NOT EXISTS wiedervorlagen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
@@ -2196,7 +2205,7 @@ const App = {
   },
 
   // ── Backup History ──
-  async createBackup() {
+  async createBackup(tag) {
     if (!this.backupsDirHandle || !this.db) return;
     try {
       const now = new Date();
@@ -2204,7 +2213,7 @@ const App = {
       // Client-Kürzel im Namen: 2-3 Nutzer sichern in DENSELBEN Ordner – ohne
       // Kürzel überschrieben sich Backups derselben Sekunde gegenseitig.
       const kuerzel = this._getClientId().slice(-4);
-      const backupName = `backup_${ts}_${kuerzel}.sqlite`;
+      const backupName = `backup_${ts}_${kuerzel}${tag ? '_' + tag : ''}.sqlite`;
       const backupHandle = await this.backupsDirHandle.getFileHandle(backupName, { create: true });
       const data = this.db.export();
       const writable = await backupHandle.createWritable();
@@ -2875,7 +2884,7 @@ const App = {
     // dieselbe Nummer; ein späteres "WHERE id=?" trifft dann beim Kollegen die
     // falsche Zeile (Mängel landeten beim falschen Azubi, Löschungen beim
     // falschen Prüfer/Jahrgang).
-    'kw_maengel','pruefer','abschlussjahrgaenge','import_historie']),
+    'kw_maengel','pruefer','abschlussjahrgaenge','import_historie','bhk_papierkorb']),
   // Natürliche Schlüssel: Replay-Adressierung (statt divergenter ids) + Tombstone-Keys
   NATURAL_KEYS: {
     kontrollergebnisse: ['kontrolltermin_id','schueler_id'],
@@ -3879,8 +3888,30 @@ const App = {
   //  Löschen verwaiste Zeilen liegen: unsichtbar, aber weiterhin in Ampel,
   //  Statistik und Mängelcode-Auswertung mitgezählt.
   // ═══════════════════════════════════════════
-  deleteSchuelerKaskade(id) {
+  deleteSchuelerKaskade(id, opts) {
     if (!id) return;
+    if (!(opts && opts.ohnePapierkorb)) {
+      try {
+        const s = this.query('SELECT * FROM schueler WHERE id=?', [id])[0];
+        if (s) {
+          this._papierkorbAblegen('schueler', id, `${s.nachname}, ${s.vorname}`, {
+            schueler: 'WHERE id=?',
+            kw_status: 'WHERE schueler_id=?',
+            kontrollergebnisse: 'WHERE schueler_id=?',
+            kw_maengel: 'WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
+            durchsicht_snapshots: 'WHERE schueler_id=?',
+            wiedervorlagen: 'WHERE schueler_id=?',
+            wiedervorlage_notizen: 'WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
+            ausbildungsphasen: 'WHERE schueler_id=?',
+            schueler_bemerkungen: 'WHERE schueler_id=?',
+            schueler_dateien: 'WHERE schueler_id=?',
+            kontrolltermin_schueler: 'WHERE schueler_id=?',
+          }, [id]);
+          // Löschung im Änderungs-Logbuch festhalten (Nachvollziehbarkeit / IBYKUS-Abgleich)
+          try { this.logChange(id, 'datensatz', `${s.nachname}, ${s.vorname}` + (s.ibykus_id ? ` (IBYKUS ${s.ibykus_id})` : ''), 'gelöscht', 'geloescht'); } catch(e) {}
+        }
+      } catch(e) { console.warn('Papierkorb:', e); }
+    }
     ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE schueler_id=?)',
      'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE schueler_id=?)',
      'DELETE FROM durchsicht_snapshots WHERE schueler_id=?',
@@ -3895,8 +3926,27 @@ const App = {
      'DELETE FROM schueler WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
   },
-  deleteTerminKaskade(id) {
+  deleteTerminKaskade(id, opts) {
     if (!id) return;
+    if (!(opts && opts.ohnePapierkorb)) {
+      try {
+        const t = this.query('SELECT * FROM kontrolltermine WHERE id=?', [id])[0];
+        if (t) {
+          const bs = this.getTerminSchule(id);
+          const n = this.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]) || 0;
+          this._papierkorbAblegen('termin', id, `${t.geplant_datum || ''}${bs ? ' · ' + bs.name : ''}${t.bemerkung ? ' · ' + t.bemerkung : ''} (${n} Ergebnis-Zeilen)`, {
+            kontrolltermine: 'WHERE id=?',
+            kontrolltermin_klassen: 'WHERE kontrolltermin_id=?',
+            kontrolltermin_schueler: 'WHERE kontrolltermin_id=?',
+            kontrollergebnisse: 'WHERE kontrolltermin_id=?',
+            kw_maengel: 'WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+            durchsicht_snapshots: 'WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+            wiedervorlagen: 'WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+            wiedervorlage_notizen: 'WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?))',
+          }, [id]);
+        }
+      } catch(e) { console.warn('Papierkorb:', e); }
+    }
     ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
@@ -3938,6 +3988,135 @@ const App = {
      'UPDATE kontrolltermine SET jahrgang_id=NULL WHERE jahrgang_id=?',
      'DELETE FROM abschlussjahrgaenge WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
+  },
+
+  // ═══════════════════════════════════════════
+  //  PAPIERKORB
+  //  Gelöschte Azubis und Termine landen samt aller abhängigen Zeilen als
+  //  JSON im Papierkorb (90 Tage) und lassen sich in den Einstellungen mit
+  //  einem Klick wiederherstellen. Die Zeilen behalten ihre IDs, Verknüpfungen
+  //  bleiben also intakt; der Re-INSERT hebt die Tombstones automatisch auf.
+  // ═══════════════════════════════════════════
+  PAPIERKORB_MAX_BYTES: 400000,
+  _papierkorbAblegen(art, refId, label, tabellen, params) {
+    const daten = {};
+    Object.entries(tabellen).forEach(([tab, where]) => {
+      try { const rows = this.query(`SELECT * FROM ${tab} ${where}`, params); if (rows.length) daten[tab] = rows; } catch(e) {}
+    });
+    let json = JSON.stringify(daten);
+    let gekuerzt = '';
+    // Zu große Pakete (sehr viele Durchsichtsbogen-Snapshots) ohne Snapshots ablegen –
+    // die Kontrollergebnisse selbst bleiben vollständig erhalten
+    if (json.length > this.PAPIERKORB_MAX_BYTES && daten.durchsicht_snapshots) {
+      delete daten.durchsicht_snapshots; gekuerzt = ' – ohne PDF-Snapshots'; json = JSON.stringify(daten);
+    }
+    if (json.length > this.PAPIERKORB_MAX_BYTES) { console.warn('Papierkorb: Paket zu groß, nicht abgelegt'); return; }
+    const anzahl = Object.values(daten).reduce((n, r) => n + r.length, 0);
+    this.run('INSERT INTO bhk_papierkorb (art, ref_id, label, daten, geloescht_von) VALUES (?,?,?,?,?)',
+      [art, refId, `${label}${gekuerzt} · ${anzahl} Zeilen`, json, this.currentUser || '']);
+  },
+  papierkorbListe() {
+    try { return this.query('SELECT id, art, ref_id, label, geloescht_von, geloescht_am, length(daten) AS bytes FROM bhk_papierkorb ORDER BY geloescht_am DESC'); }
+    catch(e) { return []; }
+  },
+  // Reihenfolge: Eltern vor Kindern (FKs werden zwar nicht erzwungen, aber
+  // _rewriteKeRef & Co. erwarten vorhandene Elternzeilen)
+  PAPIERKORB_REIHENFOLGE: ['schueler','kontrolltermine','kontrolltermin_klassen','kontrolltermin_schueler',
+    'kontrollergebnisse','kw_status','kw_maengel','durchsicht_snapshots','wiedervorlagen','wiedervorlage_notizen',
+    'ausbildungsphasen','schueler_bemerkungen','schueler_dateien'],
+  papierkorbWiederherstellen(pkId) {
+    const e = this.query('SELECT * FROM bhk_papierkorb WHERE id=?', [pkId])[0];
+    if (!e) return { ok: false, grund: 'Eintrag nicht gefunden' };
+    let daten;
+    try { daten = JSON.parse(e.daten); } catch(err) { return { ok: false, grund: 'Daten nicht lesbar' }; }
+    // Hauptzeile schon wieder vorhanden (z.B. per Import neu angelegt)? Dann nicht doppelt anlegen
+    const haupt = e.art === 'schueler' ? 'schueler' : 'kontrolltermine';
+    if (this.scalar(`SELECT COUNT(*) FROM ${haupt} WHERE id=?`, [e.ref_id])) {
+      return { ok: false, grund: (e.art === 'schueler' ? 'Azubi' : 'Termin') + ' existiert bereits wieder – Papierkorb-Eintrag wird verworfen', vorhanden: true };
+    }
+    let zeilen = 0;
+    this.PAPIERKORB_REIHENFOLGE.forEach(tab => {
+      const rows = daten[tab];
+      if (!rows || !rows.length) return;
+      let cols;
+      try { cols = new Set(this.query(`PRAGMA table_info(${tab})`).map(r => r.name)); } catch(err) { return; }
+      rows.forEach(row => {
+        const keys = Object.keys(row).filter(k => cols.has(k));
+        if (!keys.length) return;
+        try {
+          this.run(`INSERT OR IGNORE INTO ${tab} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, keys.map(k => row[k]));
+          zeilen++;
+        } catch(err) { console.warn('Papierkorb-Restore', tab, err.message); }
+      });
+    });
+    if (e.art === 'schueler') { try { this.logChange(e.ref_id, 'datensatz', 'gelöscht', 'wiederhergestellt', 'wiederhergestellt'); } catch(err) {} }
+    this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]);
+    try { this.invalidateTerminCache && this.invalidateTerminCache(); } catch(err) {}
+    return { ok: true, zeilen };
+  },
+  papierkorbEintragLoeschen(pkId) { this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]); },
+  papierkorbLeeren() { this.run('DELETE FROM bhk_papierkorb'); },
+
+  // ═══════════════════════════════════════════
+  //  BACKUP-WIEDERHERSTELLUNG
+  // ═══════════════════════════════════════════
+  async listBackups() {
+    if (!this.backupsDirHandle) return [];
+    const out = [];
+    try {
+      for await (const entry of this.backupsDirHandle.values()) {
+        if (entry.kind !== 'file' || !entry.name.startsWith('backup_') || !entry.name.endsWith('.sqlite')) continue;
+        try { const f = await entry.getFile(); out.push({ name: entry.name, size: f.size, lastModified: f.lastModified }); } catch(e) {}
+      }
+    } catch(e) {}
+    return out.sort((a, b) => b.name.localeCompare(a.name));
+  },
+  // Stellt ein Backup als neuen gemeinsamen Stand her: eigene Änderungen werden
+  // vorher weggeschrieben, der aktuelle Stand als Sicherung abgelegt, dann wird
+  // das Backup als Snapshot kompaktiert – die anderen Rechner übernehmen ihn
+  // beim nächsten Abgleich (neue Snapshot-Generation).
+  async restoreBackup(name) {
+    if (!this.backupsDirHandle || !this.dbFileHandle || !this.db) { this.toast('Kein Datenbank-Ordner verbunden', 'error'); return false; }
+    if (this._tabIsPrimary === false) { this.toast('Bitte im ersten geöffneten Tab wiederherstellen', 'warning'); return false; }
+    this.showLoading && this.showLoading('Backup wird geprüft…');
+    let neu = null;
+    try {
+      const fh = await this.backupsDirHandle.getFileHandle(name, { create: false });
+      const buf = await (await fh.getFile()).arrayBuffer();
+      const SQL = await App._getSqlJs();
+      neu = new SQL.Database(new Uint8Array(buf));
+      const check = neu.exec('PRAGMA integrity_check');
+      const ok = check[0] && check[0].values[0] && check[0].values[0][0];
+      if (ok !== 'ok') throw new Error('Integritätsprüfung fehlgeschlagen: ' + ok);
+      // 1) Eigene ungesicherte Änderungen wegschreiben + aktuellen Stand sichern
+      this.showLoading && this.showLoading('Aktueller Stand wird gesichert…');
+      try { await this.mergeAndSave(true); } catch(e) { console.warn('Vor Wiederherstellung:', e); }
+      await this.createBackup('vor-wiederherstellung');
+      // 2) Umschalten
+      this.showLoading && this.showLoading('Backup wird eingespielt…');
+      const alt = this.db;
+      this.db = neu; neu = null;
+      try { alt.close(); } catch(e) {}
+      this.migrateDB();
+      this._dirtyOps = [];
+      this._opsInFlight = [];
+      try { await this._persistDirtyOps(); } catch(e) {}
+      try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
+      // 3) Als neuen Snapshot schreiben (v3: Kompaktierung mit neuer Generation)
+      await this.fullSave();
+      this.unsavedChanges = false;
+      this.hideLoading && this.hideLoading();
+      this.renderCurrentView();
+      this.toast(`Backup „${name}" wiederhergestellt – die anderen Rechner übernehmen den Stand automatisch`, 'success');
+      return true;
+    } catch(e) {
+      console.error('Wiederherstellung fehlgeschlagen:', e);
+      try { neu && neu.close(); } catch(_) {}
+      this.hideLoading && this.hideLoading();
+      this.toast('Wiederherstellung fehlgeschlagen: ' + e.message + ' – Stand wird von der Platte neu geladen', 'error');
+      try { await this.reloadFromFile(); } catch(_) {}
+      return false;
+    }
   },
 
   scalar(sql, params = []) {
@@ -4411,6 +4590,12 @@ const App = {
       tabelle TEXT NOT NULL, key TEXT NOT NULL,
       geloescht_am TEXT DEFAULT (datetime('now','localtime')),
       PRIMARY KEY (tabelle, key))`);
+    // Papierkorb: gelöschte Azubis/Termine samt abhängiger Zeilen (90 Tage)
+    run(`CREATE TABLE IF NOT EXISTS bhk_papierkorb (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT NOT NULL, ref_id INTEGER,
+      label TEXT DEFAULT '', daten TEXT NOT NULL, geloescht_von TEXT DEFAULT '',
+      geloescht_am TEXT DEFAULT (datetime('now','localtime')))`);
+    run("DELETE FROM bhk_papierkorb WHERE geloescht_am < datetime('now','localtime','-90 days')");
     run(`CREATE TABLE IF NOT EXISTS import_historie (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       zeitpunkt TEXT DEFAULT (datetime('now','localtime')),
@@ -5020,6 +5205,15 @@ const App = {
     return schueler.sort((a,b) => (a.nachname||'').localeCompare(b.nachname||''));
   },
 
+  // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
+  // Teile mit _ verbunden (z.B. safeFilename(['Uebergabe','Amt 94','BS Freiburg','2026-09-15'],'xlsx'))
+  safeFilename(teile, ext) {
+    const tr = (s) => String(s ?? '').replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/Ä/g,'Ae').replace(/Ö/g,'Oe').replace(/Ü/g,'Ue').replace(/ß/g,'ss')
+      .replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+    const name = (Array.isArray(teile) ? teile : [teile]).map(tr).filter(Boolean).join('_');
+    return ext ? `${name}.${ext.replace(/^\./, '')}` : name;
+  },
+
   // Eigenes Amt (RP Freiburg): Azubis mit anderem zustaendiges_amt werden an
   // unseren Schulen MIT kontrolliert; ihre Ergebnisse gehen danach an den
   // zuständigen Ausbildungsberater des anderen Bezirks.
@@ -5070,7 +5264,8 @@ const App = {
   // Aussagekräftiges Label für einen Kontrolltermin (z.B. für Dropdowns)
   formatTerminLabel(t) {
     const klassen = this.getTerminKlassen(t.id);
-    const schule = klassen.length ? klassen[0].schule : '';
+    const ortBs = this.getTerminSchule(t.id);
+    const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '');
     const frAj = this.formatTerminFrAj(t.id);
     const count = this.getTerminSchuelerCount(t.id);
     const isEins = t.typ === 'einsendung';
@@ -5637,6 +5832,277 @@ const App = {
     catch(e) { return []; }
   },
 
+  // ═══════════════════════════════════════════
+  //  VORLAGEN für den Schriftverkehr (E-Mails, Briefe)
+  //  Jede Vorlage hat Betreff + Text mit {Platzhaltern}. Die Standardtexte
+  //  stehen hier; in den Einstellungen können sie überschrieben werden
+  //  (einstellungen: vorlage_<typ>_betreff / vorlage_<typ>_body). Unbekannte
+  //  Platzhalter bleiben sichtbar stehen statt "undefined" zu erzeugen.
+  // ═══════════════════════════════════════════
+  VORLAGEN: {
+    schule_anfrage: { titel: 'Schule: Terminanfrage (vor der Kontrolle)',
+      platzhalter: ['schule','schule_ort','datum','wochentag','gruppen','azubi_liste','anzahl','dauer','anzahl_pruefer','raumhinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Terminanfrage Berichtsheftkontrolle – {gruppen_kurz} – {schule} – {datum}',
+      body: `Sehr geehrte Damen und Herren,
+
+im Rahmen der Überwachung der Berufsausbildung im Gartenbau möchte das Regierungspräsidium Freiburg die Berichtsheftführung der Auszubildenden kontrollieren.
+
+Wir würden gerne am {wochentag}, den {datum}, an der {schule}{schule_ort} die Berichtsheftkontrolle durchführen.
+
+Betroffene Fachrichtungen und Ausbildungsjahre:
+{gruppen}
+
+Betroffene Auszubildende ({anzahl}):
+{azubi_liste}
+
+Voraussichtliche Dauer: ca. {dauer} (ca. 10 Min. pro Berichtsheft, {anzahl_pruefer} Prüfer)
+Prüfer: {pruefer}
+
+Könnten Sie uns bitte mitteilen, ob dieser Termin für Sie möglich ist? Wir benötigen {raumhinweis}.
+
+Die Auszubildenden werden gebeten, ihre vollständigen und unterschriebenen Berichtshefte einschließlich aller Ausbildungsnachweise am Kontrolltag bereitzuhalten. Die Berichtshefte sollen geordnet nach Kalenderwochen vorliegen.
+
+Falls der vorgeschlagene Termin nicht möglich ist, schlagen Sie uns bitte Alternativtermine in der gleichen oder folgenden Woche vor.
+
+Vielen Dank für Ihre Unterstützung.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    schule_ergebnis: { titel: 'Schule: Ergebnis-Mitteilung (nach der Kontrolle)',
+      platzhalter: ['schule','schule_ort','datum','gruppen','anzahl','ergebnisse','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Ergebnisse Berichtsheftkontrolle – {gruppen_kurz} – {schule} – {datum}',
+      body: `Sehr geehrte Damen und Herren,
+
+am {datum} wurde an der {schule}{schule_ort} die Berichtsheftkontrolle durchgeführt.
+
+Kontrollierte Fachrichtungen/Ausbildungsjahre:
+{gruppen}
+
+Ergebnisse ({anzahl} Auszubildende):
+{ergebnisse}
+Bei Auszubildenden mit Beanstandungen wurden die Ausbildungsbetriebe gesondert angeschrieben.
+
+Vielen Dank für die Bereitstellung der Räumlichkeiten und die gute Zusammenarbeit.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    betrieb_bcc: { titel: 'Betriebe: Serien-E-Mail Terminankündigung (BCC)',
+      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftdurchsicht am {datum} – {schule}',
+      body: `Sehr geehrte Ausbilderinnen und Ausbilder,
+
+im Rahmen der Berufsausbildung zum/zur {fachrichtung} findet am {datum} an der {schule}{schule_ort} eine Durchsicht der Berichtshefte (Ausbildungsnachweise) statt.
+
+Bitte stellen Sie sicher, dass Ihr Auszubildender/Ihre Auszubildende das Berichtsheft vollständig und ordnungsgemäß geführt zur Durchsicht mitbringt.
+
+Folgende Unterlagen werden geprüft:
+- Individueller Ausbildungsplan (ausgefüllt und unterschrieben)
+- Sachberichte / Wochenberichte (lückenlos geführt)
+- Bescheinigungen über überbetriebliche Ausbildung
+- Unterschriften des Ausbilders/der Ausbilderin
+
+Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    betrieb_ankuendigung: { titel: 'Betrieb: Terminankündigung (individuell)',
+      platzhalter: ['anrede','datum','schule','schule_ort','fachrichtung','klassen','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – {azubi_namen}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+am {datum} findet an der {schule}{schule_ort} die Berichtsheftkontrolle für {fachrichtung} ({klassen}) statt.
+
+Folgende Ihrer Auszubildenden sind betroffen:
+{azubi_block}
+
+Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
+
+Geprüft werden: Individueller Ausbildungsplan, Sachberichte/Wochenberichte (lückenlos), ÜBA-Bescheinigungen, Unterschriften.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    betrieb_maengel: { titel: 'Betrieb: Mängelmitteilung (nach der Kontrolle)',
+      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle – Ergebnis für {azubi_namen}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+am {datum} wurde an der {schule}{schule_ort} die Berichtsheftkontrolle durchgeführt.
+
+Für folgende Ihrer Auszubildenden ergab sich Handlungsbedarf:
+
+{azubi_block}
+
+Wir bitten Sie, dafür Sorge zu tragen, dass die genannten Mängel zeitnah behoben werden.
+
+Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    betrieb_ok: { titel: 'Betrieb: Bestätigung „ohne Beanstandung" (nach der Kontrolle)',
+      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – ohne Beanstandung ({azubi_namen})',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+am {datum} wurde an der {schule}{schule_ort} die Berichtsheftkontrolle durchgeführt.
+
+Die Berichtshefte folgender Auszubildender waren ohne Beanstandung:
+{azubi_block}
+
+Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – es besteht kein weiterer Handlungsbedarf.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    brief_betrieb: { titel: 'Betrieb: Anschreiben als Brief (PDF-Seriendruck)',
+      platzhalter: ['datum','schule','schule_ort','klassen','fachrichtung','azubi_liste','pruefer','rp_name'],
+      betreff: 'Berichtsheftkontrolle am {datum}',
+      body: `Sehr geehrte Damen und Herren,
+
+am {datum} findet an der {schule}{schule_ort} die Berichtsheftkontrolle für die Klasse(n) {klassen} ({fachrichtung}) statt.
+
+Folgende Ihrer Auszubildenden sind betroffen:
+{azubi_liste}
+
+Bitte stellen Sie sicher, dass die Berichtshefte Ihrer Auszubildenden vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
+
+Fehlende oder mangelhafte Berichtshefte können die Zulassung zur Abschlussprüfung gefährden.
+
+Mit freundlichen Grüßen
+
+{pruefer}
+{rp_name}` },
+    wv_mahnung: { titel: 'Wiedervorlage: Mängelmitteilung mit Frist',
+      platzhalter: ['anrede','azubi','maengel','frist','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle – Mängel im Berichtsheft von {azubi}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+bei der Berichtsheftkontrolle Ihres/Ihrer Auszubildenden {azubi} wurden folgende Mängel festgestellt:
+
+{maengel}
+
+Wir bitten Sie, dafür Sorge zu tragen, dass die genannten Mängel bis spätestens {frist} behoben werden.
+
+Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
+
+Den Durchsichtsbogen der letzten Kontrolle fügen wir als Anlage bei.
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}
+
+Anlage: Durchsichtsbogen {azubi}` },
+    wv_erinnerung: { titel: 'Wiedervorlage: Erinnerung bei überschrittener Frist',
+      platzhalter: ['anrede','azubi','maengel','frist_alt','frist_neu','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Erinnerung: Mängel im Berichtsheft von {azubi} – Frist {frist_alt} überschritten',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+mit unserer Mitteilung hatten wir Sie gebeten, die bei der Berichtsheftkontrolle festgestellten Mängel im Berichtsheft Ihres/Ihrer Auszubildenden {azubi} bis zum {frist_alt} beheben zu lassen. Ein Nachweis liegt uns bisher nicht vor.
+
+Offene Mängel:
+{maengel}
+
+Wir bitten Sie, das vollständige Berichtsheft bis spätestens {frist_neu} vorzulegen bzw. die Behebung der Mängel zu bestätigen.
+
+Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
+    nachholung: { titel: 'Betrieb: Nachhol-Aufforderung (am Kontrolltag abwesend)',
+      platzhalter: ['anrede','azubi_block','datum','schule','frist','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – Nachholung für {azubi_namen}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+am {datum} wurde an der {schule} die Berichtsheftkontrolle durchgeführt. Folgende Ihrer Auszubildenden waren an diesem Tag nicht anwesend, ihr Berichtsheft konnte daher nicht geprüft werden:
+{azubi_block}
+
+Wir bitten Sie, das vollständig geführte und unterschriebene Berichtsheft bis spätestens {frist} zur Durchsicht vorzulegen (per Post an die unten genannte Adresse oder nach Absprache persönlich).
+
+Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
+    amt_uebergabe: { titel: 'Fremdes Amt: Übergabeschreiben zu mitkontrollierten Azubis',
+      platzhalter: ['amt','amt_name','schule','datum','anzahl','azubi_liste','anlagen','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle {schule} am {datum} – Ergebnisse für Auszubildende aus Ihrem Zuständigkeitsbereich ({amt})',
+      body: `Sehr geehrte Kolleginnen und Kollegen,
+
+bei der Berichtsheftkontrolle am {datum} an der {schule} haben wir auch {anzahl} Auszubildende aus Ihrem Zuständigkeitsbereich ({amt_name}) mitkontrolliert:
+{azubi_liste}
+
+Die Durchsichtsbögen und eine Übergabeliste mit den Ergebnissen fügen wir als Anlage bei. Eventuelle Wiedervorlagen/Nachholungen bitten wir in Ihrer Zuständigkeit weiterzuverfolgen.
+
+Bei Rückfragen stehe ich gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}
+
+Anlagen: {anlagen}` },
+  },
+  getVorlage(typ) {
+    const def = this.VORLAGEN[typ];
+    if (!def) return null;
+    const betreff = this.scalar("SELECT wert FROM einstellungen WHERE schluessel=?", ['vorlage_' + typ + '_betreff']);
+    const body = this.scalar("SELECT wert FROM einstellungen WHERE schluessel=?", ['vorlage_' + typ + '_body']);
+    return { ...def, betreff: (betreff && betreff.trim()) ? betreff : def.betreff, body: (body && body.trim()) ? body : def.body,
+      angepasst: !!((betreff && betreff.trim()) || (body && body.trim())) };
+  },
+  saveVorlage(typ, betreff, body) {
+    if (!this.VORLAGEN[typ]) return;
+    const def = this.VORLAGEN[typ];
+    // Standardtext = Überschreibung entfernen
+    const b = (betreff || '').trim() === def.betreff.trim() ? '' : (betreff || '');
+    const t = (body || '').trim() === def.body.trim() ? '' : (body || '');
+    this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", ['vorlage_' + typ + '_betreff', b]);
+    this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", ['vorlage_' + typ + '_body', t]);
+  },
+  resetVorlage(typ) {
+    this.run("DELETE FROM einstellungen WHERE schluessel IN (?,?)", ['vorlage_' + typ + '_betreff', 'vorlage_' + typ + '_body']);
+  },
+  // Platzhalter ersetzen: {name} → ctx.name; unbekannte bleiben stehen
+  fuellePlatzhalter(text, ctx) {
+    return String(text || '').replace(/\{([a-z_]+)\}/g, (m, k) => (ctx && ctx[k] != null) ? String(ctx[k]) : m);
+  },
+  renderVorlage(typ, ctx) {
+    const v = this.getVorlage(typ);
+    if (!v) return { betreff: '', body: '' };
+    return { betreff: this.fuellePlatzhalter(v.betreff, ctx), body: this.fuellePlatzhalter(v.body, ctx) };
+  },
+  // Gemeinsame Absenderdaten für Vorlagen
+  absenderCtx(prueferName) {
+    const rpAdressePost = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_post'") || 'Regierungspräsidium Freiburg';
+    const rpEmail = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
+    // Prüfer-Datensatz finden: erst der volle Name ("Nachname, Vorname"),
+    // dann die Teile einer Prüferliste ("Pix, Zilz")
+    const kandidaten = [(prueferName || '').trim(), ...(prueferName || '').split(',').map(x => x.trim())].filter(Boolean);
+    let pr = null;
+    for (const k of kandidaten) { pr = this.query('SELECT * FROM pruefer WHERE name=?', [k])[0]; if (pr) break; }
+    return {
+      pruefer: prueferName || 'Ausbildungsberater',
+      pruefer_email: (pr && pr.email) || rpEmail || '',
+      rp_adresse: rpAdressePost,
+      rp_email: rpEmail,
+      rp_name: 'Regierungspräsidium Freiburg',
+      datum_heute: new Date().toLocaleDateString('de-DE'),
+    };
+  },
+  // E-Mail-Adressen fremder Ämter (Einstellungen, JSON {amt: email})
+  aemterEmails() {
+    try { return JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='aemter_email'") || '{}') || {}; }
+    catch(e) { return {}; }
+  },
+
   // ── Show main app ──
   showApp() {
     document.getElementById('connectScreen').style.display = 'none';
@@ -5804,6 +6270,14 @@ const App = {
   },
 
   migrateDB() {
+    // Papierkorb (gelöschte Azubis/Termine, 90 Tage) – auch auf Bestands-DBs
+    try {
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_papierkorb (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT NOT NULL, ref_id INTEGER,
+        label TEXT DEFAULT '', daten TEXT NOT NULL, geloescht_von TEXT DEFAULT '',
+        geloescht_am TEXT DEFAULT (datetime('now','localtime')))`);
+      this.db.run("DELETE FROM bhk_papierkorb WHERE geloescht_am < datetime('now','localtime','-90 days')");
+    } catch(e) { console.warn('Papierkorb-Migration:', e); }
     try {
       // Ensure new tables exist (SCHEMA handles CREATE IF NOT EXISTS)
       // wiedervorlage_notizen fehlte als einzige Zusatztabelle in beiden
@@ -5839,6 +6313,10 @@ const App = {
         geloescht_am TEXT DEFAULT (datetime('now','localtime')),
         PRIMARY KEY (tabelle, key))`);
       try { this.db.run("DELETE FROM bhk_tombstones WHERE geloescht_am < datetime('now','localtime','-60 days')"); } catch(e) {}
+      this.db.run(`CREATE TABLE IF NOT EXISTS bhk_papierkorb (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT NOT NULL, ref_id INTEGER,
+        label TEXT DEFAULT '', daten TEXT NOT NULL, geloescht_von TEXT DEFAULT '',
+        geloescht_am TEXT DEFAULT (datetime('now','localtime')))`);
       // Add columns to kontrollergebnisse if missing
       const keCols = this.query("PRAGMA table_info(kontrollergebnisse)").map(r => r.name);
       if (!keCols.includes('geprueft_kws')) {
@@ -6408,17 +6886,20 @@ const App = {
   },
 
   // ── ICS Export ──
-  exportICS(events) {
+  exportICS(events, dateiname) {
+    // Feldinhalte nach RFC 5545 maskieren – ein Komma im Schulnamen zerbrach
+    // sonst die SUMMARY-Zeile
+    const esc5545 = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
     let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Berichtsheftkontrolle//DE\r\nCALSCALE:GREGORIAN\r\n';
-    events.forEach(e => {
+    events.forEach((e, i) => {
       const dtStart = e.date.replace(/-/g, '');
-      ics += `BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:${dtStart}\r\nSUMMARY:${e.title}\r\nDESCRIPTION:${e.description || ''}\r\nEND:VEVENT\r\n`;
+      ics += `BEGIN:VEVENT\r\nUID:bhk-${dtStart}-${i}@berichtsheftkontrolle\r\nDTSTART;VALUE=DATE:${dtStart}\r\nSUMMARY:${esc5545(e.title)}\r\nDESCRIPTION:${esc5545(e.description || '')}\r\nEND:VEVENT\r\n`;
     });
     ics += 'END:VCALENDAR';
     const blob = new Blob([ics], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `BH-Kontrolltermine_${todayStr()}.ics`;
+    a.download = dateiname || `BH-Kontrolltermine_${todayStr()}.ics`;
     a.click();
   },
 };
