@@ -60,7 +60,8 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 │   ├── FileSaver.min.js             ← Datei-Download
 │   ├── pdf.min.js + pdf.worker.min.js ← PDF-Lesen (Blockplan)
 │   └── chart.umd.min.js            ← Diagramme
-├── fonts/                           ← Schriften (DM Sans, Fraunces)
+├── fonts/                           ← Schriften BaWue Sans/Serif (Landes-CI, lizenzpflichtig – fonts/LIZENZ.md)
+├── assets/logo/                     ← RPF-Logo (geschützt – assets/logo/LIZENZ.md)
 ├── backups/                         ← Automatische DB-Backups
 ├── CLAUDE.md                        ← Diese Datei
 └── README.md                        ← Projekt-Übersicht
