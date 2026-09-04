@@ -53,7 +53,8 @@ berichtsheftkontrolle/
 │       ├── utils.js           ← Hilfsfunktionen + Init
 │       └── modules/           ← 20 Feature-Module (siehe unten)
 ├── libs/                      ← Externe Libraries (offline-fähig)
-├── fonts/                     ← Eingebettete Schriften (DM Sans, Fraunces)
+├── fonts/                     ← Eingebettete Schriften (BaWue Sans/Serif, lizenzpflichtig – siehe fonts/LIZENZ.md)
+├── assets/logo/               ← RPF-Logo (geschützt – siehe assets/logo/LIZENZ.md)
 ├── backups/                   ← Automatische DB-Sicherungen
 ├── CLAUDE.md                  ← Entwicklungs-Guide (für KI-gestützte Entwicklung)
 └── README.md                  ← Diese Datei

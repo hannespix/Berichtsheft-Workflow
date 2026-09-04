@@ -530,7 +530,7 @@ const Views = {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 800, easing: 'easeOutQuart' },
-      plugins: { legend: { position: isMobile ? 'bottom' : 'bottom', labels: { font: { size: isMobile ? 10 : 11, family: "'DM Sans'" }, padding: isMobile ? 4 : 8, boxWidth: isMobile ? 10 : 12 } } }
+      plugins: { legend: { position: isMobile ? 'bottom' : 'bottom', labels: { font: { size: isMobile ? 10 : 11, family: "'BaWue Sans'" }, padding: isMobile ? 4 : 8, boxWidth: isMobile ? 10 : 12 } } }
     };
 
     // ── 1) Kontrollfortschritt Donut ──
@@ -725,7 +725,7 @@ const Views = {
           options: { ...chartOpts, indexAxis: 'y',
             scales: {
               x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 10 } } },
-              y: { grid: { display: false }, ticks: { font: { size: 11, family: "'DM Sans'" } } }
+              y: { grid: { display: false }, ticks: { font: { size: 11, family: "'BaWue Sans'" } } }
             },
             plugins: { ...chartOpts.plugins, legend: { display: false } },
             onClick: (evt, elems) => {
@@ -2389,7 +2389,7 @@ const Views = {
 
           <div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">⚙︎ Wartung & Administration</div>
-            <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
+            <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (BaWue Sans, BaWue Serif – Landes-CI) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
             <p>1. Neue Version der HTML-Datei in den Arbeitsordner kopieren (bestehende Datei überschreiben)</p>
             <p>2. Browser-Tab mit F5 neu laden – die aktualisierte Version ist sofort verfügbar</p>
@@ -2464,7 +2464,7 @@ const Views = {
             <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⇅ Netzwerkverkehr und externe Verbindungen</p>
             <div style="margin-top:6px;padding:12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.8">
               <p><strong>Es findet keinerlei Netzwerkverkehr statt.</strong></p>
-              <p style="margin-top:6px">Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (DM Sans, Fraunces) – sind als Base64-codierte Daten direkt in die HTML-Datei eingebettet.</p>
+              <p style="margin-top:6px">Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (BaWue Sans, BaWue Serif – Landes-CI) – sind als Base64-codierte Daten direkt in die HTML-Datei eingebettet.</p>
               <p style="margin-top:6px">Die Anwendung lädt <strong>keine externen Ressourcen</strong>: kein Content Delivery Network (CDN), keine Web-Schriftarten (Google Fonts o.ä.), keine Analytics- oder Tracking-Dienste, keine Telemetrie. Eine Überprüfung mittels Browser-Entwicklertools (F12 → Netzwerk-Tab) bestätigt: null ausgehende HTTP-Anfragen.</p>
               <p style="margin-top:6px">Zu keinem Zeitpunkt werden personenbezogene Daten – weder Azubi-Stammdaten noch Kontrollergebnisse noch Metadaten – an Dritte, externe Server oder den Hersteller übermittelt.</p>
             </div>

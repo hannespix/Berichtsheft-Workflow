@@ -5,24 +5,25 @@
    - Typo: Fraunces (Serif, Überschriften) + DM Sans (Fließtext)
      — analog zum BaWue-Serif/Sans-Prinzip
    - Layout: viel Weißraum, dünne Linien, Gelb als Marker-Akzent
-   - Kopfzeile + Filterleiste HELL (Warm-Schwarz nur für Schrift und
-     Primär-Buttons); aktive Zustände als Gelb-Tint (--clr-gelb-soft)
-     mit gelber Unterkante statt dunkler Flächen
+   - RP-Look wie „Azubi-Wissen"/rp.baden-wuerttemberg.de: vollgelbe
+     Kopfzeile mit schwarzem RPF-Logo, weiße Filterleiste mit Pillen-Chips
+     (aktiv = schwarz), Karten mit 16px-Rundung und weicher Elevation,
+     Schriften BaWue Sans/Serif (fonts/LIZENZ.md)
    ══════════════════════════════════════════════════════════════ */
 :root {
   --clr-forest: #2A2623;        /* BaWü Warm-Schwarz (Primär) */
   --clr-forest-dark: #000000;
   --clr-gelb: #FFFC00;          /* BaWü Gelb — Marker/Akzente */
-  --clr-sage: #918C8C;          /* Grau 4 */
-  --clr-sage-light: #BBB6B5;    /* Grau 3 */
+  --clr-sage: #8A847E;          /* bw-grau-500 */
+  --clr-sage-light: #C9C5C1;    /* bw-grau-300 */
   --clr-leaf: #B79A1E;          /* Landesfarben-Gold (Hover/Fokus) */
   --clr-leaf-light: #FBF8DC;    /* Blasses Gelb (Hover-Flächen) */
-  --clr-cream: #F4F3F3;         /* Grau 1 (App-Hintergrund) */
-  --clr-warm: #F4F3F3;          /* Grau 1 (Innenflächen) */
-  --clr-sand: #E4E0E0;          /* Grau 2 (Linien/Rahmen) */
-  --clr-sand-light: #EEECEC;
+  --clr-cream: #F7F6F5;         /* bw-grau-50 (App-Hintergrund) */
+  --clr-warm: #F2F0EF;          /* bw-grau-100 (Innenflächen) */
+  --clr-sand: #E4E1DE;          /* bw-grau-200 (Linien/Rahmen) */
+  --clr-sand-light: #F2F0EF;
   --clr-text: #2A2623;
-  --clr-text-light: #6D6766;    /* Grau 5 */
+  --clr-text-light: #56524E;    /* bw-grau-700 */
   --clr-white: #ffffff;
   --clr-red: #C6332E;           /* BW Rot (Hell/Dunkel-Mitte) */
   --clr-red-light: #FBEDEC;
@@ -32,21 +33,29 @@
   --clr-green-light: #EFF5E4;
   --clr-blue: #0A3C90;          /* BW Blau Dunkel */
   --clr-blue-light: #EAF0FA;
-  --font-display: 'Fraunces', serif;
-  --font-body: 'DM Sans', sans-serif;
-  /* Kopfbereich (Topbar + Filterleiste): hell, Gelb als einzige Signatur */
-  --tb-bg: #ffffff;
+  --font-display: 'BaWue Serif', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --font-body: 'BaWue Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Kopfzeile: RP-Look – vollgelbe Fläche, schwarzes Logo und schwarze Schrift */
+  --tb-bg: #FFFC00;
   --tb-fg: #2A2623;
-  --tb-muted: #6D6766;
-  --tb-border: #E4E0E0;
-  --tb-chip: #F4F3F3;
-  --tb-chip-hover: #EEECEC;
-  --clr-gelb-soft: #FFFDD6;     /* Gelb-Tint für aktive Flächen (Sidebar, Filter) */
+  --tb-muted: #56524E;
+  --tb-border: rgba(42,38,35,0.35);
+  --tb-chip: transparent;
+  --tb-chip-hover: rgba(42,38,35,0.08);
+  /* Filterleiste unter der Kopfzeile: weiß, Pillen-Chips */
+  --fb-bg: #ffffff;
+  --fb-border: #E4E1DE;
+  --fb-chip: #ffffff;
+  --fb-chip-hover: #F2F0EF;
+  --fb-chip-border: #C9C5C1;
+  --clr-gelb-soft: #FFFDD6;     /* Gelb-Tint für aktive Flächen */
   --clr-gelb-line: #E8E000;     /* etwas ruhigeres Gelb für Rahmen */
-  --radius: 4px;                /* kantiger — editorial */
-  --shadow-sm: 0 1px 2px rgba(42,38,35,0.05);
-  --shadow-md: 0 3px 10px rgba(42,38,35,0.08), 0 1px 3px rgba(42,38,35,0.05);
-  --shadow-lg: 0 12px 32px rgba(42,38,35,0.12), 0 4px 8px rgba(42,38,35,0.06);
+  --radius: 4px;                /* Interaktionselemente (BW: Flächen eckig, Radius nur für Interaktion) */
+  --radius-gross: 16px;         /* Karten – weiche Elevation wie in „Azubi-Wissen" */
+  --radius-rund: 999px;         /* Chips / Pillen */
+  --shadow-sm: 0 1px 2px rgba(42,38,35,0.05), 0 2px 10px rgba(42,38,35,0.07);
+  --shadow-md: 0 2px 6px rgba(42,38,35,0.07), 0 12px 28px rgba(42,38,35,0.12);
+  --shadow-lg: 0 8px 20px rgba(42,38,35,0.12), 0 28px 70px rgba(42,38,35,0.20);
   --transition: 0.2s ease;
 }
 
@@ -60,6 +69,7 @@ body.dark-mode {
   --clr-blue: #6FA0E8; --clr-blue-light: #1A2438;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.4); --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
   --tb-bg: #141210; --tb-fg: #E4E0DC; --tb-muted: #999; --tb-border: #3A3733; --tb-chip: #242220; --tb-chip-hover: #2E2B29;
+  --fb-bg: #1B1917; --fb-border: #3A3733; --fb-chip: #242220; --fb-chip-hover: #2E2B29; --fb-chip-border: #3A3733;
   --clr-gelb-soft: #33301E; --clr-gelb-line: #D9C22E;
 }
 body.dark-mode .sidebar { background: #1a1a1a; border-color: #333; }
@@ -73,6 +83,9 @@ body.dark-mode .modal { background: #211F1D; }
 body.dark-mode .btn-primary { color: #1B1917; }
 body.dark-mode .btn-primary:hover { color: #1B1917; }
 body.dark-mode .kw-legend kbd { background: #2E2B29; color: #E4E0DC; border-color: #3A3733; }
+body.dark-mode .topbar-logo--pos { display: none; }
+body.dark-mode .topbar-logo--neg { display: block; }
+body.dark-mode .fp-btn.active, body.dark-mode .topbar-filter-toggle.active { background: #E4E0DC; color: #1B1917; border-color: #E4E0DC; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -95,39 +108,32 @@ body {
 
 /* ── Top Bar ── */
 .topbar {
-  background: var(--tb-bg);   /* hell – das Warm-Schwarz bleibt der Schrift vorbehalten */
+  background: var(--tb-bg);   /* RP-Look: gelbe Fläche, schwarzes Logo und schwarze Schrift */
   color: var(--tb-fg);
   padding: 0 24px;
-  height: 52px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
   z-index: 100;
-  border-bottom: 3px solid var(--clr-gelb); /* Landesdesign-Signatur: gelbe Linie */
+  border-bottom: 0; /* harte Kante zum weißen Inhalt (wie rp.baden-wuerttemberg.de) */
 }
 .topbar-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
-.topbar-brand svg { width: 28px; height: 28px; opacity: 0.9; }
+.topbar-logo { height: 44px; width: auto; display: block; }   /* ~2 Grundeinheiten (CI) */
+.topbar-logo--neg { display: none; }
 .topbar-brand h1 {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
   color: var(--tb-fg);
-}
-/* kurzer gelber Marker vor dem Titel (GEO-Kicker) */
-.topbar-brand h1::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 20px;
-  background: var(--clr-gelb);
-  margin-right: 10px;
-  vertical-align: -3px;
+  padding-left: 14px;
+  border-left: 1px solid var(--tb-border);
+  line-height: 1.2;
 }
 .topbar-status {
   display: flex;
@@ -151,8 +157,8 @@ body {
   font-family: var(--font-body);
   white-space: nowrap;
 }
-.topbar-btn:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
-.topbar-btn kbd { font-size: 9px; padding: 1px 4px; background: var(--tb-bg); border: 1px solid var(--tb-border); border-radius: 3px; color: var(--tb-muted); font-family: var(--font-body); }
+.topbar-btn:hover { background: var(--tb-chip-hover); }
+.topbar-btn kbd { font-size: 10px; font-weight: 700; padding: 1px 5px; background: transparent; border: 1px solid var(--tb-fg); border-radius: 3px; color: var(--tb-fg); font-family: var(--font-body); }
 .topbar-status .dot {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -178,10 +184,10 @@ body {
   text-overflow: ellipsis;
   transition: border-color 0.15s;
 }
-.topbar-user-select:hover { border-color: var(--clr-sage-light); }
-.topbar-user-select:focus { outline: none; border-color: var(--clr-leaf); box-shadow: 0 0 0 2px var(--clr-gelb-soft); }
-.topbar-user-select option { background: var(--tb-bg); color: var(--tb-fg); font-size: 13px; padding: 4px 8px; }
-.topbar-user-select.has-user { background-color: var(--clr-gelb-soft); border-color: var(--clr-leaf); }
+.topbar-user-select:hover { background-color: var(--tb-chip-hover); }
+.topbar-user-select:focus { outline: 2px solid var(--tb-fg); outline-offset: 2px; }
+.topbar-user-select option { background: #ffffff; color: #2A2623; font-size: 13px; padding: 4px 8px; }
+.topbar-user-select.has-user { border-color: var(--tb-fg); font-weight: 700; }
 .topbar-filter-toggle {
   padding: 4px 12px;
   font-size: 12px;
@@ -196,37 +202,38 @@ body {
   white-space: nowrap;
   font-family: var(--font-body);
 }
-.topbar-filter-toggle:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
-.topbar-filter-toggle.active { background: var(--clr-gelb-soft); border-color: var(--tb-border); box-shadow: inset 0 -2px 0 var(--clr-gelb); font-weight: 600; }
+.topbar-filter-toggle:hover { background: var(--tb-chip-hover); }
+.topbar-filter-toggle.active { background: var(--tb-fg); color: var(--tb-bg); border-color: var(--tb-fg); font-weight: 700; }
 
 /* ── Filter Panel (below topbar) ── */
 .filter-panel {
   display: none;
-  background: var(--tb-bg);
-  padding: 7px 24px;
+  background: var(--fb-bg);
+  padding: 8px 24px;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
-  border-bottom: 1px solid var(--tb-border);
+  border-bottom: 1px solid var(--fb-border);
   flex-shrink: 0;
-  color: var(--tb-fg);
+  color: var(--clr-text);
 }
 .filter-panel.open { display: flex; }
 .fp-btn {
   padding: 5px 12px;
   font-size: 12px;
-  border: 1px solid var(--tb-border);
-  border-radius: 6px;
-  background: var(--tb-chip);
-  color: var(--tb-fg);
+  font-weight: 700;
+  border: 1px solid var(--fb-chip-border);
+  border-radius: var(--radius-rund);
+  background: var(--fb-chip);
+  color: var(--clr-text);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
   font-family: var(--font-body);
 }
-.fp-btn:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
-/* aktiver Filter: gelber Tint + gelbe Unterkante statt dunkler Fläche */
-.fp-btn.active { background: var(--clr-gelb-soft); border-color: var(--tb-border); box-shadow: inset 0 -2px 0 var(--clr-gelb); font-weight: 600; }
+.fp-btn:hover { border-color: var(--clr-text); transform: translateY(-1px); }
+/* aktiver Filter: gefüllte schwarze Pille (Chip-Muster aus „Azubi-Wissen") */
+.fp-btn.active { background: var(--clr-forest); color: #ffffff; border-color: var(--clr-forest); }
 .fp-dropdown {
   position: absolute;
   top: 100%;
@@ -234,9 +241,9 @@ body {
   z-index: 500;
   background: white;
   color: #333;
-  border: 1px solid var(--clr-sand);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--clr-sage-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
   min-width: 160px;
   max-height: 320px;
   overflow-y: auto;
@@ -333,10 +340,10 @@ body {
   color: var(--clr-forest-dark);
 }
 .sidebar-item.active {
-  background: var(--clr-gelb-soft);
+  background: var(--clr-warm);
   color: var(--clr-forest-dark);
-  font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--clr-gelb); /* gelber Marker (Landesdesign) */
+  font-weight: 700;
+  box-shadow: inset 4px 0 0 var(--clr-gelb); /* gelber Marker (Landesdesign, wie mobiles Menü in Azubi-Wissen) */
 }
 .sidebar-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 .sidebar-item .badge {
@@ -371,18 +378,10 @@ body {
   letter-spacing: -0.02em;
   line-height: 1.15;
 }
-/* GEO-Kicker: kurze gelbe Marker-Linie unter der Überschrift */
-.page-header h2::after {
-  content: '';
-  display: block;
-  width: 44px;
-  height: 5px;
-  background: var(--clr-gelb);
-  margin-top: 10px;
-}
 .page-header p {
-  color: var(--clr-text-light);
-  font-size: 14px;
+  color: var(--clr-text);
+  font-size: 15px;
+  font-weight: 700;
   margin-top: 8px;
 }
 
@@ -390,9 +389,10 @@ body {
 .card {
   background: var(--clr-white);
   border: 1px solid var(--clr-sand);
-  border-radius: var(--radius);
+  border-radius: var(--radius-gross);
   padding: 20px;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
 }
 .card-header {
   font-family: var(--font-display);
@@ -426,10 +426,12 @@ body {
 .stat-card {
   background: var(--clr-white);
   border: 1px solid var(--clr-sand);
-  border-radius: var(--radius);
+  border-radius: var(--radius-gross);
   padding: 16px 20px;
   box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.3s ease;
 }
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .stat-card .stat-label {
   font-size: 12px;
   color: var(--clr-text-light);
@@ -511,7 +513,7 @@ body.dark-mode .table-sticky-name thead th:nth-child(2) { background: #2a2a2a; }
 .form-control {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid var(--clr-sand);
+  border: 1px solid var(--clr-sage-light);
   border-radius: var(--radius);
   font-family: var(--font-body);
   font-size: 14px;
@@ -552,14 +554,15 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .btn-primary {
   background: var(--clr-forest);
   color: var(--clr-white);
+  box-shadow: inset 0 0 0 2px var(--clr-forest);
 }
-.btn-primary:hover { background: var(--clr-forest-dark); box-shadow: inset 0 -3px 0 var(--clr-gelb); }
+.btn-primary:hover { background: var(--clr-white); color: var(--clr-forest); }
 .btn-secondary {
   background: var(--clr-white);
   color: var(--clr-text);
-  border: 1px solid var(--clr-sand);
+  border: 1px solid var(--clr-sage-light);
 }
-.btn-secondary:hover { background: var(--clr-warm); border-color: var(--clr-sage-light); }
+.btn-secondary:hover { background: var(--clr-warm); border-color: var(--clr-forest); }
 .btn-danger {
   background: var(--clr-red);
   color: var(--clr-white);
@@ -616,7 +619,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .modal-overlay.active { opacity: 1; pointer-events: auto; }
 .modal {
   background: var(--clr-white);
-  border-radius: 12px;
+  border-radius: var(--radius-gross);
+  border: 1px solid var(--clr-sage-light);
   box-shadow: var(--shadow-lg);
   max-width: 640px;
   width: 90%;
@@ -852,8 +856,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   display: inline-block;
   background: var(--clr-white);
   color: var(--clr-forest-dark);
-  border: 1px solid var(--clr-sand);
-  box-shadow: 0 1px 0 var(--clr-sand);
+  border: 1px solid var(--clr-sage-light);
+  border-bottom-width: 2px;
   font-family: var(--font-body);
   font-size: 10px;
   font-weight: 700;
@@ -878,8 +882,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 .toast {
   background: var(--clr-white);
-  border: 1px solid var(--clr-sand);
-  border-radius: var(--radius);
+  border: 1px solid var(--clr-sage-light);
+  border-radius: 12px;
   padding: 12px 16px;
   box-shadow: var(--shadow-md);
   display: flex;
@@ -928,7 +932,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   align-items: center;
   justify-content: center;
   height: 100%;
-  background: linear-gradient(135deg, var(--clr-cream) 0%, var(--clr-leaf-light) 100%);
+  background: var(--clr-cream);
 }
 .connect-box {
   text-align: center;
