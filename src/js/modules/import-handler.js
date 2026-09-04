@@ -182,7 +182,7 @@ const ImportHandler = {
           <strong>${matchCount} von ${fieldKeys.length}</strong> Spalten automatisch erkannt
           ${matchCount >= fieldKeys.length ? ' – alle Felder zugeordnet ✓' : ' – bitte restliche prüfen'}
         </p>
-        ${datumsWerte.length ? `<div class="card" style="margin-bottom:12px;padding:10px 14px;${folgeText ? '' : 'background:#fff3cd;border-color:#ffc107'}">
+        ${datumsWerte.length ? `<div class="card" style="margin-bottom:12px;padding:10px 14px;${folgeText ? '' : 'background:var(--clr-amber-light);border-color:#ffc107'}">
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <strong style="font-size:13px">Datumsformat:</strong>
             <select class="form-control" id="map_datumsformat" style="width:auto;font-size:12px;padding:4px 8px" onchange="ImportHandler._datumsFormat=this.value">
@@ -305,12 +305,12 @@ const ImportHandler = {
         <div><strong>${esc(h.datei || 'Unbekannte Quelle')}</strong> · ${esc(h.bearbeiter || '–')} · Format: ${h.datumsformat === 'MTJ' ? 'Monat/Tag/Jahr (US)' : 'Tag.Monat.Jahr'}</div>
         <div>${h.zeilen} Zeilen · ${h.neu} neu · ${h.aktualisiert} aktualisiert · ${h.uebersprungen} übersprungen</div>
       </div>
-      ${datum.length ? `<div style="margin-top:10px;padding:8px 12px;background:#fff3cd;border-radius:var(--radius);font-size:12px">
+      ${datum.length ? `<div style="margin-top:10px;padding:8px 12px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px">
         <strong>Unlesbare Datumswerte (${h.datums_fehler}):</strong>
         <div style="max-height:160px;overflow-y:auto;margin-top:4px">${datum.map(e => `<div>Zeile ${e.zeile}: ${esc(e.name || '')} – ${esc(e.fehler)}</div>`).join('')}</div>
         ${h.datums_fehler > datum.length ? `<div style="color:var(--clr-text-light)">…${h.datums_fehler - datum.length} weitere nicht protokolliert</div>` : ''}
       </div>` : ''}
-      ${fehler.length ? `<div style="margin-top:10px;padding:8px 12px;background:#ffeef0;border-radius:var(--radius);font-size:12px">
+      ${fehler.length ? `<div style="margin-top:10px;padding:8px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px">
         <strong>Übersprungene Zeilen (${h.fehler}):</strong>
         <div style="max-height:160px;overflow-y:auto;margin-top:4px">${fehler.map(e => `<div>${e.zeile ? 'Zeile ' + e.zeile + ': ' : ''}${esc(e.name || '')} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}</div>
         ${h.fehler > fehler.length ? `<div style="color:var(--clr-text-light)">…${h.fehler - fehler.length} weitere nicht protokolliert</div>` : ''}
@@ -812,7 +812,7 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
-      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
+      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">
         <strong>⚠︎ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
           ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
@@ -821,12 +821,12 @@ const ImportHandler = {
           </div>`).join('')}
         </div>
       </div>` : ''}
-      ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:12px">
+      ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Unlesbare Datumswerte (${datumsFehler.length}) – Datensätze OHNE Datum importiert:</strong>
         <div style="font-size:11px;margin:4px 0">Häufigste Ursache: falsches Datumsformat gewählt. Format im Import-Dialog umstellen und erneut importieren – die Daten werden dann nachgetragen.</div>
         <div style="max-height:100px;overflow-y:auto;margin-top:4px">${datumsFehler.slice(0, 10).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`).join('')}${datumsFehler.length > 10 ? `<div style="color:var(--clr-text-light)">…und ${datumsFehler.length - 10} weitere</div>` : ''}</div>
       </div>` : ''}
-      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
+      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Übersprungene Zeilen (${errorRows.length}):</strong>
         <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
@@ -960,7 +960,7 @@ const ImportHandler = {
         ${wvCount ? `<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">${wvCount} offene WV</span>` : ''}
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
         ${klasse ? `<span style="padding:3px 8px;background:var(--clr-green-light);border-radius:10px">${esc(klasse.schule)}</span>` : ''}
-        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:#e8d5f5;border-radius:10px;color:#7b2fa0">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
+        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:var(--clr-purple-light);border-radius:10px;color:var(--clr-purple)">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
         ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 

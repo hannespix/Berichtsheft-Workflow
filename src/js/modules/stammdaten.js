@@ -115,7 +115,7 @@ const StammdatenTab = {
     </span>`;
     return `<div style="position:relative">
       <button type="button" class="form-control" id="azubiJgZpBtn" style="width:auto;cursor:pointer;text-align:left" onclick="StammdatenTab._jgzpToggle();event.stopPropagation()">${this._jgzpLabel(fil)} ▾</button>
-      <div id="azubiJgZpDd" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:210px;max-height:280px;overflow-y:auto;padding:2px 0">
+      <div id="azubiJgZpDd" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:210px;max-height:280px;overflow-y:auto;padding:2px 0">
         <div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em">Abschlussprüfung (AP)${links('chk-az-jg')}</div>
         ${jahrgaenge.map(j => `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
           <input type="checkbox" class="chk-az-jg" value="${j.id}" ${allJg || jgs.includes(j.id) ? 'checked' : ''} onchange="StammdatenTab._jgzpChange()" style="accent-color:var(--clr-forest)">
@@ -233,14 +233,14 @@ const StammdatenTab = {
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
     <!-- Bulk Action Bar -->
-    <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+    <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
       <strong><span id="bulkCountAzubi">0</span> ausgewählt</strong>
       <span style="opacity:0.4">│</span>
       <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab._bulkDeleteAzubis()">Löschen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸︎ Inaktiv setzen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸︎ Inaktiv setzen</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
@@ -256,12 +256,12 @@ const StammdatenTab = {
         return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
           <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
-            ${vk?'<span style="font-size:9px;padding:1px 4px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
+            ${vk?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
             ${oMgl>0?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:8px" title="'+oMgl+' Kalenderwoche(n) mit offenen Mängeln (ohne Fehltage)">'+oMgl+'M</span>':''}
             ${wvO?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:8px" title="Offene oder überfällige Wiedervorlage vorhanden">WV</span>':''}
             <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ibykus_id||'')}${s.zustaendiges_amt && s.zustaendiges_amt !== '93' ? ' <span style="padding:0 3px;background:var(--clr-blue-light);border-radius:4px;font-weight:600">'+esc(App.amtLabel(s.zustaendiges_amt))+'</span>' : ''}</div></td>
           <td>${s.betrieb_id ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${s.betrieb_id});return false" style="color:var(--clr-forest);font-weight:600;font-size:12px;text-decoration:underline" title="Alle Azubis dieses Betriebs">${esc(s.b_name||s.ausbildungsstaette||'')}</a>` : `<strong style="font-size:12px">${esc(s.b_name||s.ausbildungsstaette||'')}</strong>`}${s.b_ort?'<div style="font-size:10px;color:var(--clr-text-light)">'+esc(s.b_ort)+'</div>':''}</td>
-          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
+          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
           <td style="font-size:12px">${esc(s.jahrgang||'')}</td>
           <td style="font-size:11px">${s.fr_typ==='Fachwerker'?'FW ':''}${esc(s.fachrichtung||'')}</td>
           <td style="font-size:11px;white-space:nowrap">
@@ -573,11 +573,11 @@ const StammdatenTab = {
       </div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addSchule()">+ Neue Berufsschule</button>
       </div></div>
-      <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
+      <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
         <strong><span id="bulkCntSch">0</span> ausgewählt</strong>
         <span style="opacity:0.4">│</span>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteSchulen()">Löschen</button>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkMergeSchulen()">Zusammenführen</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMergeSchulen()">Zusammenführen</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=false);StammdatenTab.updateBulkSchulen()">✕</span>
       </div>
       <div class="card"><table class="data-table"><thead><tr>
@@ -775,11 +775,11 @@ const StammdatenTab = {
       </div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addKlasse()">+ Neue Klasse</button>
       </div></div>
-      <div id="bulkBarKlassen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
+      <div id="bulkBarKlassen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
         <strong><span id="bulkCntKl">0</span> ausgewählt</strong>
         <span style="opacity:0.4">│</span>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkMoveKlassen()">Schule ändern</button>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkSetJahrgangKlassen()">Jahrgang ändern</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMoveKlassen()">Schule ändern</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkSetJahrgangKlassen()">Jahrgang ändern</button>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteKlassen()">Löschen</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=false);StammdatenTab.updateBulkKlassen()">✕</span>
       </div>

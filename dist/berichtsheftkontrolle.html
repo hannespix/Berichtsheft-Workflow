@@ -5783,6 +5783,9 @@ if(window.pdfjsLib){
   --clr-green-light: #EFF5E4;
   --clr-blue: #0A3C90;          /* BW Blau Dunkel */
   --clr-blue-light: #EAF0FA;
+  --clr-purple: #7B2FA0;        /* Verkürzer / Landesfachklasse */
+  --clr-purple-light: #EFE3F7;
+  --clr-purple-line: #D4B8E8;
   --font-display: 'BaWue Serif', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --font-body: 'BaWue Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   /* Kopfzeile: RP-Look – vollgelbe Fläche, schwarzes Logo und schwarze Schrift */
@@ -5809,33 +5812,79 @@ if(window.pdfjsLib){
   --transition: 0.2s ease;
 }
 
+/* ══ Dark Mode ═══════════════════════════════════════════════════
+   Eigene, in sich stimmige Palette statt invertierter Einzelwerte:
+   drei Flächenstufen (Seite → Karte/Seitenleiste → Innenfläche),
+   helle Schrift, Gelb NUR als Akzent (Marker, Fokus, Primär-Button).
+   „forest" (im Hellen das Warm-Schwarz) wird zur hellen Kontrastfläche,
+   damit alle „forest + white"-Kombinationen automatisch lesbar bleiben. */
 body.dark-mode {
-  --clr-forest: #D9C22E; --clr-forest-dark: #EFE18C; --clr-gelb: #D9C22E; --clr-sage: #8C8884;
-  --clr-sage-light: #4A4744; --clr-leaf: #D9C22E; --clr-leaf-light: #33301E;
-  --clr-cream: #1B1917; --clr-warm: #242220; --clr-sand: #3A3733; --clr-sand-light: #2E2B29;
-  --clr-text: #E4E0DC; --clr-text-light: #999; --clr-white: #211F1D;
-  --clr-red: #F06560; --clr-red-light: #3A2020; --clr-amber: #F09040;
-  --clr-amber-light: #3A3020; --clr-green: #8CC63F; --clr-green-light: #26301A;
-  --clr-blue: #6FA0E8; --clr-blue-light: #1A2438;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.4); --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
-  --tb-bg: #141210; --tb-fg: #E4E0DC; --tb-muted: #999; --tb-border: #3A3733; --tb-chip: #242220; --tb-chip-hover: #2E2B29;
-  --fb-bg: #1B1917; --fb-border: #3A3733; --fb-chip: #242220; --fb-chip-hover: #2E2B29; --fb-chip-border: #3A3733;
-  --clr-gelb-soft: #33301E; --clr-gelb-line: #D9C22E;
+  --clr-cream: #161412;         /* Seite */
+  --clr-white: #1F1D1B;         /* Karten, Seitenleiste, Popups */
+  --clr-warm: #272421;          /* Innenflächen, Tabellenköpfe, Felder */
+  --clr-sand: #36322E;          /* Linien */
+  --clr-sand-light: #2C2926;    /* Hover-Flächen */
+  --clr-text: #E8E4DF; --clr-text-light: #A8A29B; --clr-sage: #8F8983; --clr-sage-light: #4A4540;
+  --clr-forest: #ECE8E3; --clr-forest-dark: #F7F4F0;
+  --clr-gelb: #F5EC3A; --clr-gelb-soft: #34311F; --clr-gelb-line: #D9CF2E;
+  --clr-leaf: #E4DA5C; --clr-leaf-light: #2C2926;
+  --clr-red: #F2837E; --clr-red-light: #3D2523;
+  --clr-amber: #F2A857; --clr-amber-light: #3B2D19;
+  --clr-green: #A3D65F; --clr-green-light: #253419;
+  --clr-blue: #94B8F2; --clr-blue-light: #1D2A44;
+  --clr-purple: #CBA4E8; --clr-purple-light: #33263C; --clr-purple-line: #52406A;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.35), 0 2px 10px rgba(0,0,0,0.30);
+  --shadow-md: 0 2px 6px rgba(0,0,0,0.40), 0 12px 28px rgba(0,0,0,0.45);
+  --shadow-lg: 0 8px 20px rgba(0,0,0,0.50), 0 28px 70px rgba(0,0,0,0.60);
+  --tb-bg: #121110; --tb-fg: #E8E4DF; --tb-muted: #A8A29B; --tb-border: #3A3632; --tb-chip: #1F1D1B; --tb-chip-hover: #2C2926;
+  --fb-bg: #1B1917; --fb-border: #2C2926; --fb-chip: #1F1D1B; --fb-chip-hover: #2C2926; --fb-chip-border: #3F3B36;
 }
-body.dark-mode .sidebar { background: #1a1a1a; border-color: #333; }
-body.dark-mode .card { background: #211F1D; border-color: #3A3733; }
-body.dark-mode .data-table th { background: #2a2a2a; }
-body.dark-mode .data-table td { border-color: #333; }
-body.dark-mode .form-control { background: #2a2a2a; border-color: #444; color: #e0e0e0; }
-body.dark-mode .btn-secondary { background: #333; border-color: #444; color: #ddd; }
-body.dark-mode .modal { background: #211F1D; }
-/* Gold-Flächen brauchen dunklen Text (Schwarz auf Gold = Landesfarben) */
-body.dark-mode .btn-primary { color: #1B1917; }
-body.dark-mode .btn-primary:hover { color: #1B1917; }
-body.dark-mode .kw-legend kbd { background: #2E2B29; color: #E4E0DC; border-color: #3A3733; }
+body.dark-mode .sidebar { background: var(--clr-white); }
+body.dark-mode .sidebar-resize { background: var(--clr-sand-light); }
+body.dark-mode .sidebar-item.active { background: var(--clr-sand-light); }
+body.dark-mode .card, body.dark-mode .stat-card, body.dark-mode .modal, body.dark-mode .toast, body.dark-mode .fp-dropdown { background: var(--clr-white); border-color: var(--clr-sand); }
+body.dark-mode .data-table thead th { background: var(--clr-warm); border-bottom-color: #3F3B36; }
+body.dark-mode .data-table td { border-color: var(--clr-sand-light); }
+body.dark-mode .data-table tbody tr:hover { background: #2A2724; }
+body.dark-mode .form-control { background: var(--clr-warm); border-color: #45403A; color: var(--clr-text); }
+body.dark-mode .form-control:focus { border-color: var(--clr-gelb); box-shadow: 0 0 0 3px rgba(245,236,58,0.18); }
+body.dark-mode .form-control::placeholder { color: #7E7871; }
+body.dark-mode select.form-control option { background: var(--clr-warm); color: var(--clr-text); }
+/* Primär-Button: Gelb mit dunkler Schrift (Landesfarben), Hover als Umriss */
+body.dark-mode .btn-primary { background: var(--clr-gelb); color: #1B1917; box-shadow: inset 0 0 0 2px var(--clr-gelb); }
+body.dark-mode .btn-primary:hover { background: transparent; color: var(--clr-gelb); }
+body.dark-mode .btn-secondary { background: var(--clr-warm); border-color: #45403A; color: var(--clr-text); }
+body.dark-mode .btn-secondary:hover { background: #302C28; border-color: var(--clr-sage); }
+body.dark-mode .btn-danger { color: #1B1917; }
+body.dark-mode .btn-danger:hover { background: #F5A09C; }
+body.dark-mode .btn-success { color: #1B1917; }
+body.dark-mode .btn-success:hover { background: #BFE58A; }
+/* Status-Badges: dunkle Tönung + helle Schrift (im Hellen umgekehrt) */
+body.dark-mode .badge-ok, body.dark-mode .badge-done { background: var(--clr-green-light); color: #BFE58A; }
+body.dark-mode .badge-open { background: var(--clr-amber-light); color: #F5C88A; }
+body.dark-mode .badge-overdue { background: var(--clr-red-light); color: #F5A8A3; }
+body.dark-mode .badge-planned { background: var(--clr-blue-light); color: #B4CBF5; }
+body.dark-mode .fp-btn.active, body.dark-mode .topbar-filter-toggle.active { background: var(--clr-forest); color: #1B1917; border-color: var(--clr-forest); }
 body.dark-mode .topbar-logo--pos { display: none; }
 body.dark-mode .topbar-logo--neg { display: block; }
-body.dark-mode .fp-btn.active, body.dark-mode .topbar-filter-toggle.active { background: #E4E0DC; color: #1B1917; border-color: #E4E0DC; }
+body.dark-mode .topbar-user-select option { background: var(--clr-white); color: var(--clr-text); }
+body.dark-mode .kw-legend, body.dark-mode .kw-legend-show { background: var(--clr-white); border-bottom-color: var(--clr-sand); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+body.dark-mode .kw-legend kbd, body.dark-mode .topbar-btn kbd { background: var(--clr-warm); color: var(--clr-text); border-color: #45403A; }
+/* KW-Raster: gedämpfte Tönungen, gelber Fokusring mit dunkler Innenkante */
+body.dark-mode .kw-cell { background: var(--clr-warm); border-color: #3F3B36; color: var(--clr-text); }
+body.dark-mode .kw-cell.kw-ok { background: var(--clr-green-light); border-color: #3E5A2A; }
+body.dark-mode .kw-cell.kw-issue { background: var(--clr-red-light); border-color: #6B3A36; }
+body.dark-mode .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #3B2D19, #3B2D19 3px, #4A3A1F 3px, #4A3A1F 6px); border-color: #7A5A28; }
+body.dark-mode .kw-cell.kw-fehltage-only { border-color: #7A5A28; }
+body.dark-mode .kw-cell:focus, body.dark-mode .kw-cell.kw-issue:focus, body.dark-mode .kw-cell.kw-session:focus { border-color: var(--clr-gelb); box-shadow: 0 0 0 3px var(--clr-gelb), inset 0 0 0 2px #1B1917; outline: none; }
+body.dark-mode .kw-cell.kw-inactive { background: var(--clr-white) !important; }
+body.dark-mode .kw-cell.kw-header { background: var(--clr-white); }
+body.dark-mode .table-sticky-name tbody td:nth-child(2) { background: var(--clr-white); }
+body.dark-mode .table-sticky-name thead th:nth-child(2) { background: var(--clr-warm); }
+body.dark-mode .help-nav-link.active { background: var(--clr-sand-light); }
+body.dark-mode .modal-overlay { background: rgba(0,0,0,0.65); }
+body.dark-mode ::-webkit-scrollbar-thumb { background: #4A4540; }
+body.dark-mode .connect-screen { background: var(--clr-cream); }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -5989,8 +6038,8 @@ body {
   top: 100%;
   left: 0;
   z-index: 500;
-  background: white;
-  color: #333;
+  background: var(--clr-white);
+  color: var(--clr-text);
   border: 1px solid var(--clr-sage-light);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
@@ -6238,12 +6287,10 @@ body {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: #ffffff;
+  background: var(--clr-white);
   box-shadow: 4px 0 6px -4px rgba(0,0,0,0.2);
 }
 .table-sticky-name thead th:nth-child(2) { z-index: 3; background: var(--clr-warm); }
-body.dark-mode .table-sticky-name tbody td:nth-child(2) { background: #211F1D; }
-body.dark-mode .table-sticky-name thead th:nth-child(2) { background: #2a2a2a; }
 .data-table tbody tr:hover {
   background: var(--clr-leaf-light);
 }
@@ -7476,7 +7523,7 @@ const App = {
         const sel = f.value.map(String);
         input = `<span style="position:relative;display:inline-block">
           <button type="button" id="efBtn_${idx}" style="font-size:11px;padding:1px 8px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
-          <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:white;color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
+          <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:var(--clr-white);color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
             <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
               <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},true);return false">alle</a>
               <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},false);return false">keine</a>
@@ -7829,7 +7876,7 @@ const App = {
               return (subLabel ? `<div style="font-size:9px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.04em;padding:4px 8px 1px;margin-top:2px">${esc(subLabel)}</div>` : '') +
               frs.map(fr => `<label style="display:flex;align-items:center;gap:5px;padding:2px 12px 2px 8px;cursor:pointer;font-size:11px" onmouseenter="this.style.background='rgba(0,0,0,0.03)'" onmouseleave="this.style.background=''">
                 <input type="checkbox" class="chk-bg-fr" value="${fr.id}" data-typ="${esc(grp)}" ${isAll || active.includes(fr.id) ? 'checked' : ''} onchange="App._onBgFrChange('${esc(grp)}')" style="accent-color:var(--clr-forest);width:13px;height:13px">
-                <span style="color:#555">${esc(fr.bezeichnung)}</span>
+                <span style="color:var(--clr-text-light)">${esc(fr.bezeichnung)}</span>
                 <span style="margin-left:auto;font-size:9px;color:var(--clr-text-light)">${esc(fr.code)}</span>
               </label>`).join('');
             }).join('')}
@@ -8204,7 +8251,7 @@ const App = {
         label = def.label + ': ' + f.value;
         if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
       }
-      parts.push(`<span style="padding:3px 8px;background:rgba(232,213,245,0.6);border:1px solid #d4b8e8;border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
     });
     if (!parts.length) return '';
     const hasMultiple = parts.length > 1;
@@ -14874,6 +14921,10 @@ const Views = {
       orange: '#e67e22', navy: '#2c3e50',
       palette: ['#2d5016','#4a7c1f','#7a9a5a','#d4a017','#c0392b','#2980b9','#8e44ad','#16a085','#e67e22','#e74c8c','#2c3e50','#95a5a6']
     };
+    // Dark Mode: Segmentränder, Achsen- und Legendenschrift auf die dunkle Fläche abstimmen
+    const darkMode = document.body.classList.contains('dark-mode');
+    if (darkMode) { C.warm = '#1F1D1B'; C.sand = '#3F3B36'; C.forest = '#9CC46A'; }
+    try { Chart.defaults.color = darkMode ? '#E8E4DF' : '#2A2623'; Chart.defaults.borderColor = darkMode ? '#36322E' : '#E4E1DE'; } catch(e) {}
 
     const isMobile = window.innerWidth < 768;
     const chartOpts = {
@@ -14983,7 +15034,7 @@ const Views = {
             labels: codes.map(c => c + ' ' + (codeLabels[c]||'')),
             datasets: [{ data: codes.map(c => counts[c] || 0),
               backgroundColor: ['rgba(192,57,43,0.6)','rgba(192,57,43,0.5)','rgba(212,160,23,0.5)','rgba(212,160,23,0.4)','rgba(192,57,43,0.4)','rgba(192,57,43,0.7)','rgba(212,160,23,0.5)','rgba(122,154,90,0.5)','rgba(122,154,90,0.4)'],
-              borderWidth: 1, borderColor: '#fff' }]
+              borderWidth: 1, borderColor: C.warm }]
           },
           options: { ...chartOpts, scales: { r: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(0,0,0,0.05)' } } },
             plugins: { ...chartOpts.plugins, legend: { display: false } } }
@@ -15481,11 +15532,11 @@ const Views = {
       </div>
       <div class="card">
         <!-- Bulk Action Bar -->
-        <div id="bulkBarWV" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+        <div id="bulkBarWV" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <strong><span id="bulkCountWV">0</span> ausgewählt</strong>
           <span style="opacity:0.4">│</span>
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="BulkWV.erledigtSelected()">✓ Als erledigt markieren</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkWV.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkWV.deselectAll()">✕ Abwählen</span>
         </div>
@@ -17410,7 +17461,7 @@ const StammdatenTab = {
     </span>`;
     return `<div style="position:relative">
       <button type="button" class="form-control" id="azubiJgZpBtn" style="width:auto;cursor:pointer;text-align:left" onclick="StammdatenTab._jgzpToggle();event.stopPropagation()">${this._jgzpLabel(fil)} ▾</button>
-      <div id="azubiJgZpDd" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:210px;max-height:280px;overflow-y:auto;padding:2px 0">
+      <div id="azubiJgZpDd" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:210px;max-height:280px;overflow-y:auto;padding:2px 0">
         <div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em">Abschlussprüfung (AP)${links('chk-az-jg')}</div>
         ${jahrgaenge.map(j => `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
           <input type="checkbox" class="chk-az-jg" value="${j.id}" ${allJg || jgs.includes(j.id) ? 'checked' : ''} onchange="StammdatenTab._jgzpChange()" style="accent-color:var(--clr-forest)">
@@ -17528,14 +17579,14 @@ const StammdatenTab = {
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
     <!-- Bulk Action Bar -->
-    <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+    <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
       <strong><span id="bulkCountAzubi">0</span> ausgewählt</strong>
       <span style="opacity:0.4">│</span>
       <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab._bulkDeleteAzubis()">Löschen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸︎ Inaktiv setzen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab._bulkSetInaktiv()">⏸︎ Inaktiv setzen</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzelprüfung erstellen</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
@@ -17551,12 +17602,12 @@ const StammdatenTab = {
         return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
           <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
-            ${vk?'<span style="font-size:9px;padding:1px 4px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
+            ${vk?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
             ${oMgl>0?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:8px" title="'+oMgl+' Kalenderwoche(n) mit offenen Mängeln (ohne Fehltage)">'+oMgl+'M</span>':''}
             ${wvO?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:8px" title="Offene oder überfällige Wiedervorlage vorhanden">WV</span>':''}
             <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ibykus_id||'')}${s.zustaendiges_amt && s.zustaendiges_amt !== '93' ? ' <span style="padding:0 3px;background:var(--clr-blue-light);border-radius:4px;font-weight:600">'+esc(App.amtLabel(s.zustaendiges_amt))+'</span>' : ''}</div></td>
           <td>${s.betrieb_id ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${s.betrieb_id});return false" style="color:var(--clr-forest);font-weight:600;font-size:12px;text-decoration:underline" title="Alle Azubis dieses Betriebs">${esc(s.b_name||s.ausbildungsstaette||'')}</a>` : `<strong style="font-size:12px">${esc(s.b_name||s.ausbildungsstaette||'')}</strong>`}${s.b_ort?'<div style="font-size:10px;color:var(--clr-text-light)">'+esc(s.b_ort)+'</div>':''}</td>
-          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
+          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
           <td style="font-size:12px">${esc(s.jahrgang||'')}</td>
           <td style="font-size:11px">${s.fr_typ==='Fachwerker'?'FW ':''}${esc(s.fachrichtung||'')}</td>
           <td style="font-size:11px;white-space:nowrap">
@@ -17868,11 +17919,11 @@ const StammdatenTab = {
       </div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addSchule()">+ Neue Berufsschule</button>
       </div></div>
-      <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
+      <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
         <strong><span id="bulkCntSch">0</span> ausgewählt</strong>
         <span style="opacity:0.4">│</span>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteSchulen()">Löschen</button>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkMergeSchulen()">Zusammenführen</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMergeSchulen()">Zusammenführen</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=false);StammdatenTab.updateBulkSchulen()">✕</span>
       </div>
       <div class="card"><table class="data-table"><thead><tr>
@@ -18070,11 +18121,11 @@ const StammdatenTab = {
       </div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addKlasse()">+ Neue Klasse</button>
       </div></div>
-      <div id="bulkBarKlassen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
+      <div id="bulkBarKlassen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
         <strong><span id="bulkCntKl">0</span> ausgewählt</strong>
         <span style="opacity:0.4">│</span>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkMoveKlassen()">Schule ändern</button>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="StammdatenTab.bulkSetJahrgangKlassen()">Jahrgang ändern</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMoveKlassen()">Schule ändern</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkSetJahrgangKlassen()">Jahrgang ändern</button>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteKlassen()">Löschen</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=false);StammdatenTab.updateBulkKlassen()">✕</span>
       </div>
@@ -19136,7 +19187,7 @@ const ImportHandler = {
           <strong>${matchCount} von ${fieldKeys.length}</strong> Spalten automatisch erkannt
           ${matchCount >= fieldKeys.length ? ' – alle Felder zugeordnet ✓' : ' – bitte restliche prüfen'}
         </p>
-        ${datumsWerte.length ? `<div class="card" style="margin-bottom:12px;padding:10px 14px;${folgeText ? '' : 'background:#fff3cd;border-color:#ffc107'}">
+        ${datumsWerte.length ? `<div class="card" style="margin-bottom:12px;padding:10px 14px;${folgeText ? '' : 'background:var(--clr-amber-light);border-color:#ffc107'}">
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <strong style="font-size:13px">Datumsformat:</strong>
             <select class="form-control" id="map_datumsformat" style="width:auto;font-size:12px;padding:4px 8px" onchange="ImportHandler._datumsFormat=this.value">
@@ -19259,12 +19310,12 @@ const ImportHandler = {
         <div><strong>${esc(h.datei || 'Unbekannte Quelle')}</strong> · ${esc(h.bearbeiter || '–')} · Format: ${h.datumsformat === 'MTJ' ? 'Monat/Tag/Jahr (US)' : 'Tag.Monat.Jahr'}</div>
         <div>${h.zeilen} Zeilen · ${h.neu} neu · ${h.aktualisiert} aktualisiert · ${h.uebersprungen} übersprungen</div>
       </div>
-      ${datum.length ? `<div style="margin-top:10px;padding:8px 12px;background:#fff3cd;border-radius:var(--radius);font-size:12px">
+      ${datum.length ? `<div style="margin-top:10px;padding:8px 12px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px">
         <strong>Unlesbare Datumswerte (${h.datums_fehler}):</strong>
         <div style="max-height:160px;overflow-y:auto;margin-top:4px">${datum.map(e => `<div>Zeile ${e.zeile}: ${esc(e.name || '')} – ${esc(e.fehler)}</div>`).join('')}</div>
         ${h.datums_fehler > datum.length ? `<div style="color:var(--clr-text-light)">…${h.datums_fehler - datum.length} weitere nicht protokolliert</div>` : ''}
       </div>` : ''}
-      ${fehler.length ? `<div style="margin-top:10px;padding:8px 12px;background:#ffeef0;border-radius:var(--radius);font-size:12px">
+      ${fehler.length ? `<div style="margin-top:10px;padding:8px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px">
         <strong>Übersprungene Zeilen (${h.fehler}):</strong>
         <div style="max-height:160px;overflow-y:auto;margin-top:4px">${fehler.map(e => `<div>${e.zeile ? 'Zeile ' + e.zeile + ': ' : ''}${esc(e.name || '')} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}</div>
         ${h.fehler > fehler.length ? `<div style="color:var(--clr-text-light)">…${h.fehler - fehler.length} weitere nicht protokolliert</div>` : ''}
@@ -19766,7 +19817,7 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
-      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:13px">
+      ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">
         <strong>⚠︎ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
           ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
@@ -19775,12 +19826,12 @@ const ImportHandler = {
           </div>`).join('')}
         </div>
       </div>` : ''}
-      ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);font-size:12px">
+      ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Unlesbare Datumswerte (${datumsFehler.length}) – Datensätze OHNE Datum importiert:</strong>
         <div style="font-size:11px;margin:4px 0">Häufigste Ursache: falsches Datumsformat gewählt. Format im Import-Dialog umstellen und erneut importieren – die Daten werden dann nachgetragen.</div>
         <div style="max-height:100px;overflow-y:auto;margin-top:4px">${datumsFehler.slice(0, 10).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`).join('')}${datumsFehler.length > 10 ? `<div style="color:var(--clr-text-light)">…und ${datumsFehler.length - 10} weitere</div>` : ''}</div>
       </div>` : ''}
-      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
+      ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Übersprungene Zeilen (${errorRows.length}):</strong>
         <div style="max-height:120px;overflow-y:auto;margin-top:4px">${errorRows.slice(0, 20).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – <span style="color:var(--clr-red)">${esc(e.fehler)}</span></div>`).join('')}${errorRows.length > 20 ? `<div style="color:var(--clr-text-light)">...und ${errorRows.length - 20} weitere</div>` : ''}</div>
       </div>` : ''}
@@ -19914,7 +19965,7 @@ const ImportHandler = {
         ${wvCount ? `<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">${wvCount} offene WV</span>` : ''}
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
         ${klasse ? `<span style="padding:3px 8px;background:var(--clr-green-light);border-radius:10px">${esc(klasse.schule)}</span>` : ''}
-        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:#e8d5f5;border-radius:10px;color:#7b2fa0">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
+        ${s.landesfachklasse ? `<span style="padding:3px 8px;background:var(--clr-purple-light);border-radius:10px;color:var(--clr-purple)">LFK: ${esc(s.landesfachklasse)}</span>` : ''}
         ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 
@@ -20562,7 +20613,7 @@ const PlanungHandler = {
   _vorlagenButtonHtml() {
     return `<span style="position:relative;display:inline-block">
       <button class="btn btn-secondary" id="planVorlagenBtn" onclick="PlanungHandler._toggleVorlagen();event.stopPropagation()">★ Kontroll-Vorlagen ▾</button>
-      <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
+      <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
         <div style="padding:4px 14px;font-size:10px;color:var(--clr-text-light);border-bottom:1px solid var(--clr-sand)">Stellt die Kohorten-Filter für die jeweilige Kontrolle ein (aktive BAV, Jahre automatisch)</div>
         ${this._kontrollVorlagen().map(v => {
           const teile = [...v.jgLabels, ...v.zps];
@@ -20682,7 +20733,7 @@ const PlanungHandler = {
     App.openModal('Neuer Kontrolltermin / Einsendung', `
       <!-- Typ-Toggle -->
       <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);overflow:hidden">
-        <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-forest);color:white;font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
+        <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-forest);color:var(--clr-white);font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
           Schulkontrolle
         </button>
         <button id="btnTypEinsend" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-warm);color:var(--clr-text);font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypSchule').style.background='var(--clr-warm)';document.getElementById('btnTypSchule').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='einsendung'">
@@ -20712,9 +20763,9 @@ const PlanungHandler = {
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
-      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
@@ -20799,7 +20850,7 @@ const PlanungHandler = {
     return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
       ${Object.keys(this._tfNamen).map(k => `<div style="position:relative">
         <button type="button" class="form-control" id="tfBtn_${k}" style="width:auto;font-size:11px;padding:2px 8px;cursor:pointer;text-align:left" onclick="PlanungHandler._tfToggle('${k}');event.stopPropagation()">${this._tfNamen[k]}: Alle ▾</button>
-        <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
+        <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
           <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',true);return false">alle</a>
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',false);return false">keine</a>
@@ -20969,9 +21020,9 @@ const PlanungHandler = {
       const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
       const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
 
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:white;border-radius:6px;border:1px solid #d4b8e8;cursor:pointer;transition:all .15s"
-        onmouseenter="this.style.borderColor='#7b2fa0';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
-        onmouseleave="this.style.borderColor='#d4b8e8';this.style.boxShadow='none'"
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:var(--clr-white);border-radius:6px;border:1px solid var(--clr-purple-line);cursor:pointer;transition:all .15s"
+        onmouseenter="this.style.borderColor='var(--clr-purple)';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
+        onmouseleave="this.style.borderColor='var(--clr-purple-line)';this.style.boxShadow='none'"
         onclick="PlanungHandler._selectStandort([${klasseIds.join(',')}], [${g.schueler.map(s => s.id).join(',')}])"
         title="${schuelerNames}${moreHint}">
         <div style="flex:1">
@@ -20980,11 +21031,11 @@ const PlanungHandler = {
             ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
           </div>
         </div>
-        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:#e8d5f5;color:#7b2fa0;border-radius:10px;font-weight:600">LFK</span>' : ''}
+        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
         <span style="font-size:11px;color:var(--clr-forest);font-weight:600">Auswählen →</span>
       </div>`;
     }).join('')
-    + (hasAnyLFK ? `<div style="font-size:10px;color:#7b2fa0;margin-top:6px;padding:4px 0">
+    + (hasAnyLFK ? `<div style="font-size:10px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
       <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
@@ -21377,9 +21428,9 @@ const PlanungHandler = {
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
-      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
@@ -22816,7 +22867,7 @@ const KontrolleHandler = {
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
@@ -23241,7 +23292,7 @@ const KontrolleHandler = {
     App.openModal('Schüler zur Kontrolle hinzufügen', `
       <!-- Tab buttons -->
       <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--clr-sand);padding-bottom:8px">
-        <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:white" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
+        <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:var(--clr-white)" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
           Vorhandener Schüler
         </button>
         <button class="btn btn-sm" id="tabNew" style="background:var(--clr-warm);color:var(--clr-text)" onclick="document.getElementById('panelNew').style.display='';document.getElementById('panelExisting').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabExisting').style.background='var(--clr-warm)';document.getElementById('tabExisting').style.color='var(--clr-text)'">
@@ -23679,7 +23730,7 @@ const KontrolleHandler = {
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
-              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
+              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:var(--clr-purple);font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
               ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
             </div>
@@ -23764,7 +23815,7 @@ const KontrolleHandler = {
                 <label style="cursor:pointer;font-weight:600"><input type="checkbox" id="chkAllOK" onchange="document.querySelectorAll('.chk-ok').forEach(c=>c.checked=this.checked)" style="margin-right:4px">Alle unkontrollierten auswählen</label>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
-                ${unkontrolliert.map(sc => `<label style="display:flex;align-items:center;gap:3px;padding:3px 8px;background:white;border-radius:4px;border:1px solid var(--clr-sand);cursor:pointer;white-space:nowrap">
+                ${unkontrolliert.map(sc => `<label style="display:flex;align-items:center;gap:3px;padding:3px 8px;background:var(--clr-white);border-radius:4px;border:1px solid var(--clr-sand);cursor:pointer;white-space:nowrap">
                   <input type="checkbox" class="chk-ok" value="${sc.id}">
                   <span>${esc(sc.nachname)}, ${esc(sc.vorname)}</span>
                 </label>`).join('')}
@@ -24860,7 +24911,7 @@ const KontrolleHandler = {
       </div>
       ${offene.length ? `<div style="font-size:12px;margin-bottom:10px;padding:8px 10px;background:var(--clr-red-light);border-radius:var(--radius)">
         <strong>Noch ohne Ergebnis</strong> (Klick öffnet die Einzelansicht):
-        ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:white;border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
+        ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:var(--clr-white);border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
       </div>` : ''}
       ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
         <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>
@@ -25362,7 +25413,7 @@ const KWNav = {
     if (!badge) {
       badge = document.createElement('div');
       badge.id = 'kwSelCount';
-      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--clr-forest);color:white;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--clr-forest);color:var(--clr-white);padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
       document.body.appendChild(badge);
     }
     const n = this._selectedCells.size;
@@ -27022,7 +27073,7 @@ const Workflows = {
         <strong>${emails.length}</strong> Betriebe mit E-Mail${ohne.length ? ` · <span style="color:var(--clr-red)">${ohne.length} ohne E-Mail (Brief nötig): ${esc(ohne.map(g => g.name).join(', '))}</span>` : ''}
       </div>
       <div style="max-height:80px;overflow-y:auto;margin-bottom:8px;font-size:11px;padding:6px;background:var(--clr-warm);border-radius:var(--radius)">
-        ${emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:white;border-radius:4px">${esc(e)}</span>`).join('')}
+        ${emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:var(--clr-white);border-radius:4px">${esc(e)}</span>`).join('')}
       </div>
       <div class="form-group"><label>Betreff</label><input class="form-control" id="bccSubject" value="${esc(betreff)}"></div>
       <div class="form-group"><label>Text (kann vor dem Senden im E-Mail-Programm bearbeitet werden)</label>
@@ -27072,7 +27123,7 @@ const Workflows = {
           <strong>${esc(g.name)}</strong> <span style="font-size:10px;color:var(--clr-text-light)">${art}</span>
           <span style="display:flex;gap:4px">
             ${g.email
-              ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-forest);color:white;border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
+              ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-forest);color:var(--clr-white);border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
               : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')" title="Brief nur für diesen Betrieb">▤ Brief</button>
                  ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
           </span>
@@ -27327,7 +27378,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:11px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:white;border:none;font-size:11px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:11px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };
@@ -29534,7 +29585,7 @@ const AzubiDashboard = {
           </div>
           <div style="text-align:right;font-size:13px">
             ${kz.naechsterMeilenstein ? `
-              <div style="background:var(--clr-forest);color:#fff;padding:8px 14px;border-radius:var(--radius);font-size:12px">
+              <div style="background:var(--clr-forest);color:var(--clr-white);padding:8px 14px;border-radius:var(--radius);font-size:12px">
                 <div style="font-weight:600">${kz.naechsterMeilenstein.titel}</div>
                 <div>${fmtD(kz.naechsterMeilenstein.datum)}</div>
                 <div style="opacity:0.8;font-size:11px">in ${kz.naechsterMeilenstein.tage} Tagen</div>
@@ -29547,7 +29598,7 @@ const AzubiDashboard = {
         </div>
 
         ${risiken.length ? `
-        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:13px">
+        <div style="background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:13px">
           <strong>Risiko-Hinweise:</strong>
           <ul style="margin:4px 0 0 16px;padding:0">${risiken.map(r => `<li>${r}</li>`).join('')}</ul>
         </div>` : ''}
@@ -29635,7 +29686,7 @@ const AzubiDashboard = {
               </tr></thead>
               <tbody>
                 ${kz.perioden.map(p => p.unterbrechung
-                  ? `<tr style="background:#f5f5f5;color:#999"><td>${fmtD(p.von)} – ${fmtD(p.bis)}</td><td colspan="6" style="font-style:italic">${esc(p.grund)}</td></tr>`
+                  ? `<tr style="background:var(--clr-warm);color:var(--clr-sage)"><td>${fmtD(p.von)} – ${fmtD(p.bis)}</td><td colspan="6" style="font-style:italic">${esc(p.grund)}</td></tr>`
                   : `<tr>
                       <td>${fmtD(p.von)} – ${fmtD(p.bis)}</td>
                       <td>${esc(p.betrieb || '–')}</td>
@@ -29658,7 +29709,7 @@ const AzubiDashboard = {
 
         <!-- Phasen-Probleme -->
         ${kz.probleme.length ? `
-        <div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:10px 14px;font-size:13px">
+        <div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:10px 14px;font-size:13px">
           <strong>Phasen-Probleme:</strong>
           <ul style="margin:4px 0 0 16px;padding:0">${kz.probleme.map(p => `<li>${esc(p.text)}</li>`).join('')}</ul>
         </div>` : ''}
@@ -29908,7 +29959,7 @@ const AzubiDashboard = {
     const probleme = AzubiRechner.phasenValidieren(phasen);
 
     App.openModal(`Phasen-Editor: ${s.nachname}, ${s.vorname}`, `
-      ${probleme.length ? `<div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
+      ${probleme.length ? `<div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
         <strong>Validierung:</strong> ${probleme.map(p => esc(p.text)).join('; ')}
       </div>` : ''}
       <div style="overflow-x:auto">
@@ -30263,12 +30314,12 @@ const SchuelerView = {
         </div>
 
         <!-- Bulk Action Bar -->
-        <div id="bulkBarSchueler" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+        <div id="bulkBarSchueler" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <strong><span id="bulkCountS">0</span> ausgewählt</strong>
           <span style="opacity:0.4">│</span>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">▤ Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
@@ -30301,7 +30352,7 @@ const SchuelerView = {
             <td title="${esc(s.ausbildungsstaette)}">${esc((s.ausbildungsstaette||'').substring(0,30))}</td>
             <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)">${esc(s.email)}</a>` : ''}${s.email && s.telefon ? '<br>' : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-text-light)">${esc(s.telefon)}</a>` : ''}${!s.email && !s.telefon ? '<span style="color:var(--clr-sand)">–</span>' : ''}</td>
             <td><small>${esc(s.fachrichtung||'–')}</small></td>
-            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
+            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
             <td><small>${esc(s.klassenbezeichnung||'–')}</small></td>
             <td>${s.eff_lehrjahr ? (s.lj_berechnet ? `<span style="opacity:0.75" title="Aus Ausbildungsbeginn berechnet (Klasse ohne Lehrjahr-Angabe)">${s.eff_lehrjahr}</span>` : s.eff_lehrjahr) : '–'}</td>
             <td><small>${esc(s.jahrgang||'–')}</small></td>

@@ -79,7 +79,7 @@ const PlanungHandler = {
   _vorlagenButtonHtml() {
     return `<span style="position:relative;display:inline-block">
       <button class="btn btn-secondary" id="planVorlagenBtn" onclick="PlanungHandler._toggleVorlagen();event.stopPropagation()">★ Kontroll-Vorlagen ▾</button>
-      <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
+      <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
         <div style="padding:4px 14px;font-size:10px;color:var(--clr-text-light);border-bottom:1px solid var(--clr-sand)">Stellt die Kohorten-Filter für die jeweilige Kontrolle ein (aktive BAV, Jahre automatisch)</div>
         ${this._kontrollVorlagen().map(v => {
           const teile = [...v.jgLabels, ...v.zps];
@@ -199,7 +199,7 @@ const PlanungHandler = {
     App.openModal('Neuer Kontrolltermin / Einsendung', `
       <!-- Typ-Toggle -->
       <div style="display:flex;gap:0;margin-bottom:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);overflow:hidden">
-        <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-forest);color:white;font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
+        <button id="btnTypSchule" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-forest);color:var(--clr-white);font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypEinsend').style.background='var(--clr-warm)';document.getElementById('btnTypEinsend').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='schulkontrolle'">
           Schulkontrolle
         </button>
         <button id="btnTypEinsend" class="btn" style="flex:1;border-radius:0;border:none;background:var(--clr-warm);color:var(--clr-text);font-size:13px;padding:8px" onclick="this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('btnTypSchule').style.background='var(--clr-warm)';document.getElementById('btnTypSchule').style.color='var(--clr-text)';document.getElementById('mKtTyp').value='einsendung'">
@@ -229,9 +229,9 @@ const PlanungHandler = {
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
-      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
@@ -316,7 +316,7 @@ const PlanungHandler = {
     return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
       ${Object.keys(this._tfNamen).map(k => `<div style="position:relative">
         <button type="button" class="form-control" id="tfBtn_${k}" style="width:auto;font-size:11px;padding:2px 8px;cursor:pointer;text-align:left" onclick="PlanungHandler._tfToggle('${k}');event.stopPropagation()">${this._tfNamen[k]}: Alle ▾</button>
-        <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:white;border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
+        <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
           <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',true);return false">alle</a>
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',false);return false">keine</a>
@@ -486,9 +486,9 @@ const PlanungHandler = {
       const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
       const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
 
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:white;border-radius:6px;border:1px solid #d4b8e8;cursor:pointer;transition:all .15s"
-        onmouseenter="this.style.borderColor='#7b2fa0';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
-        onmouseleave="this.style.borderColor='#d4b8e8';this.style.boxShadow='none'"
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:var(--clr-white);border-radius:6px;border:1px solid var(--clr-purple-line);cursor:pointer;transition:all .15s"
+        onmouseenter="this.style.borderColor='var(--clr-purple)';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
+        onmouseleave="this.style.borderColor='var(--clr-purple-line)';this.style.boxShadow='none'"
         onclick="PlanungHandler._selectStandort([${klasseIds.join(',')}], [${g.schueler.map(s => s.id).join(',')}])"
         title="${schuelerNames}${moreHint}">
         <div style="flex:1">
@@ -497,11 +497,11 @@ const PlanungHandler = {
             ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
           </div>
         </div>
-        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:#e8d5f5;color:#7b2fa0;border-radius:10px;font-weight:600">LFK</span>' : ''}
+        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
         <span style="font-size:11px;color:var(--clr-forest);font-weight:600">Auswählen →</span>
       </div>`;
     }).join('')
-    + (hasAnyLFK ? `<div style="font-size:10px;color:#7b2fa0;margin-top:6px;padding:4px 0">
+    + (hasAnyLFK ? `<div style="font-size:10px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
       <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
@@ -894,9 +894,9 @@ const PlanungHandler = {
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
-      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,#f0e6f6,#e8d5f5);border:1px solid #d4b8e8;border-radius:var(--radius)">
+      <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <strong style="font-size:13px;color:#7b2fa0">Aktuelle Schulstandorte</strong>
+          <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
           <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>

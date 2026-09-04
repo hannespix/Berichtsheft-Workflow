@@ -220,12 +220,12 @@ const SchuelerView = {
         </div>
 
         <!-- Bulk Action Bar -->
-        <div id="bulkBarSchueler" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+        <div id="bulkBarSchueler" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <strong><span id="bulkCountS">0</span> ausgewählt</strong>
           <span style="opacity:0.4">│</span>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">▤ Einzelprüfung</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
@@ -258,7 +258,7 @@ const SchuelerView = {
             <td title="${esc(s.ausbildungsstaette)}">${esc((s.ausbildungsstaette||'').substring(0,30))}</td>
             <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)">${esc(s.email)}</a>` : ''}${s.email && s.telefon ? '<br>' : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-text-light)">${esc(s.telefon)}</a>` : ''}${!s.email && !s.telefon ? '<span style="color:var(--clr-sand)">–</span>' : ''}</td>
             <td><small>${esc(s.fachrichtung||'–')}</small></td>
-            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
+            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
             <td><small>${esc(s.klassenbezeichnung||'–')}</small></td>
             <td>${s.eff_lehrjahr ? (s.lj_berechnet ? `<span style="opacity:0.75" title="Aus Ausbildungsbeginn berechnet (Klasse ohne Lehrjahr-Angabe)">${s.eff_lehrjahr}</span>` : s.eff_lehrjahr) : '–'}</td>
             <td><small>${esc(s.jahrgang||'–')}</small></td>
