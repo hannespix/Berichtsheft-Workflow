@@ -52,7 +52,7 @@ const KWNav = {
     if (!badge) {
       badge = document.createElement('div');
       badge.id = 'kwSelCount';
-      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--clr-forest);color:white;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+      badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--clr-forest);color:var(--clr-white);padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
       document.body.appendChild(badge);
     }
     const n = this._selectedCells.size;

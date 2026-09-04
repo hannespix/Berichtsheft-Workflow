@@ -211,7 +211,7 @@ const Workflows = {
         <strong>${emails.length}</strong> Betriebe mit E-Mail${ohne.length ? ` · <span style="color:var(--clr-red)">${ohne.length} ohne E-Mail (Brief nötig): ${esc(ohne.map(g => g.name).join(', '))}</span>` : ''}
       </div>
       <div style="max-height:80px;overflow-y:auto;margin-bottom:8px;font-size:11px;padding:6px;background:var(--clr-warm);border-radius:var(--radius)">
-        ${emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:white;border-radius:4px">${esc(e)}</span>`).join('')}
+        ${emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:var(--clr-white);border-radius:4px">${esc(e)}</span>`).join('')}
       </div>
       <div class="form-group"><label>Betreff</label><input class="form-control" id="bccSubject" value="${esc(betreff)}"></div>
       <div class="form-group"><label>Text (kann vor dem Senden im E-Mail-Programm bearbeitet werden)</label>
@@ -261,7 +261,7 @@ const Workflows = {
           <strong>${esc(g.name)}</strong> <span style="font-size:10px;color:var(--clr-text-light)">${art}</span>
           <span style="display:flex;gap:4px">
             ${g.email
-              ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-forest);color:white;border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
+              ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-forest);color:var(--clr-white);border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
               : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')" title="Brief nur für diesen Betrieb">▤ Brief</button>
                  ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
           </span>
@@ -516,7 +516,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:11px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:white;border:none;font-size:11px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:11px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };

@@ -187,7 +187,7 @@ const KontrolleHandler = {
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:#e8d5f5;color:#7b2fa0;border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
           <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
@@ -612,7 +612,7 @@ const KontrolleHandler = {
     App.openModal('Schüler zur Kontrolle hinzufügen', `
       <!-- Tab buttons -->
       <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--clr-sand);padding-bottom:8px">
-        <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:white" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
+        <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:var(--clr-white)" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
           Vorhandener Schüler
         </button>
         <button class="btn btn-sm" id="tabNew" style="background:var(--clr-warm);color:var(--clr-text)" onclick="document.getElementById('panelNew').style.display='';document.getElementById('panelExisting').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabExisting').style.background='var(--clr-warm)';document.getElementById('tabExisting').style.color='var(--clr-text)'">
@@ -1050,7 +1050,7 @@ const KontrolleHandler = {
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
-              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:#7b2fa0;font-weight:600">Verkürzer</span>' : ''}
+              ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:var(--clr-purple);font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
               ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
             </div>
@@ -1135,7 +1135,7 @@ const KontrolleHandler = {
                 <label style="cursor:pointer;font-weight:600"><input type="checkbox" id="chkAllOK" onchange="document.querySelectorAll('.chk-ok').forEach(c=>c.checked=this.checked)" style="margin-right:4px">Alle unkontrollierten auswählen</label>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
-                ${unkontrolliert.map(sc => `<label style="display:flex;align-items:center;gap:3px;padding:3px 8px;background:white;border-radius:4px;border:1px solid var(--clr-sand);cursor:pointer;white-space:nowrap">
+                ${unkontrolliert.map(sc => `<label style="display:flex;align-items:center;gap:3px;padding:3px 8px;background:var(--clr-white);border-radius:4px;border:1px solid var(--clr-sand);cursor:pointer;white-space:nowrap">
                   <input type="checkbox" class="chk-ok" value="${sc.id}">
                   <span>${esc(sc.nachname)}, ${esc(sc.vorname)}</span>
                 </label>`).join('')}
@@ -2231,7 +2231,7 @@ const KontrolleHandler = {
       </div>
       ${offene.length ? `<div style="font-size:12px;margin-bottom:10px;padding:8px 10px;background:var(--clr-red-light);border-radius:var(--radius)">
         <strong>Noch ohne Ergebnis</strong> (Klick öffnet die Einzelansicht):
-        ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:white;border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
+        ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:var(--clr-white);border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
       </div>` : ''}
       ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
         <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>

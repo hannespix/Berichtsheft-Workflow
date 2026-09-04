@@ -51,7 +51,7 @@ const AzubiDashboard = {
           </div>
           <div style="text-align:right;font-size:13px">
             ${kz.naechsterMeilenstein ? `
-              <div style="background:var(--clr-forest);color:#fff;padding:8px 14px;border-radius:var(--radius);font-size:12px">
+              <div style="background:var(--clr-forest);color:var(--clr-white);padding:8px 14px;border-radius:var(--radius);font-size:12px">
                 <div style="font-weight:600">${kz.naechsterMeilenstein.titel}</div>
                 <div>${fmtD(kz.naechsterMeilenstein.datum)}</div>
                 <div style="opacity:0.8;font-size:11px">in ${kz.naechsterMeilenstein.tage} Tagen</div>
@@ -64,7 +64,7 @@ const AzubiDashboard = {
         </div>
 
         ${risiken.length ? `
-        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:13px">
+        <div style="background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:13px">
           <strong>Risiko-Hinweise:</strong>
           <ul style="margin:4px 0 0 16px;padding:0">${risiken.map(r => `<li>${r}</li>`).join('')}</ul>
         </div>` : ''}
@@ -152,7 +152,7 @@ const AzubiDashboard = {
               </tr></thead>
               <tbody>
                 ${kz.perioden.map(p => p.unterbrechung
-                  ? `<tr style="background:#f5f5f5;color:#999"><td>${fmtD(p.von)} – ${fmtD(p.bis)}</td><td colspan="6" style="font-style:italic">${esc(p.grund)}</td></tr>`
+                  ? `<tr style="background:var(--clr-warm);color:var(--clr-sage)"><td>${fmtD(p.von)} – ${fmtD(p.bis)}</td><td colspan="6" style="font-style:italic">${esc(p.grund)}</td></tr>`
                   : `<tr>
                       <td>${fmtD(p.von)} – ${fmtD(p.bis)}</td>
                       <td>${esc(p.betrieb || '–')}</td>
@@ -175,7 +175,7 @@ const AzubiDashboard = {
 
         <!-- Phasen-Probleme -->
         ${kz.probleme.length ? `
-        <div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:10px 14px;font-size:13px">
+        <div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:10px 14px;font-size:13px">
           <strong>Phasen-Probleme:</strong>
           <ul style="margin:4px 0 0 16px;padding:0">${kz.probleme.map(p => `<li>${esc(p.text)}</li>`).join('')}</ul>
         </div>` : ''}
@@ -425,7 +425,7 @@ const AzubiDashboard = {
     const probleme = AzubiRechner.phasenValidieren(phasen);
 
     App.openModal(`Phasen-Editor: ${s.nachname}, ${s.vorname}`, `
-      ${probleme.length ? `<div style="background:#ffeef0;border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
+      ${probleme.length ? `<div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
         <strong>Validierung:</strong> ${probleme.map(p => esc(p.text)).join('; ')}
       </div>` : ''}
       <div style="overflow-x:auto">

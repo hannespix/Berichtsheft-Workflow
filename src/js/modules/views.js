@@ -524,6 +524,10 @@ const Views = {
       orange: '#e67e22', navy: '#2c3e50',
       palette: ['#2d5016','#4a7c1f','#7a9a5a','#d4a017','#c0392b','#2980b9','#8e44ad','#16a085','#e67e22','#e74c8c','#2c3e50','#95a5a6']
     };
+    // Dark Mode: Segmentränder, Achsen- und Legendenschrift auf die dunkle Fläche abstimmen
+    const darkMode = document.body.classList.contains('dark-mode');
+    if (darkMode) { C.warm = '#1F1D1B'; C.sand = '#3F3B36'; C.forest = '#9CC46A'; }
+    try { Chart.defaults.color = darkMode ? '#E8E4DF' : '#2A2623'; Chart.defaults.borderColor = darkMode ? '#36322E' : '#E4E1DE'; } catch(e) {}
 
     const isMobile = window.innerWidth < 768;
     const chartOpts = {
@@ -633,7 +637,7 @@ const Views = {
             labels: codes.map(c => c + ' ' + (codeLabels[c]||'')),
             datasets: [{ data: codes.map(c => counts[c] || 0),
               backgroundColor: ['rgba(192,57,43,0.6)','rgba(192,57,43,0.5)','rgba(212,160,23,0.5)','rgba(212,160,23,0.4)','rgba(192,57,43,0.4)','rgba(192,57,43,0.7)','rgba(212,160,23,0.5)','rgba(122,154,90,0.5)','rgba(122,154,90,0.4)'],
-              borderWidth: 1, borderColor: '#fff' }]
+              borderWidth: 1, borderColor: C.warm }]
           },
           options: { ...chartOpts, scales: { r: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(0,0,0,0.05)' } } },
             plugins: { ...chartOpts.plugins, legend: { display: false } } }
@@ -1131,11 +1135,11 @@ const Views = {
       </div>
       <div class="card">
         <!-- Bulk Action Bar -->
-        <div id="bulkBarWV" style="display:none;padding:8px 12px;background:var(--clr-forest);color:white;border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+        <div id="bulkBarWV" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <strong><span id="bulkCountWV">0</span> ausgewählt</strong>
           <span style="opacity:0.4">│</span>
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="BulkWV.erledigtSelected()">✓ Als erledigt markieren</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkWV.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkWV.deselectAll()">✕ Abwählen</span>
         </div>
