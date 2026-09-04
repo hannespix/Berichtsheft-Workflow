@@ -5,6 +5,9 @@
    - Typo: Fraunces (Serif, Überschriften) + DM Sans (Fließtext)
      — analog zum BaWue-Serif/Sans-Prinzip
    - Layout: viel Weißraum, dünne Linien, Gelb als Marker-Akzent
+   - Kopfzeile + Filterleiste HELL (Warm-Schwarz nur für Schrift und
+     Primär-Buttons); aktive Zustände als Gelb-Tint (--clr-gelb-soft)
+     mit gelber Unterkante statt dunkler Flächen
    ══════════════════════════════════════════════════════════════ */
 :root {
   --clr-forest: #2A2623;        /* BaWü Warm-Schwarz (Primär) */
@@ -31,6 +34,15 @@
   --clr-blue-light: #EAF0FA;
   --font-display: 'Fraunces', serif;
   --font-body: 'DM Sans', sans-serif;
+  /* Kopfbereich (Topbar + Filterleiste): hell, Gelb als einzige Signatur */
+  --tb-bg: #ffffff;
+  --tb-fg: #2A2623;
+  --tb-muted: #6D6766;
+  --tb-border: #E4E0E0;
+  --tb-chip: #F4F3F3;
+  --tb-chip-hover: #EEECEC;
+  --clr-gelb-soft: #FFFDD6;     /* Gelb-Tint für aktive Flächen (Sidebar, Filter) */
+  --clr-gelb-line: #E8E000;     /* etwas ruhigeres Gelb für Rahmen */
   --radius: 4px;                /* kantiger — editorial */
   --shadow-sm: 0 1px 2px rgba(42,38,35,0.05);
   --shadow-md: 0 3px 10px rgba(42,38,35,0.08), 0 1px 3px rgba(42,38,35,0.05);
@@ -47,8 +59,9 @@ body.dark-mode {
   --clr-amber-light: #3A3020; --clr-green: #8CC63F; --clr-green-light: #26301A;
   --clr-blue: #6FA0E8; --clr-blue-light: #1A2438;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow-md: 0 4px 12px rgba(0,0,0,0.4); --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
+  --tb-bg: #141210; --tb-fg: #E4E0DC; --tb-muted: #999; --tb-border: #3A3733; --tb-chip: #242220; --tb-chip-hover: #2E2B29;
+  --clr-gelb-soft: #33301E; --clr-gelb-line: #D9C22E;
 }
-body.dark-mode .topbar { background: #141210; color: #E4E0DC; }
 body.dark-mode .sidebar { background: #1a1a1a; border-color: #333; }
 body.dark-mode .card { background: #211F1D; border-color: #3A3733; }
 body.dark-mode .data-table th { background: #2a2a2a; }
@@ -59,8 +72,7 @@ body.dark-mode .modal { background: #211F1D; }
 /* Gold-Flächen brauchen dunklen Text (Schwarz auf Gold = Landesfarben) */
 body.dark-mode .btn-primary { color: #1B1917; }
 body.dark-mode .btn-primary:hover { color: #1B1917; }
-body.dark-mode .sidebar-item.active { color: #1B1917; }
-body.dark-mode .filter-panel { background: #141210; }
+body.dark-mode .kw-legend kbd { background: #2E2B29; color: #E4E0DC; border-color: #3A3733; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -83,10 +95,10 @@ body {
 
 /* ── Top Bar ── */
 .topbar {
-  background: #2A2623; /* BaWü Warm-Schwarz — fix, nicht themenabhängig */
-  color: #ffffff;
+  background: var(--tb-bg);   /* hell – das Warm-Schwarz bleibt der Schrift vorbehalten */
+  color: var(--tb-fg);
   padding: 0 24px;
-  height: 56px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -105,28 +117,56 @@ body {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  color: var(--tb-fg);
+}
+/* kurzer gelber Marker vor dem Titel (GEO-Kicker) */
+.topbar-brand h1::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 20px;
+  background: var(--clr-gelb);
+  margin-right: 10px;
+  vertical-align: -3px;
 }
 .topbar-status {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: rgba(255,255,255,0.85);
+  color: var(--tb-muted);
 }
+/* leichte Kopfzeilen-Buttons (Suche, DB wechseln) */
+.topbar-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--tb-border);
+  border-radius: 6px;
+  background: var(--tb-chip);
+  color: var(--tb-fg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body);
+  white-space: nowrap;
+}
+.topbar-btn:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
+.topbar-btn kbd { font-size: 9px; padding: 1px 4px; background: var(--tb-bg); border: 1px solid var(--tb-border); border-radius: 3px; color: var(--tb-muted); font-family: var(--font-body); }
 .topbar-status .dot {
   width: 8px; height: 8px;
   border-radius: 50%;
   display: inline-block;
   margin-right: 4px;
 }
-.dot-green { background: #4ade80; }
-.dot-yellow { background: #fbbf24; }
-.dot-red { background: #f87171; }
+.dot-green { background: #609D0F; }
+.dot-yellow { background: #DD9A06; }
+.dot-red { background: #C6332E; }
 .topbar-user-select {
   -webkit-appearance: none; appearance: none;
-  background: rgba(255,255,255,0.12) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.7)'/%3E%3C/svg%3E") no-repeat right 8px center;
-  color: rgba(255,255,255,0.9);
-  border: 1px solid rgba(255,255,255,0.25);
+  background: var(--tb-chip) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236D6766'/%3E%3C/svg%3E") no-repeat right 8px center;
+  color: var(--tb-fg);
+  border: 1px solid var(--tb-border);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -138,51 +178,55 @@ body {
   text-overflow: ellipsis;
   transition: border-color 0.15s;
 }
-.topbar-user-select:hover { border-color: rgba(255,255,255,0.5); }
-.topbar-user-select:focus { outline: none; border-color: rgba(255,255,255,0.6); box-shadow: 0 0 0 2px rgba(255,255,255,0.15); }
-.topbar-user-select option { background: var(--clr-forest-dark, #000000); color: white; font-size: 13px; padding: 4px 8px; }
-.topbar-user-select.has-user { background-color: rgba(255,255,255,0.2); border-color: rgba(255,200,50,0.5); }
+.topbar-user-select:hover { border-color: var(--clr-sage-light); }
+.topbar-user-select:focus { outline: none; border-color: var(--clr-leaf); box-shadow: 0 0 0 2px var(--clr-gelb-soft); }
+.topbar-user-select option { background: var(--tb-bg); color: var(--tb-fg); font-size: 13px; padding: 4px 8px; }
+.topbar-user-select.has-user { background-color: var(--clr-gelb-soft); border-color: var(--clr-leaf); }
 .topbar-filter-toggle {
   padding: 4px 12px;
   font-size: 12px;
-  border: 1px solid rgba(255,255,255,0.3);
+  border: 1px solid var(--tb-border);
   border-radius: 6px;
-  background: rgba(255,255,255,0.12);
-  color: white;
+  background: var(--tb-chip);
+  color: var(--tb-fg);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 5px;
   white-space: nowrap;
+  font-family: var(--font-body);
 }
-.topbar-filter-toggle:hover { background: rgba(255,255,255,0.22); }
-.topbar-filter-toggle.active { background: rgba(255,200,50,0.3); border-color: rgba(255,200,50,0.5); }
+.topbar-filter-toggle:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
+.topbar-filter-toggle.active { background: var(--clr-gelb-soft); border-color: var(--tb-border); box-shadow: inset 0 -2px 0 var(--clr-gelb); font-weight: 600; }
 
 /* ── Filter Panel (below topbar) ── */
 .filter-panel {
   display: none;
-  background: var(--clr-forest-dark);
-  padding: 8px 24px;
+  background: var(--tb-bg);
+  padding: 7px 24px;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid var(--tb-border);
   flex-shrink: 0;
+  color: var(--tb-fg);
 }
 .filter-panel.open { display: flex; }
 .fp-btn {
   padding: 5px 12px;
   font-size: 12px;
-  border: 1px solid rgba(255,255,255,0.25);
+  border: 1px solid var(--tb-border);
   border-radius: 6px;
-  background: rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.9);
+  background: var(--tb-chip);
+  color: var(--tb-fg);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: var(--font-body);
 }
-.fp-btn:hover { background: rgba(255,255,255,0.2); }
-.fp-btn.active { background: rgba(255,200,50,0.25); border-color: rgba(255,200,50,0.6); font-weight: 600; }
+.fp-btn:hover { background: var(--tb-chip-hover); border-color: var(--clr-sage-light); }
+/* aktiver Filter: gelber Tint + gelbe Unterkante statt dunkler Fläche */
+.fp-btn.active { background: var(--clr-gelb-soft); border-color: var(--tb-border); box-shadow: inset 0 -2px 0 var(--clr-gelb); font-weight: 600; }
 .fp-dropdown {
   position: absolute;
   top: 100%;
@@ -285,12 +329,13 @@ body {
   text-align: left;
 }
 .sidebar-item:hover {
-  background: var(--clr-leaf-light);
-  color: var(--clr-forest);
+  background: var(--clr-sand-light);
+  color: var(--clr-forest-dark);
 }
 .sidebar-item.active {
-  background: var(--clr-forest);
-  color: #ffffff;
+  background: var(--clr-gelb-soft);
+  color: var(--clr-forest-dark);
+  font-weight: 600;
   box-shadow: inset 3px 0 0 var(--clr-gelb); /* gelber Marker (Landesdesign) */
 }
 .sidebar-item svg { width: 18px; height: 18px; flex-shrink: 0; }
@@ -640,11 +685,11 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 .kw-cell:hover { border-color: var(--clr-leaf); }
 .kw-cell:focus {
-  border-color: var(--clr-forest-dark, #000000);
-  box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white;
+  /* Fokus als gelber Marker (Landesdesign) statt schwerem schwarzem Rahmen */
+  border-color: var(--clr-forest);
+  box-shadow: 0 0 0 3px var(--clr-gelb), 0 0 0 4px var(--clr-forest), inset 0 0 0 2px white;
   z-index: 10;
-  outline: 2px dashed var(--clr-forest);
-  outline-offset: 3px;
+  outline: none;
 }
 .kw-cell.kw-header {
   background: var(--clr-warm);
@@ -805,8 +850,10 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .kw-legend-sentinel { display: none; }
 .kw-legend kbd {
   display: inline-block;
-  background: var(--clr-forest);
-  color: white;
+  background: var(--clr-white);
+  color: var(--clr-forest-dark);
+  border: 1px solid var(--clr-sand);
+  box-shadow: 0 1px 0 var(--clr-sand);
   font-family: var(--font-body);
   font-size: 10px;
   font-weight: 700;
@@ -977,13 +1024,13 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   display: flex;
   background: none;
   border: none;
-  color: var(--clr-white);
+  color: var(--tb-fg);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
   transition: background 0.15s;
 }
-.hamburger:hover { background: rgba(255,255,255,0.15); }
+.hamburger:hover { background: var(--tb-chip-hover); }
 .hamburger svg { width: 24px; height: 24px; }
 
 /* ── Sidebar Backdrop (mobile overlay) ── */

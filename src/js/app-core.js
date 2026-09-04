@@ -175,16 +175,16 @@ const App = {
       if (!def) return '';
       let input = '';
       if (def.type === 'text') {
-        input = `<input class="form-control" style="width:100px;font-size:11px;padding:1px 6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
+        input = `<input class="form-control" style="width:100px;font-size:11px;padding:1px 6px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
       } else if (def.type === 'date') {
-        input = `<input type="date" class="form-control" style="width:130px;font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
+        input = `<input type="date" class="form-control" style="width:130px;font-size:11px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
       } else if (def.type === 'toggle') {
         const opts = def.options;
         if (opts.length === 1) {
           input = `<span style="font-size:11px">${esc(opts[0].l)}</span>`;
         } else {
-          input = `<select style="font-size:11px;padding:1px 4px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
-            <option value="" style="color:#333">–</option>${opts.map(o => `<option value="${esc(o.v)}" style="color:#333" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+          input = `<select style="font-size:11px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
+            <option value="">–</option>${opts.map(o => `<option value="${esc(o.v)}" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
         }
       } else if (def.type === 'select') {
         let opts = [];
@@ -195,7 +195,7 @@ const App = {
         if (!Array.isArray(f.value)) f.value = f.value ? [String(f.value)] : [];
         const sel = f.value.map(String);
         input = `<span style="position:relative;display:inline-block">
-          <button type="button" id="efBtn_${idx}" style="font-size:11px;padding:1px 8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);color:white;border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
+          <button type="button" id="efBtn_${idx}" style="font-size:11px;padding:1px 8px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
           <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:white;color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
             <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
               <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},true);return false">alle</a>
@@ -208,9 +208,9 @@ const App = {
           </div>
         </span>`;
       }
-      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(255,200,50,0.2);border:1px solid rgba(255,200,50,0.5);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.9)">
+      return `<span class="fp-btn active" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-weight:400">
         <strong>${esc(def.label)}:</strong> ${input}
-        <span style="cursor:pointer;color:rgba(255,100,100,0.9);font-weight:bold;padding:0 2px" onclick="App._removeExtraFilter(${idx})" title="Filter entfernen">✕</span>
+        <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;padding:0 2px" onclick="App._removeExtraFilter(${idx})" title="Filter entfernen">✕</span>
       </span>`;
     }).join(' ');
   },
@@ -908,7 +908,7 @@ const App = {
     }
     if (this.filterBavStatus !== 'aktiv') {
       const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
-      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.style.background='rgba(255,255,255,0.15)';bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.classList.remove('active');bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
     }
     // Extra filter badges
     this.extraFilters.forEach((f, idx) => {
@@ -962,7 +962,7 @@ const App = {
     const el = document.getElementById('filterActiveCount');
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const btn = document.getElementById('filterPanelToggle');
-    if (btn) btn.style.borderColor = cnt > 0 ? 'rgba(255,200,50,0.7)' : 'rgba(255,255,255,0.3)';
+    if (btn) btn.classList.toggle('active', cnt > 0 || document.getElementById('filterPanel')?.classList.contains('open'));
   },
 
   // ── Dashboard Drill-Down (click chart → filter Azubi list) ──
