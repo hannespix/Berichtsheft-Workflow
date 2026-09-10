@@ -201,9 +201,33 @@ Schreib-Races konstruktionsbedingt eliminiert:
   Netzlaufwerk, 28 Assertions: Races, Löschungen, Doppel-Apply, Kompaktierung,
   Rotation, Bootstrap)
 
+- **Last-Write-Wins für ALLE Tabellen** (Audit 6): je Zeile und Spalte ein
+  Stempel (ts, Client, Sequenz = Replay-Sortierordnung) aus eigenen und fremden
+  Ops; eine Op wird nur verworfen, wenn jede ihrer Spalten lokal nachweislich
+  später gesetzt wurde. Die Stempel reisen im Snapshot mit (`bhk_stamps`),
+  damit auch nach Tausch/Neustart ältere Nachzügler nichts überschreiben
+- **Snapshot-Tausch** (fremde Kompaktierung erkannt): `quick_check` der
+  Datei, eigene + fremde Nachzügler-Ops GEMEINSAM in ts-Ordnung, lokale
+  Kontrollergebnis-IDs bleiben erhalten (`_keIdsLokalHalten`), Puffer-Ops
+  und nicht kompaktierter Bulk-Import werden LWW-geprüft nachgespielt
+- Verifiziert durch `node tests/sync-test.mjs` (60 Prüfungen) und
+  `node tests/sync-stress-test.mjs` (36 Prüfungen: SMB-Störfälle + Zufalls-
+  Stresstest mit drei Clients)
+
 Der ältere Merge-Pfad (v2: Dirty-Op-Replay auf die geteilte Datei mit Lock +
 Marker) bleibt als Fallback erhalten, wenn kein Ordner-Handle verfügbar ist,
 und liefert die Schreib-Maschinerie für die Kompaktierung.
+
+### 3.6a Eigenheiten des Windows-Netzlaufwerks (SMB) – und wie der Code damit umgeht
+
+| Verhalten des Laufwerks | Auswirkung | Umgang im Code |
+|---|---|---|
+| `createWritable()` schreibt eine `.crswap`-Datei und ersetzt das Ziel per Rename (kein echtes Append) | Leser, die die Datei gerade lesen, bekommen `NotReadableError` (Chrome: Blob-Zustand geändert) | Jede Log-Datei wird für sich gelesen; Offsets erst nach dem Anwenden; unlesbare Datei → nächster Poll |
+| Chrome meldet `InvalidStateError` („state had changed since it was read from disk“), wenn Metadaten-Cache und Platte auseinanderlaufen (Zeitstempel-Granularität, Virenscanner) | Ein erneuter Versuch auf DIESELBE Datei scheitert dauerhaft | Eigenes Log rotiert auf die nächste Generation |
+| FileNotFoundCacheLifetime (5 s): „nicht vorhanden“ wird gecacht | `create:false`-Lookup sieht ein frisch angelegtes Lock nicht | Lock-Lookup über `create:true` (OPEN_ALWAYS geht zum Server), 1,2–2 s Verifikations-Pause |
+| FileInfoCacheLifetime (10 s): Größe/mtime können bis 10 s alt sein | Fremde Ops erscheinen 3–13 s später | Kein Fehler; Offsets sind konsumierte Bytes, halbe Zeilen werden nachgelesen |
+| Teilinhalte während eines laufenden Writes | Snapshot könnte abgeschnitten gelesen werden | `PRAGMA quick_check` vor dem Tausch, sonst alter Stand |
+| Offlinedateien (CSC), DFS-Replikation, OneDrive-Sync | Rechner arbeiten auf Kopien – Sync unmöglich | Betriebsvoraussetzung: EIN Server, keine Kopien (siehe Hilfe) |
 
 ### 3.6b Multi-User Synchronisation (Legacy v2 — Fallback)
 

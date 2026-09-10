@@ -358,3 +358,60 @@ fertige Schreiben und Exporte angeboten?
 Zeilen-Versionierung); sehr große Termin-Pakete (>400 KB) werden ohne PDF-Snapshots abgelegt.
 Die Backup-Wiederherstellung ist absichtlich ein „harter" Schnitt für alle Nutzer – ein
 selektives Zurückholen einzelner Datensätze läuft über den Papierkorb.
+
+
+---
+
+# Audit 6: Parallelzugriff auf dem Windows-Netzlaufwerk (September 2026)
+
+> **Status: abgearbeitet.** Vollständige Code-Lektüre des Sync-v3-Pfads (Append, Poll,
+> Bootstrap, Kompaktierung, Lock, Snapshot-Tausch, Crash-Puffer, Bulk-Import) gegen die
+> Eigenheiten eines Windows-SMB-Laufwerks. Neuer Harness `tests/_sync-harness.mjs`
+> (Fake-Netzlaufwerk mit Lesefehlern, Negativ-Cache, Schreibfehlern) und Suite
+> `sync-stress-test.mjs` (36 Prüfungen: 10 Störfall-Szenarien + Zufalls-Stresstest mit
+> drei Clients unter 8 % Lesefehlern, mehrere Seeds). Jeder Befund wurde zuerst als
+> fehlschlagender Test nachgestellt und dann repariert; 30 zusätzliche Zufalls-Seeds
+> ohne Divergenz.
+
+Ausgangsfrage: Funktioniert die gleichzeitige Arbeit von drei Nutzern in derselben
+Datenbank auf einem Windows-Netzlaufwerk sauber? **Antwort nach dem Audit: Die
+Architektur (ein Schreiber pro Datei, Snapshot nur unter Lock) ist tragfähig; im Detail
+gab es aber acht Wege, auf denen Änderungen verloren gehen oder die Rechner dauerhaft
+verschiedene Stände zeigen konnten. Alle sind behoben.**
+
+## Behobene Hoch-Befunde (Datenverlust / dauerhafte Divergenz)
+
+| # | Befund | Reparatur |
+|---|---|---|
+| H1 | **Lesefehler mitten im Poll verschluckte Ops.** Chrome meldet `NotReadableError`, wenn ein Kollege sein Log zwischen `getFile()` und dem Lesen per Swap-Datei ersetzt hat – auf SMB an der Tagesordnung. `_pollOplogs` hatte die Offsets der bereits gelesenen Logs schon vorgerückt, warf dann aber den ganzen Batch weg. Die Ops galten als gelesen, wurden nie angewendet, und die nächste eigene Kompaktierung erklärte sie für „enthalten“: **endgültiger Verlust bei allen Nutzern.** Dasselbe Muster im Bootstrap und beim Snapshot-Tausch. | Jede Log-Datei wird für sich gelesen (`_leseLogDatei`); Offsets werden erst NACH dem Anwenden übernommen; eine unlesbare Datei behält ihren Lesestand. Bootstrap: Lesestand bleibt auf dem snapmeta-Offset. Snapshot-Tausch: ist das EIGENE Log gerade nicht lesbar, wird der Tausch verschoben. Test S1. |
+| H2 | **Kontrollergebnis-IDs nach Snapshot-Tausch:** Öffnen zwei Prüfer denselben Termin, legen beide alle Ergebnis-Zeilen an (`INSERT OR IGNORE`, verschiedene globale IDs). Kompaktiert danach jemand, übernimmt der andere Prüfer den Snapshot mit den FREMDEN IDs – seine geöffnete Durchsicht schreibt aber weiter mit den IDs, die sie beim Rendern kannte: `UPDATE … WHERE id=?` traf keine Zeile, der Natural-Key-Umbau fand die Zeile nicht, die Op kam nirgends an. **Jede weitere Eingabe dieses Prüfers ging still verloren** – genau im Hauptanwendungsfall (zwei Prüfer, ein Termin). | `_keIdsLokalHalten`: nach dem Tausch werden Zeilen mit gleichem fachlichem Schlüssel auf die bisherige LOKALE ID zurückgeschrieben (samt FK-Verweisen). Lokale IDs sind Privatsache – alle Ops reisen ohnehin über den fachlichen Schlüssel. Test S2. |
+| H3 | **Reihenfolge nach Snapshot-Tausch:** Der Tausch spielte erst die eigenen Nachzügler-Ops nach und der folgende Poll danach die fremden – eine ÄLTERE fremde Op überschrieb so die NEUERE eigene. Ebenso wurden ungespeicherte Puffer-Ops nach dem Tausch bedingungslos angewendet. | Eigene und fremde Nachzügler werden vor dem Tausch eingesammelt und GEMEINSAM in Zeitstempel-Ordnung angewendet; Puffer-Ops laufen durch den LWW-Guard. Test S3. |
+| H4 | **Last-Write-Wins nur für Kontrollergebnisse.** Alle anderen Tabellen (KW-Raster `kw_status`, Stammdaten, Wiedervorlagen, Termine) übernahmen stur die zuletzt EMPFANGENE Op. Zwei Nutzer, die dieselbe Zeile innerhalb des Poll-Fensters änderten, sahen danach dauerhaft verschiedene Stände; der Stresstest zeigte das zuverlässig. | Generischer, spaltenbewusster LWW-Guard für alle `UPDATE … WHERE k=?`- und UPSERT-Ops: Stempel (ts, Client, Sequenz – exakt die Sortierordnung des Replays) je Zeile und Spalte aus eigenen und fremden Ops. Deterministisch auch bei gleichen Millisekunden. Test S9. |
+| H5 | **Stempel gingen mit dem Snapshot verloren:** Nach Tausch oder Neustart wusste ein Client nichts über die Aktualität der Zeilen im Snapshot – sein eigener älterer Nachzügler überschrieb den neueren Wert des Kollegen. | Der Kompaktierer schreibt seine Stempel in die Snapshot-Tabelle `bhk_stamps`; Bootstrap und Tausch laden sie, bevor Log-Ops angewendet werden. Test S10. |
+| H6 | **Bulk-Import ohne Kompaktierung:** IBYKUS-Import umgeht das Op-Log und wird als Snapshot kompaktiert. Scheiterte das (Lock belegt, Schreibfehler), lag der Import NUR im Speicher – kein Log, kein Crash-Puffer. Die nächste fremde Kompaktierung löschte ihn beim Tausch; Browser zu = Import weg. Zudem Sackgasse: die eigene Kompaktierung verweigerte sich, solange der fremde Snapshot nicht übernommen war. | Bulk-Anweisungen werden im Speicher mitgeschrieben (`_bulkOps`); nach einem Tausch werden sie auf der frischen DB wiederholt; die Kompaktierung wird alle 30 s nachgeholt (`_nachholenBulk`), Status „Import nicht gespeichert“ + Warnung, das Fenster offen zu lassen. Test S6. |
+| H7 | **Lock-Race durch Windows-Negativ-Cache:** Der SMB-Redirector cacht „Datei nicht vorhanden“ 5 s (FileNotFoundCacheLifetime). Ein `create:false`-Lookup meldete das Lock als fehlend, obwohl der Kollege es gerade angelegt hatte – beide kompaktierten gleichzeitig (Snapshot und snapmeta konnten sich kreuzen). | Lookup über `create:true` (OPEN_ALWAYS geht immer zum Server; leere Datei = frei), zweite Prüfung erst nach 1,2–2,0 s, Lock-Besitz wird vor dem snapmeta-Write nochmals verifiziert; die Start-Kompaktierung streut zufällig 20–80 s. Test S5. |
+| H8 | **Crash-Puffer verfiel nach einer Stunde.** Netzausfall am Feierabend + zugeklappter Laptop: am nächsten Morgen wurden die ungespeicherten Änderungen still verworfen. | 7 Tage; die Ops tragen ihren Original-Zeitstempel, der LWW-Guard ordnet sie korrekt ein. Test S4. |
+
+## Behobene Mittel-/Niedrig-Befunde
+
+- **Verschwundenes eigenes Log** (nach 3 Tagen Stillstand aufgeräumt, Ordner zurückgespielt): Der Schreiber begann dieselbe Datei leer neu, Leser hielten einen Lesestand hinter dem neuen Dateiende. Jetzt: neue Generation. Test S7.
+- **Abgeschnittener Snapshot** (SMB liefert bei laufendem Write Teilinhalte): `PRAGMA quick_check` vor dem Tausch; Schema-Header allein reichte nicht. Test S8.
+- **Offline-Erkennung im v3-Pfad:** Fehlgeschlagene Appends zeigten nur einen roten Punkt und probierten stumm alle 5 s. Nach drei Fehlversuchen erscheint das Banner „Verbindung getrennt – Erneut verbinden“ (holt die Datei-Handles neu).
+- **Getrennt-Anzeige** entstand auch, wenn nur EINE Log-Datei dauerhaft unlesbar war – und der Client bekam gar keine fremden Änderungen mehr. Jetzt laufen die anderen Dateien weiter.
+- **Offene Durchsicht bleibt aktuell:** Ändert ein Kollege genau den geöffneten Azubi (Raster, Ergebnis), wird die Ansicht neu gezeichnet, sobald hier nicht getippt wird – vorher arbeitete man bis zum nächsten Azubi-Wechsel auf einem veralteten Raster.
+- **Crash-Restore** läuft durch den LWW-Guard (Bootstrap-Ops können neuer sein).
+
+## Betriebsvoraussetzungen (aus dem Audit abgeleitet, in Hilfe und TECHSTACK dokumentiert)
+
+- Der Arbeitsordner muss auf **einem** Dateiserver liegen: kein DFS-Replikat, kein OneDrive/SharePoint-Sync, keine Windows-**Offlinedateien** (Client-Side-Caching) für die Freigabe – sonst arbeiten die Rechner auf Kopien.
+- Virenscanner: Ausnahme für `_bhk/` (die `.crswap`-Zwischendateien werden sonst blockiert → `InvalidStateError`-Rotationen).
+- Uhren der Rechner per Domäne synchron (Lamport-Stempel fangen Versatz ab, aber Anzeige-Zeitstempel folgen der Rechneruhr).
+- Pro Datenbank nur **ein** Browser-Tab pro Nutzer (Zweit-Tab ist nur lesend sinnvoll).
+- Latenz: Änderungen der Kollegen erscheinen nach 3–13 s (Poll 3 s + SMB-Metadaten-Cache bis 10 s). Das ist kein Fehler.
+
+**Bewusst so gelassen:** Löschung gewinnt weiterhin gegen einen parallelen Edit
+derselben Zeile (Tombstone). Bei einer Op, deren Spalten teils neuer, teils älter
+sind als der lokale Stand, wird die ganze Op angewendet (kein spaltenweises
+Zerlegen von SQL) – lieber ein älterer Wert in einer Nebenspalte als eine verlorene
+Änderung. Die 3-Tage-Bereinigung fremder Logs bleibt; der Schreiber erkennt das
+inzwischen selbst.
