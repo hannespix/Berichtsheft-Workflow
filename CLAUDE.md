@@ -128,6 +128,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `aj-test.mjs` | Ausbildungsjahre, KW-Raster-Grenzen |
 | `kontrolle-test.mjs` | Schreibziel, Mängel-Historie, Fehltage, AP-Zulassung |
 | `sync-test.mjs` | Mehrbenutzer-Synchronisation (simuliert 3 Clients + Netzlaufwerk) |
+| `sync-stress-test.mjs` | SMB-Störfälle (Lesefehler, Negativ-Cache, Snapshot-Tausch, Bulk-Import, Crash-Puffer) + Zufalls-Stresstest mit drei Clients; Harness in `_sync-harness.mjs` |
 | `berichte-test.mjs` | Abdeckung, Erfolgsquote, Klassenübersicht, Diagramme |
 | `import-test.mjs` | Datumsformate, Spaltenzuordnung, Betriebsanlage |
 | `integritaet-test.mjs` | Lösch-Kaskaden, Migrations-Parität |

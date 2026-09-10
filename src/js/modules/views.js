@@ -2297,12 +2297,18 @@ const Views = {
 
           <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">Mehrbenutzer-Betrieb & Synchronisation</div>
-            <p>Mehrere Ausbildungsberater können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
+            <p>Mehrere Ausbildungsberater (2–3) können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
             <p>1. Alle Sachbearbeiter öffnen dieselbe HTML-Datei und wählen denselben Arbeitsordner</p>
             <p>2. Jeder Sachbearbeiter wählt seinen Namen in der Benutzerauswahl (Topbar, rechts oben)</p>
-            <p>3. Änderungen werden automatisch im 8-Sekunden-Intervall mit der gemeinsamen Datenbankdatei synchronisiert</p>
-            <p>4. Ein <strong>Synchronisationsmarker</strong> (<code>_bhk/sync_*</code>) signalisiert anderen Instanzen, dass Änderungen vorliegen</p>
+            <p>3. Jeder Rechner schreibt seine Änderungen NUR in sein eigenes Protokoll (<code>_bhk/oplog_*</code>) und liest alle 3 Sekunden die Protokolle der anderen – niemand überschreibt die Datenbankdatei im laufenden Betrieb</p>
+            <p>4. Die Datenbankdatei ist der gemeinsame „Schnappschuss“ und wird nur gelegentlich (gesperrt) zusammengefasst. Änderungen der Kollegen erscheinen nach 3–13 Sekunden – das ist normal</p>
+            <p>5. Ändern zwei Personen dieselbe Zeile, gewinnt die zeitlich spätere Änderung je Feld („Last Write Wins“) – auf allen Rechnern gleich</p>
+            <p><strong>Voraussetzungen am Netzlaufwerk (wichtig!):</strong></p>
+            <p>• Der Arbeitsordner liegt auf <strong>einem</strong> Dateiserver – keine DFS-Replikation, kein OneDrive-/SharePoint-Sync, keine Windows-<strong>Offlinedateien</strong> („Immer offline verfügbar“) für diese Freigabe. Sonst arbeiten die Rechner auf Kopien</p>
+            <p>• Virenscanner: Ausnahme für den Unterordner <code>_bhk/</code> (der Browser schreibt dort kurzlebige <code>.crswap</code>-Dateien)</p>
+            <p>• Rechneruhren per Domäne synchron; pro Datenbank nur <strong>ein</strong> Browser-Tab je Person</p>
+            <p>• Bei „Verbindung getrennt“: Änderungen bleiben lokal gepuffert (bis 7 Tage), „Erneut verbinden“ holt den Ordnerzugriff zurück. Nach einem IBYKUS-Import das Fenster offen lassen, bis der Status wieder grün ist</p>
             <p><strong>Sperrsystem (Locking):</strong></p>
             <p>• Bearbeitet Sachbearbeiter A einen Auszubildenden, sehen andere Sachbearbeiter ein ⊘-Symbol (Datensatz gesperrt)</p>
             <p>• Sperren werden beim Speichern und Weiterschalten automatisch freigegeben</p>
