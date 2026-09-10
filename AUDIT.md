@@ -415,3 +415,123 @@ sind als der lokale Stand, wird die ganze Op angewendet (kein spaltenweises
 Zerlegen von SQL) – lieber ein älterer Wert in einer Nebenspalte als eine verlorene
 Änderung. Die 3-Tage-Bereinigung fremder Logs bleibt; der Schreiber erkennt das
 inzwischen selbst.
+
+
+---
+
+# Audit 7: Gesamt-Workflow – Logik, Bedienfluss, Ausbau (September 2026)
+
+> **Status: Befunde erhoben, priorisierte Roadmap in `ROADMAP.md`.** Fünf parallele
+> Prüfbereiche entlang des Jahresablaufs; alle hohen Befunde im Code nachverifiziert.
+> Reparaturen folgen paketweise (siehe Roadmap, Stufe 1 Pakete A–E).
+
+## 7.1 Stammdaten, Import, Akte
+
+| Nr | Schwere | Befund | Vorschlag |
+|---|---|---|---|
+| 1 | hoch | Namens-Fallback beim Re-Import ignoriert eine abweichende BAV-Ident (`import-handler.js:638-651`): Betriebswechsel/Neuvertrag trifft dieselbe Zeile, Status/Betrieb je nach Zeilenreihenfolge falsch. | Fallback nur bei leerer Ident; Namenstreffer mit anderer Ident als „Neuvertrag/Dublette" melden. |
+| 2 | hoch | Azubis, die im Export fehlen, werden nie erkannt; Anleitung empfiehlt Filter „Nicht Ende" → ENDE-Logik greift praktisch nie. | Lauf-Kennung je Azubi, Nachlauf-Liste „fehlen im Export" mit Sammelaktion „Ausbildung beenden". |
+| 3 | hoch | Bulk „Inaktiv setzen" schreibt `status='inaktiv'` (`stammdaten.js:363`), im Dialog unbekannt → nächstes Speichern reaktiviert (`import-handler.js:1093`). | Einheitliches Status-Enum, zentrale Funktion. |
+| 4 | hoch | BAV „ENDE" + Prüfungserfolg „bestanden" → „abgebrochen" (`import-handler.js:616/677/723`); `ap_bestanden` nie aus Import. | ENDE+bestanden → `ap_bestanden`; `inaktiv_datum = ausbildungsende`. |
+| 5 | hoch | Bulk-Leiste der Schülerliste nach Besuch des Stammdaten-Tabs tot (`stammdaten.js:296` überschreibt `getSelected`); Bulk-Klasse/Jahrgang/FR rendern in `stammdatenContent` (`bulk-schueler.js:49-91`). | Override entfernen, `_refresh()` überall. |
+| 6 | hoch | `klassen.lehrjahr` statisch (Filter `app-core.js:34`, Liste `schueler-view.js:60`, DQ-Regel `berichte.js:1023`) – ab dem 2. Schuljahr ein Jahr zu niedrig. | Überall `getCurrentAJ`; Klassen-LJ nur Fallback. |
+| 7 | hoch | Betrieb bearbeiten ohne Betriebsnummer: `''` statt `NULL` → UNIQUE-Fehler ohne Meldung (`stammdaten.js:1411`). | `\|\| null` + Dublettenprüfung wie `saveBetrieb`. |
+| 8 | mittel | Status-/aktiv-Übergänge an fünf Stellen unterschiedlich (Dialog `ap_bestanden` ohne Grund, „verlängert" → `aktiv=0`, kein Log bei Bulk/Jahrgang). | `App.setSchuelerStatus()` + Dialog „Ausbildung beenden". |
+| 9 | mittel | Aktenvermerk-PDF liest `w.typ/w.frist/w.beschreibung` – Spalten existieren nicht (`schueler-akte.js:387-392`). | `art`/`frist_datum`. |
+| 10 | mittel | Drei Fehltage-Zahlen je Azubi (Dialog KW-Summe, Dashboard Phasen-Pauschale, Kontrolle `fehltage_gesamt`). | Eine Quelle. |
+| 11 | mittel | „Jahrgang abschließen" setzt pauschal alle auf „AP bestanden" (`schueler-view.js:125-141`). | Vorschau mit Ausnahmen, Ergebnis aus `pruefungserfolg`. |
+| 12 | mittel | „Alle löschen" (Jahrgang) löscht Termine samt Ergebnissen fremder Jahrgänge (`import-handler.js:1521`). | Nur Verknüpfungen lösen. |
+| 13 | mittel | Amt-Standardfilter versteckt Azubis ohne Amt (manuelle Anlage ohne Amt-Feld). | Amt-Feld mit Vorbelegung 93, DQ-Regel, Hinweis-Badge. |
+| 14 | mittel | Vergütungs-Dashboard rechnet ohne `beruf_id` immer GaLaBau (`azubi-rechner.js:434`). | Mapping Fachrichtungs-Code → Beruf. |
+| 15 | mittel | Jahrgangswechsel im Dashboard legt zweiten aktiven Jahrgang an, Klasse bleibt (`azubi-dashboard.js:313-318`). | `aktiv=0`; Klasse vorschlagen. |
+| 16 | mittel | Betriebe-Tab verknüpft beim Öffnen automatisch per Teilstring ohne Rückfrage (`stammdaten.js:1175/1240`). | Nur auf Klick mit Vorschau. |
+| 17 | mittel | LFK-Import: Text verspricht Namens-Zuordnung, Code kann nur Ident; LFK als Freitext statt Schul-Referenz. | Namens-Fallback; `berufsschule_id`. |
+| 18 | mittel | DQ-Duplikatregel wirkungslos (Geburtsdatum nicht importierbar, `import-handler.js:105-134`). | Geburtsdatum in Spaltenzuordnung. |
+| 19 | mittel | Schul-Zuordnung per beidseitigem Teilstring (`import-handler.js:491`). | Exakt/normalisiert, Teilstring nur Vorschlag. |
+| 20–24 | niedrig | LJ im Dialog ohne Phasen; Akten-Dateien bleiben nach Löschung auf dem Laufwerk; Import-Zusammenfassung zählt falsch; Azubi-Tabelle 4 Abfragen/Zeile; Dateinamen ohne `safeFilename`. | Kleinkram. |
+
+Fehlende DQ-Regeln: `aktiv=1` mit Endstatus, unbekannter Statuswert, `aktiv=0` ohne Datum, ENDE bei aktiv, `ap_bestanden` bei nicht bestanden, Amt leer, Vertragsdauer ≠ Regel−Verkürzung, LFK-Text ohne Schule, Klasse mit fremder Fachrichtung.
+
+## 7.2 Kontrollplanung
+
+| Nr | Schwere | Befund | Vorschlag |
+|---|---|---|---|
+| 1 | hoch | Schülerzahl der Kampagnen-Termine = 0: Cache zählt nur Klassenmitglieder (`app-core.js:5450/5541`); Planung, Kontrolle-Dropdown, Berichte zeigen falsche Zahlen. | Einzel-Zuordnung + KE-Zweig in den Preload. |
+| 2 | hoch | Kohortenjahr (`planung.js:30-33`) und Kampagnenfenster (`:1115-1123`) laufen auseinander (Jan: AP S2026 mit Fenster Nov/Dez 2026). | Erst Fenster, dann Jahre aus dem Fensterjahr. |
+| 3 | mittel | Lehrjahr-Filter des Assistenten mit heutigem AJ statt AJ zum Termin (`app-core.js:5896`). | `getAJAtDate(…, fenster.von)`. |
+| 4 | mittel | Blockplan-Vorschlag ohne Schuljahr/Lehrjahr (`planung.js:1137/1163`). | Schuljahr aus Zieldatum, Lehrjahre einschränken. |
+| 5 | mittel | Blockplan-Raster zeigt KW 53 in 52-Wochen-Jahren (`stammdaten.js:1072`). | ISO-Regel. |
+| 6 | mittel | KW-Kalender im Termin-Dialog nur über Klassen-Checkboxen, nur heutiges Schuljahr (`planung.js:618-661`). | Ort-Select und Einzel-Azubis als Quellen. |
+| 7 | mittel | Standort-Klick setzt keinen Ort → Terminanfrage bricht ab (`planung.js:509-520`, `workflows.js:82`). | Ort vorbelegen, ohne Ort warnen. |
+| 8 | mittel | LFK-Standorte finden keine Berufsschule (Freitext vs. `name=?`, `planung.js:1136/1160/1180`). | Fuzzy oder Referenz; ohne Ort nicht anlegen. |
+| 9 | mittel | Keine Doppeltermin-Prüfung (Assistent doppelt alle Termine beim zweiten Lauf). | Vorhandene Termine ±14 Tage anzeigen. |
+| 10 | mittel | Dashboard/Kalender: `kl[0].schule` statt `getTerminSchule`, ein Termin pro Tag (`views.js:188/975-983`). | Überall `getTerminSchule`, Array je Tag. |
+| 11 | mittel | Terminanfrage für Kampagnen-Termine: Betreff „– – –", Gruppen nur aus Klassen (`workflows.js:49-65`). | Gruppen aus Azubis (FR + AJ zum Termin). |
+| 12 | mittel | Status-Modell: `abgesagt` ohne Bedienweg; vergangene geplante Termine verschwinden vom Dashboard. | Absagen/Verschieben; Hinweiszeile. |
+| 13 | mittel | Schul-Kommunikation ohne Spur (kein „angefragt/bestätigt am"). | Felder + Badge. |
+| 14–21 | niedrig | ICS nicht idempotent (UID, DTSTAMP); `jahrgang_id='null'`; Platzhalter-Chips unvollständig; alle Prüfer vorbelegt; FR-Filter nach Vorlage; Amt-Excel mit Rohcodes; Nachholungs-Frist = beliebiger Termin; `BlockplanAnalyzer` toter Code. | siehe Roadmap. |
+
+## 7.3 Kontrolldurchführung
+
+| Nr | Schwere | Befund | Vorschlag |
+|---|---|---|---|
+| 1 | hoch | Fehltage-Wochen (H-only) fehlen im Durchsichtsbogen-PDF (`pdf-export.js:130-183`); `geprueft` nicht in `kwData`. | Wie am Bildschirm rendern. |
+| 2 | hoch | Übersicht, Druckliste, Auto-AP-Zulassung ignorieren `fehltage_pauschal` (`kontrolle.js:156/524`). | `App.getFehltageGesamt(sid)` überall. |
+| 3 | hoch | Gegenseitige Sperre beim gleichzeitigen Öffnen desselben Azubis (beide beim ersten offenen, `kontrolle.js:67-72/335/1863`). | Tie-Break per Positions-Zeitstempel oder nur Warnung. |
+| 4 | hoch | „Sperre aufheben" hält 8 s (`kontrolle.js:2031`, `doLiveSync:1864`). | Override-Merker; Positionen > 5 min ignorieren. |
+| 5 | mittel | Modal-Pfad `saveKWOk` umgeht `behobene_codes`/`autoUpdateFehltage`, nutzt `currentIndex` (`kontrolle.js:1586-1605`). | `KWNav.persistCodes(...)`. |
+| 6 | mittel | Kein Undo für Modal, Sonstiges, Bereichs-Markierung. | Vorzustand einfrieren, aggregiert pushen. |
+| 7 | mittel | WV-Art folgt nicht dem Ergebnis; erledigte WV wird nicht wieder geöffnet (`kontrolle.js:1473-1525`). | `saveWV` bei jeder Ergebnisänderung inkl. Status-Reset. |
+| 8 | mittel | „Nachholung bis nächste Durchsicht" nimmt nächsten beliebigen Termin (`:1406/2215`). | Termin derselben Schule/des Azubis. |
+| 9 | mittel | „✓ i.O."-Schnellweg markiert keine Wochen als geprüft (`:357-408`). | `persistCodes` bis Vorwoche. |
+| 10 | mittel | Nacherfassung „In Ordnung" schließt offene WV nicht; rückdatierte Codes als offene Mängel (`nacherfassung.js:248-262`). | Wie `_markOK`; jüngere Durchsicht → `behobene_codes`. |
+| 11 | mittel | Auto-AP-Zulassung ohne Bezug zum Ausbildungsjahr (`:167-175`). | Nur im letzten AJ. |
+| 12 | mittel | Ergebnis-Radios feuern bei Pfeil-Navigation Nebenwirkungen (`:1323-1331/1481`). | Entprellen, Kürzel. |
+| 13 | mittel | Sperre nach Azubi-Wechsel bis 2 min unsichtbar (Delete/Write-Race, `:1700-1757`). | Nur überschreiben; Heartbeat 30 s. |
+| 14 | mittel | PDF-Unterschrift = letzter Schreiber (`pdf-export.js:438`). | Feld `pruefer` am KE. |
+| 15 | mittel | „PDFs für mangelhafte Schüler" erzeugt alle Bögen (`:2362-2371`). | Gefilterte Liste. |
+| 16–25 | niedrig | AJ-Kopf bei Verkürzern; Schuljahr-Label bei 1.8.-Verträgen; Prüfmarkierung wird wieder aufgefüllt; „diese Sitzung" nicht unterscheidbar; Fehltage-Obergrenzen 5/7; Strg+←/→ außerhalb der Kontrolle; `reopenKontrolle`-Ansicht; Fokus unsichtbar; KW 53 fehlt; Anlage-Block 5× kopiert. | siehe Roadmap. |
+
+## 7.4 Nachbereitung, Berichte, Dashboard
+
+| Nr | Schwere | Befund | Vorschlag |
+|---|---|---|---|
+| 1 | hoch | Nacherfassung schließt die alte Wiedervorlage nicht (`nacherfassung.js:249-252`). | Wie `_markOK`. |
+| 2 | hoch | Betrieb ohne E-Mail erhält nach der Kontrolle einen Brief mit Terminankündigung (`workflows.js:414`, Aufrufe `:227/265/519`, `berichte.js:290`). | Brief nach Vorlagentyp. |
+| 3 | hoch | Abwesende werden als „ohne Beanstandung" bestätigt (`workflows.js:294-298`). | Ohne Ergebnis ausschließen. |
+| 4 | hoch | Excel-Dashboard Blatt 2–5 zählt Ergebnis-Zeilen statt Azubis (`berichte.js:129-207`). | `COUNT(DISTINCT)`, letztes Ergebnis; Test. |
+| 5 | hoch | Sidebar-Badge „überfällig" ≠ Dashboard (`app-core.js:7089` vs. `views.js:1101`). | Gemeinsame Zählfunktion. |
+| 6 | hoch | Jahresbericht ohne Zeitraum, inkonsistente Erfolgsquote, Schulstatistik zählt mehrfach (`berichte.js:322-395`). | Schuljahresgrenzen, „letztes Ergebnis im Zeitraum". |
+| 7 | mittel | Nachweis ohne Durchsicht lässt Azubi dauerhaft rot (Ampel/Zulassung nutzen letztes Ergebnis). | „nachgewiesen"-Zustand oder Mini-Nacherfassung. |
+| 8 | mittel | „→ Durchsicht" überschreibt das historische Ergebnis (`wiedervorlagen.js:15-18`). | Auf Nacherfassung verlinken. |
+| 9 | mittel | Wieder-Mangel nach „In Ordnung" erzeugt keine offene WV (`kontrolle.js:1475/1525/2345`). | Status-Reset. |
+| 10 | mittel | Falsche Vorlage für Nachholungs-WVs (`workflows.js:448`); WV-Art kein Platzhalter. | Nach `w.art` verzweigen. |
+| 11 | mittel | Kein Versandnachweis, keine Mahnstufe (nur Erinnerung schreibt Notiz). | Versandprotokoll, `mahnstufe`. |
+| 12 | mittel | Fremde Ämter: WV angelegt, gemahnt, Seriendruck (`kontrolle.js:2327-2350`, `workflows.js:141`). | Standardmäßig ohne WV, §-Badge/Filter. |
+| 13 | mittel | Ausbildung beenden lässt offene WVs stehen; Listen ohne `aktiv`-Filter. | Beim Inaktivsetzen schließen. |
+| 14 | mittel | ICS: UID-Kollision Termine/WV, WV-Export mit Termin-Dateinamen (`app-core.js:7186`, `wiedervorlagen.js:225`). | UID aus Entität+ID. |
+| 15 | mittel | „PDFs für mangelhafte Schüler" = alle Bögen (`kontrolle.js:2364-2370`). | Gefiltert / je Betrieb. |
+| 16 | mittel | Gesamtpaket: Label irreführend, Stammschule statt Termin-Ort, Ladeanzeige endet vorzeitig (`berichte.js:243/257`, `workflows.js:386`). | Korrigieren. |
+| 17 | mittel | Vorlagen-Vorschau meldet gültige Platzhalter als unbekannt (`views.js:1555-1565`); Chip-Listen unvollständig. | Beispielkontext vervollständigen, Chips aus Text ableiten. |
+| 18–22 | niedrig | `checkAutoErledigt` schreibt datetime statt date und zählt `H` als Mangel; Bulk-Frist reaktiviert Erledigte; Word-Brief nur eine Frist; `emailBetriebWV` Prüfer = letzter Bearbeiter; Dateinamen/Zulassungs-Excel. | siehe Roadmap. |
+
+## 7.5 Querschnitt und Bedienung
+
+| Nr | Schwere | Befund | Vorschlag |
+|---|---|---|---|
+| 1 | hoch | Dialog schließt sich sofort wieder: `closeModal()` → `history.back()`, verzögertes `popstate` schließt den neu geöffneten Dialog (`app-core.js:7157-7172, 6483`); betrifft Stammdaten, Datenqualität, Azubi-Dashboard, Import. | `event.state` prüfen / `App.replaceModal()`. |
+| 2 | hoch | Sidebar-Badge ≠ Dashboard ≠ Liste (siehe 7.4 Nr. 5). | Gemeinsame Funktion. |
+| 3 | hoch | „Ansicht nach Reload" liest `last_view` vor dem Benutzer-Restore (`app-core.js:6441` vs. `6497`) → greift nie. | Benutzer-Restore vorziehen. |
+| 4 | hoch | „Verbindung trennen" ruft `doAutoSave()` ohne `await` und leert danach (`app-core.js:1648-1661`). | `await`; Rückfrage bei Fehler. |
+| 5 | mittel | Standardfilter erscheinen als Nutzerfilter mit ✕; `_cleanupDB` setzt Amt/ZP/Extra nicht zurück. | „Standard"-Chip; vollständiger Reset. |
+| 6 | mittel | Durchsicht ohne gewählten Prüfer möglich (`kontrolle.js:46`). | Auswahl erzwingen. |
+| 7 | mittel | Drei Klarnamen-Prüfer bei jedem Start neu angelegt (`app-core.js:6847-6851`). | Seed nur bei Neuanlage. |
+| 8 | mittel | Undo ansichtsübergreifend und unsichtbar. | Stack leeren, Name im Toast. |
+| 9 | mittel | WV-Notiz „Erstellt von" ignoriert `currentUser` (`wiedervorlagen.js:155`). | Vorbelegen. |
+| 10 | mittel | Doppelte Toasts „Jetzt speichern"/„Neu laden", Neu laden ohne Rückfrage (`views.js:1290`). | Bereinigen. |
+| 11 | mittel | WV-Ansicht schreibt bei jedem Öffnen eine Op (`views.js:1101`). | Nur bei Treffern / rein berechnen. |
+| 12 | mittel | Hilfe widerspricht dem Verhalten (8 s/Sperrsystem, Tab-Namen, Terminstatus, feste Version). | Hilfe bereinigen, Version aus Build. |
+| 13 | mittel | F1 nur Tastenkürzel, keine Kontext-Hilfe. | F1 → Kapitel der Ansicht. |
+| 14 | mittel | Barrierefreiheit: Modal ohne `role/Fokus`, Toasts ohne `aria-live`, klickbare `div/span`, 9-px-Schrift. | Buttons, Fokus-Trap, `aria-live`. |
+| 15 | mittel | Kein geführter Erststart (6–7 unverbundene Schritte). | Leerzustand-Checkliste. |
+| 16–25 | niedrig | Modal-Titel unescaped; Begriffe uneinheitlich; Scrollposition bleibt; Hash vs. `last_view`; Fehlermeldungen ohne Ursache; native `prompt/confirm`; Dark-Mode-Flackern; Statusanzeigen; Auswertungen hinter Passwort; WV-Filter „offen" ohne Überfällige. | siehe Roadmap. |
