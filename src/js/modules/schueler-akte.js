@@ -393,6 +393,13 @@ const SchuelerAkte = {
         doc.text(`${w.typ || '–'} – ${statusLbl[w.status] || w.status} (Frist: ${w.frist ? new Date(w.frist).toLocaleDateString('de-DE') : '–'})`, LM + 2, y);
         doc.setFont(undefined, 'normal');
         y += 4;
+        if (w.versand_datum) {
+          checkPage(4);
+          doc.setTextColor(100);
+          doc.text(`   Anschreiben: ${w.mahnstufe || 1}× (zuletzt ${SchuelerAkte._formatDate(w.versand_datum)} per ${w.versand_art === 'email' ? 'E-Mail' : (w.versand_art || 'Brief')})`, LM + 2, y);
+          doc.setTextColor(0);
+          y += 4;
+        }
         if (w.beschreibung) {
           const lines = doc.splitTextToSize(w.beschreibung, RM - LM - 4);
           lines.forEach(line => { checkPage(4); doc.text(line, LM + 4, y); y += 3.5; });

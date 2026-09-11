@@ -131,6 +131,9 @@ const KontrolleHandler = {
     // Count stats
     const linkedKlassenIds = new Set(App.getTerminKlassenIds(terminId));
     let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0;
+    // Hersendung (Einsendung): „Anwesend" = Berichtsheft eingegangen; fehlende Hefte → Erinnerung an die Betriebe
+    const istEinsendung = termin && termin.typ === 'einsendung';
+    const fehlendeHefte = schueler.filter(s => { const ke = alleKE[s.id]; return ke && ke.anwesend === 0 && !ke.ergebnis && !App.istFremdesAmt(s); }).map(s => s.id);
     const rows = schueler.map((s, i) => {
       const frName = frLookup[s.fachrichtung_id] || '–';
       const isExtraSchueler = !linkedKlassenIds.has(s.klasse_id);
@@ -335,7 +338,7 @@ const KontrolleHandler = {
               <th style="width:35px">#</th>
               <th>Name / Betrieb</th>
               <th title="Fachrichtung">FR</th>
-              <th style="width:50px;text-align:center" title="Anwesend bei Durchsicht (Checkbox)">Anw.</th>
+              <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei Durchsicht (Checkbox)'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
               <th style="width:35px;text-align:center" title="Ampel-Status">↯</th>
               <th>Ergebnis</th>
               <th style="width:55px;text-align:center" title="Fehltage gesamt">Fehl.</th>
@@ -351,8 +354,9 @@ const KontrolleHandler = {
 
         <!-- Bulk-Aktionen -->
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">✓ Alle anwesend</button>
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">✗ Alle abwesend</button>
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">${istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend'}</button>
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">${istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend'}</button>
+          ${istEinsendung && fehlendeHefte.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], addDaysStr(14))" title="Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")">✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen</button>` : ''}
           <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;background:var(--clr-warm);border-radius:var(--radius)" title="Prüferaufteilung: „Ich nehme #von–bis" – Kollegen überspringen diesen Bereich beim Weiterschalten">
             Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">

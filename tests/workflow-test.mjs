@@ -241,5 +241,33 @@ console.log('\n══ Stufe 2 (3): Wiedervorlage-Nachweis, Akte-Dateien beim end
   check((APP_SRC.match(/_loescheAkteDateien\(/g) || []).length >= 5, 'Endgültiges Löschen (Papierkorb-Eintrag, Leeren, 90-Tage-Bereinigung, Kaskade ohne Papierkorb) entfernt die Akten-Dateien');
 }
 
+console.log('\n══ Stufe 3 (2): Ampeln, Sammel-Erinnerung, Hersendung, Kontexthilfe, Rollen ══');
+{
+  sandbox.wvArtLabel = (a) => ({ post_an_rp: 'Vorlage per Post im RP', nachholung_naechste_durchsicht: 'Nachholung' })[a] || a;
+  const kz = App.betriebKennzahlen(11);
+  check(kz.azubis === 2 && kz.mangelAzubis === 1 && kz.wvOffen === 0 && ['gelb', 'gruen', 'rot'].includes(kz.ampel), `Betriebs-Kennzahlen (${kz.mangelAzubis} Mangel-Azubi, Ampel ${kz.ampel}, Ø ${kz.nachweisTage} Tage)`);
+  check(kz.ampel === 'gelb' && !kz.wiederholer, 'Ein Azubi mit Mängeln, keine offene WV → gelb, kein Wiederholungsbetrieb');
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,typ,berufsschule_id) VALUES (801,'2026-06-01','durchgefuehrt','schulkontrolle',1)`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend) VALUES (8011,801,802,'nachholung_naechste_durchsicht',1)`);
+  const kz2 = App.betriebKennzahlen(11);
+  check(kz2.wiederholer && kz2.ampel === 'rot' && App.wiederholungsbetriebe().some(b => b.id === 11), 'Zwei Azubis mit Mängeln in 24 Monaten → Wiederholungsbetrieb (rot)');
+  const sk = App.schuleKennzahlen(1);
+  check(typeof sk.abdeckung === 'number' && typeof sk.mangelQuote === 'number' && ['rot', 'gelb', 'gruen', 'grau'].includes(sk.ampel), `Schul-Kennzahlen: Abdeckung ${sk.abdeckung} %, Mängelquote ${sk.mangelQuote} %, Ampel ${sk.ampel}`);
+  // Sammel-Erinnerung
+  db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (852,8001,801,'post_an_rp','2026-09-01','offen'),(853,8011,802,'nachholung_naechste_durchsicht','2026-10-30','offen')`);
+  const gr = Workflows._sammelGruppen(false);
+  const g11 = gr.find(g => g.betriebId === 11);
+  check(g11 && g11.wvs.length === 1 && g11.wvs[0].id === 852, 'Sammel-Erinnerung gruppiert offene WV je Betrieb, fremde Ämter (Azubi 802) bleiben außen vor');
+  check(Workflows._sammelGruppen(true).find(g => g.betriebId === 11)?.wvs.length === 1 && g11.wvs[0].ueberfaellig, 'Filter „nur überfällige" (Frist 01.09. < 15.09.)');
+  check(/Frist 01\.09\.2026 \(überschritten\)/.test(Workflows._sammelBlock(g11)), `Azubi-Block nennt Art, Frist und Überschreitung (${Workflows._sammelBlock(g11)})`);
+  check(!!App.VORLAGEN.wv_sammel && /\{azubi_block\}/.test(App.VORLAGEN.wv_sammel.body), 'Vorlage „Sammel-Erinnerung" vorhanden');
+  // Hersendung, Kontexthilfe, Rollen (Quelltext)
+  check(/istEinsendung \? 'Heft da' : 'Anw\.'/.test(read('src/js/modules/kontrolle.js')) && /Erinnerung: \$\{fehlendeHefte\.length\} Heft\(e\) fehlen/.test(read('src/js/modules/kontrolle.js')), 'Hersendung: Eingangsliste „Heft da" und Erinnerung an Betriebe fehlender Hefte');
+  check(App.HILFE_MAP.kontrolle === 'help_7' && App.HILFE_MAP.wiedervorlagen === 'help_13' && /App\.kontextHilfe\(\)/.test(read('src/js/modules/keyboard-shortcuts.js')) && /_hilfeLinkEinblenden/.test(APP_SRC), 'F1 und ?-Link führen zur Hilfe der aktuellen Ansicht');
+  check(/id="help_neu"/.test(read('src/js/modules/views.js')), '„Was ist neu" in der Hilfe');
+  check(App.ROLLEN.assistenz.features.kontrolle === false && App.ROLLEN.berater.features.kontrolle === true && App.SIDEBAR_FEATURES.kontrolle && /data-feature="kontrolle"/.test(read('index.html')), 'Rollenprofile über die Sidebar-Schalter (Assistenz ohne Durchführung)');
+  check(/Anschreiben: \$\{w\.mahnstufe \|\| 1\}×/.test(read('src/js/modules/schueler-akte.js')), 'Aktenvermerk zeigt die Versandhistorie der Wiedervorlagen');
+}
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);
