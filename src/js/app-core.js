@@ -6091,6 +6091,79 @@ const App = {
     return { startKW: getKW(d), endKW: getKW(new Date()) };
   },
 
+  // ── Schulferien Baden-Württemberg (Richtwerte; in den Einstellungen anpassbar) ──
+  FERIEN_BW_STANDARD: [
+    { name: 'Herbstferien 2025', von: '2025-10-27', bis: '2025-10-31' }, { name: 'Weihnachtsferien 2025/26', von: '2025-12-22', bis: '2026-01-05' },
+    { name: 'Osterferien 2026', von: '2026-03-30', bis: '2026-04-11' }, { name: 'Pfingstferien 2026', von: '2026-05-26', bis: '2026-06-05' },
+    { name: 'Sommerferien 2026', von: '2026-07-30', bis: '2026-09-12' }, { name: 'Herbstferien 2026', von: '2026-10-26', bis: '2026-10-30' },
+    { name: 'Weihnachtsferien 2026/27', von: '2026-12-23', bis: '2027-01-09' }, { name: 'Osterferien 2027', von: '2027-03-29', bis: '2027-04-10' },
+    { name: 'Pfingstferien 2027', von: '2027-05-18', bis: '2027-05-29' }, { name: 'Sommerferien 2027', von: '2027-07-29', bis: '2027-09-11' },
+    { name: 'Herbstferien 2027', von: '2027-10-25', bis: '2027-10-30' }, { name: 'Weihnachtsferien 2027/28', von: '2027-12-23', bis: '2028-01-08' },
+    { name: 'Osterferien 2028', von: '2028-04-10', bis: '2028-04-21' }, { name: 'Pfingstferien 2028', von: '2028-06-06', bis: '2028-06-16' },
+    { name: 'Sommerferien 2028', von: '2028-07-27', bis: '2028-09-09' },
+  ],
+  ferienBW() {
+    try {
+      const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='ferien_bw'");
+      if (j) { const a = JSON.parse(j); if (Array.isArray(a) && a.length) return a.filter(f => f && f.von && f.bis); }
+    } catch(e) {}
+    return this.FERIEN_BW_STANDARD;
+  },
+  istFerien(datum) {
+    const d = String(datum || '').slice(0, 10);
+    const f = this.ferienBW().find(x => x.von <= d && d <= x.bis);
+    return f ? f.name : '';
+  },
+
+  // ── Jahresablauf: „Wo stehen wir?" und der nächste sinnvolle Schritt ──
+  jahresstand() {
+    const heute = new Date().toISOString().slice(0, 10);
+    const st = { heute };
+    st.azubis = this.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    st.pruefer = this.scalar('SELECT COUNT(*) FROM pruefer WHERE aktiv=1') || 0;
+    let imp = null;
+    try { imp = this.query('SELECT zeitpunkt, neu, aktualisiert FROM import_historie ORDER BY zeitpunkt DESC, id DESC LIMIT 1')[0] || null; } catch(e) {}
+    st.letzterImport = imp ? String(imp.zeitpunkt).slice(0, 10) : '';
+    st.importAlterTage = st.letzterImport ? Math.round((new Date(heute) - new Date(st.letzterImport)) / 86400000) : null;
+    st.kampagne = null;
+    try {
+      if (typeof PlanungHandler !== 'undefined' && PlanungHandler._kampFensterRoh) {
+        const jetzt = new Date();
+        const fen = ['kontrolle23', 'zpF', 'zpH', 'apS', 'apW'].map(k => ({ key: k, ...PlanungHandler._kampFensterRoh(k, jetzt) })).sort((a, b) => a.von - b.von);
+        const k = fen.find(f => f.von <= jetzt && jetzt <= f.bis) || fen.find(f => f.von > jetzt) || null;
+        if (k) {
+          const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const v = PlanungHandler._kontrollVorlagen(jetzt).find(x => x.key === k.key);
+          k.titel = v ? v.titel : k.key; k.vonIso = iso(k.von); k.bisIso = iso(k.bis);
+          k.laeuft = k.von <= jetzt; k.tageBis = Math.round((k.von - jetzt) / 86400000);
+          k.termine = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE geplant_datum BETWEEN ? AND ? AND status != 'abgesagt'", [k.vonIso, k.bisIso]) || 0;
+          st.kampagne = k;
+        }
+      }
+    } catch(e) {}
+    const in21 = new Date(); in21.setDate(in21.getDate() + 21);
+    const in21Iso = in21.toISOString().slice(0, 10);
+    st.termineOffen = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND geplant_datum >= ?", [heute]) || 0;
+    st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
+    st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
+    st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
+    st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum < ?)", [heute]) || 0;
+    st.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
+    return st;
+  },
+  naechsterSchritt(st) {
+    st = st || this.jahresstand();
+    if (!st.pruefer) return { schritt: 'pruefer', text: 'Prüfer (Ausbildungsberater) anlegen', view: 'stammdaten' };
+    if (!st.azubis) return { schritt: 'import', text: 'IBYKUS-Export importieren', view: 'import' };
+    if (st.ohneAbschluss) return { schritt: 'abschluss', text: `${st.ohneAbschluss} Termin(e) mit Ergebnissen abschließen (Archiv-Bögen, Wiedervorlagen)`, view: 'kontrolle' };
+    if (st.wvUeberfaellig) return { schritt: 'wv', text: `${st.wvUeberfaellig} überfällige Wiedervorlage(n) bearbeiten`, view: 'wiedervorlagen' };
+    if (st.ohneNachbereitung) return { schritt: 'nachbereitung', text: `${st.ohneNachbereitung} durchgeführte(n) Termin(e) nachbereiten (Schule, Betriebe)`, view: 'planung' };
+    if (st.nichtAngefragt) return { schritt: 'anfrage', text: `${st.nichtAngefragt} Schultermin(e) bei der Schule anfragen`, view: 'planung' };
+    if (st.kampagne && st.kampagne.termine === 0 && st.kampagne.tageBis <= 56) return { schritt: 'kampagne', text: `Kampagne „${st.kampagne.titel}" planen (Fenster ab ${formatDate(st.kampagne.vonIso)})`, view: 'planung' };
+    if (st.importAlterTage === null || st.importAlterTage > 90) return { schritt: 'import', text: st.importAlterTage === null ? 'IBYKUS-Export importieren (noch kein Import protokolliert)' : `IBYKUS-Export aktualisieren (letzter Import vor ${st.importAlterTage} Tagen)`, view: 'import' };
+    return { schritt: 'ok', text: 'Alles im grünen Bereich – Berichte und Statistik ansehen', view: 'berichte' };
+  },
+
   // ── Termin-Statuskette (Stufe 2) ──
   // angefragt (Schul-Mail geöffnet) → bestätigt (Schule hat zugesagt) →
   // durchgeführt (status) → nachbereitet (Abschluss-Assistent / Ergebnis-Mail).
