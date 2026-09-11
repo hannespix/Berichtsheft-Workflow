@@ -111,19 +111,30 @@ const SchuelerAkte = {
   },
 
   async handleFileSelect(files, schuelerId) {
-    if (!files?.length) return;
-    if (!App.bhkDirHandle) return App.toast('Bitte zuerst eine Datenbank öffnen', 'error');
+    const count = await this.speichereDateien(files, schuelerId);
+    if (count > 0) {
+      App.toast(`${count} Datei(en) gespeichert`, 'success');
+      this.open(schuelerId); // Refresh
+    }
+  },
+
+  // Dateien in die Akte legen (auch aus anderen Dialogen, z.B. Nachweis einer
+  // Wiedervorlage). opts.beschreibung wird an jeder Datei vermerkt. Liefert die
+  // Anzahl gespeicherter Dateien.
+  async speichereDateien(files, schuelerId, opts = {}) {
+    if (!files?.length) return 0;
+    if (!App.bhkDirHandle) { App.toast('Bitte zuerst eine Datenbank öffnen', 'error'); return 0; }
 
     const maxSize = 100 * 1024 * 1024; // 100 MB
     for (const file of files) {
       if (file.size > maxSize) {
         App.toast(`Datei "${file.name}" zu groß (max 100 MB)`, 'error');
-        return;
+        return 0;
       }
     }
 
     const dir = await this._getDateienDir(schuelerId);
-    if (!dir) return App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error');
+    if (!dir) { App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error'); return 0; }
 
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
     let count = 0;
@@ -143,19 +154,14 @@ const SchuelerAkte = {
 
         // Track in DB
         const ext = file.name.split('.').pop().toLowerCase();
-        App.run('INSERT INTO schueler_dateien (schueler_id, dateiname, original_name, dateityp, groesse, erstellt_von) VALUES (?,?,?,?,?,?)',
-          [schuelerId, dateiname, file.name, ext, file.size, pruefer]);
+        App.run('INSERT INTO schueler_dateien (schueler_id, dateiname, original_name, beschreibung, dateityp, groesse, erstellt_von) VALUES (?,?,?,?,?,?,?)',
+          [schuelerId, dateiname, file.name, opts.beschreibung || '', ext, file.size, pruefer]);
         count++;
       } catch (e) {
-        console.warn('Datei-Upload fehlgeschlagen:', file.name, e);
         console.warn('Datei-Upload:', file.name, e); App.toast('Fehler beim Speichern der Datei', 'error');
       }
     }
-
-    if (count > 0) {
-      App.toast(`${count} Datei(en) gespeichert`, 'success');
-      this.open(schuelerId); // Refresh
-    }
+    return count;
   },
 
   async downloadDatei(dateiId, schuelerId) {

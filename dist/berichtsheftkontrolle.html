@@ -11523,6 +11523,8 @@ const App = {
   // ═══════════════════════════════════════════
   deleteSchuelerKaskade(id, opts) {
     if (!id) return;
+    // Ohne Papierkorb = endgültig → Akten-Dateien mit entfernen
+    if (opts && opts.ohnePapierkorb) { try { this._loescheAkteDateien(id); } catch(e) {} }
     if (!(opts && opts.ohnePapierkorb)) {
       try {
         const s = this.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -11687,8 +11689,26 @@ const App = {
     try { this.invalidateTerminCache && this.invalidateTerminCache(); } catch(err) {}
     return { ok: true, zeilen };
   },
-  papierkorbEintragLoeschen(pkId) { this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]); },
-  papierkorbLeeren() { this.run('DELETE FROM bhk_papierkorb'); },
+  // Endgültiges Löschen: auch die Dateien der Akte (dateien/<id>/) vom
+  // Netzlaufwerk entfernen – Datenschutz; die Datenbankzeilen allein reichten
+  // nicht, die Anhänge blieben liegen.
+  async _loescheAkteDateien(schuelerId) {
+    if (!schuelerId || !this.bhkDirHandle) return false;
+    try {
+      const d = await this.bhkDirHandle.getDirectoryHandle('dateien');
+      await d.removeEntry(String(schuelerId), { recursive: true });
+      return true;
+    } catch(e) { return false; }
+  },
+  papierkorbEintragLoeschen(pkId) {
+    const e = this.query('SELECT art, ref_id FROM bhk_papierkorb WHERE id=?', [pkId])[0];
+    if (e && e.art === 'schueler') this._loescheAkteDateien(e.ref_id);
+    this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]);
+  },
+  papierkorbLeeren() {
+    try { this.query("SELECT ref_id FROM bhk_papierkorb WHERE art='schueler'").forEach(r => this._loescheAkteDateien(r.ref_id)); } catch(e) {}
+    this.run('DELETE FROM bhk_papierkorb');
+  },
 
   // ═══════════════════════════════════════════
   //  BACKUP-WIEDERHERSTELLUNG
@@ -12240,6 +12260,7 @@ const App = {
       id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT NOT NULL, ref_id INTEGER,
       label TEXT DEFAULT '', daten TEXT NOT NULL, geloescht_von TEXT DEFAULT '',
       geloescht_am TEXT DEFAULT (datetime('now','localtime')))`);
+    try { this.query("SELECT ref_id FROM bhk_papierkorb WHERE art='schueler' AND geloescht_am < datetime('now','localtime','-90 days')").forEach(r => this._loescheAkteDateien(r.ref_id)); } catch(e) {}
     run("DELETE FROM bhk_papierkorb WHERE geloescht_am < datetime('now','localtime','-90 days')");
     run(`CREATE TABLE IF NOT EXISTS import_historie (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13607,6 +13628,12 @@ const App = {
     const e = lastKE[0].ergebnis;
     if (e === 'in_ordnung' && !wvOffen && offeneMaengel === 0) {
       return { color: 'green', icon: '<span style="color:var(--clr-green)">●</span>', label: 'Letzte Kontrolle OK', prevErgebnis: e, wvOffen, offeneMaengel };
+    }
+    // Mangel-Ergebnis, aber Wiedervorlage mit Nachweis erledigt und keine
+    // offenen Mängel mehr → nachgewiesen (zählt wie „in Ordnung")
+    if (e !== 'in_ordnung' && !wvOffen && offeneMaengel === 0) {
+      const nachweis = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status='erledigt' AND (erledigt_bemerkung LIKE 'Nachweis%' OR erledigt_bemerkung LIKE 'Automatisch erledigt%')", [schuelerId]) || 0;
+      if (nachweis) return { color: 'green', icon: '<span style="color:var(--clr-green)">◉</span>', label: 'Mängel behoben / nachgewiesen', prevErgebnis: e, wvOffen, offeneMaengel, nachgewiesen: true };
     }
     if (e === 'nachholung_naechste_durchsicht' || e === 'sachberichte_wetter_email' || e === 'berichte_bis_termin_email') {
       return { color: 'yellow', icon: '<span style="color:var(--clr-amber)">◐</span>', label: 'Nachholung/E-Mail nötig', prevErgebnis: e, wvOffen, offeneMaengel };
@@ -19822,9 +19849,9 @@ const ImportHandler = {
             <em style="color:var(--clr-text-light)">Aufklappen um Vorschau zu laden…</em>
           </div>
         </details>
-        <button class="btn btn-primary" onclick="ImportHandler.doImport(window._importData)">
+        <button class="btn btn-primary" onclick="ImportHandler.doImportVorschau(window._importData)" title="Zeigt erst, was neu, geändert oder fehlend ist – geschrieben wird erst nach Bestätigung">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          ${data.length} Schüler importieren (vollautomatisch)
+          ${data.length} Zeilen prüfen &amp; importieren (Vorschau)
         </button>
         <button class="btn btn-secondary" onclick="document.getElementById('importPreview').innerHTML=''">Abbrechen</button>
       </div>`;
@@ -19986,8 +20013,45 @@ const ImportHandler = {
     return null;
   },
 
-  async doImport(data) {
+  // Vorschau: derselbe Import auf einem SAVEPOINT, danach zurückgerollt –
+  // zeigt Neu / Geändert (mit Feldern) / Fehlend / Konflikte, bevor etwas
+  // geschrieben wird. „Jetzt importieren" führt dann den echten Lauf aus.
+  doImportVorschau(data) { return this.doImport(data, { vorschau: true }); },
+  _feldLabel: { nachname: 'Nachname', vorname: 'Vorname', ibykus_id: 'BAV-Ident', ausbildungsende: 'AV-Ende', ausbildungsbeginn: 'AV-Beginn', ausbildungsstaette: 'Betrieb', telefon: 'Telefon', email: 'E-Mail', betrieb_id: 'Betrieb (Stammdaten)', klasse_id: 'Klasse', jahrgang_id: 'Jahrgang', fachrichtung_id: 'Fachrichtung', zustaendiges_amt: 'Amt', geschlecht: 'Geschlecht', schulabschluss: 'Schulabschluss', pruefungserfolg: 'Prüfungserfolg', pruefungserfolg_wdh1: 'Prüfungserfolg Wdh. 1', pruefungserfolg_wdh2: 'Prüfungserfolg Wdh. 2', bav_status: 'BAV-Status', zwischenpruefung: 'ZP', aktiv: 'aktiv', status: 'Status', ap_bestanden: 'AP bestanden', inaktiv_datum: 'inaktiv seit', inaktiv_grund: 'Grund' },
+  _zeigeVorschau(v) {
+    const lbl = f => this._feldLabel[f] || f;
+    const wert = (f, x) => {
+      if (x === null || x === undefined || x === '') return '–';
+      if (f === 'klasse_id') return App.scalar('SELECT klassenbezeichnung FROM klassen WHERE id=?', [x]) || `#${x}`;
+      if (f === 'jahrgang_id') return App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [x]) || `#${x}`;
+      if (f === 'fachrichtung_id') return App.scalar('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [x]) || `#${x}`;
+      if (f === 'betrieb_id') return App.scalar('SELECT name FROM betriebe WHERE id=?', [x]) || `#${x}`;
+      return String(x);
+    };
+    const unveraendert = Math.max(0, v.skipped - (v.stats.updated || 0) - v.errorRows.length);
+    const block = (titel, farbe, inhalt) => `<div style="margin-top:10px;padding:8px 12px;border-left:4px solid ${farbe};background:var(--clr-warm);border-radius:var(--radius);font-size:12px"><strong>${titel}</strong>${inhalt}</div>`;
+    const liste = (arr, f, max = 40) => `<div style="max-height:160px;overflow-y:auto;margin-top:4px">${arr.slice(0, max).map(f).join('')}${arr.length > max ? `<div style="color:var(--clr-text-light)">… und ${arr.length - max} weitere</div>` : ''}</div>`;
+    App.openModal('Import-Vorschau – noch nichts geschrieben', `
+      <div style="font-size:13px;line-height:1.7">
+        <div>✚ <strong>${v.diff.neu.length}</strong> neu · ✎ <strong>${v.diff.geaendert.length}</strong> geändert · <strong>${unveraendert}</strong> unverändert
+          ${v.fehlende.length ? ` · ⚠︎ <strong>${v.fehlende.length}</strong> fehlen im Export` : ''}${v.stats.neuvertraege?.length ? ` · ⚠︎ <strong>${v.stats.neuvertraege.length}</strong> Neuverträge` : ''}${v.errorRows.length ? ` · <span style="color:var(--clr-red)">${v.errorRows.length} fehlerhafte Zeilen</span>` : ''}</div>
+        ${v.stats.schulen.size || v.stats.jahrgaenge.size || v.stats.klassen.size ? `<div style="font-size:12px;color:var(--clr-text-light)">Würde anlegen: ${v.stats.schulen.size} Schule(n)${v.stats.schulen.size ? ' (' + [...v.stats.schulen].join(', ') + ')' : ''}, ${v.stats.jahrgaenge.size} Jahrgang/Jahrgänge${v.stats.jahrgaenge.size ? ' (' + [...v.stats.jahrgaenge].join(', ') + ')' : ''}, ${v.stats.klassen.size} Klasse(n)</div>` : ''}
+        ${v.datumsFehler.length ? `<div style="color:var(--clr-amber)">⚠︎ ${v.datumsFehler.length} Zeilen mit unlesbarem Datum – Datumsformat im Dialog prüfen</div>` : ''}
+      </div>
+      ${v.diff.neu.length ? block(`✚ Neu (${v.diff.neu.length})`, 'var(--clr-green)', liste(v.diff.neu, n => `<div>• ${esc(n.name)} <span style="color:var(--clr-text-light)">${esc(n.ident || '')}${n.jahrgang ? ' · ' + esc(n.jahrgang) : ''}${n.schule ? ' · ' + esc(n.schule) : ''}${n.betrieb ? ' · ' + esc(n.betrieb) : ''}</span></div>`)) : ''}
+      ${v.diff.geaendert.length ? block(`✎ Geändert (${v.diff.geaendert.length})`, 'var(--clr-blue)', liste(v.diff.geaendert, g => `<div>• <strong>${esc(g.name)}</strong>: ${g.felder.map(x => `${esc(lbl(x.f))} ${esc(wert(x.f, x.alt))} → ${esc(wert(x.f, x.neu))}`).join('; ')}</div>`)) : ''}
+      ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
+      ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:10px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
+      ${v.stats.phasenKonflikte?.length ? block(`⚠︎ Phasen-Konflikte (${v.stats.phasenKonflikte.length})`, 'var(--clr-amber)', liste(v.stats.phasenKonflikte, k => `<div>• ${esc(k.name)}: ${k.changes.map(([f, n, o]) => `${esc(lbl(f))} ${esc(o || '–')} → ${esc(n)}`).join(', ')} – Datumsfelder werden nicht überschrieben</div>`)) : ''}
+      ${v.errorRows.length ? block(`⚠︎ Fehlerhafte Zeilen (${v.errorRows.length})`, 'var(--clr-red)', liste(v.errorRows, e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`, 20)) : ''}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data)">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
+  },
+
+  async doImport(data, opts = {}) {
     if (!data || !data.length) return App.toast('Keine Daten zum Importieren', 'warning');
+    const vorschau = !!(opts && opts.vorschau);
+    const diff = { neu: [], geaendert: [] };
 
     // Validierung: Pflichtfelder müssen zugeordnet sein
     const getMap = f => document.getElementById('map_' + f)?.value || '';
@@ -20001,10 +20065,12 @@ const ImportHandler = {
       return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
     }
 
-    App.showLoading('Importiere Schülerdaten…');
+    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
+    const bulkOpsVorher = (App._bulkOps || []).length;
+    if (vorschau) App.db.run('SAVEPOINT bhk_vorschau');
    try { // Sicherstellen dass _bulkImport IMMER zurückgesetzt wird (sonst Dirty-Tracking dauerhaft aus!)
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
@@ -20300,6 +20366,7 @@ const ImportHandler = {
           }
         }
 
+        if (changes.length) diff.geaendert.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, felder: changes.map(([f, n, o]) => ({ f, neu: n, alt: o })) });
         // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
         let hatPhasen = false;
         try { hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0; } catch(e) {}
@@ -20337,6 +20404,7 @@ const ImportHandler = {
       if (ibyk) { const neuId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=?', [ibyk]); if (neuId) gesehen.add(neuId); }
       if (frId) exportFr.add(frId);
       if (amt) exportAemter.add(amt);
+      diff.neu.push({ name: `${nachname}, ${vorname}`, ident: ibyk, betrieb, schule: schulName, jahrgang: apCode });
       imported++;
       if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
      } catch(rowErr) {
@@ -20365,6 +20433,17 @@ const ImportHandler = {
         ORDER BY s.nachname, s.vorname`);
       stats.fehlende = kand.filter(k => !gesehen.has(k.id));
       this._pendingFehlende = stats.fehlende.map(k => k.id);
+    }
+
+    // ── Vorschau: alles zurückrollen – nichts geschrieben, nichts gespeichert ──
+    if (vorschau) {
+      try { App.db.run('ROLLBACK TO bhk_vorschau'); App.db.run('RELEASE bhk_vorschau'); } catch(e) { console.warn('Vorschau-Rollback:', e.message); }
+      if (App._bulkOps) App._bulkOps.length = bulkOpsVorher;
+      App._bulkImport = false;
+      App.hideLoading();
+      this._vorschau = { data, diff, stats, imported, skipped, noKlasseCount, errorRows, datumsFehler, fehlende: stats.fehlende || [] };
+      if (!opts.stumm) this._zeigeVorschau(this._vorschau);
+      return this._vorschau;
     }
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
@@ -28626,23 +28705,67 @@ const WiedervorlagenHandler = {
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
-  // Direkt erledigen ohne Durchsicht (Nachweis kam z.B. per E-Mail/Post)
+  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt', sonstig: 'sonstiger Nachweis' },
+  // Direkt erledigen ohne Durchsicht – mit NACHWEIS: Art (E-Mail/Post/persönlich),
+  // optional Datei in die Akte und „Mängel als behoben markieren", damit
+  // Ampel und Zulassungsliste den Azubi als nachgewiesen erkennen
   erledigenDirekt(id) {
     const w = App.query('SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.id=?', [id])[0];
     if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
-    App.openModal('Wiedervorlage als erledigt markieren – ' + w.nachname + ', ' + w.vorname,
-      '<div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die Mängel im KW-Raster bleiben dabei unverändert; nur die Wiedervorlage wird geschlossen. Wenn das Berichtsheft tatsächlich nachgeholt wurde, besser „→ Durchsicht" nutzen und die Wochen als behoben markieren.</div>' +
-      '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + todayStr() + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2" placeholder="z.B. Nachweis per E-Mail eingegangen"></textarea></div>',
-      '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
+    const offeneMaengel = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [w.schueler_id]) || 0;
+    App.openModal('Wiedervorlage erledigen (Nachweis) – ' + esc(w.nachname) + ', ' + esc(w.vorname), `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Der Betrieb/Azubi hat das Berichtsheft nachgereicht oder den Mangel anders nachgewiesen. Wurde das Heft tatsächlich erneut durchgesehen, besser „→ Durchsicht" nutzen.</div>
+      <div class="form-row">
+        <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="${todayStr()}"></div>
+        <div class="form-group"><label>Nachweis</label>
+          <select class="form-control" id="mWvNachweis">${Object.entries(this.NACHWEIS_ARTEN).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2" placeholder="z.B. Berichte für KW 40–44 per E-Mail nachgereicht"></textarea></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" id="mWvBehoben" ${offeneMaengel ? 'checked' : ''} style="accent-color:var(--clr-forest)"> Nachweis erbracht – ${offeneMaengel ? `die <strong>${offeneMaengel}</strong> offenen Mängel im KW-Raster als behoben markieren` : 'keine offenen Mängel im Raster'}
+      </label>
+      ${App.bhkDirHandle ? `<div class="form-group"><label>Nachweis-Datei in die Akte (optional, z.B. E-Mail .msg, PDF)</label><input type="file" id="mWvDatei" multiple class="form-control" style="padding:4px"></div>`
+        : '<div style="font-size:11px;color:var(--clr-text-light)">Dateien lassen sich erst nach dem Öffnen eines Datenbank-Ordners ablegen.</div>'}
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     setTimeout(() => document.getElementById('mWvBem')?.focus(), 50);
   },
-  doErledigen(id) {
-    const datum = document.getElementById('mWvDatum').value;
-    const bem = document.getElementById('mWvBem').value.trim();
+  // params (optional, für Tests/andere Dialoge): {datum, bem, nachweis, behoben, files}
+  async doErledigen(id, params) {
+    const w = App.query('SELECT * FROM wiedervorlagen WHERE id=?', [id])[0];
+    if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
+    const p = params || {
+      datum: document.getElementById('mWvDatum')?.value,
+      bem: (document.getElementById('mWvBem')?.value || '').trim(),
+      nachweis: document.getElementById('mWvNachweis')?.value || '',
+      behoben: !!document.getElementById('mWvBehoben')?.checked,
+      files: document.getElementById('mWvDatei')?.files,
+    };
+    const datum = p.datum || todayStr();
+    const artLabel = this.NACHWEIS_ARTEN[p.nachweis] || '';
+    const bem = (artLabel ? `Nachweis (${artLabel})` : '') + (p.bem ? (artLabel ? ': ' : '') + p.bem : '');
+    let behoben = 0;
+    if (p.behoben) behoben = this._maengelBehoben(w.schueler_id);
+    let dateien = 0;
+    if (p.files && p.files.length && typeof SchuelerAkte !== 'undefined') {
+      try { dateien = await SchuelerAkte.speichereDateien(p.files, w.schueler_id, { beschreibung: `Nachweis zur Wiedervorlage (${formatDate(datum)})` }); } catch(e) { console.warn('Nachweis-Datei:', e); }
+    }
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [datum, bem, id]);
     App.closeModal();
-    Views.wiedervorlagen();
-    App.toast('Wiedervorlage erledigt', 'success');
+    try { Views.wiedervorlagen(); } catch(e) {}
+    App.toast(`Wiedervorlage erledigt${behoben ? ` · ${behoben} Woche(n) als behoben markiert` : ''}${dateien ? ` · ${dateien} Datei(en) in der Akte` : ''}`, 'success');
+    return { behoben, dateien, bem };
+  },
+  // Alle offenen Mängel eines Azubis als behoben protokollieren (Nachweis ohne
+  // erneute Durchsicht) – Historie bleibt in behobene_codes erhalten
+  _maengelBehoben(schuelerId) {
+    const rows = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND maengel_codes != ""', [schuelerId]);
+    rows.forEach(row => {
+      const codes = row.maengel_codes.split(',').filter(Boolean);
+      const behoben = row.behobene_codes ? row.behobene_codes.split(',').filter(Boolean) : [];
+      App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [[...new Set([...behoben, ...codes])].join(','), row.id]);
+    });
+    return rows.length;
   },
 
   details(id) {
@@ -31656,19 +31779,30 @@ const SchuelerAkte = {
   },
 
   async handleFileSelect(files, schuelerId) {
-    if (!files?.length) return;
-    if (!App.bhkDirHandle) return App.toast('Bitte zuerst eine Datenbank öffnen', 'error');
+    const count = await this.speichereDateien(files, schuelerId);
+    if (count > 0) {
+      App.toast(`${count} Datei(en) gespeichert`, 'success');
+      this.open(schuelerId); // Refresh
+    }
+  },
+
+  // Dateien in die Akte legen (auch aus anderen Dialogen, z.B. Nachweis einer
+  // Wiedervorlage). opts.beschreibung wird an jeder Datei vermerkt. Liefert die
+  // Anzahl gespeicherter Dateien.
+  async speichereDateien(files, schuelerId, opts = {}) {
+    if (!files?.length) return 0;
+    if (!App.bhkDirHandle) { App.toast('Bitte zuerst eine Datenbank öffnen', 'error'); return 0; }
 
     const maxSize = 100 * 1024 * 1024; // 100 MB
     for (const file of files) {
       if (file.size > maxSize) {
         App.toast(`Datei "${file.name}" zu groß (max 100 MB)`, 'error');
-        return;
+        return 0;
       }
     }
 
     const dir = await this._getDateienDir(schuelerId);
-    if (!dir) return App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error');
+    if (!dir) { App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error'); return 0; }
 
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
     let count = 0;
@@ -31688,19 +31822,14 @@ const SchuelerAkte = {
 
         // Track in DB
         const ext = file.name.split('.').pop().toLowerCase();
-        App.run('INSERT INTO schueler_dateien (schueler_id, dateiname, original_name, dateityp, groesse, erstellt_von) VALUES (?,?,?,?,?,?)',
-          [schuelerId, dateiname, file.name, ext, file.size, pruefer]);
+        App.run('INSERT INTO schueler_dateien (schueler_id, dateiname, original_name, beschreibung, dateityp, groesse, erstellt_von) VALUES (?,?,?,?,?,?,?)',
+          [schuelerId, dateiname, file.name, opts.beschreibung || '', ext, file.size, pruefer]);
         count++;
       } catch (e) {
-        console.warn('Datei-Upload fehlgeschlagen:', file.name, e);
         console.warn('Datei-Upload:', file.name, e); App.toast('Fehler beim Speichern der Datei', 'error');
       }
     }
-
-    if (count > 0) {
-      App.toast(`${count} Datei(en) gespeichert`, 'success');
-      this.open(schuelerId); // Refresh
-    }
+    return count;
   },
 
   async downloadDatei(dateiId, schuelerId) {

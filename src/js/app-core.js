@@ -4196,6 +4196,8 @@ const App = {
   // ═══════════════════════════════════════════
   deleteSchuelerKaskade(id, opts) {
     if (!id) return;
+    // Ohne Papierkorb = endgültig → Akten-Dateien mit entfernen
+    if (opts && opts.ohnePapierkorb) { try { this._loescheAkteDateien(id); } catch(e) {} }
     if (!(opts && opts.ohnePapierkorb)) {
       try {
         const s = this.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -4360,8 +4362,26 @@ const App = {
     try { this.invalidateTerminCache && this.invalidateTerminCache(); } catch(err) {}
     return { ok: true, zeilen };
   },
-  papierkorbEintragLoeschen(pkId) { this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]); },
-  papierkorbLeeren() { this.run('DELETE FROM bhk_papierkorb'); },
+  // Endgültiges Löschen: auch die Dateien der Akte (dateien/<id>/) vom
+  // Netzlaufwerk entfernen – Datenschutz; die Datenbankzeilen allein reichten
+  // nicht, die Anhänge blieben liegen.
+  async _loescheAkteDateien(schuelerId) {
+    if (!schuelerId || !this.bhkDirHandle) return false;
+    try {
+      const d = await this.bhkDirHandle.getDirectoryHandle('dateien');
+      await d.removeEntry(String(schuelerId), { recursive: true });
+      return true;
+    } catch(e) { return false; }
+  },
+  papierkorbEintragLoeschen(pkId) {
+    const e = this.query('SELECT art, ref_id FROM bhk_papierkorb WHERE id=?', [pkId])[0];
+    if (e && e.art === 'schueler') this._loescheAkteDateien(e.ref_id);
+    this.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]);
+  },
+  papierkorbLeeren() {
+    try { this.query("SELECT ref_id FROM bhk_papierkorb WHERE art='schueler'").forEach(r => this._loescheAkteDateien(r.ref_id)); } catch(e) {}
+    this.run('DELETE FROM bhk_papierkorb');
+  },
 
   // ═══════════════════════════════════════════
   //  BACKUP-WIEDERHERSTELLUNG
@@ -4913,6 +4933,7 @@ const App = {
       id INTEGER PRIMARY KEY AUTOINCREMENT, art TEXT NOT NULL, ref_id INTEGER,
       label TEXT DEFAULT '', daten TEXT NOT NULL, geloescht_von TEXT DEFAULT '',
       geloescht_am TEXT DEFAULT (datetime('now','localtime')))`);
+    try { this.query("SELECT ref_id FROM bhk_papierkorb WHERE art='schueler' AND geloescht_am < datetime('now','localtime','-90 days')").forEach(r => this._loescheAkteDateien(r.ref_id)); } catch(e) {}
     run("DELETE FROM bhk_papierkorb WHERE geloescht_am < datetime('now','localtime','-90 days')");
     run(`CREATE TABLE IF NOT EXISTS import_historie (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6280,6 +6301,12 @@ const App = {
     const e = lastKE[0].ergebnis;
     if (e === 'in_ordnung' && !wvOffen && offeneMaengel === 0) {
       return { color: 'green', icon: '<span style="color:var(--clr-green)">●</span>', label: 'Letzte Kontrolle OK', prevErgebnis: e, wvOffen, offeneMaengel };
+    }
+    // Mangel-Ergebnis, aber Wiedervorlage mit Nachweis erledigt und keine
+    // offenen Mängel mehr → nachgewiesen (zählt wie „in Ordnung")
+    if (e !== 'in_ordnung' && !wvOffen && offeneMaengel === 0) {
+      const nachweis = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status='erledigt' AND (erledigt_bemerkung LIKE 'Nachweis%' OR erledigt_bemerkung LIKE 'Automatisch erledigt%')", [schuelerId]) || 0;
+      if (nachweis) return { color: 'green', icon: '<span style="color:var(--clr-green)">◉</span>', label: 'Mängel behoben / nachgewiesen', prevErgebnis: e, wvOffen, offeneMaengel, nachgewiesen: true };
     }
     if (e === 'nachholung_naechste_durchsicht' || e === 'sachberichte_wetter_email' || e === 'berichte_bis_termin_email') {
       return { color: 'yellow', icon: '<span style="color:var(--clr-amber)">◐</span>', label: 'Nachholung/E-Mail nötig', prevErgebnis: e, wvOffen, offeneMaengel };

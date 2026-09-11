@@ -221,5 +221,25 @@ console.log('\n══ Audit 7 Paket E: Nachbereitung und Bedienung ══');
   check(!/8-Sekunden/.test(V_SRC) && !/Sperrsystem \(Locking\)/.test(V_SRC) && !/v2\.0/.test(V_SRC) && /App\.VERSION/.test(V_SRC), 'Hilfe: 3-s-Protokollabgleich, Bearbeitungshinweis statt Sperrsystem, Version aus App.VERSION');
 }
 
+console.log('\n══ Stufe 2 (3): Wiedervorlage-Nachweis, Akte-Dateien beim endgültigen Löschen ══');
+{
+  vm.runInContext(read('src/js/modules/wiedervorlagen.js') + '\n;globalThis.WiedervorlagenHandler = WiedervorlagenHandler;', sandbox, { filename: 'wiedervorlagen.js' });
+  const WV = sandbox.WiedervorlagenHandler;
+  App.closeModal = () => {}; App.openModal = () => {};
+  db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (801,2,40,'A,C',0,1),(801,2,41,'D',0,1)`);
+  App.run("UPDATE kontrollergebnisse SET ergebnis='post_an_rp', anwesend=1 WHERE id=8001");
+  db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (851,8001,801,'post_an_rp','2026-10-20','offen')`);
+  App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum='2026-09-15', erledigt_bemerkung='Test' WHERE id=850");
+  check(App.getSchuelerAmpel(801).color === 'red', 'Vorher: Eskalation / WV offen (rot)');
+  const r = await WV.doErledigen(851, { datum: '2026-10-05', bem: 'Heft per Post eingegangen', nachweis: 'post', behoben: true });
+  const w = App.query('SELECT * FROM wiedervorlagen WHERE id=851')[0];
+  check(w.status === 'erledigt' && w.erledigt_datum === '2026-10-05' && /^Nachweis \(Post\): Heft per Post/.test(w.erledigt_bemerkung), `Nachweis-Art und Bemerkung an der WV (${w.erledigt_bemerkung})`);
+  check(r.behoben === 2 && App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=801 AND maengel_codes != ''") === 0 && App.scalar("SELECT behobene_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40") === 'A,C', 'Offene Mängel als behoben protokolliert (Historie bleibt)');
+  const amp = App.getSchuelerAmpel(801);
+  check(amp.color === 'green' && amp.nachgewiesen === true, `Ampel erkennt „nachgewiesen" (${amp.label})`);
+  check(/speichereDateien\(p\.files, w\.schueler_id/.test(read('src/js/modules/wiedervorlagen.js')) && /async speichereDateien\(files, schuelerId, opts = \{\}\)/.test(read('src/js/modules/schueler-akte.js')), 'Nachweis-Datei landet über die Akte-Funktion in der Schülerakte');
+  check((APP_SRC.match(/_loescheAkteDateien\(/g) || []).length >= 5, 'Endgültiges Löschen (Papierkorb-Eintrag, Leeren, 90-Tage-Bereinigung, Kaskade ohne Papierkorb) entfernt die Akten-Dateien');
+}
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);

@@ -125,5 +125,25 @@ console.log('\n══ Quelltext-Zusicherungen (Sammelaktionen) ══');
   check(/ImportHandler\.ausbildungBeenden\(ids/.test(sv) && /ImportHandler\.ausbildungBeenden\(ids/.test(st), 'Jahrgang abschließen und Sammel-Beenden nutzen den gemeinsamen Dialog');
 }
 
+console.log('\n══ Stufe 2 (3): Import-Vorschau schreibt nichts ══');
+{
+  await IH.doImport([row({ nachname: 'Bestand', vorname: 'Bruno', ibykus_id: 'I-91' })]);
+  const vorher = { schueler: App.scalar('SELECT COUNT(*) FROM schueler'), betriebe: App.scalar('SELECT COUNT(*) FROM betriebe'), schulen: App.scalar('SELECT COUNT(*) FROM berufsschulen'), ops: (App._bulkOps || []).length, bruno: s('I-91').ausbildungsstaette };
+  const v = await IH.doImport([
+    row({ nachname: 'Vorschau', vorname: 'Vera', ibykus_id: 'I-90', berufsschule: 'BS Ganz Neu', ausbildungsstaette: 'Neuer Betrieb GmbH' }),
+    row({ nachname: 'Bestand', vorname: 'Bruno', ibykus_id: 'I-91', ausbildungsstaette: 'Gewechselter Betrieb', email: 'bruno@example.org' }),
+  ], { vorschau: true, stumm: true });
+  check(v && v.diff.neu.length === 1 && v.diff.neu[0].name === 'Vorschau, Vera', 'Vorschau erkennt den neuen Azubi');
+  check(v.diff.geaendert.length === 1 && v.diff.geaendert[0].name === 'Bestand, Bruno' && v.diff.geaendert[0].felder.some(x => x.f === 'ausbildungsstaette') && v.diff.geaendert[0].felder.some(x => x.f === 'email'), `Vorschau listet geänderte Felder (${v.diff.geaendert[0]?.felder.map(x => x.f).join(', ')})`);
+  check(v.stats.schulen.has('BS Ganz Neu'), 'Vorschau nennt anzulegende Schulen');
+  check(!s('I-90') && s('I-91').ausbildungsstaette === vorher.bruno, 'Nichts geschrieben: neuer Azubi fehlt, Bruno unverändert');
+  check(App.scalar('SELECT COUNT(*) FROM schueler') === vorher.schueler && App.scalar('SELECT COUNT(*) FROM betriebe') === vorher.betriebe && App.scalar('SELECT COUNT(*) FROM berufsschulen') === vorher.schulen, 'Auch Betriebe/Schulen der Vorschau sind zurückgerollt');
+  check((App._bulkOps || []).length === vorher.ops && App._bulkImport === false, 'Keine Bulk-Ops aus der Vorschau, Import-Modus wieder aus');
+  await IH.doImport(v.data);
+  check(!!s('I-90') && s('I-91').ausbildungsstaette === 'Gewechselter Betrieb', '„Jetzt importieren" schreibt denselben Stand');
+  const IMP_SRC = read('src/js/modules/import-handler.js');
+  check(/ImportHandler\.doImportVorschau\(window\._importData\)/.test(IMP_SRC) && /SAVEPOINT bhk_vorschau/.test(IMP_SRC) && /ROLLBACK TO bhk_vorschau/.test(IMP_SRC), 'Import-Schaltfläche führt über die Vorschau (Savepoint + Rollback)');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
