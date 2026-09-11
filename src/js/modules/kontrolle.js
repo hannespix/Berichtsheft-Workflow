@@ -56,6 +56,13 @@ const KontrolleHandler = {
       return;
     }
     this._wartetAufPruefer = false;
+    // Undo-Verlauf gehört zum Termin; Aufteilung und Aufklapp-Zustand ebenso
+    if (this._geladenerTermin !== this.currentTerminId) {
+      try { UndoManager.clear && UndoManager.clear(); } catch(e) {}
+      this._bereich = null;
+      this._ajZustand = new Map();
+      this._geladenerTermin = this.currentTerminId;
+    }
 
     // Load students from ALL linked classes
     this.currentSchuelerList = App.getTerminSchueler(terminId);
@@ -347,6 +354,12 @@ const KontrolleHandler = {
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">✓ Alle anwesend</button>
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">✗ Alle abwesend</button>
           <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;background:var(--clr-warm);border-radius:var(--radius)" title="Prüferaufteilung: „Ich nehme #von–bis" – Kollegen überspringen diesen Bereich beim Weiterschalten">
+            Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">
+            <button class="btn btn-sm btn-secondary" style="padding:1px 6px;font-size:11px" onclick="KontrolleHandler.setzeBereichAusEingabe()">übernehmen</button>
+            ${this._bereich ? `<a href="#" onclick="KontrolleHandler.setzeBereich(null);return false" style="font-size:11px;color:var(--clr-text-light)">✕</a>` : ''}
+          </span>
+          ${(App._otherPositions || []).filter(p => p.terminId === this.currentTerminId && p.bereich).map(p => `<span style="font-size:11px;padding:2px 8px;background:var(--clr-blue-light);border-radius:var(--radius)">${esc(p.pruefer)}: #${p.bereich.von}–${p.bereich.bis}</span>`).join('')}
           ${offen ? `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.markOffeneOK()" title="Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen">✓ ${offen} offene → In Ordnung</button>` : ''}
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.showAddSchueler()" title="Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)">+ Azubi hinzufügen</button>
           <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
@@ -441,7 +454,7 @@ const KontrolleHandler = {
   // (Zwei Prüfer landeten sonst beide auf Nr. 1 und sperrten sich gegenseitig.)
   _ersterOffenerIndex(start = -1) {
     const n = this.currentSchuelerList.length;
-    let ersterOffen = -1;
+    let ersterOffen = -1, ersterFrei = -1;
     for (let k = 1; k <= n; k++) {
       const i = (start + k) % n;
       const s = this.currentSchuelerList[i];
@@ -449,9 +462,78 @@ const KontrolleHandler = {
       const offen = !ke || ((!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0);
       if (!offen) continue;
       if (ersterOffen < 0) ersterOffen = i;
-      if (!this.isLockedByOther(s.id)) return i;
+      if (this.isLockedByOther(s.id) || this._imFremdenBereich(i)) continue;
+      if (this._bereich && !this._imEigenenBereich(i)) { if (ersterFrei < 0) ersterFrei = i; continue; }
+      return i;
     }
-    return ersterOffen;
+    // Nichts Offenes im eigenen Bereich → erster freier außerhalb, sonst erster offener
+    return ersterFrei >= 0 ? ersterFrei : ersterOffen;
+  },
+  // ── Prüferaufteilung: „Ich nehme #von–bis" ──
+  _bereich: null,
+  _imEigenenBereich(i) { return !this._bereich || (i + 1 >= this._bereich.von && i + 1 <= this._bereich.bis); },
+  _imFremdenBereich(i) {
+    if (this._bereich && this._imEigenenBereich(i)) return false;
+    return (App._otherPositions || []).some(p => p.terminId === this.currentTerminId && p.bereich && i + 1 >= p.bereich.von && i + 1 <= p.bereich.bis);
+  },
+  setzeBereich(bereich) {
+    const n = this.currentSchuelerList.length;
+    if (bereich) {
+      const von = Math.max(1, Math.min(n, parseInt(bereich.von) || 1));
+      const bis = Math.max(von, Math.min(n, parseInt(bereich.bis) || n));
+      this._bereich = { von, bis };
+      App.toast(`Ihr Bereich: #${von}–${bis} – Kollegen überspringen diese Azubis`, 'success');
+    } else {
+      this._bereich = null;
+    }
+    const pruefer = this.activePruefer || '';
+    if (pruefer && App.dirHandle && !App.demoMode) {
+      const s = this._viewMode === 'einzeln' ? this.currentSchuelerList[this.currentIndex] : null;
+      App._writePositionFile(pruefer, this.currentTerminId, s ? s.id : null, s ? s.nachname : '', this._posSeit || Date.now(), this._bereich);
+    }
+    if (this._viewMode === 'uebersicht') this.renderUebersicht();
+  },
+  setzeBereichAusEingabe() {
+    const von = parseInt(document.getElementById('bereichVon')?.value);
+    const bis = parseInt(document.getElementById('bereichBis')?.value);
+    if (!von && !bis) return this.setzeBereich(null);
+    this.setzeBereich({ von: von || 1, bis: bis || this.currentSchuelerList.length });
+  },
+  // ── Ergebnis per Tastenkürzel (Shift+1–6, Shift+0 = zurücksetzen) ──
+  ERGEBNIS_OPTIONEN: [
+    { val: 'in_ordnung', label: 'Berichtsheft war in Ordnung' },
+    { val: 'nachholung_naechste_durchsicht', label: 'Fehlende Berichte/Unterschriften bis nächste Durchsicht nachholen' },
+    { val: 'sachberichte_wetter_email', label: 'Sachberichte wegen Wetter per E-Mail senden' },
+    { val: 'berichte_bis_termin_email', label: 'Berichte bis Termin per E-Mail senden' },
+    { val: 'persoenliche_vorlage_rp', label: 'Persönliche Vorlage im RP Freiburg' },
+    { val: 'post_an_rp', label: 'Per Post ans RP Freiburg senden' },
+  ],
+  setzeErgebnisKurz(n) {
+    if (this._viewMode !== 'einzeln' || !this.currentTerminId) return;
+    const opt = n === 0 ? { val: '', label: 'zurückgesetzt' } : this.ERGEBNIS_OPTIONEN[n - 1];
+    if (!opt) return;
+    const radio = document.querySelector(`input[name="ergebnis"][value="${opt.val}"]`);
+    if (radio) radio.checked = true;
+    this.saveField('ergebnis', opt.val);
+    App.toast(`Ergebnis: ${opt.label}`, 'info');
+  },
+  // ── Zur heutigen Kalenderwoche springen (Taste J) ──
+  springeZuAktuellerKW() {
+    const s = this.currentSchuelerList[this.currentIndex];
+    if (!s) return null;
+    const heute = new Date();
+    const ziel = App.ajKwFuerStichtag(s.id, heute, App._isoKW(heute));
+    if (!ziel) return null;
+    if (this._ajZustand.get(ziel.aj) === false) { this._ajZustand.set(ziel.aj, true); this.renderSchueler(); }
+    const cell = document.querySelector(`.kw-cell[data-aj="${ziel.aj}"][data-kw="${ziel.kw}"]`);
+    if (cell && cell.focus) { try { cell.scrollIntoView({ block: 'center' }); } catch(e) {} cell.focus(); }
+    return ziel;
+  },
+  // ── Frühere Ausbildungsjahre einklappen ──
+  _ajZustand: new Map(),
+  toggleAJ(aj, auf) {
+    this._ajZustand.set(aj, !!auf);
+    this.renderSchueler();
   },
   // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen
   _pruefeAbgeschlossen() {
@@ -930,14 +1012,7 @@ const KontrolleHandler = {
     // Calculate active KW ranges from AV-Beginn/AV-Ende
     const ajBounds = App.getAJKWBounds(s.id);
 
-    const ergebnisOptions = [
-      { val: 'in_ordnung', label: 'Berichtsheft war in Ordnung' },
-      { val: 'nachholung_naechste_durchsicht', label: 'Fehlende Berichte/Unterschriften bis nächste Durchsicht nachholen' },
-      { val: 'sachberichte_wetter_email', label: 'Sachberichte wegen Wetter per E-Mail senden' },
-      { val: 'berichte_bis_termin_email', label: 'Berichte bis Termin per E-Mail senden' },
-      { val: 'persoenliche_vorlage_rp', label: 'Persönliche Vorlage im RP Freiburg' },
-      { val: 'post_an_rp', label: 'Per Post ans RP Freiburg senden' },
-    ];
+    const ergebnisOptions = this.ERGEBNIS_OPTIONEN;
 
     const pflichtOptHtml = (name, val) => `
       <select class="form-control" style="width:auto;display:inline;padding:4px 8px;font-size:12px" data-field="${name}" onchange="KontrolleHandler.saveField('${name}',this.value)">
@@ -1016,6 +1091,8 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>Entf</kbd>Leeren</span>
       <span class="leg-item"><kbd>Leer</kbd>Modal</span>
       <span class="leg-item"><kbd>O</kbd>OK</span>
+      <span class="leg-item"><kbd>J</kbd>heutige KW</span>
+      <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
       <button class="kw-legend-toggle" onclick="this.parentElement.classList.add('hidden');document.getElementById('kwLegendShow').style.display='block';App.uSet('legend_hidden','1')" title="Legende ausblenden">✕</button>
     </div>`;
 
@@ -1294,7 +1371,7 @@ const KontrolleHandler = {
       </div>
 
       <!-- KW Grids -->
-      ${(() => { const ajs = App.getSchuelerAJs(s.id); return ajs.map(aj => {
+      ${(() => { const ajs = App.getSchuelerAJs(s.id); const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id) || 0; return ajs.map(aj => {
         const ajSessionKWs = sessionKWs[aj] || [];
         // Progress: count geprüft vs total KWs
         const kwRange = KW_ALL;
@@ -1311,10 +1388,14 @@ const KontrolleHandler = {
         const activeCount = 52 - bnd.inactiveKWs.length;
         const activePct = activeCount > 0 ? Math.round(geprueftCount / activeCount * 100) : 0;
         const kwRangeLabel = bnd.inactiveKWs.length > 0 ? ` · KW ${bnd.startKW}–${bnd.endKW} (${activeCount} Wo.)` : '';
+        // Frühere, vollständig geprüfte Jahre ohne offene Mängel eingeklappt –
+        // das Raster begann sonst mit zwei Bildschirmen Vergangenheit
+        const frueher = ajJetzt && aj < ajJetzt;
+        const zu = this._ajZustand.has(aj) ? this._ajZustand.get(aj) === false : (frueher && !maengelCount && geprueftCount >= activeCount);
         return `
         <div class="card" style="margin-bottom:12px">
           <div class="card-header" style="flex-wrap:wrap;gap:6px">
-            <span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''} – Kalenderwochen</span>
+            <span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''} – Kalenderwochen${frueher ? ` <a href="#" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'});return false" style="font-size:11px;font-weight:400;color:var(--clr-forest)">${zu ? '▸ aufklappen' : '▾ einklappen'}</a>` : ''}</span>
             <span style="font-size:11px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>
@@ -1334,7 +1415,7 @@ const KontrolleHandler = {
           <div style="height:4px;background:var(--clr-sand);border-radius:2px;margin:0 0 4px">
             <div style="height:100%;width:${activePct}%;background:${barCol};border-radius:2px;transition:width 0.3s"></div>
           </div>
-          ${renderKWGrid(aj)}
+          ${zu ? `<div style="font-size:12px;color:var(--clr-text-light);padding:2px 8px 6px">Früheres Ausbildungsjahr – ${geprueftCount}/${activeCount} Wochen geprüft, keine offenen Mängel.</div>` : renderKWGrid(aj)}
         </div>`;
       }).join(''); })()}
 
@@ -1366,10 +1447,10 @@ const KontrolleHandler = {
             <input type="radio" name="ergebnis" value="" ${!ke.ergebnis || ke.ergebnis === '' ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis','')">
             <span style="color:var(--clr-text-light)">– noch nicht bewertet –</span>
           </div>
-          ${ergebnisOptions.map(o => `
+          ${ergebnisOptions.map((o, oi) => `
             <div class="check-row">
               <input type="radio" name="ergebnis" value="${o.val}" ${ke.ergebnis === o.val ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis',this.value)">
-              <span>${o.label}</span>
+              <span>${o.label} <kbd style="font-size:9px;opacity:0.6" title="Tastenkürzel">⇧${oi + 1}</kbd></span>
             </div>
           `).join('')}
         </div>
@@ -1505,6 +1586,9 @@ const KontrolleHandler = {
 
     // When "In Ordnung" → auto-set all Pflichtteile to "ja"
     if (field === 'ergebnis' && value === 'in_ordnung') {
+      // …und alle Wochen bis zur Vorwoche des Kontrolltags gelten als gesehen
+      // (nur fehlende Wochen werden ergänzt, Codes bleiben)
+      try { this._markiereGeprueftBisVorwoche(keId, s.id); } catch(e) {}
       const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
       pflichtFields.forEach(pf => {
         App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
@@ -1780,10 +1864,12 @@ const KontrolleHandler = {
     this.enterSchüler();
   },
 
-  // ── Save current student + release lock ──
+  // ── Save current student (beim Azubi-Wechsel) ──
+  // Die Positionsdatei wird beim nächsten Azubi ÜBERSCHRIEBEN, nicht gelöscht:
+  // Löschen + Neuanlegen ließ die Anzeige bei den Kollegen flackern und
+  // öffnete ein Fenster, in dem beide denselben Azubi bekamen.
   saveAndRelease() {
     this.microSave();
-    this.releaseLock();
   },
 
   // ── Explicit "Speichern & Freigeben" (button handler) ──
@@ -1838,9 +1924,9 @@ const KontrolleHandler = {
     // ── Write position file (tiny JSON, no DB lock needed) ──
     if (pruefer && App.dirHandle && !App.demoMode) {
       const posKey = this.currentTerminId + ':' + s.id;
-      if (this._lastWrittenPos !== posKey || !this._posSeit) this._posSeit = Date.now();
+      if (this._lastWrittenPos !== posKey || !this._posSeit, this._bereich) this._posSeit = Date.now();
       this._lastWrittenPos = posKey;
-      App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit);
+      App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit, this._bereich);
     }
 
     // Check if another prüfer has this student (from cached positions – updated by doLiveSync)
@@ -1910,9 +1996,13 @@ const KontrolleHandler = {
       clearInterval(this._liveSyncTimer);
       this._liveSyncTimer = null;
     }
-    // Delete our position file (non-blocking, no DB write)
+    // Position freigeben – mit gewähltem Bereich bleibt die Aufteilung für
+    // die Kollegen sichtbar (Datei ohne Azubi, nur Bereich)
     const pruefer = this.activePruefer;
-    if (pruefer && !App.demoMode) App._deletePositionFile(pruefer);
+    if (pruefer && !App.demoMode) {
+      if (this._bereich && this.currentTerminId) App._writePositionFile(pruefer, this.currentTerminId, null, '', this._posSeit, this._bereich);
+      else App._deletePositionFile(pruefer);
+    }
   },
 
   _clearMyPosition() {
@@ -1937,7 +2027,7 @@ const KontrolleHandler = {
           if (posKey !== this._lastWrittenPos || stale) {
             this._lastWrittenPos = posKey;
             this._lastPosWriteTime = now;
-            App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit);
+            App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit, this._bereich);
           }
         }
       }
@@ -2092,7 +2182,8 @@ const KontrolleHandler = {
       const parts = others.map(o => {
         const idx = this.currentSchuelerList.findIndex(sc => sc.id === o.schuelerId);
         const name = o.schuelerName || (idx >= 0 ? this.currentSchuelerList[idx].nachname : '?');
-        return `⊘ ${o.pruefer} → #${idx+1} ${name}`;
+        const ber = o.bereich ? ` (Bereich #${o.bereich.von}–${o.bereich.bis})` : '';
+        return o.schuelerId ? `⊘ ${o.pruefer} → #${idx+1} ${name}${ber}` : `${o.pruefer}${ber || ' (Übersicht)'}`;
       });
       bar.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
       bar.style.display = '';
@@ -2159,7 +2250,7 @@ const KontrolleHandler = {
     // Write position file with new name
     const s = this.currentSchuelerList[this.currentIndex];
     if (s && this.currentTerminId && name) {
-      App._writePositionFile(name, this.currentTerminId, s.id, s.nachname, this._posSeit);
+      App._writePositionFile(name, this.currentTerminId, s.id, s.nachname, this._posSeit, this._bereich);
     }
   },
 

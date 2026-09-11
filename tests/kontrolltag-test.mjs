@@ -106,8 +106,8 @@ console.log('══ C1: Zwei Prüfer öffnen denselben Termin – kein gegenseit
   check(KH._lockGiltFuerMich(lockFrueher) === null, 'Aufgehobene Sperre kommt beim nächsten Abgleich nicht zurück');
   KH._lockOverrides.clear();
   App._otherPositions = [];
-  check(/_writePositionFile\(pruefer, terminId, schuelerId, schuelerName, seit\)/.test(APP_SRC) && /data\.seit \|\| data\.ts/.test(APP_SRC), 'Positionsdatei trägt den Einstiegszeitpunkt getrennt vom Heartbeat');
-  check(!/App\._writePositionFile\([^)]*\)(?<!_posSeit\))/.test(K_SRC), 'Jeder Positions-Schreibvorgang übergibt den Einstiegszeitpunkt');
+  check(/_writePositionFile\(pruefer, terminId, schuelerId, schuelerName, seit, bereich\)/.test(APP_SRC) && /data\.seit \|\| data\.ts/.test(APP_SRC), 'Positionsdatei trägt den Einstiegszeitpunkt getrennt vom Heartbeat');
+  check((K_SRC.match(/App\._writePositionFile\([\s\S]*?\);/g) || []).every(c => /this\._bereich\)/.test(c)), 'Jeder Positions-Schreibvorgang übergibt Einstiegszeitpunkt und Bereich');
 }
 
 console.log('\n══ C2: Modal-Pfad (Leertaste/Enter) mit Mängel-Historie und Undo ══');
@@ -139,7 +139,7 @@ console.log('\n══ C2: Modal-Pfad (Leertaste/Enter) mit Mängel-Historie und 
   check(kwRow(1, 1, 41)?.bemerkung === 'Wetter fehlt', 'Redo bringt auch die Bemerkung zurück');
   KH.clearKW(100, 1, 41);
   check(kwRow(1, 1, 41)?.maengel_codes === '' && kwRow(1, 1, 41)?.behobene_codes === 'C,H', 'Leeren im Modal protokolliert die Historie');
-  check(UndoManager.last().desc === 'KW 41 geleert', 'Leeren ist rückgängig machbar');
+  check(UndoManager.last().desc.startsWith('KW 41 geleert'), 'Leeren ist rückgängig machbar');
   delete elems.kwc_C; delete elems.kwFehltage; delete elems.kwBemText;
   KH.currentIndex = 0;
 }
@@ -245,6 +245,54 @@ console.log('\n══ C7: PDF-Auswahl und Unterschrift ══');
   check(cols.includes('pruefer'), 'Spalte pruefer auch auf der Disk-Datenbank');
   diskDb.close();
   check((APP_SRC.match(/ADD COLUMN pruefer TEXT DEFAULT ''/g) || []).length >= 2 && /pruefer TEXT DEFAULT '',\n/.test(APP_SRC), 'Spalte pruefer in SCHEMA, migrateDB() und _migrateDiskDb()');
+}
+
+console.log('\n══ Stufe 2 (2): Prüferaufteilung, Ergebnis-Kürzel, heutige KW, Undo-Verlauf ══');
+{
+  const KW_SRC = read('src/js/modules/kw-nav.js');
+  const KS_SRC = read('src/js/modules/keyboard-shortcuts.js');
+  KH._viewMode = 'uebersicht';
+  App._otherPositions = [];
+  App.run("UPDATE kontrollergebnisse SET ergebnis='' WHERE id IN (100,200,300)");
+  KH._bereich = null;
+  check(KH._ersterOffenerIndex() === 0, 'Ohne Aufteilung: Nr. 1');
+  KH._bereich = { von: 2, bis: 3 };
+  check(KH._ersterOffenerIndex() === 1, 'Eigener Bereich #2–3 → Einstieg bei Nr. 2');
+  KH._bereich = null;
+  App._otherPositions = [{ pruefer: 'Kollege', terminId: 10, schuelerId: null, bereich: { von: 1, bis: 2 } }];
+  check(KH._ersterOffenerIndex() === 2, 'Bereich des Kollegen #1–2 wird übersprungen → Nr. 3');
+  KH._bereich = { von: 1, bis: 1 };
+  check(KH._ersterOffenerIndex() === 0, 'Eigener Bereich schlägt den fremden (Überschneidung bewusst gewählt)');
+  KH._bereich = null; App._otherPositions = [];
+  check(/b: bereich && bereich\.von \? \[bereich\.von, bereich\.bis\] : null/.test(APP_SRC) && /bereich: Array\.isArray\(data\.b\)/.test(APP_SRC), 'Positionsdatei trägt den Bereich, Leser werten ihn aus');
+  check(/saveAndRelease\(\) \{\n    this\.microSave\(\);\n  \},/.test(K_SRC), 'Azubi-Wechsel löscht die Positionsdatei nicht mehr (nur Überschreiben)');
+  check(/if \(this\._bereich && this\.currentTerminId\) App\._writePositionFile\(pruefer, this\.currentTerminId, null/.test(K_SRC), 'Zurück in die Übersicht: Bereich bleibt für Kollegen sichtbar');
+  // Ergebnis-Kürzel
+  KH._viewMode = 'einzeln'; KH.currentIndex = 2;
+  KH.setzeErgebnisKurz(2);
+  check(App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE id=300') === 'nachholung_naechste_durchsicht', 'Shift+2 setzt „Nachholung"');
+  KH.setzeErgebnisKurz(0);
+  check(App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE id=300') === '', 'Shift+0 setzt zurück');
+  check(/\/\^Digit\[0-6\]\$\/\.test\(e\.code\)/.test(KS_SRC) && /KontrolleHandler\.springeZuAktuellerKW\(\)/.test(KS_SRC), 'Tastenkürzel Shift+1–6 und J sind verdrahtet');
+  // i.O. in der Einzelansicht markiert bis zur Vorwoche
+  // (die Wochen von Azubi 1 im AJ 2 stammen ausschließlich aus dem
+  //  „In Ordnung" der Einzelansicht in Abschnitt C3 – _markOK lief nur für 2 und 3)
+  KH.currentIndex = 0;
+  check(kwRow(1, 2, 10)?.geprueft === 1 && kwRow(1, 2, 36)?.geprueft === 1 && !kwRow(1, 2, 11), 'In Ordnung (Einzelansicht) markiert die Wochen bis zur Vorwoche als geprüft');
+  check(/try \{ this\._markiereGeprueftBisVorwoche\(keId, s\.id\); \}/.test(K_SRC), 'saveField(in_ordnung) nutzt dieselbe Markierung wie der Schnellweg');
+  // heutige KW
+  const heute = new Date();
+  const ziel = KH.springeZuAktuellerKW();
+  const erwartet = App.ajKwFuerStichtag(1, heute, App._isoKW(heute));
+  check(ziel && ziel.aj === erwartet.aj && ziel.kw === erwartet.kw, `Sprung zur heutigen KW (AJ ${ziel?.aj}, KW ${ziel?.kw})`);
+  // Undo-Verlauf: nur Kontrolle, Beschreibung mit Azubi, leeren beim Terminwechsel
+  check(/if \(App\.currentView !== 'kontrolle'\) return App\.toast\('Rückgängig gibt es nur in der Kontrolle/.test(KS_SRC), 'Strg+Z außerhalb der Kontrolle greift nicht');
+  check(/UndoManager\.clear && UndoManager\.clear\(\)/.test(K_SRC) && /clear\(\) \{ this\._stack = \[\]; this\._redoStack = \[\]; \}/.test(read('src/js/modules/undo-manager.js')), 'Undo-Verlauf wird beim Terminwechsel geleert');
+  KH._kwModalContext = null;
+  KWNav.persistCodes(100, 1, 44, 'A', 0, 1, false);
+  KH.saveKWOk(100, 1, 44);
+  check(/– Erst$/.test(UndoManager.last().desc), `Undo-Beschreibung nennt den Azubi (${UndoManager.last().desc})`);
+  check(/const zu = this\._ajZustand\.has\(aj\)/.test(K_SRC) && /frueher && !maengelCount && geprueftCount >= activeCount/.test(K_SRC), 'Frühere, vollständig geprüfte Ausbildungsjahre sind eingeklappt');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

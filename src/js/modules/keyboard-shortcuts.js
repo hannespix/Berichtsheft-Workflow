@@ -5,6 +5,8 @@ document.addEventListener('keydown', (e) => {
     // Don't intercept in text inputs/textareas (let browser handle native undo)
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     e.preventDefault();
+    // Undo gibt es nur in der Kontrolle – der Verlauf gehört zum offenen Termin
+    if (App.currentView !== 'kontrolle') return App.toast('Rückgängig gibt es nur in der Kontrolle (KW-Raster, Ergebnis)', 'info');
     UndoManager.undo();
     return;
   }
@@ -12,6 +14,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     e.preventDefault();
+    if (App.currentView !== 'kontrolle') return;
     UndoManager.redo();
     return;
   }
@@ -150,6 +153,23 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       searchInput.focus();
       searchInput.select();
+      return;
+    }
+  }
+
+  // Einzelansicht: Shift+1–6 = Ergebnis setzen (Shift+0 = zurücksetzen),
+  // J = zur heutigen Kalenderwoche springen
+  if (KontrolleHandler.currentTerminId && KontrolleHandler._viewMode === 'einzeln' && !document.querySelector('.modal-overlay.active')) {
+    const tg = e.target?.tagName;
+    const inInput = (tg === 'INPUT' && e.target.type !== 'checkbox' && e.target.type !== 'radio') || tg === 'TEXTAREA' || tg === 'SELECT' || e.target?.isContentEditable;
+    if (!inInput && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && /^Digit[0-6]$/.test(e.code)) {
+      e.preventDefault();
+      KontrolleHandler.setzeErgebnisKurz(parseInt(e.code.slice(5)));
+      return;
+    }
+    if (!inInput && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'j' || e.key === 'J')) {
+      e.preventDefault();
+      KontrolleHandler.springeZuAktuellerKW();
       return;
     }
   }
