@@ -80,6 +80,7 @@ const WiedervorlagenHandler = {
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
         <div><strong>Art:</strong> ${wvArtLabel(w.art)}</div>
         <div><strong>Frist:</strong> ${formatDate(w.frist_datum)}</div>
+        ${w.versand_datum ? `<div><strong>Versand:</strong> ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} per ${esc(w.versand_art === 'email' ? 'E-Mail' : (w.versand_art || 'Brief'))}</div>` : '<div style="color:var(--clr-text-light)"><strong>Versand:</strong> noch kein Anschreiben vermerkt</div>'}
         <div><strong>Status:</strong> ${wvStatusBadge(w.status)}</div>
         ${w.erledigt_datum ? `<div><strong>Erledigt am:</strong> ${formatDate(w.erledigt_datum)}</div>` : ''}
         ${w.erledigt_bemerkung ? `<div><strong>Bemerkung:</strong> ${esc(w.erledigt_bemerkung)}</div>` : ''}

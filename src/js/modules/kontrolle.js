@@ -44,6 +44,18 @@ const KontrolleHandler = {
 
     // Active prüfer = immer der in der Topbar ausgewählte Benutzer
     this.activePruefer = App.currentUser || '';
+    // Ohne Prüfer keine Durchsicht: er unterschreibt den Bogen, steht in
+    // der Mängelhistorie und zeigt Kollegen, wo gearbeitet wird
+    if (!this.activePruefer) {
+      this._wartetAufPruefer = true;
+      App.toast('Bitte zuerst oben rechts den Prüfer wählen', 'warning');
+      const sel = document.getElementById('topbarUserSelect');
+      if (sel) { try { sel.focus(); } catch(e) {} }
+      document.getElementById('kontrolleContent').innerHTML = `<div class="card" style="margin-top:16px"><div class="empty-state"><h3>Prüfer wählen</h3>
+        <p>Wählen Sie oben rechts Ihren Namen. Der Prüfer wird am Ergebnis festgehalten (Unterschrift im Durchsichtsbogen) und zeigt Kollegen, welchen Azubi Sie gerade bearbeiten.</p></div></div>`;
+      return;
+    }
+    this._wartetAufPruefer = false;
 
     // Load students from ALL linked classes
     this.currentSchuelerList = App.getTerminSchueler(terminId);
@@ -2331,7 +2343,7 @@ const KontrolleHandler = {
       </div>` : ''}
       ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
         <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>
-        <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname)).join(' · ')}</div>
+        <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname) + (App.istFremdesAmt(a) ? ' <span style="color:var(--clr-purple);font-size:10px" title="Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt">§ fremdes Amt</span>' : '')).join(' · ')}</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
           <input type="checkbox" id="wizNachholungWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Nachholung" anlegen, Frist
           <input type="date" class="form-control" id="wizNachholungFrist" value="${addDaysStr(21)}" style="width:140px;padding:3px 6px;font-size:12px">
@@ -2423,6 +2435,8 @@ const KontrolleHandler = {
       this.currentSchuelerList.forEach(s => {
         const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
         if (!ke || ke.anwesend !== 0 || ke.ergebnis) return;
+        // Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt
+        if (App.istFremdesAmt(s)) return;
         nachholIds.push(s.id);
         const da = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [ke.id]);
         if (!da) App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,'nachholung_naechste_durchsicht',?,'offen')", [ke.id, s.id, frist]);

@@ -1160,7 +1160,7 @@ const Views = {
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
-            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}</td>
+            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:10px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:10px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
             <td class="btn-group" style="flex-wrap:wrap">
               ${w.status !== 'erledigt' ? '<button class="btn btn-sm" style="background:var(--clr-warm);color:var(--clr-forest);border:1.5px solid var(--clr-sage);font-weight:600;font-size:11px" onclick="WiedervorlagenHandler.erledigen(' + w.id + ')" title="Durchsicht öffnen und als in Ordnung markieren">→ Durchsicht</button>' : ''}
@@ -2072,7 +2072,7 @@ const Views = {
             <p>Unter <em>Planung</em> werden Durchsichtstermine (Kontrolltermine) angelegt und Berufsschulklassen zugewiesen.</p>
             <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
-            <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt → Abgeschlossen</p>
+            <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
           </div>
 
@@ -2318,11 +2318,11 @@ const Views = {
             <p>• Virenscanner: Ausnahme für den Unterordner <code>_bhk/</code> (der Browser schreibt dort kurzlebige <code>.crswap</code>-Dateien)</p>
             <p>• Rechneruhren per Domäne synchron; pro Datenbank nur <strong>ein</strong> Browser-Tab je Person</p>
             <p>• Bei „Verbindung getrennt“: Änderungen bleiben lokal gepuffert (bis 7 Tage), „Erneut verbinden“ holt den Ordnerzugriff zurück. Nach einem IBYKUS-Import das Fenster offen lassen, bis der Status wieder grün ist</p>
-            <p><strong>Sperrsystem (Locking):</strong></p>
-            <p>• Bearbeitet Sachbearbeiter A einen Auszubildenden, sehen andere Sachbearbeiter ein ⊘-Symbol (Datensatz gesperrt)</p>
-            <p>• Sperren werden beim Speichern und Weiterschalten automatisch freigegeben</p>
-            <p>• Sicherheits-Timeout: Sperren werden nach 15 Minuten Inaktivität automatisch aufgehoben</p>
-            <p>• Beim Schließen des Browsers werden alle gehaltenen Sperren freigegeben</p>
+            <p><strong>Bearbeitungshinweis in der Kontrolle (kein hartes Sperren):</strong></p>
+            <p>• Öffnen zwei Prüfer denselben Azubi, sieht der später Hinzugekommene ein ⊘ mit Hinweis; Vorrang hat, wer zuerst da war (bei gleichzeitigem Einstieg entscheidet der Name – beide Seiten entscheiden gleich)</p>
+            <p>• Beim Öffnen eines Termins startet jeder Prüfer beim ersten offenen Azubi, an dem noch niemand arbeitet; „Nächster freier Azubi" springt weiter</p>
+            <p>• „Sperre aufheben" erlaubt das Bearbeiten trotzdem und bleibt für diesen Azubi gemerkt – gleichzeitige Änderungen löst dann „die spätere gewinnt" je Feld auf</p>
+            <p>• Der Hinweis verschwindet, sobald der Kollege weiterblättert oder „Speichern &amp; Freigeben" klickt; Positionen älter als 15 Minuten werden ignoriert, beim Schließen des Browsers wird die eigene Position gelöscht</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
@@ -2538,7 +2538,7 @@ const Views = {
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
             Prüfen Sie den BAV-Status-Filter in der Topbar (▤-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
             <p style="margin-top:8px"><strong>Können mehrere Sachbearbeiter gleichzeitig mit der Anwendung arbeiten?</strong><br>
-            Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen dieselbe HTML-Datei im Browser und wählen denselben Arbeitsordner. Das integrierte Synchronisationssystem gleicht Änderungen im 8-Sekunden-Intervall ab und verhindert durch ein Sperrsystem gleichzeitige Bearbeitung desselben Datensatzes.</p>
+            Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen dieselbe HTML-Datei im Browser und wählen denselben Arbeitsordner. Jeder Rechner schreibt in sein eigenes Protokoll und liest die der anderen alle 3 Sekunden; Änderungen der Kollegen erscheinen nach wenigen Sekunden. Ändern zwei Personen dasselbe Feld, gilt die spätere Änderung. In der Kontrolle sehen Sie, welchen Azubi ein Kollege gerade bearbeitet, und starten automatisch bei einem freien.</p>
             <p style="margin-top:8px"><strong>Welche Browser werden unterstützt?</strong><br>
             Ausschließlich <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> (Chromium-basiert). Mozilla Firefox und Apple Safari werden nicht unterstützt, da diese Browser die erforderliche File System Access API nicht implementieren.</p>
             <p style="margin-top:8px"><strong>Wie viele Datensätze kann die Datenbank verarbeiten?</strong><br>
@@ -2638,7 +2638,7 @@ const Views = {
 
       // Fußzeile
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text('Berichtsheftkontrolle v2.0 - Regierungspraesidium Freiburg, Abt. 3, Ref. 31', lm, 285);
+      doc.text(`Berichtsheftkontrolle v${App.VERSION} - Regierungspraesidium Freiburg, Abt. 3, Ref. 31`, lm, 285);
       doc.text('Stand: 27.04.2026', lm, 290);
 
       doc.save(`Wichtige_Hinweise_Berichtsheftkontrolle_${todayStr()}.pdf`);
@@ -2673,7 +2673,7 @@ const Views = {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(...green);
     doc.text('Hilfe – Berichtsheftkontrolle', lm, 50);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...gray);
-    doc.text('Version 2.0 · Stand: 27.04.2026', lm, 60);
+    doc.text(`Version ${App.VERSION} · Stand: ${formatDate(todayStr())}`, lm, 60);
     doc.text('Regierungspräsidium Freiburg, Abt. 3, Ref. 31', lm, 67);
     doc.text('Ausbildungsberater Gärtner', lm, 74);
 
@@ -2843,7 +2843,7 @@ const Views = {
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...gray);
-      doc.text(`Berichtsheftkontrolle v2.0 · RP Freiburg`, lm, 290);
+      doc.text(`Berichtsheftkontrolle v${App.VERSION} · RP Freiburg`, lm, 290);
       doc.text(`Seite ${i} / ${totalPages}`, rm - 20, 290);
     }
 

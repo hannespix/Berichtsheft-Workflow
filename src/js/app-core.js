@@ -3,6 +3,8 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 const App = {
+  // Versionsangabe für Handbuch/PDF-Fußzeilen – EINE Stelle statt fester Texte
+  VERSION: '2.1',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -268,7 +270,10 @@ const App = {
       KontrolleHandler.activePruefer = name;
       if (KontrolleHandler.currentTerminId) {
         KontrolleHandler.setActivePruefer(name);
-        if (this.currentView === 'kontrolle') KontrolleHandler.renderSchueler();
+        if (this.currentView === 'kontrolle') {
+          if (KontrolleHandler._wartetAufPruefer) KontrolleHandler.loadTermin(KontrolleHandler.currentTerminId);
+          else KontrolleHandler.renderSchueler();
+        }
       }
     }
     this.toast(name ? `${name}` : 'Kein Benutzer', 'info');
@@ -1331,6 +1336,9 @@ const App = {
       status TEXT DEFAULT 'offen' CHECK (status IN ('offen','erledigt','ueberfaellig')),
       erledigt_datum TEXT DEFAULT '',
       erledigt_bemerkung TEXT DEFAULT '',
+      versand_datum TEXT DEFAULT '',
+      versand_art TEXT DEFAULT '',
+      mahnstufe INTEGER DEFAULT 0,
       erstellt_am TEXT DEFAULT (datetime('now','localtime')),
       geaendert_am TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -1615,7 +1623,7 @@ const App = {
           <span style="font-size:22px"></span>
           <div><strong>Verbindung trennen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Zurück zum Startbildschirm</div></div>
         </button>
-        ${!this.demoMode ? '' : `<button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB();App.start()">
+        ${!this.demoMode ? '' : `<button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB().then(()=>App.start())">
           <span style="font-size:22px"></span>
           <div><strong>Echte Datenbank verbinden</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Demo beenden und Ordner wählen</div></div>
         </button>`}
@@ -1646,10 +1654,11 @@ const App = {
     }
   },
 
-  disconnectDB() {
-    // Save changes first if possible
+  async disconnectDB() {
+    // Ungespeichertes ZUERST wegschreiben – und darauf warten (ohne await
+    // räumte _cleanupDB die Verbindung weg, bevor der Save fertig war)
     if (this.unsavedChanges && this.dbFileHandle) {
-      try { this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Trennung fehlgeschlagen:', e); }
+      try { await this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Trennung fehlgeschlagen:', e); }
     }
     this._cleanupDB();
     // Show connect screen
@@ -4724,6 +4733,10 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN inaktiv_grund TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN inaktiv_datum TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN zustaendiges_amt TEXT DEFAULT ''");
+    // Versandnachweis + Mahnstufe je Wiedervorlage (Paket E5)
+    run("ALTER TABLE wiedervorlagen ADD COLUMN versand_datum TEXT DEFAULT ''");
+    run("ALTER TABLE wiedervorlagen ADD COLUMN versand_art TEXT DEFAULT ''");
+    run("ALTER TABLE wiedervorlagen ADD COLUMN mahnstufe INTEGER DEFAULT 0");
     run("ALTER TABLE schueler ADD COLUMN telefon TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''");
@@ -5497,6 +5510,14 @@ const App = {
     direkt.forEach(s => { if (!ids.has(s.id)) { schueler.push(s); ids.add(s.id); } });
     mitKE.forEach(s => { if (!ids.has(s.id)) { schueler.push(s); ids.add(s.id); } });
     return schueler.sort((a,b) => (a.nachname||'').localeCompare(b.nachname||''));
+  },
+
+  // Azubi eines fremden Zuständigkeitsbereichs? Wird bei uns mitkontrolliert,
+  // Nachbereitung (Betriebs-Anschreiben, Nachhol-Wiedervorlagen) läuft aber
+  // über die Übergabe an das zuständige Amt.
+  istFremdesAmt(s) {
+    const a = String(s?.zustaendiges_amt || '').trim();
+    return !!a && a !== this.EIGENES_AMT;
   },
 
   // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
@@ -6583,6 +6604,12 @@ Anlagen: {anlagen}` },
     const validViews = ['dashboard','stammdaten','import','planung','kontrolle','nacherfassung','wiedervorlagen','berichte','einstellungen','hilfe'];
     const hashView = location.hash.replace('#','');
 
+    // ── Restore current user ── (VOR der Ansicht: „letzte Ansicht" ist
+    // benutzerbezogen gespeichert und griff sonst nie)
+    try { this.currentUser = localStorage.getItem('bhk_current_user') || ''; } catch(e) {}
+    this._populateUserSelect();
+    if (this.currentUser) this._restoreUserSettings();
+
     // ── Restore last position after reload ──
     let restored = false;
     try {
@@ -6629,6 +6656,8 @@ Anlagen: {anlagen}` },
     });
     // Zurück-Taste bei offenem Modal: Modal schließen statt Ansicht verlassen
     window.addEventListener('popstate', () => {
+      // Zurück-Schritt aus closeModal() – nicht als Nutzer-Zurück werten
+      if (App._modalBackPending) { App._modalBackPending = false; return; }
       const overlay = document.getElementById('modalOverlay');
       if (App._modalHistoryPushed && overlay && overlay.classList.contains('active')) {
         App._modalHistoryPushed = false;
@@ -6640,11 +6669,6 @@ Anlagen: {anlagen}` },
     this._restoreFilterPanel();
     this._updateFilterCount();
     this._applySidebarVisibility();
-
-    // ── Restore current user ──
-    try { this.currentUser = localStorage.getItem('bhk_current_user') || ''; } catch(e) {}
-    this._populateUserSelect();
-    if (this.currentUser) this._restoreUserSettings();
   },
 
   // ── Sidebar Feature Toggle System ──
@@ -6830,6 +6854,13 @@ Anlagen: {anlagen}` },
       if (!sCols.includes('zustaendiges_amt')) {
         this.db.run("ALTER TABLE schueler ADD COLUMN zustaendiges_amt TEXT DEFAULT ''");
       }
+      // Versandnachweis + Mahnstufe je Wiedervorlage (Paket E5)
+      try {
+        const wvCols = this.query("PRAGMA table_info(wiedervorlagen)").map(r => r.name);
+        if (!wvCols.includes('versand_datum')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN versand_datum TEXT DEFAULT ''");
+        if (!wvCols.includes('versand_art')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN versand_art TEXT DEFAULT ''");
+        if (!wvCols.includes('mahnstufe')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN mahnstufe INTEGER DEFAULT 0");
+      } catch(e) { console.warn('WV-Spalten:', e.message); }
       // Clean stale sessions (silent – don't track as dirty op)
       try { this.db.run("DELETE FROM aktive_sitzung WHERE seit < datetime('now','localtime','-30 minutes')"); } catch(e) {}
       // kw_status.bemerkung for "I - Sonstiges" notes
@@ -6997,11 +7028,9 @@ Anlagen: {anlagen}` },
         // Add unique index if not exists
         try { this.db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)'); } catch(e) {}
       } catch(e) { console.warn('Pruefer dedup:', e); }
-      this.db.run("INSERT OR IGNORE INTO pruefer (name, email) VALUES ('Hannes Pix','hannes.pix@rpf.bwl.de'),('Christoph Zilz','christoph.zilz@rpf.bwl.de'),('Eva Dronia','eva.dronia@rpf.bwl.de')");
-      // Update emails for existing pruefer without email
-      this.db.run("UPDATE pruefer SET email='hannes.pix@rpf.bwl.de' WHERE name='Hannes Pix' AND (email='' OR email IS NULL)");
-      this.db.run("UPDATE pruefer SET email='christoph.zilz@rpf.bwl.de' WHERE name='Christoph Zilz' AND (email='' OR email IS NULL)");
-      this.db.run("UPDATE pruefer SET email='eva.dronia@rpf.bwl.de' WHERE name='Eva Dronia' AND (email='' OR email IS NULL)");
+      // Standard-Prüfer werden NUR beim Anlegen einer neuen Datenbank
+      // (SEED_DATA) eingetragen – ein gelöschter Prüfer kam sonst bei jedem
+      // Start wieder.
       // Ensure kw_status and durchsicht_snapshots tables exist
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_status (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7309,7 +7338,9 @@ Anlagen: {anlagen}` },
     document.getElementById('modalOverlay').classList.add('active');
     // Zurück-Taste (v.a. Mobile) soll das Modal schließen, nicht die Ansicht
     // verlassen: einen History-Eintrag pushen, den popstate wieder konsumiert.
-    if (!this._modalHistoryPushed) {
+    // Bei ausstehendem Zurück-Schritt (Dialogwechsel) keinen neuen Eintrag
+    // pushen – der Eintrag wäre nach dem popstate weg und die Zählung falsch
+    if (!this._modalHistoryPushed && !this._modalBackPending) {
       try { history.pushState({ bhkModal: true }, ''); this._modalHistoryPushed = true; } catch(e) {}
     }
     setTimeout(() => TableSort.initAll(), 50);
@@ -7324,7 +7355,13 @@ Anlagen: {anlagen}` },
     // bereits konsumiert) – sonst müsste man nach dem X-Klick 2× zurück drücken
     if (this._modalHistoryPushed && !fromPopstate) {
       this._modalHistoryPushed = false;
-      try { history.back(); } catch(e) {}
+      // history.back() ist asynchron – das zugehörige popstate kommt erst
+      // später. Öffnet der Aufrufer sofort einen neuen Dialog
+      // (closeModal(); open…()), schloss dieses späte popstate den NEUEN
+      // Dialog wieder. Merker, den der popstate-Handler einmal konsumiert.
+      this._modalBackPending = true;
+      try { history.back(); } catch(e) { this._modalBackPending = false; }
+      setTimeout(() => { this._modalBackPending = false; }, 800);
     } else {
       this._modalHistoryPushed = false;
     }
