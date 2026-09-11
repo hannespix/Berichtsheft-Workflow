@@ -140,6 +140,7 @@ const Views = {
       termineOhneNachbereitung.length ? { n: termineOhneNachbereitung.length, text: `durchgeführte${termineOhneNachbereitung.length > 1 ? '' : 'r'} Termin${termineOhneNachbereitung.length > 1 ? 'e' : ''} ohne Nachbereitung (Schul-Mitteilung/Betriebe)`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
       termineNichtAngefragt.length ? { n: termineNichtAngefragt.length, text: `Schultermin${termineNichtAngefragt.length > 1 ? 'e' : ''} in den nächsten 3 Wochen noch nicht bei der Schule angefragt`, farbe: 'var(--clr-blue)', view: 'planung' } : null,
       termineOhnePruefer.length ? { n: termineOhnePruefer.length, text: `Termin${termineOhnePruefer.length > 1 ? 'e' : ''} ohne Prüfer`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
+      (() => { const wb = App.wiederholungsbetriebe().length; return wb ? { n: wb, text: `Wiederholungsbetrieb${wb > 1 ? 'e' : ''} (mehrere Azubis mit Mängeln in 24 Monaten) – Ampel in den Stammdaten`, farbe: 'var(--clr-red)', view: 'stammdaten', tab: 'betriebe' } : null; })(),
     ].filter(Boolean);
 
     // ── Jahresablauf: Wo stehen wir? / Schnellstart ──
@@ -207,7 +208,7 @@ const Views = {
         <strong style="font-size:14px;color:var(--clr-forest-dark)">☑ Arbeitsliste – heute / diese Woche</strong>
         <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px">
           ${arbeitsliste.map(a => `<div role="button" tabindex="0" style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
-              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.tab ? `App.navigate('${a.view}');setTimeout(()=>StammdatenTab.show('${a.tab}'),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
             <strong style="min-width:28px;text-align:right;color:${a.farbe}">${a.n}</strong><span>${a.text}</span><span style="margin-left:auto;color:var(--clr-text-light)">→</span>
           </div>`).join('')}
         </div>
@@ -1294,6 +1295,7 @@ const Views = {
           </select>
         </div>
         <div class="toolbar-right">
+          <button class="btn btn-secondary" onclick="Workflows.sammelErinnerung(false)" title="Je Betrieb eine E-Mail mit allen offenen Nachweisen">✉︎ Sammel-Erinnerung je Betrieb</button>
           <button class="btn btn-secondary" onclick="WiedervorlagenHandler.exportICS()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
             ICS-Export
@@ -1479,6 +1481,12 @@ const Views = {
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Menüpunkte ein-/ausblenden. Weniger genutzte Funktionen können ausgeblendet werden, um die Sidebar übersichtlich zu halten.
         </p>
+        <div class="form-group"><label>Rollenprofil (setzt die Schalter unten)</label>
+          <select class="form-control" style="width:auto" onchange="if(this.value){App.setRolle(this.value);Views.einstellungen()}">
+            <option value="">– wählen –</option>
+            ${Object.entries(App.ROLLEN).map(([k, r]) => `<option value="${k}" ${App.uGet('rolle') === k ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}
+          </select>
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px">
           ${Object.entries(App.SIDEBAR_FEATURES).map(([key, cfg]) => {
             const vis = App._getSidebarVisibility();
@@ -2152,6 +2160,17 @@ const Views = {
             <p>2. <strong>Kontrollplanung</strong> → Durchsichtstermine anlegen und Berufsschulklassen zuweisen</p>
             <p>3. <strong>Kontrolldurchführung</strong> → Ausbildungsnachweise prüfen, Ergebnisse im KW-Raster dokumentieren</p>
             <p>4. <strong>Nachverfolgung</strong> → Wiedervorlagen bearbeiten, Durchsichtsbögen und Berichte exportieren</p>
+          </div>
+
+          <div id="help_neu" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+            <div class="card-header" style="font-size:15px">Was ist neu (Version ${App.VERSION})</div>
+            <p>• <strong>Dashboard:</strong> „Wo stehen wir?" mit nächstem Schritt, Arbeitsliste (überfällig, ohne Anschreiben, ohne Abschluss, nicht angefragt), Schnellstart bei leerer Datenbank.</p>
+            <p>• <strong>Planung:</strong> Termin-Statuskette (angefragt → bestätigt → durchgeführt → nachbereitet), Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien, Doppeltermin-Prüfung, Kohortenjahre passend zum Kampagnenfenster, Nachholtermine aus Abwesenden, Ausschluss bereits kontrollierter Azubis.</p>
+            <p>• <strong>Kontrolltag:</strong> Prüferaufteilung („Mein Bereich"), Vorrang statt gegenseitiger Sperre, Tastenkürzel ⇧1–6 für das Ergebnis und J für die heutige KW, „In Ordnung" markiert die Wochen bis zur Vorwoche, Undo für alle Wege im Raster, Prüfer-Pflicht.</p>
+            <p>• <strong>Import:</strong> Vorschau (neu / geändert je Feld / fehlend / Neuverträge) vor dem Schreiben; ein Status-Modell für Azubis mit „Ausbildung beenden".</p>
+            <p>• <strong>Nachbereitung:</strong> Vorlage je Betrieb (auch Nachhol-Aufforderung für Abwesende), Versandnachweis und Mahnstufe je Wiedervorlage, Nachweis-Dialog mit Datei in die Akte, Sammel-Erinnerung je Betrieb, fremde Ämter über die Übergabe.</p>
+            <p>• <strong>Berichte &amp; Stammdaten:</strong> Vorjahresvergleich im Jahresbericht, Betriebs- und Schul-Ampel, Datenqualitäts-Regeln für Status und Amt.</p>
+            <p>• <strong>Bedienung:</strong> F1 = Hilfe zur Ansicht, ?-Link im Seitentitel, Glossar, Rollenprofile, ICS mit stabilen Terminen und Wiedervorlagen als Aufgaben.</p>
           </div>
 
           <div id="help_warning" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">

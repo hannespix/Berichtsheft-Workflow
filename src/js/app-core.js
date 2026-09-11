@@ -6091,6 +6091,79 @@ const App = {
     return { startKW: getKW(d), endKW: getKW(new Date()) };
   },
 
+  // ── Betriebs- und Schul-Ampel (Stufe 3) ──
+  ampelIcon(ampel) {
+    const f = { rot: 'var(--clr-red)', gelb: 'var(--clr-amber)', gruen: 'var(--clr-green)', grau: 'var(--clr-sage-light)' }[ampel] || 'var(--clr-sage-light)';
+    return `<span style="color:${f}">●</span>`;
+  },
+  // Betrieb: Wiederholungsbetrieb (≥ 2 Azubis mit Mängeln bzw. ≥ 3 Mangel-
+  // Ergebnisse in 24 Monaten), offene/überfällige WV, Ø Tage bis zum Nachweis
+  betriebKennzahlen(betriebId) {
+    const heute = new Date().toISOString().slice(0, 10);
+    const seit = new Date(); seit.setMonth(seit.getMonth() - 24);
+    const seitIso = seit.toISOString().slice(0, 10);
+    const k = { betriebId };
+    k.azubis = this.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=? AND aktiv=1', [betriebId]) || 0;
+    const mangel = this.query(`SELECT ke.schueler_id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id JOIN schueler s ON s.id=ke.schueler_id
+      WHERE s.betrieb_id=? AND ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND kt.geplant_datum >= ?`, [betriebId, seitIso]);
+    k.mangelErgebnisse = mangel.length;
+    k.mangelAzubis = new Set(mangel.map(r => r.schueler_id)).size;
+    k.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status IN ('offen','ueberfaellig')", [betriebId]) || 0;
+    k.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))", [betriebId, heute]) || 0;
+    const tage = this.scalar("SELECT AVG(julianday(w.erledigt_datum) - julianday(substr(w.erstellt_am,1,10))) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status='erledigt' AND w.erledigt_datum != ''", [betriebId]);
+    k.nachweisTage = tage == null ? null : Math.max(0, Math.round(tage));
+    k.wiederholer = k.mangelAzubis >= 2 || k.mangelErgebnisse >= 3;
+    k.ampel = (k.wvUeberfaellig || k.wiederholer) ? 'rot' : (k.wvOffen || k.mangelAzubis) ? 'gelb' : (k.azubis ? 'gruen' : 'grau');
+    return k;
+  },
+  wiederholungsbetriebe() {
+    const seit = new Date(); seit.setMonth(seit.getMonth() - 24);
+    return this.query(`SELECT s.betrieb_id AS id, COUNT(DISTINCT ke.schueler_id) AS azubis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id JOIN schueler s ON s.id=ke.schueler_id
+      WHERE s.betrieb_id IS NOT NULL AND ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND kt.geplant_datum >= ? GROUP BY s.betrieb_id HAVING azubis >= 2`, [seit.toISOString().slice(0, 10)]);
+  },
+  // Schule: Abdeckung (kontrolliert / aktive Azubis) und Mängelquote im laufenden Schuljahr
+  schuleKennzahlen(bsId) {
+    const sj = this.schuljahrZu(new Date());
+    const von = sj.slice(0, 4) + '-08-01';
+    const k = { bsId, sj };
+    k.azubis = this.scalar('SELECT COUNT(*) FROM schueler s JOIN klassen k ON s.klasse_id=k.id WHERE k.berufsschule_id=? AND s.aktiv=1', [bsId]) || 0;
+    k.kontrolliert = this.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id JOIN schueler s ON s.id=ke.schueler_id JOIN klassen k ON s.klasse_id=k.id
+      WHERE k.berufsschule_id=? AND s.aktiv=1 AND ke.ergebnis != '' AND kt.geplant_datum >= ?`, [bsId, von]) || 0;
+    k.mangel = this.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id JOIN schueler s ON s.id=ke.schueler_id JOIN klassen k ON s.klasse_id=k.id
+      WHERE k.berufsschule_id=? AND s.aktiv=1 AND ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND kt.geplant_datum >= ?`, [bsId, von]) || 0;
+    k.abdeckung = k.azubis ? Math.round(k.kontrolliert / k.azubis * 100) : 0;
+    k.mangelQuote = k.kontrolliert ? Math.round(k.mangel / k.kontrolliert * 100) : 0;
+    k.ampel = !k.azubis ? 'grau' : (k.abdeckung >= 90 && k.mangelQuote < 25) ? 'gruen' : k.abdeckung >= 50 ? 'gelb' : 'rot';
+    return k;
+  },
+
+  // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
+  HILFE_MAP: { dashboard: 'help_3', stammdaten: 'help_4', import: 'help_5', planung: 'help_6', kontrolle: 'help_7', nacherfassung: 'help_22', wiedervorlagen: 'help_13', berichte: 'help_14', einstellungen: 'help_23', hilfe: 'help_0' },
+  kontextHilfe(view) {
+    const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
+    if (this.currentView !== 'hilfe') this.navigate('hilfe');
+    setTimeout(() => { const el = document.getElementById(id); if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e) { el.scrollIntoView(); } } }, 150);
+  },
+  _hilfeLinkEinblenden() {
+    const h = document.querySelector('#mainContent .page-header h2');
+    if (!h || h.querySelector('.hilfe-link') || this.currentView === 'hilfe') return;
+    h.insertAdjacentHTML('beforeend', ` <a href="#" class="hilfe-link" onclick="App.kontextHilfe();return false" title="Hilfe zu dieser Ansicht (F1)" style="font-size:12px;font-weight:400;color:var(--clr-sage);text-decoration:none;vertical-align:middle;border:1px solid var(--clr-sand);border-radius:50%;padding:0 6px;margin-left:6px">?</a>`);
+  },
+
+  // ── Rollenprofile über die Sidebar-Schalter ──
+  ROLLEN: {
+    berater: { label: 'Ausbildungsberater (alles)', features: { import: true, nacherfassung: false, kontrolle: true } },
+    assistenz: { label: 'Assistenz (Stammdaten, Import, Planung, Wiedervorlagen, Berichte – keine Durchführung)', features: { import: true, nacherfassung: false, kontrolle: false } },
+  },
+  setRolle(key) {
+    const r = this.ROLLEN[key];
+    if (!r) return;
+    this.uSet('sidebar_features', JSON.stringify(r.features));
+    this.uSet('rolle', key);
+    this._applySidebarVisibility();
+    this.toast(`Rollenprofil „${r.label.split(' (')[0]}" aktiv`, 'success');
+  },
+
   // ── Schulferien Baden-Württemberg (Richtwerte; in den Einstellungen anpassbar) ──
   FERIEN_BW_STANDARD: [
     { name: 'Herbstferien 2025', von: '2025-10-27', bis: '2025-10-31' }, { name: 'Weihnachtsferien 2025/26', von: '2025-12-22', bis: '2026-01-05' },
@@ -6635,6 +6708,21 @@ Mit freundlichen Grüßen
 {pruefer}
 {pruefer_email}
 {rp_adresse}` },
+    wv_sammel: { titel: 'Wiedervorlage: Sammel-Erinnerung je Betrieb (mehrere Azubis)',
+      platzhalter: ['anrede','azubi_block','azubi_namen','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle – offene Nachweise ({azubi_namen})',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+für folgende Auszubildende Ihres Betriebs stehen Nachweise zur Berichtsheftführung noch aus:
+
+{azubi_block}
+
+Bitte reichen Sie die Unterlagen bis zu den genannten Fristen nach oder teilen Sie uns den Stand kurz mit.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}
+{pruefer_email}` },
     amt_uebergabe: { titel: 'Fremdes Amt: Übergabeschreiben zu mitkontrollierten Azubis',
       platzhalter: ['amt','amt_name','schule','datum','anzahl','azubi_liste','anlagen','pruefer','pruefer_email','rp_adresse'],
       betreff: 'Berichtsheftkontrolle {schule} am {datum} – Ergebnisse für Auszubildende aus Ihrem Zuständigkeitsbereich ({amt})',
@@ -6825,6 +6913,7 @@ Anlagen: {anlagen}` },
   SIDEBAR_FEATURES: {
     nacherfassung: { label: 'Nacherfassung (vergangene Kontrollen)', default: false },
     import: { label: 'IBYKUS-Import', default: true },
+    kontrolle: { label: 'Durchführung (Kontrolltag)', default: true },
   },
 
   _getSidebarVisibility() {
@@ -7414,6 +7503,7 @@ Anlagen: {anlagen}` },
     };
     const fn = views[this.currentView];
     if (fn) fn.call(Views);
+    try { this._hilfeLinkEinblenden(); } catch(e) {}
     // Make all data-tables sortable after render
     setTimeout(() => TableSort.initAll(), 100);
   },

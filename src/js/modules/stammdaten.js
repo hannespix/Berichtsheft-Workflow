@@ -580,7 +580,7 @@ const StammdatenTab = {
       </div>
       <div class="card"><table class="data-table"><thead><tr>
         <th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkSchulen()"></th>
-        <th>Name</th><th>Ort</th><th>Ansprechpartner</th><th>Kontakt</th><th>Klassen</th><th>Schüler</th><th>Aktionen</th>
+        <th>Name</th><th>Ort</th><th>Ansprechpartner</th><th>Kontakt</th><th>Klassen</th><th>Azubis</th><th title="Abdeckung im laufenden Schuljahr (kontrolliert / aktive Azubis) und Mängelquote">Abdeckung</th><th>Aktionen</th>
       </tr></thead><tbody>
         ${rows.map(r => `<tr>
           <td><input type="checkbox" class="chk-sch" value="${r.id}" onchange="StammdatenTab.updateBulkSchulen()"></td>
@@ -590,6 +590,7 @@ const StammdatenTab = {
           <td>${r.email ? `<a href="mailto:${esc(r.email)}" style="color:var(--clr-forest)">${esc(r.email)}</a>` : ''}${r.telefon ? `${r.email ? '<br>' : ''}<a href="tel:${esc(r.telefon)}" style="color:var(--clr-text-light)">${esc(r.telefon)}</a>` : ''}</td>
           <td>${r.klassen_cnt > 0 ? `<a href="#" onclick="StammdatenTab.showSchuleKlassen(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Klassen anzeigen">${r.klassen_cnt}</a>` : '0'}</td>
           <td>${r.schueler_cnt > 0 ? `<a href="#" onclick="StammdatenTab.showSchuleAzubis(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline">${r.schueler_cnt}</a>` : '0'}</td>
+          ${(() => { const kz = App.schuleKennzahlen(r.id); return `<td data-sort="${kz.abdeckung}" title="Schuljahr ${kz.sj}: ${kz.kontrolliert} von ${kz.azubis} aktiven Azubis kontrolliert · Mängelquote ${kz.mangelQuote} %">${App.ampelIcon(kz.ampel)} ${kz.azubis ? kz.abdeckung + ' %' : '–'}</td>`; })()}
           <td class="btn-group">
             <button class="btn-icon btn-sm" onclick="StammdatenTab.editSchule(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
             <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteSchule(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
@@ -1188,7 +1189,7 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr>
-        <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th>Aktionen</th>
+        <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th title="Betriebs-Ampel: rot = Wiederholungsbetrieb oder überfällige WV, gelb = offene WV/Mängel, grün = unauffällig · Ø Tage bis zum Nachweis">Ampel</th><th>Aktionen</th>
       </tr></thead><tbody id="betriebeTableBody">
         ${rows.map(b => `<tr data-search="${(b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase()}">
           <td>
@@ -1202,6 +1203,7 @@ const StammdatenTab = {
           <td>${b.azubi_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${b.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline;cursor:pointer" title="Azubis anzeigen">${b.azubi_count}</a>` : '<span style="color:var(--clr-text-light)">0</span>'}</td>
           <td>${b.ausbilder_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAusbilder(${b.id});return false" style="color:var(--clr-forest);text-decoration:underline;cursor:pointer">${b.ausbilder_count}</a>` : '<span style="color:var(--clr-text-light)">–</span>'}</td>
           <td data-sort="${b.maengel_count}">${b.maengel_count > 0 ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${b.id},'maengel');return false" class="badge-status badge-overdue" style="cursor:pointer" title="Beanstandete Azubis">${b.maengel_count}</a>` : '–'}</td>
+          ${(() => { const kz = App.betriebKennzahlen(b.id); const ord = { rot: 0, gelb: 1, gruen: 2, grau: 3 }[kz.ampel]; return `<td data-sort="${ord}" title="${kz.mangelAzubis} Azubi(s) mit Mängeln in 24 Monaten · ${kz.wvOffen} offene WV (${kz.wvUeberfaellig} überfällig)${kz.nachweisTage != null ? ' · Ø ' + kz.nachweisTage + ' Tage bis zum Nachweis' : ''}${kz.wiederholer ? ' · Wiederholungsbetrieb' : ''}">${App.ampelIcon(kz.ampel)}${kz.wiederholer ? ' <span style="color:var(--clr-red);font-size:11px" title="Wiederholungsbetrieb">↻</span>' : ''}${kz.nachweisTage != null ? ` <small style="color:var(--clr-text-light)">Ø ${kz.nachweisTage} Tg.</small>` : ''}</td>`; })()}
           <td class="btn-group">
             <button class="btn-icon btn-sm" onclick="StammdatenTab.editBetrieb(${b.id})" title="Bearbeiten">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>

@@ -53,8 +53,13 @@ document.addEventListener('keydown', (e) => {
     GlobalSearch.open();
     return;
   }
-  // F1 or ? = Keyboard cheat sheet
-  if (e.key === 'F1' || (e.key === '?' && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA')) {
+  // F1 = Hilfe zur aktuellen Ansicht, ? = Tastenkürzel
+  if (e.key === 'F1') {
+    e.preventDefault();
+    App.kontextHilfe();
+    return;
+  }
+  if (e.key === '?' && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
     GlobalSearch.showCheatSheet();
     return;

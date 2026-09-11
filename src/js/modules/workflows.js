@@ -600,6 +600,53 @@ const Workflows = {
     this.openMailto(g.email, betreff, body);
   },
 
+  // ── D2) Sammel-Erinnerung je Betrieb: alle offenen/überfälligen WV eines Betriebs in EINER Mail ──
+  _sammelGruppen(nurUeberfaellig) {
+    const heute = todayStr();
+    const rows = App.query(`SELECT w.*, s.nachname, s.vorname, s.betrieb_id, s.ausbildungsstaette, s.zustaendiges_amt,
+        b.name AS b_name, b.email AS b_email, b.ansprechpartner AS b_ap
+      FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id LEFT JOIN betriebe b ON b.id=s.betrieb_id
+      WHERE w.status IN ('offen','ueberfaellig') ORDER BY b.name, s.nachname`);
+    const gruppen = {};
+    rows.forEach(w => {
+      if (App.istFremdesAmt(w)) return;
+      const ueberfaellig = w.status === 'ueberfaellig' || (w.frist_datum && w.frist_datum < heute);
+      if (nurUeberfaellig && !ueberfaellig) return;
+      const key = w.betrieb_id || ('n:' + (w.ausbildungsstaette || '?'));
+      if (!gruppen[key]) gruppen[key] = { key, betriebId: w.betrieb_id || null, name: w.b_name || w.ausbildungsstaette || '?', email: w.b_email || '', ap: w.b_ap || '', wvs: [] };
+      gruppen[key].wvs.push({ ...w, ueberfaellig });
+    });
+    return Object.values(gruppen).filter(g => g.wvs.length);
+  },
+  sammelErinnerung(nurUeberfaellig) {
+    const gruppen = this._sammelGruppen(!!nurUeberfaellig);
+    if (!gruppen.length) return App.toast('Keine offenen Wiedervorlagen (eigenes Amt)', 'info');
+    this._sammel = gruppen;
+    App.openModal(`✉︎ Sammel-Erinnerung je Betrieb (${gruppen.length})`, `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Je Betrieb EINE E-Mail mit allen offenen Nachweisen (Vorlage „Sammel-Erinnerung"). Jeder Versand wird an den Wiedervorlagen vermerkt (Datum, Mahnstufe).
+        <label style="margin-left:8px;cursor:pointer"><input type="checkbox" ${nurUeberfaellig ? 'checked' : ''} onchange="App.closeModal();Workflows.sammelErinnerung(this.checked)"> nur überfällige</label></div>
+      ${gruppen.map((g, i) => `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>${esc(g.name)}</strong> <span style="color:var(--clr-text-light)">${g.wvs.length} WV${g.wvs.some(w => w.ueberfaellig) ? ' · <span style="color:var(--clr-red)">überfällig</span>' : ''}</span>
+          <span style="margin-left:auto">${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:11px" onclick="Workflows._sammelMail(${i})">✉︎ Senden</button>` : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}</span></div>
+        <div style="margin-top:4px">${g.wvs.map(w => `${esc(w.nachname)}, ${esc(w.vorname)} – ${esc(wvArtLabel(w.art))}, Frist ${formatDate(w.frist_datum)}${w.mahnstufe ? ` (${w.mahnstufe}× angeschrieben)` : ''}`).join('<br>')}</div>
+      </div>`).join('')}`, '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>');
+  },
+  _sammelBlock(g) {
+    return g.wvs.map(w => `  - ${w.nachname}, ${w.vorname}: ${wvArtLabel(w.art)}, Frist ${formatDate(w.frist_datum)}${w.ueberfaellig ? ' (überschritten)' : ''}`).join('\n');
+  },
+  _sammelMail(i) {
+    const g = (this._sammel || [])[i];
+    if (!g) return;
+    const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || 'Ausbildungsberater';
+    const ctx = { ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
+      azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') };
+    const { betreff, body } = App.renderVorlage('wv_sammel', ctx);
+    this.openMailto(g.email, betreff, body);
+    g.wvs.forEach(w => this.versandVermerken(w.id, 'email', w.mahnstufe ? 'wv_erinnerung' : 'wv_mahnung', 'Sammel-Erinnerung'));
+    App.toast(`Sammel-Erinnerung an ${g.name} geöffnet – ${g.wvs.length} Wiedervorlage(n) vermerkt`, 'success');
+    try { if (App.currentView === 'wiedervorlagen') Views.wiedervorlagen(); } catch(e) {}
+  },
+
   // ── E) Übergabeschreiben an ein fremdes Amt ──
   emailAmtUebergabe(terminId, amt) {
     const t = this._ctxTermin(terminId);
