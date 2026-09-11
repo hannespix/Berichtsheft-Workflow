@@ -233,9 +233,9 @@ const ImportHandler = {
             <em style="color:var(--clr-text-light)">Aufklappen um Vorschau zu laden…</em>
           </div>
         </details>
-        <button class="btn btn-primary" onclick="ImportHandler.doImport(window._importData)">
+        <button class="btn btn-primary" onclick="ImportHandler.doImportVorschau(window._importData)" title="Zeigt erst, was neu, geändert oder fehlend ist – geschrieben wird erst nach Bestätigung">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          ${data.length} Schüler importieren (vollautomatisch)
+          ${data.length} Zeilen prüfen &amp; importieren (Vorschau)
         </button>
         <button class="btn btn-secondary" onclick="document.getElementById('importPreview').innerHTML=''">Abbrechen</button>
       </div>`;
@@ -397,8 +397,45 @@ const ImportHandler = {
     return null;
   },
 
-  async doImport(data) {
+  // Vorschau: derselbe Import auf einem SAVEPOINT, danach zurückgerollt –
+  // zeigt Neu / Geändert (mit Feldern) / Fehlend / Konflikte, bevor etwas
+  // geschrieben wird. „Jetzt importieren" führt dann den echten Lauf aus.
+  doImportVorschau(data) { return this.doImport(data, { vorschau: true }); },
+  _feldLabel: { nachname: 'Nachname', vorname: 'Vorname', ibykus_id: 'BAV-Ident', ausbildungsende: 'AV-Ende', ausbildungsbeginn: 'AV-Beginn', ausbildungsstaette: 'Betrieb', telefon: 'Telefon', email: 'E-Mail', betrieb_id: 'Betrieb (Stammdaten)', klasse_id: 'Klasse', jahrgang_id: 'Jahrgang', fachrichtung_id: 'Fachrichtung', zustaendiges_amt: 'Amt', geschlecht: 'Geschlecht', schulabschluss: 'Schulabschluss', pruefungserfolg: 'Prüfungserfolg', pruefungserfolg_wdh1: 'Prüfungserfolg Wdh. 1', pruefungserfolg_wdh2: 'Prüfungserfolg Wdh. 2', bav_status: 'BAV-Status', zwischenpruefung: 'ZP', aktiv: 'aktiv', status: 'Status', ap_bestanden: 'AP bestanden', inaktiv_datum: 'inaktiv seit', inaktiv_grund: 'Grund' },
+  _zeigeVorschau(v) {
+    const lbl = f => this._feldLabel[f] || f;
+    const wert = (f, x) => {
+      if (x === null || x === undefined || x === '') return '–';
+      if (f === 'klasse_id') return App.scalar('SELECT klassenbezeichnung FROM klassen WHERE id=?', [x]) || `#${x}`;
+      if (f === 'jahrgang_id') return App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [x]) || `#${x}`;
+      if (f === 'fachrichtung_id') return App.scalar('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [x]) || `#${x}`;
+      if (f === 'betrieb_id') return App.scalar('SELECT name FROM betriebe WHERE id=?', [x]) || `#${x}`;
+      return String(x);
+    };
+    const unveraendert = Math.max(0, v.skipped - (v.stats.updated || 0) - v.errorRows.length);
+    const block = (titel, farbe, inhalt) => `<div style="margin-top:10px;padding:8px 12px;border-left:4px solid ${farbe};background:var(--clr-warm);border-radius:var(--radius);font-size:12px"><strong>${titel}</strong>${inhalt}</div>`;
+    const liste = (arr, f, max = 40) => `<div style="max-height:160px;overflow-y:auto;margin-top:4px">${arr.slice(0, max).map(f).join('')}${arr.length > max ? `<div style="color:var(--clr-text-light)">… und ${arr.length - max} weitere</div>` : ''}</div>`;
+    App.openModal('Import-Vorschau – noch nichts geschrieben', `
+      <div style="font-size:13px;line-height:1.7">
+        <div>✚ <strong>${v.diff.neu.length}</strong> neu · ✎ <strong>${v.diff.geaendert.length}</strong> geändert · <strong>${unveraendert}</strong> unverändert
+          ${v.fehlende.length ? ` · ⚠︎ <strong>${v.fehlende.length}</strong> fehlen im Export` : ''}${v.stats.neuvertraege?.length ? ` · ⚠︎ <strong>${v.stats.neuvertraege.length}</strong> Neuverträge` : ''}${v.errorRows.length ? ` · <span style="color:var(--clr-red)">${v.errorRows.length} fehlerhafte Zeilen</span>` : ''}</div>
+        ${v.stats.schulen.size || v.stats.jahrgaenge.size || v.stats.klassen.size ? `<div style="font-size:12px;color:var(--clr-text-light)">Würde anlegen: ${v.stats.schulen.size} Schule(n)${v.stats.schulen.size ? ' (' + [...v.stats.schulen].join(', ') + ')' : ''}, ${v.stats.jahrgaenge.size} Jahrgang/Jahrgänge${v.stats.jahrgaenge.size ? ' (' + [...v.stats.jahrgaenge].join(', ') + ')' : ''}, ${v.stats.klassen.size} Klasse(n)</div>` : ''}
+        ${v.datumsFehler.length ? `<div style="color:var(--clr-amber)">⚠︎ ${v.datumsFehler.length} Zeilen mit unlesbarem Datum – Datumsformat im Dialog prüfen</div>` : ''}
+      </div>
+      ${v.diff.neu.length ? block(`✚ Neu (${v.diff.neu.length})`, 'var(--clr-green)', liste(v.diff.neu, n => `<div>• ${esc(n.name)} <span style="color:var(--clr-text-light)">${esc(n.ident || '')}${n.jahrgang ? ' · ' + esc(n.jahrgang) : ''}${n.schule ? ' · ' + esc(n.schule) : ''}${n.betrieb ? ' · ' + esc(n.betrieb) : ''}</span></div>`)) : ''}
+      ${v.diff.geaendert.length ? block(`✎ Geändert (${v.diff.geaendert.length})`, 'var(--clr-blue)', liste(v.diff.geaendert, g => `<div>• <strong>${esc(g.name)}</strong>: ${g.felder.map(x => `${esc(lbl(x.f))} ${esc(wert(x.f, x.alt))} → ${esc(wert(x.f, x.neu))}`).join('; ')}</div>`)) : ''}
+      ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
+      ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:10px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
+      ${v.stats.phasenKonflikte?.length ? block(`⚠︎ Phasen-Konflikte (${v.stats.phasenKonflikte.length})`, 'var(--clr-amber)', liste(v.stats.phasenKonflikte, k => `<div>• ${esc(k.name)}: ${k.changes.map(([f, n, o]) => `${esc(lbl(f))} ${esc(o || '–')} → ${esc(n)}`).join(', ')} – Datumsfelder werden nicht überschrieben</div>`)) : ''}
+      ${v.errorRows.length ? block(`⚠︎ Fehlerhafte Zeilen (${v.errorRows.length})`, 'var(--clr-red)', liste(v.errorRows, e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`, 20)) : ''}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data)">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
+  },
+
+  async doImport(data, opts = {}) {
     if (!data || !data.length) return App.toast('Keine Daten zum Importieren', 'warning');
+    const vorschau = !!(opts && opts.vorschau);
+    const diff = { neu: [], geaendert: [] };
 
     // Validierung: Pflichtfelder müssen zugeordnet sein
     const getMap = f => document.getElementById('map_' + f)?.value || '';
@@ -412,10 +449,12 @@ const ImportHandler = {
       return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
     }
 
-    App.showLoading('Importiere Schülerdaten…');
+    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
+    const bulkOpsVorher = (App._bulkOps || []).length;
+    if (vorschau) App.db.run('SAVEPOINT bhk_vorschau');
    try { // Sicherstellen dass _bulkImport IMMER zurückgesetzt wird (sonst Dirty-Tracking dauerhaft aus!)
     const frs = App.query('SELECT * FROM fachrichtungen');
     let jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge');
@@ -711,6 +750,7 @@ const ImportHandler = {
           }
         }
 
+        if (changes.length) diff.geaendert.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, felder: changes.map(([f, n, o]) => ({ f, neu: n, alt: o })) });
         // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
         let hatPhasen = false;
         try { hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0; } catch(e) {}
@@ -748,6 +788,7 @@ const ImportHandler = {
       if (ibyk) { const neuId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=?', [ibyk]); if (neuId) gesehen.add(neuId); }
       if (frId) exportFr.add(frId);
       if (amt) exportAemter.add(amt);
+      diff.neu.push({ name: `${nachname}, ${vorname}`, ident: ibyk, betrieb, schule: schulName, jahrgang: apCode });
       imported++;
       if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
      } catch(rowErr) {
@@ -776,6 +817,17 @@ const ImportHandler = {
         ORDER BY s.nachname, s.vorname`);
       stats.fehlende = kand.filter(k => !gesehen.has(k.id));
       this._pendingFehlende = stats.fehlende.map(k => k.id);
+    }
+
+    // ── Vorschau: alles zurückrollen – nichts geschrieben, nichts gespeichert ──
+    if (vorschau) {
+      try { App.db.run('ROLLBACK TO bhk_vorschau'); App.db.run('RELEASE bhk_vorschau'); } catch(e) { console.warn('Vorschau-Rollback:', e.message); }
+      if (App._bulkOps) App._bulkOps.length = bulkOpsVorher;
+      App._bulkImport = false;
+      App.hideLoading();
+      this._vorschau = { data, diff, stats, imported, skipped, noKlasseCount, errorRows, datumsFehler, fehlende: stats.fehlende || [] };
+      if (!opts.stumm) this._zeigeVorschau(this._vorschau);
+      return this._vorschau;
     }
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──

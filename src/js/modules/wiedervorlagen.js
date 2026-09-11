@@ -29,23 +29,67 @@ const WiedervorlagenHandler = {
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
-  // Direkt erledigen ohne Durchsicht (Nachweis kam z.B. per E-Mail/Post)
+  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt', sonstig: 'sonstiger Nachweis' },
+  // Direkt erledigen ohne Durchsicht – mit NACHWEIS: Art (E-Mail/Post/persönlich),
+  // optional Datei in die Akte und „Mängel als behoben markieren", damit
+  // Ampel und Zulassungsliste den Azubi als nachgewiesen erkennen
   erledigenDirekt(id) {
     const w = App.query('SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.id=?', [id])[0];
     if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
-    App.openModal('Wiedervorlage als erledigt markieren – ' + w.nachname + ', ' + w.vorname,
-      '<div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die Mängel im KW-Raster bleiben dabei unverändert; nur die Wiedervorlage wird geschlossen. Wenn das Berichtsheft tatsächlich nachgeholt wurde, besser „→ Durchsicht" nutzen und die Wochen als behoben markieren.</div>' +
-      '<div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="' + todayStr() + '"></div><div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2" placeholder="z.B. Nachweis per E-Mail eingegangen"></textarea></div>',
-      '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
+    const offeneMaengel = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [w.schueler_id]) || 0;
+    App.openModal('Wiedervorlage erledigen (Nachweis) – ' + esc(w.nachname) + ', ' + esc(w.vorname), `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Der Betrieb/Azubi hat das Berichtsheft nachgereicht oder den Mangel anders nachgewiesen. Wurde das Heft tatsächlich erneut durchgesehen, besser „→ Durchsicht" nutzen.</div>
+      <div class="form-row">
+        <div class="form-group"><label>Erledigungsdatum</label><input type="date" class="form-control" id="mWvDatum" value="${todayStr()}"></div>
+        <div class="form-group"><label>Nachweis</label>
+          <select class="form-control" id="mWvNachweis">${Object.entries(this.NACHWEIS_ARTEN).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mWvBem" rows="2" placeholder="z.B. Berichte für KW 40–44 per E-Mail nachgereicht"></textarea></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" id="mWvBehoben" ${offeneMaengel ? 'checked' : ''} style="accent-color:var(--clr-forest)"> Nachweis erbracht – ${offeneMaengel ? `die <strong>${offeneMaengel}</strong> offenen Mängel im KW-Raster als behoben markieren` : 'keine offenen Mängel im Raster'}
+      </label>
+      ${App.bhkDirHandle ? `<div class="form-group"><label>Nachweis-Datei in die Akte (optional, z.B. E-Mail .msg, PDF)</label><input type="file" id="mWvDatei" multiple class="form-control" style="padding:4px"></div>`
+        : '<div style="font-size:11px;color:var(--clr-text-light)">Dateien lassen sich erst nach dem Öffnen eines Datenbank-Ordners ablegen.</div>'}
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     setTimeout(() => document.getElementById('mWvBem')?.focus(), 50);
   },
-  doErledigen(id) {
-    const datum = document.getElementById('mWvDatum').value;
-    const bem = document.getElementById('mWvBem').value.trim();
+  // params (optional, für Tests/andere Dialoge): {datum, bem, nachweis, behoben, files}
+  async doErledigen(id, params) {
+    const w = App.query('SELECT * FROM wiedervorlagen WHERE id=?', [id])[0];
+    if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
+    const p = params || {
+      datum: document.getElementById('mWvDatum')?.value,
+      bem: (document.getElementById('mWvBem')?.value || '').trim(),
+      nachweis: document.getElementById('mWvNachweis')?.value || '',
+      behoben: !!document.getElementById('mWvBehoben')?.checked,
+      files: document.getElementById('mWvDatei')?.files,
+    };
+    const datum = p.datum || todayStr();
+    const artLabel = this.NACHWEIS_ARTEN[p.nachweis] || '';
+    const bem = (artLabel ? `Nachweis (${artLabel})` : '') + (p.bem ? (artLabel ? ': ' : '') + p.bem : '');
+    let behoben = 0;
+    if (p.behoben) behoben = this._maengelBehoben(w.schueler_id);
+    let dateien = 0;
+    if (p.files && p.files.length && typeof SchuelerAkte !== 'undefined') {
+      try { dateien = await SchuelerAkte.speichereDateien(p.files, w.schueler_id, { beschreibung: `Nachweis zur Wiedervorlage (${formatDate(datum)})` }); } catch(e) { console.warn('Nachweis-Datei:', e); }
+    }
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [datum, bem, id]);
     App.closeModal();
-    Views.wiedervorlagen();
-    App.toast('Wiedervorlage erledigt', 'success');
+    try { Views.wiedervorlagen(); } catch(e) {}
+    App.toast(`Wiedervorlage erledigt${behoben ? ` · ${behoben} Woche(n) als behoben markiert` : ''}${dateien ? ` · ${dateien} Datei(en) in der Akte` : ''}`, 'success');
+    return { behoben, dateien, bem };
+  },
+  // Alle offenen Mängel eines Azubis als behoben protokollieren (Nachweis ohne
+  // erneute Durchsicht) – Historie bleibt in behobene_codes erhalten
+  _maengelBehoben(schuelerId) {
+    const rows = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND maengel_codes != ""', [schuelerId]);
+    rows.forEach(row => {
+      const codes = row.maengel_codes.split(',').filter(Boolean);
+      const behoben = row.behobene_codes ? row.behobene_codes.split(',').filter(Boolean) : [];
+      App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [[...new Set([...behoben, ...codes])].join(','), row.id]);
+    });
+    return rows.length;
   },
 
   details(id) {
