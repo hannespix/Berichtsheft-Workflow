@@ -79,7 +79,7 @@ const KontrolleHandler = {
     }
 
     if (!this.currentSchuelerList.length) {
-      document.getElementById('kontrolleContent').innerHTML = '<div class="card" style="margin-top:16px"><div class="empty-state"><h3>Keine Schüler in dieser Klasse</h3><p>Importieren Sie zuerst Schüler und ordnen Sie diese der Klasse zu.</p></div></div>';
+      document.getElementById('kontrolleContent').innerHTML = '<div class="card" style="margin-top:16px"><div class="empty-state"><h3>Keine Azubis in diesem Termin</h3><p>Dem Termin sind keine Klassen oder Azubis zugeordnet – im Termin-Dialog (Planung) zuordnen oder Azubis importieren.</p></div></div>';
       return;
     }
 

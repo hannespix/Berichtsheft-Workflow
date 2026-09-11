@@ -8233,6 +8233,10 @@ const App = {
     if (this.filterAmt.length) {
       if (this.filterAmt[0] === '-1') {
         parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+      } else if (this.filterAmt.length === 1 && this.filterAmt[0] === this.EIGENES_AMT) {
+        // Standardfilter (eigenes Amt) – kein „✕": er ist die Normalansicht,
+        // andere Ämter über die Amt-Auswahl in der Topbar
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-warm);border:1px dashed var(--clr-sand);border-radius:8px;font-size:11px;color:var(--clr-text-light)" title="Standard: nur Azubis des eigenen Amts. Andere Ämter über „§" in der Topbar wählen">§ Standard: ${esc(this.amtLabel(this.filterAmt[0]))}</span>`);
       } else {
         const label = this.filterAmt.length === 1 ? this.amtLabel(this.filterAmt[0]) : this.filterAmt.length + ' Ämter';
         parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:11px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
@@ -9021,9 +9025,14 @@ const App = {
     this.demoMode = false;
     this._lastFileSize = 0;
     this._tkCache = {};
+    // Globale Filter VOLLSTÄNDIG zurücksetzen – Amt/ZP blieben sonst von der
+    // vorigen Datenbank stehen und blendeten in der neuen alles aus
     this.filterJahrgang = [];
+    this.filterZp = [];
     this.filterFachrichtungen = [];
+    this.filterAmt = [];
     this.filterBavStatus = 'aktiv';
+    this.extraFilters = [];
     // Sync-v3-Zustand vollständig zurücksetzen: Sonst bliebe _v3Ready=true mit
     // dem Op-Puffer und den Offsets der ALTEN Datenbank stehen – nach einem
     // DB-Wechsel würden fremde Ops in die falsche Datenbank repliziert.
@@ -14003,9 +14012,12 @@ Anlagen: {anlagen}` },
     if (this.currentUser) this._restoreUserSettings();
 
     // ── Restore last position after reload ──
+    // Ein ausdrücklicher Hash (#planung, Lesezeichen/Link) gewinnt gegen die
+    // gemerkte letzte Ansicht
     let restored = false;
+    if (hashView && validViews.includes(hashView)) { this.navigate(hashView); restored = true; }
     try {
-      const lastView = App.uGet('last_view') || '';
+      const lastView = restored ? '' : (App.uGet('last_view') || '');
       const pos = JSON.parse(App.uGet('last_position') || 'null');
 
       if (lastView === 'kontrolle' && pos && pos.terminId && (Date.now() - pos.timestamp < 4 * 60 * 60 * 1000)) {
@@ -14711,8 +14723,10 @@ Anlagen: {anlagen}` },
 
   toast(msg, type = 'info') {
     const c = document.getElementById('toastContainer');
+    if (c && !c.getAttribute('aria-live')) { c.setAttribute('aria-live', 'polite'); c.setAttribute('role', 'status'); }
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
+    if (type === 'error') t.setAttribute('role', 'alert');
     t.textContent = msg;
     c.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
@@ -14731,7 +14745,30 @@ Anlagen: {anlagen}` },
       <div class="modal-body">${bodyHtml}</div>
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
     `;
-    document.getElementById('modalOverlay').classList.add('active');
+    const ov = document.getElementById('modalOverlay');
+    ov.classList.add('active');
+    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-label', String(title || '').replace(/<[^>]*>/g, ''));
+    // Fokus in den Dialog holen und dort halten (Tab läuft im Kreis);
+    // beim Schließen zurück zum auslösenden Element
+    if (!this._modalHatFokus) this._modalVorherFokus = document.activeElement;
+    this._modalHatFokus = true;
+    if (!this._modalTrapInstalled) {
+      this._modalTrapInstalled = true;
+      ov.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab' || !ov.classList.contains('active')) return;
+        const f = [...m.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
+    }
+    setTimeout(() => {
+      if (!ov.classList.contains('active') || m.contains(document.activeElement)) return;
+      const f = m.querySelector('.modal-body input:not([type=hidden]),.modal-body select,.modal-body textarea,.modal-footer .btn-primary,.modal-footer button');
+      if (f) { try { f.focus({ preventScroll: true }); } catch(e) { f.focus(); } }
+    }, 40);
     // Zurück-Taste (v.a. Mobile) soll das Modal schließen, nicht die Ansicht
     // verlassen: einen History-Eintrag pushen, den popstate wieder konsumiert.
     // Bei ausstehendem Zurück-Schritt (Dialogwechsel) keinen neuen Eintrag
@@ -14741,8 +14778,39 @@ Anlagen: {anlagen}` },
     }
     setTimeout(() => TableSort.initAll(), 50);
   },
+  // Promise-Dialoge statt window.confirm/prompt: gleiches Aussehen wie die
+  // übrigen Dialoge, Enter = OK, Esc/X = Abbrechen, Fokus auf der Aktion
+  confirm(text, opts = {}) {
+    return new Promise(resolve => {
+      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(!!v); };
+      this._dialogAbbruchWert = false;
+      this.openModal(esc(opts.titel || 'Bestätigung'), `<div style="font-size:13px;white-space:pre-wrap">${esc(text)}</div>`,
+        `<button class="btn btn-secondary" onclick="App._dialogEnde(false)">${esc(opts.abbrechen || 'Abbrechen')}</button>
+         <button class="btn btn-primary" id="dlgOk" ${opts.gefaehrlich ? 'style="background:var(--clr-red);border-color:var(--clr-red)"' : ''} onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`);
+      setTimeout(() => document.getElementById('dlgOk')?.focus(), 50);
+    });
+  },
+  prompt(text, opts = {}) {
+    return new Promise(resolve => {
+      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(v); };
+      this._dialogAbbruchWert = null;
+      this.openModal(esc(opts.titel || 'Eingabe'), `<div style="font-size:13px;margin-bottom:8px;white-space:pre-wrap">${esc(text)}</div>
+        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();App._dialogEnde(this.value)}">`,
+        `<button class="btn btn-secondary" onclick="App._dialogEnde(null)">Abbrechen</button>
+         <button class="btn btn-primary" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`);
+      setTimeout(() => { const i = document.getElementById('dlgWert'); if (i) { i.focus(); i.select(); } }, 50);
+    });
+  },
+  _dialogEnde(v) { const r = this._dialogResolve; if (r) r(v); },
+
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // Offener Promise-Dialog per X/Esc/Zurück geschlossen → als Abbruch auflösen
+    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
+    // Fokus zurück zum auslösenden Element
+    this._modalHatFokus = false;
+    const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;
+    if (zurueck && zurueck.focus && document.contains(zurueck)) { try { zurueck.focus({ preventScroll: true }); } catch(e) {} }
     // KW-Modal-Kontext aufräumen: bleibt er stehen, schreibt ein späterer
     // Tastendruck (O/Enter) in einem FREMDEN Dialog auf die zuletzt
     // betrachtete Kalenderwoche.
@@ -15127,8 +15195,8 @@ const Views = {
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-amber)">
         <strong style="font-size:14px;color:var(--clr-forest-dark)">☑ Arbeitsliste – heute / diese Woche</strong>
         <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px">
-          ${arbeitsliste.map(a => `<div style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
-              onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
+          ${arbeitsliste.map(a => `<div role="button" tabindex="0" style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
             <strong style="min-width:28px;text-align:right;color:${a.farbe}">${a.n}</strong><span>${a.text}</span><span style="margin-left:auto;color:var(--clr-text-light)">→</span>
           </div>`).join('')}
         </div>
@@ -15137,7 +15205,7 @@ const Views = {
       <!-- Stat Cards (immer sichtbar) -->
       <div class="grid-4" style="margin-bottom:20px">
         <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
-          <div class="stat-label">Schüler gesamt</div>
+          <div class="stat-label">Azubis gesamt</div>
           <div class="stat-value">${totalSchueler}</div>
           <div class="stat-sub">Aktive Auszubildende →</div>
         </div>
@@ -16010,7 +16078,7 @@ const Views = {
       </div>
 
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const ortBs = App.getTerminSchule(t.id);
@@ -16066,7 +16134,7 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Kontrolle durchführen</h2>
+        <h2>Durchführung</h2>
         <p>Berichtsheftdurchsicht dokumentieren</p>
       </div>
       ${App.filterBadgeHtml()}
@@ -16978,6 +17046,19 @@ const Views = {
             <p>• <strong>Regelmäßig Backups</strong> erstellen (passiert automatisch, aber prüfen unter _bhk/backups/)</p>
             <p>• <strong>Multi-User:</strong> Maximal 2–3 Personen gleichzeitig. Vor dem Bearbeiten den eigenen Prüfernamen auswählen!</p>
             <p style="margin-top:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px"><strong>Merke:</strong> Dieses Tool ersetzt IBYKUS nicht — es ist ein Arbeitsinstrument für die Durchsicht. IBYKUS bleibt das führende System.</p>
+          </div>
+
+          <div id="help_glossar" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-sage)">
+            <div class="card-header" style="font-size:15px">Begriffe – so heißen die Dinge in diesem Werkzeug</div>
+            <p>• <strong>Azubi</strong> – Auszubildende/r (in IBYKUS „Schüler"). Die Listen zählen Azubis, nicht Berichtshefte.</p>
+            <p>• <strong>Ausbildungsberater / Prüfer</strong> – wer die Durchsicht macht und den Bogen unterschreibt; oben rechts wählen.</p>
+            <p>• <strong>Durchsicht</strong> – die Berichtsheftkontrolle EINES Azubis (Ergebnis, Mängel-Codes, Pflichtteile). Im Tool auch „Kontrollergebnis".</p>
+            <p>• <strong>Termin / Kontrolltermin</strong> – ein Tag an einer Schule (oder eine Einsendung) mit vielen Durchsichten; Statuskette angefragt → bestätigt → durchgeführt → nachbereitet.</p>
+            <p>• <strong>Kampagne</strong> – die Terminserie einer Kontrollrunde (z.B. 2.+3. Ausbildungsjahr im Nov./Dez., Zulassungskontrolle AP Sommer).</p>
+            <p>• <strong>Kohorte / Jahrgang</strong> – Abschlussjahrgang (S2027, W2028) bzw. Zwischenprüfung (F2027, H2026); Lehrjahr wird aus dem Ausbildungsbeginn berechnet.</p>
+            <p>• <strong>LFK</strong> – Landesfachklasse: Azubi besucht in höheren Jahren eine andere Schule (Standort für Termin und Anschreiben).</p>
+            <p>• <strong>Wiedervorlage (WV)</strong> – offener Vorgang nach einem Mangel mit Frist, Anschreiben (Versandnachweis, Mahnstufe) und Nachweis/Erledigung.</p>
+            <p>• <strong>Fremdes Amt</strong> – Azubi eines anderen Regierungspräsidiums, der bei uns mitkontrolliert wird; Ergebnisse gehen per Übergabe an das zuständige Amt.</p>
           </div>
 
           <div id="help_1" class="card" style="margin-bottom:12px">
@@ -23642,7 +23723,7 @@ const KontrolleHandler = {
     }
 
     if (!this.currentSchuelerList.length) {
-      document.getElementById('kontrolleContent').innerHTML = '<div class="card" style="margin-top:16px"><div class="empty-state"><h3>Keine Schüler in dieser Klasse</h3><p>Importieren Sie zuerst Schüler und ordnen Sie diese der Klasse zu.</p></div></div>';
+      document.getElementById('kontrolleContent').innerHTML = '<div class="card" style="margin-top:16px"><div class="empty-state"><h3>Keine Azubis in diesem Termin</h3><p>Dem Termin sind keine Klassen oder Azubis zugeordnet – im Termin-Dialog (Planung) zuordnen oder Azubis importieren.</p></div></div>';
       return;
     }
 
@@ -29278,7 +29359,7 @@ const BerichteHandler = {
     });
     return [...jahre].sort((a, b) => b - a);
   },
-  jahresberichtDaten(sjStart) {
+  jahresberichtDaten(sjStart, opts) {
     const von = `${sjStart}-08-01`, bis = `${sjStart + 1}-07-31`;
     const LE = this._letztesErgebnisSql(von, bis);
     const zr = `kt.geplant_datum BETWEEN '${von}' AND '${bis}'`;
@@ -29326,6 +29407,13 @@ const BerichteHandler = {
       WHERE s.aktiv=1
       GROUP BY COALESCE(b.id, s.ausbildungsstaette) HAVING maengel > 0
       ORDER BY maengel DESC LIMIT 10`);
+    // Vorjahresvergleich: dieselben Kennzahlen für das Schuljahr davor
+    if (!(opts && opts.ohneVorjahr)) {
+      try {
+        const V = this.jahresberichtDaten(sjStart - 1, { ohneVorjahr: true });
+        D.vorjahr = { sj: V.sj, kontrolliert: V.kontrolliert, okCount: V.okCount, mangelCount: V.mangelCount, termine: V.termine, wvAngelegt: V.wvAngelegt, erledigteWV: V.erledigteWV, totalCodeEntries: V.totalCodeEntries };
+      } catch(e) { D.vorjahr = null; }
+    }
     return D;
   },
   jahresbericht(sjStart) {
@@ -29430,6 +29518,13 @@ const BerichteHandler = {
     drawMetric(doc, LM + mw + 5, y, mw, 'Kontrolliert', kontrolliert, `${totalSchueler > 0 ? Math.round(kontrolliert/totalSchueler*100) : 0}% Abdeckung`);
     drawMetric(doc, LM + 2*(mw+5), y, mw, 'In Ordnung', okCount, `${kontrolliert > 0 ? Math.round(okCount/kontrolliert*100) : 0}% Erfolgsquote`);
     y += 26;
+    if (DATEN.vorjahr) {
+      // Vorjahresvergleich (gleiche Zahlenbasis: letztes Ergebnis je Azubi im Schuljahr)
+      const V = DATEN.vorjahr; const dlt = (a, b) => { const x = (a || 0) - (b || 0); return x > 0 ? `+${x}` : `${x}`; };
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...COL_GRAY);
+      doc.text(`Vorjahr ${V.sj}: ${V.kontrolliert} kontrolliert (${dlt(kontrolliert, V.kontrolliert)}) · ${V.okCount} in Ordnung (${dlt(okCount, V.okCount)}) · ${V.mangelCount} mit Mängeln (${dlt(mangelCount, V.mangelCount)}) · ${V.termine} Termine (${dlt(termine, V.termine)})`, LM, y);
+      y += 6;
+    }
     drawMetric(doc, LM, y, mw, 'Beanstandungen', mangelCount, '');
     drawMetric(doc, LM + mw + 5, y, mw, 'Termine', termine, einsendungen ? `davon ${einsendungen} Einsendungen` : `${termineGeplant} geplant`);
     drawMetric(doc, LM + 2*(mw+5), y, mw, 'Wiedervorlagen', offeneWV, `${erledigteWV} erledigt`);

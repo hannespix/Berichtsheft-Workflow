@@ -166,8 +166,8 @@ const Views = {
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-amber)">
         <strong style="font-size:14px;color:var(--clr-forest-dark)">☑ Arbeitsliste – heute / diese Woche</strong>
         <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px">
-          ${arbeitsliste.map(a => `<div style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
-              onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
+          ${arbeitsliste.map(a => `<div role="button" tabindex="0" style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
             <strong style="min-width:28px;text-align:right;color:${a.farbe}">${a.n}</strong><span>${a.text}</span><span style="margin-left:auto;color:var(--clr-text-light)">→</span>
           </div>`).join('')}
         </div>
@@ -176,7 +176,7 @@ const Views = {
       <!-- Stat Cards (immer sichtbar) -->
       <div class="grid-4" style="margin-bottom:20px">
         <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
-          <div class="stat-label">Schüler gesamt</div>
+          <div class="stat-label">Azubis gesamt</div>
           <div class="stat-value">${totalSchueler}</div>
           <div class="stat-sub">Aktive Auszubildende →</div>
         </div>
@@ -1049,7 +1049,7 @@ const Views = {
       </div>
 
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Schüler</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const ortBs = App.getTerminSchule(t.id);
@@ -1105,7 +1105,7 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Kontrolle durchführen</h2>
+        <h2>Durchführung</h2>
         <p>Berichtsheftdurchsicht dokumentieren</p>
       </div>
       ${App.filterBadgeHtml()}
@@ -2017,6 +2017,19 @@ const Views = {
             <p>• <strong>Regelmäßig Backups</strong> erstellen (passiert automatisch, aber prüfen unter _bhk/backups/)</p>
             <p>• <strong>Multi-User:</strong> Maximal 2–3 Personen gleichzeitig. Vor dem Bearbeiten den eigenen Prüfernamen auswählen!</p>
             <p style="margin-top:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px"><strong>Merke:</strong> Dieses Tool ersetzt IBYKUS nicht — es ist ein Arbeitsinstrument für die Durchsicht. IBYKUS bleibt das führende System.</p>
+          </div>
+
+          <div id="help_glossar" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-sage)">
+            <div class="card-header" style="font-size:15px">Begriffe – so heißen die Dinge in diesem Werkzeug</div>
+            <p>• <strong>Azubi</strong> – Auszubildende/r (in IBYKUS „Schüler"). Die Listen zählen Azubis, nicht Berichtshefte.</p>
+            <p>• <strong>Ausbildungsberater / Prüfer</strong> – wer die Durchsicht macht und den Bogen unterschreibt; oben rechts wählen.</p>
+            <p>• <strong>Durchsicht</strong> – die Berichtsheftkontrolle EINES Azubis (Ergebnis, Mängel-Codes, Pflichtteile). Im Tool auch „Kontrollergebnis".</p>
+            <p>• <strong>Termin / Kontrolltermin</strong> – ein Tag an einer Schule (oder eine Einsendung) mit vielen Durchsichten; Statuskette angefragt → bestätigt → durchgeführt → nachbereitet.</p>
+            <p>• <strong>Kampagne</strong> – die Terminserie einer Kontrollrunde (z.B. 2.+3. Ausbildungsjahr im Nov./Dez., Zulassungskontrolle AP Sommer).</p>
+            <p>• <strong>Kohorte / Jahrgang</strong> – Abschlussjahrgang (S2027, W2028) bzw. Zwischenprüfung (F2027, H2026); Lehrjahr wird aus dem Ausbildungsbeginn berechnet.</p>
+            <p>• <strong>LFK</strong> – Landesfachklasse: Azubi besucht in höheren Jahren eine andere Schule (Standort für Termin und Anschreiben).</p>
+            <p>• <strong>Wiedervorlage (WV)</strong> – offener Vorgang nach einem Mangel mit Frist, Anschreiben (Versandnachweis, Mahnstufe) und Nachweis/Erledigung.</p>
+            <p>• <strong>Fremdes Amt</strong> – Azubi eines anderen Regierungspräsidiums, der bei uns mitkontrolliert wird; Ergebnisse gehen per Übergabe an das zuständige Amt.</p>
           </div>
 
           <div id="help_1" class="card" style="margin-bottom:12px">
