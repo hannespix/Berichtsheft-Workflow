@@ -292,8 +292,8 @@ const StammdatenTab = {
     const cnt = document.getElementById('bulkCountAzubi');
     if (cnt) cnt.textContent = ids.length;
     if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
-    // Sync BulkSchueler so its methods work with our checkboxes
-    BulkSchueler.getSelected = () => this._bulkGetSelected();
+    // (kein Override von BulkSchueler.getSelected mehr – der Standard-Selektor
+    // deckt beide Listen ab; der Override machte die Leiste der Schülerliste tot)
   },
 
   _bulkDeleteAzubis() {
@@ -358,12 +358,10 @@ const StammdatenTab = {
   _bulkSetInaktiv() {
     const ids = this._bulkGetSelected();
     if (!ids.length) return;
-    if (!confirm(`${ids.length} Azubis auf inaktiv setzen?`)) return;
-    const today = todayStr();
-    ids.forEach(id => App.run("UPDATE schueler SET aktiv=0, status='inaktiv', inaktiv_datum=? WHERE id=?", [today, id]));
-    App.toast(`${ids.length} Azubis auf inaktiv gesetzt`, 'success');
-    this._bulkDeselectAll();
-    this._renderAzubiTable(document.getElementById('stammdatenContent'));
+    // Einheitlicher Dialog (Status, Datum, Grund, Wiedervorlagen, Logbuch) –
+    // der frühere Direktweg schrieb einen Status "inaktiv", den kein Dialog
+    // kannte: das nächste Speichern reaktivierte den Azubi still.
+    ImportHandler.ausbildungBeenden(ids, { nachher: () => { this._bulkDeselectAll(); this._renderAzubiTable(document.getElementById('stammdatenContent')); } });
   },
 
   _getFilteredAzubis() {
@@ -1406,9 +1404,13 @@ const StammdatenTab = {
     const n = document.getElementById('mBeName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
     const zusatz = document.getElementById('mBeZusatz')?.value?.trim()||'';
+    const bnrUpd = document.getElementById('mBeBnr').value.trim();
+    if (bnrUpd && App.scalar('SELECT COUNT(*) FROM betriebe WHERE betriebsnummer=? AND id!=?', [bnrUpd, id])) {
+      return App.toast(`Betriebsnummer ${bnrUpd} ist bereits bei einem anderen Betrieb vergeben`, 'error');
+    }
     App.run('UPDATE betriebe SET name=?,vorname=?,zusatzbezeichnung=?,firma=?,betriebsnummer=?,strasse=?,plz=?,ort=?,email=?,telefon=?,fax=?,ansprechpartner=? WHERE id=?',
       [n, document.getElementById('mBeVorname')?.value?.trim()||'', zusatz, zusatz,
-       document.getElementById('mBeBnr').value.trim(),
+       bnrUpd || null,
        document.getElementById('mBeStr').value.trim(), document.getElementById('mBePlz').value.trim(),
        document.getElementById('mBeOrt').value.trim(),
        document.getElementById('mBeEmail').value.trim(), document.getElementById('mBeTel').value.trim(),

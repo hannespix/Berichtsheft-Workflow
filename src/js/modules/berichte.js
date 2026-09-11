@@ -966,6 +966,15 @@ const BerichteHandler = {
       } else if (!s.inaktiv_grund) {
         add('hinweis', 'Azubi', nm, 'Inaktiv ohne hinterlegten Grund', 'inaktiv_grund', edit, s.ibykus_id);
       }
+      // Status-Modell (Audit 7 Paket B): aktiv-Kennzeichen und Status müssen zusammenpassen
+      const endStatus = ['ap_bestanden', 'abgebrochen'];
+      if (s.status && !App.STATUS_LABELS[s.status]) add('fehler', 'Azubi', nm, `Unbekannter Status „${s.status}" – bitte über „Ausbildung beenden" oder den Dialog neu setzen`, 'status', edit, s.ibykus_id);
+      if (s.aktiv && endStatus.includes(s.status)) add('fehler', 'Azubi', nm, `Aktiv, aber Status „${s.status}"`, 'status/aktiv', edit, s.ibykus_id);
+      if (!s.aktiv && (s.status === 'aktiv' || s.status === 'ap_zugelassen' || s.status === 'verlaengert')) add('fehler', 'Azubi', nm, `Inaktiv, aber Status „${s.status}"`, 'status/aktiv', edit, s.ibykus_id);
+      if (!s.aktiv && !s.inaktiv_datum) add('hinweis', 'Azubi', nm, 'Inaktiv ohne Datum', 'inaktiv_datum', edit, s.ibykus_id);
+      if (s.aktiv && String(s.bav_status || '').toUpperCase() === 'ENDE') add('warnung', 'Azubi', nm, 'BAV-Status ENDE (IBYKUS), aber im Tool noch aktiv', 'bav_status', edit, s.ibykus_id);
+      if (s.ap_bestanden && s.pruefungserfolg === 'nicht_bestanden') add('warnung', 'Azubi', nm, '„AP bestanden" gesetzt, Prüfungserfolg aber „nicht bestanden"', 'ap_bestanden', edit, s.ibykus_id);
+      if (s.aktiv && !s.zustaendiges_amt) add('warnung', 'Azubi', nm, 'Kein zuständiges Amt – wird vom Standardfilter „§ 93" ausgeblendet', 'zustaendiges_amt', edit, s.ibykus_id);
       if (datesOk && s.ausbildungsbeginn && s.ausbildungsende) {
         if (s.ausbildungsende <= s.ausbildungsbeginn) add('fehler', 'Azubi', nm, 'Ausbildungsende liegt vor dem Beginn', 'beginn/ende', edit, s.ibykus_id);
         else {

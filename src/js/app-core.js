@@ -5680,6 +5680,38 @@ const App = {
     return Array.from({length: numSY}, (_, i) => i + 1);
   },
 
+  // ── Status-Modell für Azubis (Audit 7 Paket B) ──
+  // EINE Funktion für Dialog, Sammelaktion, Jahrgang abschließen und Import.
+  // aktiv folgt dem Status: aktiv/ap_zugelassen/verlaengert = in Ausbildung.
+  // Endstatus setzt Datum + Grund, schließt auf Wunsch offene Wiedervorlagen
+  // und schreibt alles ins Änderungs-Logbuch. Rückkehr zu "aktiv" räumt auf.
+  STATUS_LABELS: { aktiv: 'Aktiv', ap_zugelassen: 'AP zugelassen', verlaengert: 'Verlängert', ap_bestanden: 'AP bestanden', abgebrochen: 'Ausbildung beendet / Vertrag gelöst' },
+  STATUS_AKTIV: new Set(['aktiv', 'ap_zugelassen', 'verlaengert']),
+  setSchuelerStatus(id, status, opts = {}) {
+    const s = this.query('SELECT * FROM schueler WHERE id=?', [id])[0];
+    if (!s) return false;
+    if (!this.STATUS_LABELS[status]) status = 'abgebrochen';
+    const aktiv = this.STATUS_AKTIV.has(status) ? 1 : 0;
+    const heute = todayStr();
+    let datum = '', grund = '';
+    if (!aktiv) {
+      datum = opts.datum || s.inaktiv_datum || (status === 'ap_bestanden' && s.ausbildungsende ? s.ausbildungsende : heute);
+      grund = opts.grund != null ? opts.grund : (s.inaktiv_grund || (status === 'ap_bestanden' ? 'AP bestanden' : ''));
+    }
+    const apBestanden = status === 'ap_bestanden' ? 1 : (s.ap_bestanden || 0);
+    this.run('UPDATE schueler SET status=?, aktiv=?, ap_bestanden=?, inaktiv_datum=?, inaktiv_grund=? WHERE id=?',
+      [status, aktiv, apBestanden, datum, grund, id]);
+    if (s.status !== status) this.logChange(id, 'status', s.status, status, opts.aktion || 'status_gesetzt');
+    if (s.aktiv !== aktiv) this.logChange(id, 'aktiv', s.aktiv, aktiv, opts.aktion || 'status_gesetzt');
+    let wvGeschlossen = 0;
+    if (!aktiv && opts.wvSchliessen !== false) {
+      wvGeschlossen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [id]) || 0;
+      if (wvGeschlossen) this.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE schueler_id=? AND status IN ('offen','ueberfaellig')",
+        [heute, 'Ausbildung beendet: ' + (grund || this.STATUS_LABELS[status]), id]);
+    }
+    return { aktiv, wvGeschlossen };
+  },
+
   // ── Fehltage EINHEITLICH (Audit 7 A1) ──
   // KW-genaue Summe (kumulativ über alle Durchsichten) + pauschal nacherfasster
   // Anteil der letzten Durchsicht (steht bewusst in keiner Kalenderwoche).

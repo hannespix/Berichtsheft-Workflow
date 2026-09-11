@@ -799,7 +799,7 @@ const Views = {
                 <strong style="color:var(--clr-forest-dark)">Anleitung: Daten aus IBYKUS exportieren</strong>
                 <ol style="margin:8px 0 0 0;padding-left:20px;line-height:1.7">
                   <li>In <strong>IBYKUS Azubi</strong> unter <em>Auswertungen → Berufsbildungsstatistik</em> die Suchmaske öffnen</li>
-                  <li>Filter setzen: <strong>Status = "Nicht Ende"</strong> und die gewünschten Fachrichtungen auswählen</li>
+                  <li>Filter setzen: die gewünschten Fachrichtungen auswählen – <strong>ohne</strong> Status-Filter, damit auch beendete Verträge (Status ENDE) mitkommen und hier automatisch beendet werden. Wird doch gefiltert, meldet der Import anschließend „nicht im Export enthalten"</li>
                   <li>Suchergebnisse <strong>mit Kopfzeile</strong> in Excel überführen und als <code>.xlsx</code> speichern</li>
                   <li>Die gespeicherte Excel-Datei hier importieren (Drag & Drop oder Klick)</li>
                 </ol>

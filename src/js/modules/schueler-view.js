@@ -130,16 +130,20 @@ const SchuelerView = {
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgId]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND aktiv=1', [jgId]) || 0;
     if (!count) return App.toast('Keine aktiven Schüler in diesem Jahrgang', 'warning');
-    if (!confirm(`${count} Schüler im Jahrgang "${jgName}" als AP-bestanden markieren und inaktiv setzen?`)) return;
 
-    const today = todayStr();
-    App.run(`UPDATE schueler SET aktiv=0, status='ap_bestanden', ap_bestanden=1, inaktiv_datum=?, inaktiv_grund='Jahrgang abgeschlossen' WHERE jahrgang_id=? AND aktiv=1`, [today, jgId]);
-    // Also close open Wiedervorlagen
-    App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Jahrgang abgeschlossen' WHERE schueler_id IN (SELECT id FROM schueler WHERE jahrgang_id=?) AND status IN ('offen','ueberfaellig')`, [today, jgId]);
-
+    // Nicht pauschal: der gemeinsame Dialog zeigt jeden Azubi mit Prüfungs-
+    // erfolg und offenen Wiedervorlagen; "nicht bestanden" wird abgewählt
+    // vorgeschlagen (Wiederholung/Verlängerung statt Abschluss).
+    const ids = App.query('SELECT id FROM schueler WHERE jahrgang_id=? AND aktiv=1', [jgId]).map(r => r.id);
     App.closeModal();
-    this.render();
-    App.toast(`${count} Schüler im Jahrgang ${jgName} abgeschlossen`, 'success');
+    ImportHandler.ausbildungBeenden(ids, { nachher: () => this.render() });
+    setTimeout(() => {
+      document.querySelectorAll('.chk-beenden').forEach(c => {
+        const pe = App.scalar('SELECT pruefungserfolg FROM schueler WHERE id=?', [parseInt(c.value)]);
+        if (pe === 'nicht_bestanden') c.checked = false;
+      });
+      const g = document.getElementById('mBeGrund'); if (g && !g.value) g.value = `Jahrgang ${jgName} abgeschlossen`;
+    }, 50);
     } catch(e) {
       console.error('doAbschliessen:', e);
       App.toast('Vorgang fehlgeschlagen: ' + (e.message || e), 'error');

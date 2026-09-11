@@ -22,13 +22,13 @@ db.run("INSERT INTO betriebe (id,name,ort,telefon,email,betriebsnummer) VALUES (
 db.run("INSERT INTO berufsschulen (id,name,ort,email) VALUES (1,'BS Radolfzell','Radolfzell',''), (2,'BS Konstanz','Konstanz','bs@ks.de')");
 db.run("INSERT INTO klassen (id,berufsschule_id,klassenbezeichnung,lehrjahr) VALUES (1,1,'GaLa 1',NULL), (2,2,'GaLa 2',2)");
 db.run("INSERT INTO abschlussjahrgaenge (id,bezeichnung,typ,jahr) VALUES (1,'S2027','Sommer',2027)");
-db.run(`INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,aktiv,ibykus_id,email,ausbildungsbeginn,ausbildungsende,geburtsdatum) VALUES
-  (1,'Sauber','Susi',2,1,1,1,1,'IBK-1','s@s.de','2024-09-01','2027-08-31','2005-03-10'),
-  (2,'Luecke','Lars',NULL,NULL,NULL,NULL,1,'','','','',''),
-  (3,'Verdreht','Vera',2,1,1,1,1,'IBK-3','v@v.de','2027-01-01','2024-01-01','2004-01-01'),
-  (4,'Doppelt','Dora',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-05-05'),
-  (5,'Doppelt2','Doris',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-06-06'),
-  (6,'Vorbei','Volker',2,1,1,2,1,'IBK-6','','2020-09-01','2023-08-31','2002-01-01')`);
+db.run(`INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrichtung_id,betrieb_id,aktiv,ibykus_id,email,ausbildungsbeginn,ausbildungsende,geburtsdatum,zustaendiges_amt) VALUES
+  (1,'Sauber','Susi',2,1,1,1,1,'IBK-1','s@s.de','2024-09-01','2027-08-31','2005-03-10','FR'),
+  (2,'Luecke','Lars',NULL,NULL,NULL,NULL,1,'','','','','',''),
+  (3,'Verdreht','Vera',2,1,1,1,1,'IBK-3','v@v.de','2027-01-01','2024-01-01','2004-01-01','FR'),
+  (4,'Doppelt','Dora',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-05-05','FR'),
+  (5,'Doppelt2','Doris',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-06-06','FR'),
+  (6,'Vorbei','Volker',2,1,1,2,1,'IBK-6','','2020-09-01','2023-08-31','2002-01-01','FR')`);
 
 const sandbox = {
   console, Date, Math, JSON, Set,
@@ -37,6 +37,7 @@ const sandbox = {
     query(sql, params = []) { const st = db.prepare(sql); st.bind(params); const r = []; while (st.step()) r.push(st.getAsObject()); st.free(); return r; },
     scalar(sql, params = []) { const r = sandbox.App.query(sql, params); return r.length ? Object.values(r[0])[0] : null; },
     openModal() {}, closeModal() {}, toast() {},
+    STATUS_LABELS: { aktiv: 1, ap_zugelassen: 1, verlaengert: 1, ap_bestanden: 1, abgebrochen: 1 },
     // Lehrjahr-Berechnung wie in app-core (vereinfacht: Monate seit Beginn)
     getCurrentAJ(beginn) { if (!beginn) return null; const d = new Date(beginn), n = new Date('2026-07-30'); const m = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth()); return Math.min(4, Math.max(1, Math.floor(m / 12) + 1)); },
   },
@@ -57,6 +58,7 @@ const has = (name, frag) => of(name).some(i => i.problem.includes(frag));
 
 check(of('Sauber').length === 0, 'Sauberer Datensatz: keine Befunde');
 check(has('Luecke', 'IBYKUS-ID'), 'Fehlende IBYKUS-ID erkannt');
+check(has('Luecke', 'Kein zuständiges Amt'), 'Fehlendes zuständiges Amt erkannt');
 check(has('Luecke', 'Ausbildungsbeginn fehlt'), 'Fehlender Beginn erkannt');
 check(has('Luecke', 'Kein Ausbildungsbetrieb'), 'Fehlender Betrieb erkannt');
 check(has('Luecke', 'Keine Klasse'), 'Fehlende Klasse erkannt');
