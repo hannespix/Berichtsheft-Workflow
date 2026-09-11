@@ -99,7 +99,12 @@ const Workflows = {
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
     const emailType = isDone ? 'Ergebnis-Mitteilung' : 'Terminanfrage';
-    window._pendingEmail = { to, subject: betreff, body, cc };
+    window._pendingEmail = { to, subject: betreff, body, cc, terminId, isDone };
+    // Statuskette: schon angefragt? (zwei Kollegen fragten sonst doppelt an)
+    const kette = App.terminKette(t.termin);
+    const anfrageHinweis = !isDone && t.termin.angefragt_am
+      ? `<div style="padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius);margin-bottom:8px;font-size:12px">⚠︎ Dieser Termin wurde bereits ${esc(kette.label)} – bitte nicht doppelt anfragen (ggf. Erinnerung/Änderung).</div>`
+      : '';
 
     if (!to) {
       App.openModal(`✉︎ ${emailType} an Schule`, `
@@ -114,6 +119,7 @@ const Workflows = {
       return;
     }
     App.openModal(`✉︎ ${emailType} an ${esc(schule.name)}`, `
+      ${anfrageHinweis}
       <div style="font-size:13px">
         <div><strong>An:</strong> ${esc(to)}</div>
         ${cc ? `<div><strong>CC:</strong> ${esc(cc)}</div>` : ''}
@@ -124,15 +130,25 @@ const Workflows = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+window._pendingEmail.to+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">▤ Kopieren</button>
-        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);App.closeModal()">✉︎ In Outlook öffnen</button>`);
+        <button class="btn btn-primary" onclick="Workflows._schulMailOeffnen()">✉︎ In Outlook öffnen</button>`);
+  },
+  // Schul-Mail öffnen und den Schritt in der Statuskette vermerken
+  // (Terminanfrage → angefragt, Ergebnis-Mitteilung → nachbereitet)
+  _schulMailOeffnen(adresse) {
+    const p = window._pendingEmail || {};
+    this.openMailto(adresse || p.to, p.subject, p.body, p.cc);
+    if (p.terminId) {
+      App.terminSchritt(p.terminId, p.isDone ? 'nachbereitet' : 'angefragt');
+      try { if (App.currentView === 'planung') Views.planung(); } catch(e) {}
+    }
+    App.closeModal();
   },
   _schulEmailMerkenUndOeffnen(schuleId) {
     const adr = (document.getElementById('mSchEmail2')?.value || '').trim();
     if (!adr) return App.toast('Bitte E-Mail-Adresse eingeben', 'warning');
     // In den Stammdaten merken – sonst beim nächsten Mal wieder Handarbeit
     App.run('UPDATE berufsschulen SET email=? WHERE id=? AND (email IS NULL OR email=\'\')', [adr, schuleId]);
-    this.openMailto(adr, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);
-    App.closeModal();
+    this._schulMailOeffnen(adr);
   },
 
   // ── Betriebs-Gruppierung eines Termins ──

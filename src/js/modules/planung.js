@@ -1019,12 +1019,26 @@ const PlanungHandler = {
       const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
       const n = App.getTerminSchueler(t.id).length;
       return {
+        uid: 'bhk-termin-' + t.id,
         date: t.geplant_datum,
+        location: bs ? `${bs.name}${bs.ort ? ', ' + bs.ort : ''}` : '',
         title: `BH-Kontrolle: ${schule}${klassenStr ? ' – ' + klassenStr : ''}${t.bemerkung && !klassenStr ? ' – ' + t.bemerkung : ''}`,
         description: `Prüfer: ${t.pruefer || '–'}\n${n} Azubi(s)${bs && bs.ort ? '\nOrt: ' + bs.ort : ''}${t.bemerkung ? '\n' + t.bemerkung : ''}`
       };
     }), App.safeFilename(['BH-Kontrolltermine', todayStr()], 'ics'));
     App.toast(`${termine.length} Termin(e) als ICS exportiert – in Outlook per Datei → Öffnen importieren`, 'success');
+  },
+
+  // ── Termin-Statuskette: Zusage der Schule vermerken / Anfrage zurücksetzen ──
+  terminBestaetigen(id) {
+    App.terminSchritt(id, 'bestaetigt');
+    App.toast('Zusage der Schule vermerkt', 'success');
+    Views.planung();
+  },
+  terminAnfrageZuruecksetzen(id) {
+    if (!confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?')) return;
+    App.terminSchritt(id, 'anfrage_zurueck');
+    Views.planung();
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──

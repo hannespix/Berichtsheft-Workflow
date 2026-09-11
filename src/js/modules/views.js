@@ -124,6 +124,24 @@ const Views = {
     const gfBet = App.gf('betriebe');
     const betriebOhneEmail = App.scalar(`SELECT COUNT(*) FROM betriebe b WHERE b.email = '' AND (SELECT COUNT(*) FROM schueler sq WHERE sq.betrieb_id=b.id AND ${aktivClause.replace(/\bs\./g,'sq.')}) > 0${gfBet}`) || 0;
 
+    // ── Arbeitsliste „Heute / diese Woche" ──
+    const in7 = addDaysStr(7), in21 = addDaysStr(21);
+    const wvHeute = App.query(`SELECT w.id, w.frist_datum, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum BETWEEN ? AND ?${jf.where} ORDER BY w.frist_datum`, [today, in7, ...jf.params]);
+    const wvOhneVersand = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND COALESCE(w.versand_datum,'')='' AND w.art != 'nachholung_naechste_durchsicht'${jf.where}`, jf.params) || 0;
+    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
+    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
+    const arbeitsliste = [
+      ueberfaellig ? { n: ueberfaellig, text: `Wiedervorlage${ueberfaellig > 1 ? 'n' : ''} überfällig`, farbe: 'var(--clr-red)', view: 'wiedervorlagen', filter: 'ueberfaellig' } : null,
+      wvHeute.length ? { n: wvHeute.length, text: `Wiedervorlage${wvHeute.length > 1 ? 'n' : ''} fällig bis ${formatDate(in7)}`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'unerledigt' } : null,
+      wvOhneVersand ? { n: wvOhneVersand, text: `offene Wiedervorlage${wvOhneVersand > 1 ? 'n' : ''} ohne Anschreiben (Versandnachweis fehlt)`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'ohne_versand' } : null,
+      termineOhneAbschluss.length ? { n: termineOhneAbschluss.length, text: `Termin${termineOhneAbschluss.length > 1 ? 'e' : ''} mit Ergebnissen, aber ohne Abschluss (${termineOhneAbschluss.map(t => formatDate(t.geplant_datum)).slice(0, 3).join(', ')})`, farbe: 'var(--clr-red)', view: 'kontrolle', terminId: termineOhneAbschluss[0].id } : null,
+      termineOhneNachbereitung.length ? { n: termineOhneNachbereitung.length, text: `durchgeführte${termineOhneNachbereitung.length > 1 ? '' : 'r'} Termin${termineOhneNachbereitung.length > 1 ? 'e' : ''} ohne Nachbereitung (Schul-Mitteilung/Betriebe)`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
+      termineNichtAngefragt.length ? { n: termineNichtAngefragt.length, text: `Schultermin${termineNichtAngefragt.length > 1 ? 'e' : ''} in den nächsten 3 Wochen noch nicht bei der Schule angefragt`, farbe: 'var(--clr-blue)', view: 'planung' } : null,
+      termineOhnePruefer.length ? { n: termineOhnePruefer.length, text: `Termin${termineOhnePruefer.length > 1 ? 'e' : ''} ohne Prüfer`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
+    ].filter(Boolean);
+
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
@@ -140,6 +158,18 @@ const Views = {
           ${naechste7Tage ? `<span style="padding:5px 12px;background:var(--clr-blue-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('planung')"><strong>${naechste7Tage}</strong> Termin${naechste7Tage>1?'e':''} in den nächsten 7 Tagen</span>` : ''}
           ${ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-red-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')"><span style="color:var(--clr-red)">◆</span> <strong>${ueberfaellig}</strong> Wiedervorlage${ueberfaellig>1?'n':''} überfällig!</span>` : ''}
           ${bald_ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-amber-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">⚠︎ <strong>${bald_ueberfaellig}</strong> WV laufen in 3 Tagen ab</span>` : ''}
+        </div>
+      </div>` : ''}
+
+      <!-- Arbeitsliste: was heute / diese Woche zu tun ist -->
+      ${arbeitsliste.length ? `
+      <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-amber)">
+        <strong style="font-size:14px;color:var(--clr-forest-dark)">☑ Arbeitsliste – heute / diese Woche</strong>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px">
+          ${arbeitsliste.map(a => `<div style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
+              onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
+            <strong style="min-width:28px;text-align:right;color:${a.farbe}">${a.n}</strong><span>${a.text}</span><span style="margin-left:auto;color:var(--clr-text-light)">→</span>
+          </div>`).join('')}
         </div>
       </div>` : ''}
 
@@ -1038,7 +1068,7 @@ const Views = {
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
-            <td data-sort="${t.status}">${statusBadge(t.status)}</td>
+            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:10px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td class="btn-group" style="flex-wrap:wrap">
               ${t.status === 'geplant' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)">Starten</button>` : ''}
               <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
@@ -1128,10 +1158,12 @@ const Views = {
       <div class="toolbar">
         <div class="toolbar-left">
           <select class="form-control" style="width:auto" onchange="WiedervorlagenHandler.filter(this.value)" id="wvFilter">
-            <option value="all" selected>Alle anzeigen</option>
-            <option value="offen">Nur offene</option>
+            <option value="unerledigt" selected>Unerledigt (offen + überfällig)</option>
             <option value="ueberfaellig">Nur überfällige</option>
+            <option value="offen">Nur offene (Frist läuft)</option>
+            <option value="ohne_versand">Unerledigt ohne Anschreiben</option>
             <option value="erledigt">Nur erledigte</option>
+            <option value="all">Alle anzeigen</option>
           </select>
         </div>
         <div class="toolbar-right">
@@ -1155,7 +1187,7 @@ const Views = {
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
           <th>Schüler</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
-          ${wvs.map(w => `<tr data-status="${w.status}">
+          ${wvs.map(w => `<tr data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
             <td><input type="checkbox" class="chk-wv" value="${w.id}" onchange="BulkWV.updateBar()"></td>
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
@@ -1176,7 +1208,7 @@ const Views = {
       </div>
     </div>`;
     // Apply initial filter
-    WiedervorlagenHandler.filter(document.getElementById('wvFilter')?.value || 'all');
+    WiedervorlagenHandler.filter(document.getElementById('wvFilter')?.value || 'unerledigt');
   },
 
   // ════════════════════════════════════════════
