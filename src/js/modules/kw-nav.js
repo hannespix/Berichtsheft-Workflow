@@ -154,7 +154,7 @@ const KWNav = {
     const oldCodes = cell.dataset.codes || '';
     const oldFehl = parseInt(cell.dataset.fehltage) || 0;
     if (oldCodes !== codesStr || oldFehl !== fehltage || keepGeprueft) {
-      UndoManager.push(`KW ${kw} ${label}`,
+      UndoManager.push(`KW ${kw} ${label}${this._azubiKurz(sid)}`,
         () => { this.persistCodes(keId, aj, kw, oldCodes, oldFehl, sid); KontrolleHandler.renderSchueler(); },
         () => { this.persistCodes(keId, aj, kw, codesStr, fehltage, sid, !!keepGeprueft); KontrolleHandler.renderSchueler(); }
       );
@@ -232,7 +232,7 @@ const KWNav = {
     const codesStr = currentCodes.join(',');
 
     // Push undo
-    UndoManager.push(`KW ${kw} ${action}`,
+    UndoManager.push(`KW ${kw} ${action}${this._azubiKurz(sid)}`,
       () => { this.persistCodes(keId, aj, kw, oldCodes, fehltage, sid); KontrolleHandler.renderSchueler(); },
       () => { this.persistCodes(keId, aj, kw, codesStr, fehltage, sid); KontrolleHandler.renderSchueler(); }
     );
@@ -362,8 +362,12 @@ const KWNav = {
     else if (z.bemerkung) App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,?,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung',
       [sid, aj, kw, z.bemerkung, z.geprueft ? 1 : 0, keId]);
   },
+  _azubiKurz(sid) {
+    const r = sid ? App.query('SELECT nachname FROM schueler WHERE id=?', [sid])[0] : null;
+    return r ? ` – ${r.nachname}` : '';
+  },
   pushKWUndo(label, keId, aj, kw, sid, vorher, nachher) {
-    UndoManager.push(label,
+    UndoManager.push(label + this._azubiKurz(sid),
       () => { this.kwZustandSetzen(keId, aj, kw, sid, vorher); KontrolleHandler.renderSchueler(); },
       () => { this.kwZustandSetzen(keId, aj, kw, sid, nachher); KontrolleHandler.renderSchueler(); });
   },

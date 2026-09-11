@@ -34,6 +34,9 @@ const UndoManager = {
     }
   },
 
+  // Beim Termin-/Ansichtswechsel leeren: ein Undo aus einem anderen Termin
+  // schrieb sonst auf einen längst verlassenen Azubi zurück
+  clear() { this._stack = []; this._redoStack = []; },
   canUndo() { return this._stack.length > 0; },
   canRedo() { return this._redoStack.length > 0; },
   lastDesc() { return this._stack.length ? this._stack[this._stack.length-1].desc : ''; },

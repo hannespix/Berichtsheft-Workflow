@@ -2687,14 +2687,16 @@ const App = {
   // seit = Zeitpunkt, seit dem der Prüfer auf DIESEM Azubi steht (bleibt bei
   // Heartbeats erhalten; ts ist nur die Frische der Datei). Daraus entscheidet
   // die Gegenseite, wer bei gleichzeitigem Einstieg Vorrang hat.
-  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit) {
+  // bereich = {von, bis} (1-basierte Nummern in der Terminliste): „Ich nehme
+  // #1–20" – die Kollegen überspringen diesen Bereich beim Weiterschalten.
+  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich) {
     if (!this.dirHandle) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
       const handle = await posDir.getFileHandle('pos-' + safeName + '.json', { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now() }));
+      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now(), b: bereich && bereich.von ? [bereich.von, bereich.bis] : null }));
       await writable.close();
     } catch(e) {
       if (this._posWriteWarnCount < 3) {
@@ -2716,7 +2718,8 @@ const App = {
           const file = await handle.getFile();
           const data = JSON.parse(await file.text());
           if (data.p && data.p !== myPruefer && data.ts && (now - data.ts < 15 * 60 * 1000)) {
-            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.seit || data.ts).toISOString() });
+            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.seit || data.ts).toISOString(),
+              bereich: Array.isArray(data.b) && data.b.length === 2 ? { von: data.b[0], bis: data.b[1] } : null });
           }
         } catch(e) { /* skip unreadable files */ }
       }
