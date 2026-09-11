@@ -57,8 +57,9 @@ const SchuelerView = {
     // Lehrjahr-Fallback: wenn die Klasse kein Lehrjahr gepflegt hat,
     // aus dem Ausbildungsbeginn berechnen (phasen-aware via getCurrentAJ)
     rows.forEach(s => {
-      s.eff_lehrjahr = s.lehrjahr || (s.aktiv ? App.getCurrentAJ(s.ausbildungsbeginn, s.id) : null);
-      s.lj_berechnet = !s.lehrjahr && !!s.eff_lehrjahr;
+      // Berechnung VOR Klassen-Lehrjahr: das statische Feld veraltet jedes Schuljahr
+      s.eff_lehrjahr = (s.ausbildungsbeginn ? App.getCurrentAJ(s.ausbildungsbeginn, s.id) : null) || s.lehrjahr || null;
+      s.lj_berechnet = false;
     });
     if (this.filters.lehrjahr) rows = rows.filter(s => s.eff_lehrjahr === parseInt(this.filters.lehrjahr));
     if (this.sortCol === 'lehrjahr') {

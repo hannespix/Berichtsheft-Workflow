@@ -55,35 +55,56 @@ const nimm = (src, marke, muster) => {
   return m[1].replace(/\s+/g, ' ').trim();
 };
 
-console.log('══ Jahresbericht: Abdeckung und Quoten ══');
+// BerichteHandler in einem vm-Kontext auf DIESELBE Datenbank setzen
+import vm from 'node:vm';
+const el = () => ({ textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } });
+const sandbox = { console, setTimeout, clearTimeout, setInterval, clearInterval, Date, Math, JSON, Promise, Set, Map, TextEncoder, TextDecoder, Uint8Array,
+  document: { getElementById: el, createElement: el, querySelectorAll: () => [], addEventListener() {}, hidden: false, body: { classList: { add() {}, remove() {}, contains: () => false } } },
+  navigator: {}, localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, initSqlJs: async () => SQL, KontrolleHandler: { activePruefer: 't' }, TableSort: { init() {} },
+  esc: (x) => String(x ?? ''), todayStr: () => '2026-09-11', formatDate: (d) => d ? String(d).split('-').reverse().join('.') : '' };
+sandbox.window = sandbox; sandbox.globalThis = sandbox; vm.createContext(sandbox);
+vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
+vm.runInContext(BER_SRC + '\n;globalThis.BerichteHandler = BerichteHandler;', sandbox, { filename: 'berichte.js' });
+const App = sandbox.__App, BerichteHandler = sandbox.BerichteHandler;
+App.db = db; App.toast = () => {}; App.markDirty = () => {}; App.scheduleAutoSave = () => {};
+db.run(`INSERT INTO berufsschulen (id,name,ort) VALUES (1,'BS Test','Freiburg')`);
+db.run(`UPDATE klassen SET berufsschule_id=1 WHERE id=1`);
+
+console.log('══ Jahresbericht: Abdeckung und Quoten (Schuljahr, letztes Ergebnis je Azubi) ══');
 {
-  const kontrolliertSql = nimm(BER_SRC, 'const kontrolliert = App.scalar(', /App\.scalar\(`([\s\S]*?)`\)/);
-  const okSql = nimm(BER_SRC, 'const okCount = App.scalar(', /App\.scalar\(`([\s\S]*?)`\)/);
-  const mangelSql = nimm(BER_SRC, 'const mangelCount = App.scalar(', /App\.scalar\(`([\s\S]*?)`\)/);
-
-  const rechne = () => {
-    const aktiv = scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1');
-    const kontrolliert = scalar(kontrolliertSql);
-    const ok = scalar(okSql), mangel = scalar(mangelSql);
-    return { aktiv, kontrolliert, offen: Math.max(0, aktiv - kontrolliert),
-      abdeckung: aktiv ? Math.round(kontrolliert / aktiv * 100) : 0,
-      ok, mangel, quote: kontrolliert ? Math.round(ok / kontrolliert * 100) : 0 };
+  const rechne = (sj) => {
+    const D = BerichteHandler.jahresberichtDaten(sj);
+    return { aktiv: D.totalSchueler, kontrolliert: D.kontrolliert, offen: D.nichtKontrolliert,
+      abdeckung: D.totalSchueler ? Math.round(D.kontrolliert / D.totalSchueler * 100) : 0,
+      ok: D.okCount, mangel: D.mangelCount, termine: D.termine, quote: D.kontrolliert ? Math.round(D.okCount / D.kontrolliert * 100) : 0, D };
   };
-
-  const a = rechne();
+  const a = rechne(2025); // Schuljahr 2025/26 enthält beide Termine (Jan + Mai 2026)
+  check(a.termine === 2, `Schuljahr 2025/26: 2 durchgeführte Termine (${a.termine})`);
   check(a.kontrolliert === 7, `7 von 10 Azubis kontrolliert (${a.kontrolliert}) – Mehrfachkontrollen zählen einmal`);
   check(a.abdeckung <= 100, `Abdeckung plausibel: ${a.abdeckung} %`);
-  check(a.quote <= 100, `Erfolgsquote plausibel: ${a.quote} %`);
   check(a.ok + a.mangel === a.kontrolliert, `OK (${a.ok}) + Mängel (${a.mangel}) = kontrolliert (${a.kontrolliert}), keine Doppelzählung`);
-  check(a.ok === 4 && a.mangel === 3, `Azubis mit späterer OK-Kontrolle bleiben in der Mängel-Spalte (${a.ok}/${a.mangel})`);
-
+  check(a.ok === 6 && a.mangel === 1, `Einordnung nach dem LETZTEN Ergebnis: Azubis 5+6 (erst Mangel, dann OK) zählen als OK (${a.ok}/${a.mangel})`);
+  const s1 = a.D.schoolStats[0];
+  check(s1 && s1.total === 10 && s1.ok === 6 && s1.mangel === 1 && s1.offen === 3, `Schulstatistik zählt Köpfe: 10 = 6 ok + 1 Mangel + 3 offen (${s1 && [s1.total, s1.ok, s1.mangel, s1.offen].join('/')})`);
+  const v = rechne(2024);
+  check(v.termine === 0 && v.kontrolliert === 0, `Schuljahr 2024/25 ohne Termine: 0 kontrolliert (${v.kontrolliert}) – keine kumulierten Zahlen mehr`);
   // Jahrgang archivieren: die Zahlen dürfen NICHT springen
   db.run('UPDATE schueler SET aktiv=0 WHERE id IN (1,2,3)');
-  const b = rechne();
-  check(b.abdeckung <= 100, `Nach Archivierung weiterhin plausibel: ${b.abdeckung} %`);
-  check(b.offen >= 0, `"Noch offen" bleibt nicht-negativ (${b.offen})`);
+  const b = rechne(2025);
+  check(b.abdeckung <= 100 && b.offen >= 0, `Nach Archivierung weiterhin plausibel: ${b.abdeckung} %, offen ${b.offen}`);
   check(b.kontrolliert === 4, `Archivierte zählen nicht mehr als kontrolliert (${b.kontrolliert})`);
   db.run('UPDATE schueler SET aktiv=1 WHERE id IN (1,2,3)');
+}
+
+console.log('\n══ Excel-Dashboard: Kopfzählung statt Ergebnis-Zeilen ══');
+{
+  const sch = BerichteHandler.statistikGruppe('schule')[0];
+  check(sch && sch.gesamt === 10, `Schulstatistik „Gesamt" = Klassenstärke 10, nicht Ergebnis-Zeilen 13 (${sch && sch.gesamt})`);
+  check(sch && sch.ok === 6 && sch.mangelhaft === 1 && sch.unkontrolliert === 3, `ok/mangelhaft/unkontrolliert = 6/1/3 (${sch && [sch.ok, sch.mangelhaft, sch.unkontrolliert].join('/')})`);
+  const fr = BerichteHandler.statistikGruppe('fachrichtung');
+  check(fr.reduce((n, r) => n + r.gesamt, 0) === 10, 'Fachrichtungsstatistik summiert auf 10 Köpfe');
+  const bt = BerichteHandler.statistikGruppe('betrieb');
+  check(bt.reduce((n, r) => n + r.gesamt, 0) === 10, 'Betriebsstatistik summiert auf 10 Köpfe');
 }
 
 console.log('\n══ Klassenübersicht: eine Zeile pro Azubi ══');
@@ -117,9 +138,7 @@ console.log('\n══ Mängelcodes: Fehltage (H) zählen nicht als Mangel ══
 {
   db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes) VALUES
     (1,1,10,'A,H'),(1,1,11,'H'),(2,1,12,'B')`);
-  const rows = q(nimm(BER_SRC, 'const topCodes = App.query(', /App\.query\(`([\s\S]*?)`\)/));
-  const codeCount = {};
-  rows.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { if (c !== 'H') codeCount[c] = (codeCount[c] || 0) + 1; }));
+  const codeCount = Object.fromEntries(BerichteHandler.jahresberichtDaten(2025).sortedCodes);
   check(!codeCount['H'], 'H taucht nicht in der Mängelcode-Statistik auf');
   check(codeCount['A'] === 1 && codeCount['B'] === 1, `A und B werden gezählt (${JSON.stringify(codeCount)})`);
 }

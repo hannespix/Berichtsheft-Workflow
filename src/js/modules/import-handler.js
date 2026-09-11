@@ -935,22 +935,18 @@ const ImportHandler = {
     const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
     const keCount = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=? AND ergebnis != ""', [id]) || 0;
     const wvCount = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [id]) || 0;
-    const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [id]) || 0;
+    const fehlGesamt = App.getFehltageGesamt(id).gesamt;
     const ampel = App.getSchuelerAmpel(id);
 
     const statusLabels = {aktiv:'Aktiv',ap_zugelassen:'AP zugelassen',ap_bestanden:'AP bestanden',abgebrochen:'Abgebrochen',verlaengert:'Verlängert'};
     const geschlechtLabels = {'':'– Nicht angegeben –', m:'Männlich', w:'Weiblich', d:'Divers'};
     const peLabels = {'':'– Keine Angabe –', bestanden:'Bestanden', nicht_bestanden:'Nicht bestanden'};
 
-    // Lehrjahr berechnen
+    // Lehrjahr: dieselbe Berechnung wie Liste, Planung und Raster (phasen-aware)
     let lehrjahrInfo = '–';
     if (s.ausbildungsbeginn) {
-      const d = new Date(s.ausbildungsbeginn);
-      const now = new Date();
-      let lj = now.getFullYear() - d.getFullYear();
-      if (now.getMonth() < d.getMonth() || (now.getMonth()===d.getMonth() && now.getDate() < d.getDate())) lj--;
-      lj = Math.max(1, Math.min(4, lj + 1));
-      lehrjahrInfo = `${lj}. Lehrjahr`;
+      const lj = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+      if (lj) lehrjahrInfo = `${lj}. Lehrjahr`;
     }
 
     App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `

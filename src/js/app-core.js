@@ -31,7 +31,7 @@ const App = {
     landesfachklasse: { cat: 'Ausbildung', label: 'Landesfachklasse', type: 'toggle', options: [{v:'ja',l:'Nur LFK'},{v:'nein',l:'Keine LFK'}], sqlS: (v) => v === 'ja' ? "s.landesfachklasse != ''" : "(s.landesfachklasse = '' OR s.landesfachklasse IS NULL)" },
     geschlecht:       { cat: 'Ausbildung', label: 'Geschlecht', type: 'select', optionsSql: "SELECT DISTINCT geschlecht FROM schueler WHERE geschlecht != '' AND geschlecht IS NOT NULL ORDER BY geschlecht", optionKey: 'geschlecht', sqlS: (v) => `s.geschlecht = '${v.replace(/'/g,"''")}'` },
     schulabschluss:   { cat: 'Ausbildung', label: 'Schulabschluss', type: 'select', optionsSql: "SELECT DISTINCT schulabschluss FROM schueler WHERE schulabschluss != '' AND schulabschluss IS NOT NULL ORDER BY schulabschluss", optionKey: 'schulabschluss', sqlS: (v) => `s.schulabschluss = '${v.replace(/'/g,"''")}'` },
-    lehrjahr:         { cat: 'Ausbildung', label: 'Lehrjahr', type: 'select', options: [{v:'1',l:'1. Lehrjahr'},{v:'2',l:'2. Lehrjahr'},{v:'3',l:'3. Lehrjahr'},{v:'4',l:'4. Lehrjahr (Verkürzer/Verlängerer)'}], sqlS: (v) => `s.klasse_id IN (SELECT id FROM klassen WHERE lehrjahr = ${parseInt(v)||0})` },
+    lehrjahr:         { cat: 'Ausbildung', label: 'Lehrjahr', type: 'select', options: [{v:'1',l:'1. Lehrjahr'},{v:'2',l:'2. Lehrjahr'},{v:'3',l:'3. Lehrjahr'},{v:'4',l:'4. Lehrjahr (Verlängerer)'}], sqlS: (v) => App._lehrjahrIdsSql(parseInt(v)||0) },
     ausb_beginn_ab:   { cat: 'Ausbildung', label: 'Ausb.beginn ab', type: 'date', sqlS: (v) => `s.ausbildungsbeginn >= '${v.replace(/'/g,"''")}'` },
     ausb_beginn_bis:  { cat: 'Ausbildung', label: 'Ausb.beginn bis', type: 'date', sqlS: (v) => `s.ausbildungsbeginn <= '${v.replace(/'/g,"''")}'` },
     ausb_ende_ab:     { cat: 'Ausbildung', label: 'Ausb.ende ab', type: 'date', sqlS: (v) => `s.ausbildungsende >= '${v.replace(/'/g,"''")}'` },
@@ -5443,12 +5443,13 @@ const App = {
     const countMap = {};
     counts.forEach(c => { countMap[c.klasse_id] = c.cnt; });
 
-    // 4) Build cache
+    // 4) Build cache. Die Schülerzahl wird NICHT mehr aus den Klassen summiert
+    // (Kampagnen-Termine mit Einzel-Zuordnung zeigten überall „0"), sondern
+    // beim ersten Zugriff über getTerminSchueler berechnet und gemerkt.
     terminIds.forEach(tid => {
       const klassenIds = junctionMap[tid] || [];
       const klassen = klassenIds.map(kid => klassenById[kid]).filter(Boolean);
-      const schuelerCount = klassenIds.reduce((s, kid) => s + (countMap[kid] || 0), 0);
-      this._tkCache[tid] = { klassen, ids: klassenIds, schuelerCount };
+      this._tkCache[tid] = { klassen, ids: klassenIds, schuelerCount: null };
     });
     this._tkCacheTime = now;
   },
@@ -5539,8 +5540,11 @@ const App = {
 
   // Get cached Schüler count for a Termin
   getTerminSchuelerCount(terminId) {
-    if (this._tkCache[terminId]) return this._tkCache[terminId].schuelerCount;
-    return this.getTerminSchueler(terminId).length;
+    const c = this._tkCache[terminId];
+    if (c && c.schuelerCount != null) return c.schuelerCount;
+    const n = this.getTerminSchueler(terminId).length;
+    if (c) c.schuelerCount = n;
+    return n;
   },
 
   // Format Klassen names for display
@@ -5676,6 +5680,39 @@ const App = {
     return Array.from({length: numSY}, (_, i) => i + 1);
   },
 
+  // ── Fehltage EINHEITLICH (Audit 7 A1) ──
+  // KW-genaue Summe (kumulativ über alle Durchsichten) + pauschal nacherfasster
+  // Anteil der letzten Durchsicht (steht bewusst in keiner Kalenderwoche).
+  // Übersicht, Druckliste, Auto-Zulassung, Stammdaten-Dialog und Azubi-
+  // Dashboard rechneten bisher jeweils anders – ein per Nacherfassung mit
+  // 40 pauschalen Fehltagen erfasster Azubi stand in der Übersicht mit 0 %.
+  getFehltageGesamt(schuelerId) {
+    const kw = this.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [schuelerId]) || 0;
+    const ke = this.query(`SELECT ke.id, COALESCE(ke.fehltage_pauschal,0) AS pauschal FROM kontrollergebnisse ke
+      JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=?
+      ORDER BY kt.geplant_datum DESC, ke.id DESC LIMIT 1`, [schuelerId])[0];
+    const pauschal = ke ? (ke.pauschal || 0) : 0;
+    return { kw, pauschal, gesamt: kw + pauschal, keId: ke ? ke.id : null };
+  },
+  // Lehrjahr-Filter (Audit 7 A2): dynamisch aus dem Ausbildungsverlauf statt
+  // aus dem statischen klassen.lehrjahr, das ab dem zweiten Schuljahr
+  // zwangsläufig veraltet. 30 s gecacht (ein Aufruf je Filterauswertung).
+  _lehrjahrIdsSql(lj) {
+    const now = Date.now();
+    if (!this._ljCache || now - this._ljCache.t > 30000) {
+      const map = {};
+      try {
+        this.query('SELECT id, ausbildungsbeginn FROM schueler WHERE aktiv=1').forEach(s => {
+          const aj = this.getCurrentAJ(s.ausbildungsbeginn, s.id);
+          if (aj) (map[aj] = map[aj] || []).push(s.id);
+        });
+      } catch(e) {}
+      this._ljCache = { t: now, map };
+    }
+    const ids = this._ljCache.map[lj] || [];
+    return ids.length ? `s.id IN (${ids.join(',')})` : '0';
+  },
+
   // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
   getCurrentAJ(beginn, schuelerId) {
     if (!beginn) return null;
@@ -5695,18 +5732,19 @@ const App = {
             if (eff < von) return sum;
             return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
           }, 0);
-        // Obergrenze = tatsächliche Anzahl Ausbildungsjahre (Verlängerer haben 4)
-        const maxAjP = Math.max(...(this.getSchuelerAJs(schuelerId) || [3]));
-        return Math.min(maxAjP, Math.max(1, Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
+        // Ober- UND Untergrenze = tatsächliche Ausbildungsjahre: Verlängerer
+        // haben 4, zweijährige Verkürzer beginnen im 2. Jahr (Raster [2,3])
+        const ajsP = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
+        return Math.min(Math.max(...ajsP), Math.max(ajsP[0], Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
       }
     }
     const d = this._parseDate(beginn);
     if (!d) return null;
     const now = new Date();
     const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
-    if (months < 0) return 1;
-    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
-    return Math.min(Math.floor(months / 12) + 1, maxAj);
+    const ajs = schuelerId ? (this.getSchuelerAJs(schuelerId) || [1, 2, 3]) : [1, 2, 3];
+    if (months < 0) return ajs[0];
+    return Math.min(Math.max(ajs[0], Math.floor(months / 12) + 1), Math.max(...ajs));
   },
 
   // Ausbildungsjahr, in dem sich der Azubi an einem STICHTAG befindet (nicht
@@ -5717,9 +5755,9 @@ const App = {
     const ref = datum instanceof Date ? datum : this._parseDate(datum);
     if (!d || !ref) return null;
     const months = (ref.getFullYear() - d.getFullYear()) * 12 + (ref.getMonth() - d.getMonth());
-    if (months < 0) return 1;
-    const maxAj = schuelerId ? Math.max(...(this.getSchuelerAJs(schuelerId) || [3])) : 3;
-    return Math.min(Math.floor(months / 12) + 1, maxAj);
+    const ajs = schuelerId ? (this.getSchuelerAJs(schuelerId) || [1, 2, 3]) : [1, 2, 3];
+    if (months < 0) return ajs[0];
+    return Math.min(Math.max(ajs[0], Math.floor(months / 12) + 1), Math.max(...ajs));
   },
 
   // Zu welchem Ausbildungsjahr gehört eine Kalenderwoche, die bei einer
@@ -7086,7 +7124,9 @@ Anlagen: {anlagen}` },
     if (!this.db) return;
     const today = todayStr();
     const jf = this.jgWhere('s.jahrgang_id');
-    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum < ?${jf.where}`, [today, ...jf.params]) || 0;
+    // Gleiche Zählung wie Dashboard und WV-Liste: 'ueberfaellig' UND offene
+    // mit abgelaufener Frist (der Status-Flip passiert erst beim Öffnen der Liste)
+    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
     const b1 = document.getElementById('badgeOverdue');
     const b2 = document.getElementById('badgeWV');
     if (overdue > 0) {

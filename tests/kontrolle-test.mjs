@@ -139,5 +139,23 @@ console.log('\n══ Migrations-Parität (Disk-Datenbank) ══');
   diskDb.close();
 }
 
+console.log('\n══ Audit 7 A1/A2: Fehltage gesamt einheitlich, Ausbildungsjahr-Untergrenze ══');
+{
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,ausbildungsbeginn,ausbildungsende) VALUES (901,'Pauschal','Petra',1,'2024-09-01','2027-08-31')`);
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status) VALUES (901,'2026-03-01','durchgefuehrt'),(902,'2026-06-01','durchgefuehrt')`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,fehltage_pauschal,fehltage_gesamt) VALUES (9011,901,901,'in_ordnung',40,40),(9012,902,901,'in_ordnung',40,43)`);
+  db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (901,2,10,'H',3,1)`);
+  const f = App.getFehltageGesamt(901);
+  check(f.kw === 3 && f.pauschal === 40 && f.gesamt === 43, `getFehltageGesamt = KW-Summe 3 + pauschal 40 = 43 (${JSON.stringify(f)})`);
+  check(!/SUM\(fehltage\),0\) FROM kw_status WHERE schueler_id=\?', \[s\.id\]/.test(read('src/js/modules/kontrolle.js')), 'Übersicht/Druckliste rechnen nicht mehr nur die KW-Summe');
+  // Zweijähriger Verkürzer: Ausbildungsjahre [2,3] – heute darf nie "AJ 1" herauskommen
+  const heute = new Date(); const beginn = `${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, '0')}-01`;
+  const ende = `${heute.getFullYear() + 2}-07-31`;
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,ausbildungsbeginn,ausbildungsende,verkuerzung_monate) VALUES (902,'Kurz','Kai',1,?,?,12)`, [beginn, ende]);
+  check(JSON.stringify(App.getSchuelerAJs(902)) === '[2,3]', `Verkürzer hat die Raster [2,3] (${JSON.stringify(App.getSchuelerAJs(902))})`);
+  check(App.getCurrentAJ(beginn, 902) === 2, `Aktuelles Ausbildungsjahr des Verkürzers = 2, nicht 1 (${App.getCurrentAJ(beginn, 902)})`);
+  check(App.getAJAtDate(beginn, beginn, 902) === 2, 'Auch zum Stichtag Ausbildungsbeginn: AJ 2');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

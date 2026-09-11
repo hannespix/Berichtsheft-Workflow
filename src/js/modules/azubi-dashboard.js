@@ -77,7 +77,8 @@ const AzubiDashboard = {
 
         <!-- Kennzahlen-Cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
-          ${this._renderKennzahlCard('Fehltagsbudget', kz.pauschalFehltage.summe + ' / ' + kz.fehltageSoft + ' (10%) / ' + kz.fehltageHart + ' (15%)', kz.pauschalFehltage.summe > kz.fehltageHart ? 'red' : kz.pauschalFehltage.summe > kz.fehltageSoft ? 'amber' : 'green')}
+          ${(() => { const f = App.getFehltageGesamt(s.id); const ges = f.gesamt + (kz.pauschalFehltage.summe || 0);
+            return this._renderKennzahlCard('Fehltage (Kontrolle' + (kz.pauschalFehltage.summe ? ' + Phasen' : '') + ')', ges + ' / ' + kz.fehltageSoft + ' (10%) / ' + kz.fehltageHart + ' (15%)' + (f.pauschal ? ' · ' + f.pauschal + ' pauschal' : ''), ges > kz.fehltageHart ? 'red' : ges > kz.fehltageSoft ? 'amber' : 'green'); })()}
           ${this._renderKennzahlCard('Aktuelle Vergütung', fmtM(kz.aktVerg) + (kz.isFachwerker ? ' (Ausbg.)' : kz.hatIndividuellenLohn ? ' (indiv.)' : kz.tz < 1 ? ' (TZ)' : ''), 'forest')}
           ${this._renderKennzahlCard('Wochenstunden', kz.wochenstunden + ' h', 'forest')}
           ${this._renderKennzahlCard('Fortschritt', kz.progress + '%', kz.progress > 90 ? 'green' : 'forest')}
