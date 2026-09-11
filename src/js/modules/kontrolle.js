@@ -295,8 +295,10 @@ const KontrolleHandler = {
         <!-- Statistik-Leiste -->
         <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
           <div style="padding:6px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
-            <strong>${anwCount}</strong>/${schueler.length} anwesend
+            <strong>${anwCount}</strong>/${schueler.length} ${istEinsendung ? 'Hefte da' : 'anwesend'}
           </div>
+          ${(() => { if (termin.status === 'durchgefuehrt') return ''; const c = App.kontrolltagCockpit(terminId); if (!c.start) return ''; const hm = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+            return `<div style="padding:6px 12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">⏱ Start ${hm(c.start)}${c.minutenProAzubi != null ? ` · Ø ${c.minutenProAzubi} Min./Azubi` : ''}${c.prognose ? ` · voraussichtlich fertig ${hm(c.prognose)}` : (c.offen === 0 && c.fertig ? ' · alle bewertet' : '')}</div>`; })()}
           <div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
             ✓ <strong>${okCount}</strong> in Ordnung
           </div>
@@ -607,9 +609,19 @@ const KontrolleHandler = {
   },
 
   // Toggle Prüfungsausschuss (mutually exclusive with Zulassung)
-  togglePA(schuelerId, checked) {
+  async togglePA(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
+    if (checked) {
+      // Übergabe an den Prüfungsausschuss braucht eine Begründung (steht in der Bemerkung)
+      const grund = await App.prompt('Begründung für die Übergabe an den Prüfungsausschuss (erscheint in der Bemerkung und im Bogen):', { titel: 'Prüfungsausschuss', platzhalter: 'z.B. Berichtsheft trotz zweifacher Aufforderung nicht vorgelegt' });
+      if (grund === null) { this.renderUebersicht(); return; }
+      if (grund.trim()) {
+        const bem = (ke.bemerkung || '').trim();
+        const zeile = `[PA] ${grund.trim()}`;
+        if (!bem.includes(zeile)) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bem ? bem + '\n' + zeile : zeile, ke.id]);
+      }
+    }
     if (checked && ke.zulassung_ap === 1) {
       // Unset Zulassung when setting PA
       App.run('UPDATE kontrollergebnisse SET zulassung_ap=0, pruefungsausschuss=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',

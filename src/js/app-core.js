@@ -6000,13 +6000,7 @@ const App = {
 
     // Regeln: Code → ab welchem AJ gilt die Landesfachklasse
     // Gemüsebau (032/172): 3. AJ | Obstbau (034/174): 2.+3. AJ | Baumschule (033/173): 3. AJ | Stauden (035/175): 3. AJ
-    const lfkRegeln = {
-      '032': 3, '172': 3,   // Gemüsebau
-      '034': 2, '174': 2,   // Obstbau (ab 2. AJ)
-      '033': 3, '173': 3,   // Baumschule
-      '035': 3, '175': 3,   // Staudengärtnerei
-    };
-    const abAJ = lfkRegeln[frCode];
+    const abAJ = this.lfkRegeln()[frCode];
     if (abAJ && aj >= abAJ) {
       return { schule: lfk, isLandesfachklasse: true };
     }
@@ -6089,6 +6083,72 @@ const App = {
     // First KW: week of ausbildungsbeginn
     const getKW = (dt) => { const target = new Date(dt.valueOf()); const dayNr = (dt.getDay() + 6) % 7; target.setDate(target.getDate() - dayNr + 3); const firstThursday = target.valueOf(); target.setMonth(0, 1); if (target.getDay() !== 4) target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7); return 1 + Math.round((firstThursday - target) / 604800000); };
     return { startKW: getKW(d), endKW: getKW(new Date()) };
+  },
+
+  // ── Landesfachklassen-Regeln: Fachrichtungs-Code → ab welchem Ausbildungsjahr
+  //    (Tabelle in den Einstellungen statt fest im Code) ──
+  LFK_REGELN_STANDARD: { '032': 3, '172': 3, '034': 2, '174': 2, '033': 3, '173': 3, '035': 3, '175': 3 },
+  lfkRegeln() {
+    try {
+      const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='lfk_regeln'");
+      if (j) { const o = JSON.parse(j); if (o && typeof o === 'object' && Object.keys(o).length) return o; }
+    } catch(e) {}
+    return this.LFK_REGELN_STANDARD;
+  },
+  lfkRegelnSetzen(text) {
+    // Zeilen "Code;abAJ" (z.B. "034;2"); leer = Standard
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [code, ab] = z.split(/[;,\t ]+/);
+      const n = parseInt(ab);
+      if (code && n >= 1 && n <= 4) o[code.trim()] = n;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('lfk_regeln',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='lfk_regeln'");
+    return o;
+  },
+
+  // ── Kontrolltag-Cockpit: Startzeit, Ø Minuten je Durchsicht, Prognose ──
+  // Aus den Änderungszeitpunkten der heutigen Ergebnisse (geaendert_am)
+  kontrolltagCockpit(terminId, jetzt) {
+    jetzt = jetzt || new Date();
+    const heute = `${jetzt.getFullYear()}-${String(jetzt.getMonth() + 1).padStart(2, '0')}-${String(jetzt.getDate()).padStart(2, '0')}`;
+    const zeiten = this.query("SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND ergebnis != '' AND substr(geaendert_am,1,10)=? ORDER BY geaendert_am", [terminId, heute])
+      .map(r => this._parseDate ? new Date(String(r.geaendert_am).replace(' ', 'T')) : null).filter(d => d && !isNaN(d));
+    const offen = this.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND ergebnis='' AND anwesend != 0", [terminId]) || 0;
+    if (zeiten.length < 2) return { fertig: zeiten.length, offen, start: zeiten[0] || null, minutenProAzubi: null, prognose: null };
+    const start = zeiten[0], letzte = zeiten[zeiten.length - 1];
+    const minuten = (letzte - start) / 60000 / (zeiten.length - 1);
+    const prognose = offen ? new Date(jetzt.getTime() + offen * minuten * 60000) : null;
+    return { fertig: zeiten.length, offen, start, minutenProAzubi: Math.round(minuten * 10) / 10, prognose };
+  },
+  // Blockplan eines Schuljahres kopieren bzw. aus Text (je Zeile "LJ: KW, KW, …") übernehmen
+  blockplanKopieren(bsId, vonSj, nachSj) {
+    const rows = this.query('SELECT lehrjahr, kalenderwoche FROM blockplan WHERE berufsschule_id=? AND schuljahr=?', [bsId, vonSj]);
+    rows.forEach(r => this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id,schuljahr,lehrjahr,kalenderwoche) VALUES (?,?,?,?)', [bsId, nachSj, r.lehrjahr, r.kalenderwoche]));
+    return rows.length;
+  },
+  blockplanAusText(bsId, sj, text) {
+    // Zeilen wie "1: 36-40, 45, 3-6"  oder "LJ 2; 41 42 43"  (Bereiche im Schuljahres-Sinn: 36-40, 50-3)
+    // KW 53 nur in 53-Wochen-Jahren (ISO), sonst springt 52 → 1
+    const y1 = parseInt(sj) || new Date().getFullYear();
+    const order = []; for (let i = 36; i <= (this.hatKW53(y1) ? 53 : 52); i++) order.push(i); for (let i = 1; i <= 35; i++) order.push(i);
+    let n = 0;
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const m = z.match(/^(?:LJ\s*)?([1-4])\s*[:;]\s*(.*)$/i);
+      if (!m) return;
+      const lj = parseInt(m[1]);
+      m[2].split(/[,;\s]+/).filter(Boolean).forEach(tok => {
+        const r = tok.match(/^(\d{1,2})-(\d{1,2})$/);
+        let kws = [];
+        if (r) {
+          const a = order.indexOf(parseInt(r[1])), b = order.indexOf(parseInt(r[2]));
+          if (a >= 0 && b >= 0) kws = a <= b ? order.slice(a, b + 1) : order.slice(a).concat(order.slice(0, b + 1));
+        } else if (/^\d{1,2}$/.test(tok)) kws = [parseInt(tok)];
+        kws.filter(k => k >= 1 && k <= 53).forEach(kw => { this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id,schuljahr,lehrjahr,kalenderwoche) VALUES (?,?,?,?)', [bsId, sj, lj, kw]); n++; });
+      });
+    });
+    return n;
   },
 
   // ── Betriebs- und Schul-Ampel (Stufe 3) ──

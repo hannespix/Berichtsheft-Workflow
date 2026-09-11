@@ -136,11 +136,11 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `search-test.mjs` | Fuzzy-Suche, Mehrwortsuche, Ranking |
 | `dq-test.mjs` | Datenqualitäts-Regeln |
 | `filter-test.mjs` | Globale Filter: Mehrfachauswahl, AP∪ZP-Vereinigung, Standortgruppen |
-| `planung-test.mjs` | Schultermin-Workflow: gf(termine), Termin-Azubi-Menge, fremde Ämter, Lehrjahre, Kampagnenfenster/Kohorte, Stichtag-Lehrjahr, KW 53, Doppeltermine |
+| `planung-test.mjs` | Schultermin-Workflow: gf(termine), Termin-Azubi-Menge, fremde Ämter, Lehrjahre, Kampagnenfenster/Kohorte, Stichtag-Lehrjahr, KW 53, Doppeltermine, Termin-Statuskette, ICS, Jahresablauf/Ferien, Kampagnen-Ausschluss, Nachholtermin, LFK-Regeln, Blockplan-Übernahme, Kontrolltag-Cockpit |
 | `nacherfassung-test.mjs` | Nacherfassung: geprüft-bis-KW-Kaskade, pauschale Fehltage, AJ/KW-Zuordnung, Termin-Wiederverwendung |
-| `workflow-test.mjs` | Vorlagen/Textbausteine, Dateinamen, Papierkorb (Azubi + Termin), Lösch-Logbuch, Nachbereitung (Betriebs-Vorlagen, fremde Ämter, Versandnachweis/Mahnstufe) |
-| `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus` |
-| `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift |
+| `workflow-test.mjs` | Vorlagen/Textbausteine, Dateinamen, Papierkorb (Azubi + Termin), Lösch-Logbuch, Nachbereitung (Betriebs-Vorlagen, fremde Ämter, Versandnachweis/Mahnstufe), WV-Nachweis, Akten-Dateien, Betriebs-/Schul-Ampel, Sammel-Erinnerung, Kontexthilfe, Rollen |
+| `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus`, Import-Vorschau (Savepoint) |
+| `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift, Prüferaufteilung, Ergebnis-Kürzel, Undo-Verlauf |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
 **Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.

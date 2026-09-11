@@ -1505,6 +1505,14 @@ const Views = {
         </div>
       </div>
 
+      <!-- Landesfachklassen-Regeln -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Je Zeile <code>Fachrichtungs-Code;ab AJ</code> (IBYKUS-Code, z.B. <code>034;2</code> = Obstbau ab dem 2. Jahr an der Landesfachklasse). Leer = Standard des Programms.</div>
+        <textarea class="form-control" id="setLfkRegeln" rows="5" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.lfkRegeln()).map(([c, ab]) => `${c};${ab}`).join('\n'))}</textarea>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.lfkRegelnSetzen(document.getElementById('setLfkRegeln').value);App.toast(Object.keys(o).length+' Regeln gespeichert','success')">Regeln speichern</button></div>
+      </div>
+
       <!-- Schulferien BW (für den Jahreskalender) -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
