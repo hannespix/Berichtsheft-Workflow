@@ -185,12 +185,15 @@ const Views = {
           ${naechsteTermine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Fachrichtung / AJ</th><th>Prüfer</th><th></th></tr></thead><tbody>
             ${naechsteTermine.map(t => {
               const klassen = App.getTerminKlassen(t.id);
-              const schule = klassen.length ? klassen[0].schule : '–';
-              const ort = klassen.length ? klassen[0].schule_ort : '';
+              // Ort des Termins (auch bei Kampagnen-Terminen ohne Klassen) –
+              // nicht die Stammschule der ersten Klasse
+              const ortBs = App.getTerminSchule(t.id);
+              const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '');
+              const ort = ortBs ? (ortBs.ort || '') : (klassen.length ? klassen[0].schule_ort : '');
               const frAj = App.formatTerminFrAj(t.id);
               const schuelerCount = App.getTerminSchueler(t.id).length;
               return `<tr>
-              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '✉︎' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${klassen.length ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : '<em style="color:var(--clr-text-light)">Einsendung</em>'}</td>
+              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '✉︎' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${schule ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : (t.typ === 'einsendung' ? '<em style="color:var(--clr-text-light)">Einsendung</em>' : '<em style="color:var(--clr-amber)">ohne Ort</em>')}</td>
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
@@ -971,26 +974,31 @@ const Views = {
             const mStart = `${year}-${String(m+1).padStart(2,'0')}-01`;
             const mEnd = `${year}-${String(m+1).padStart(2,'0')}-${daysInMonth}`;
             const mTermine = termine.filter(t => t.geplant_datum >= mStart && t.geplant_datum <= mEnd);
+            // Mehrere Termine je Tag (zwei Prüfer an zwei Schulen) – vorher
+            // überschrieb der zweite den ersten
             const terminDays = {};
             mTermine.forEach(t => {
               const day = parseInt(t.geplant_datum.split('-')[2]);
               const kl = App.getTerminKlassen(t.id);
               const frAj = App.formatTerminFrAj(t.id);
-              const schule = kl.length ? kl[0].schule : '';
-              const calLabel = t.typ === 'einsendung' ? '✉︎ Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+'));
-              terminDays[day] = { t, label: calLabel, detail: frAj, status: t.status, pruefer: t.pruefer };
+              const ortBs = App.getTerminSchule(t.id);
+              const schule = ortBs ? ortBs.name : (kl.length ? kl[0].schule : '');
+              const calLabel = t.typ === 'einsendung' ? '✉︎ Einsendung' : (schule || kl.map(k => k.klassenbezeichnung).join('+') || 'ohne Ort');
+              (terminDays[day] = terminDays[day] || []).push({ t, label: calLabel, detail: frAj, status: t.status, pruefer: t.pruefer });
             });
 
             let cells = '';
             for (let i = 0; i < firstDay; i++) cells += '<div></div>';
             for (let d = 1; d <= daysInMonth; d++) {
-              const td = terminDays[d];
+              const tds = terminDays[d] || [];
+              const td = tds[0];
               const isToday = d === now.getDate() && m === now.getMonth() && year === now.getFullYear();
-              const bg = td ? (td.status === 'durchgefuehrt' ? 'var(--clr-green-light)' : 'var(--clr-blue-light)') : '';
+              const bg = td ? (tds.every(x => x.status === 'durchgefuehrt') ? 'var(--clr-green-light)' : 'var(--clr-blue-light)') : '';
               const border = isToday ? '2px solid var(--clr-forest)' : td ? '1px solid var(--clr-sage-light)' : '';
-              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="PlanungHandler.editTermin(${td.t.id})" title="${esc(td.label)} – ${esc(td.detail)} – ${esc(td.pruefer)}"` : ''}>
-                <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}</div>
-                ${td ? `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.label)}</div><div style="font-size:8px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(td.detail)}</div>` : ''}
+              const tip = tds.map(x => `${x.label} – ${x.detail} – ${x.pruefer}`).join(' | ');
+              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="${tds.length > 1 ? `App.navigate('planung')` : `PlanungHandler.editTermin(${td.t.id})`}" title="${esc(tip)}"` : ''}>
+                <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}${tds.length > 1 ? ` <span style="font-size:8px;color:var(--clr-sage)">×${tds.length}</span>` : ''}</div>
+                ${tds.map(x => `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.label)}</div><div style="font-size:8px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.detail)}</div>`).join('')}
               </div>`;
             }
             return `<div class="card" style="margin-bottom:8px">
@@ -1201,7 +1209,8 @@ const Views = {
         ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Klasse(n)</th><th>Kontrolliert</th><th>Export</th></tr></thead><tbody>
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
-            const schule = klassen.length ? klassen[0].schule : '–';
+            const ortBs = App.getTerminSchule(t.id);
+            const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '–');
             const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
             return `<tr>
             <td>${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>

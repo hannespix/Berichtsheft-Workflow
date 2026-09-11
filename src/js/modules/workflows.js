@@ -22,8 +22,16 @@ const Workflows = {
     const wochentag = new Date(termin.geplant_datum + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long' });
     const anzPruefer = Math.max(prueferList.length, 1);
     const dauerStd = Math.ceil(schuelerList.length * 10 / 60 / anzPruefer);
-    const frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ');
-    const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+    // Kampagnen-Termine haben keine Klassen: Fachrichtung und Klassen dann
+    // aus den Azubis selbst (sonst stand „– – –" im Betreff)
+    let frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ');
+    let klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
+    if (!klassen.length && schuelerList.length) {
+      const frIds = [...new Set(schuelerList.map(s => s.fachrichtung_id).filter(Boolean))];
+      if (frIds.length) frStr = App.query(`SELECT bezeichnung FROM fachrichtungen WHERE id IN (${frIds.map(() => '?').join(',')}) ORDER BY bezeichnung`, frIds).map(r => r.bezeichnung).join(', ');
+      const klIds = [...new Set(schuelerList.map(s => s.klasse_id).filter(Boolean))];
+      if (klIds.length) klassenStr = App.query(`SELECT klassenbezeichnung FROM klassen WHERE id IN (${klIds.map(() => '?').join(',')}) ORDER BY klassenbezeichnung`, klIds).map(r => r.klassenbezeichnung).join(' + ');
+    }
     return {
       termin, klassen, schuleObj: ortBs, schuelerList, prueferList,
       ctx: {
@@ -47,22 +55,13 @@ const Workflows = {
 
   // Gruppen (Fachrichtung + AJ) und Namensliste je Klasse für die Schul-Mails
   _gruppenUndListe(t) {
-    const frAjGroups = {};
-    t.klassen.forEach(k => {
-      const aj = App.getAJFromJahrgang(k.jahrgang_id, t.termin.geplant_datum);
-      const fr = k.fachrichtung || 'Gartenbau';
-      const key = `${fr}|${aj}`;
-      if (!frAjGroups[key]) frAjGroups[key] = { fr, aj, jgBez: k.jg_bez || '', count: 0 };
-    });
-    t.schuelerList.forEach(s => {
-      const k = t.klassen.find(x => x.id === s.klasse_id);
-      if (k) { const key = `${k.fachrichtung || 'Gartenbau'}|${App.getAJFromJahrgang(k.jahrgang_id, t.termin.geplant_datum)}`; if (frAjGroups[key]) frAjGroups[key].count++; }
-    });
-    const list = Object.values(frAjGroups).sort((a, b) => a.fr.localeCompare(b.fr) || a.aj - b.aj);
+    // Fachrichtung + Ausbildungsjahr zum Termindatum – aus Klassen UND aus
+    // einzeln zugeordneten Azubis (Kampagnen-Termine, LFK-Gäste)
+    const list = App.terminGruppen(t.termin.id, t.termin.geplant_datum);
     const gruppen = list.length
-      ? list.map(g => `  - ${g.fr} ${g.aj}. AJ (Abschluss ${g.jgBez})${g.count ? ': ' + g.count + ' Auszubildende' : ''}`).join('\n')
+      ? list.map(g => `  - ${g.fr} ${g.aj != null ? g.aj + '. AJ' : ''}${g.jgBez ? ` (Abschluss ${g.jgBez})` : ''}${g.count ? ': ' + g.count + ' Auszubildende' : ''}`).join('\n')
       : `  - ${t.schuelerList.length} Auszubildende (Einzelzuordnung)`;
-    const gruppenKurz = list.length ? list.map(g => `${g.fr} ${g.aj}. AJ`).join(', ') : t.ctx.klassen;
+    const gruppenKurz = list.length ? list.map(g => `${g.fr}${g.aj != null ? ' ' + g.aj + '. AJ' : ''}`).join(', ') : t.ctx.klassen;
     // Namensliste, gruppiert nach (tatsächlicher) Klasse
     const byKl = {};
     t.schuelerList.forEach(s => {
