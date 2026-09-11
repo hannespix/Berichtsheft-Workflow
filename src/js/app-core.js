@@ -1203,6 +1203,7 @@ const App = {
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
       zulassung_manuell INTEGER DEFAULT 0,
+      pruefer TEXT DEFAULT '',
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
@@ -2670,14 +2671,17 @@ const App = {
   _otherPositions: [],
   _posWriteWarnCount: 0,
 
-  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName) {
+  // seit = Zeitpunkt, seit dem der Prüfer auf DIESEM Azubi steht (bleibt bei
+  // Heartbeats erhalten; ts ist nur die Frische der Datei). Daraus entscheidet
+  // die Gegenseite, wer bei gleichzeitigem Einstieg Vorrang hat.
+  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit) {
     if (!this.dirHandle) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
       const handle = await posDir.getFileHandle('pos-' + safeName + '.json', { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now() }));
+      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now() }));
       await writable.close();
     } catch(e) {
       if (this._posWriteWarnCount < 3) {
@@ -2699,7 +2703,7 @@ const App = {
           const file = await handle.getFile();
           const data = JSON.parse(await file.text());
           if (data.p && data.p !== myPruefer && data.ts && (now - data.ts < 15 * 60 * 1000)) {
-            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.ts).toISOString() });
+            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.seit || data.ts).toISOString() });
           }
         } catch(e) { /* skip unreadable files */ }
       }
@@ -4710,6 +4714,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
@@ -6698,6 +6703,11 @@ Anlagen: {anlagen}` },
       // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
       if (!keCols.includes('zulassung_manuell')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+      }
+      // Prüfer, der das Ergebnis festgestellt hat (Unterschrift im Bogen) –
+      // geaendert_von ist nur der letzte Schreiber
+      if (!keCols.includes('pruefer')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
       }
       // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. aus dem Papierbogen):
       // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert

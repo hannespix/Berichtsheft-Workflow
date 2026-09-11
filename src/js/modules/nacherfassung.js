@@ -229,27 +229,40 @@ const NacherfassungHandler = {
       WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId])[0] || {};
     const vorhanden = App.query('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
     if (vorhanden) {
-      App.run(`UPDATE kontrollergebnisse SET ergebnis=?, bemerkung=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`,
-        [row.ergebnis, row.bemerkung || '', pruefer, vorhanden.id]);
+      App.run(`UPDATE kontrollergebnisse SET ergebnis=?, bemerkung=?, pruefer=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`,
+        [row.ergebnis, row.bemerkung || '', pruefer, pruefer, vorhanden.id]);
     } else {
       App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, durchsicht_nr, geprueft_kws, fehltage_pauschal,
           p_1_1_ausbildungsplan, p_1_4_auszubildende, p_1_5_bescheinigungen, bescheinigungen_anzahl, f_1_2_vertragliche_regelungen, f_1_6_ausbildungsbetrieb,
-          erstellt_am, geaendert_am, geaendert_von)
-        VALUES (?,?,?,?,?,'{}',?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?)`,
+          erstellt_am, geaendert_am, geaendert_von, pruefer)
+        VALUES (?,?,?,?,?,'{}',?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?,?)`,
         [terminId, s.id, row.ergebnis, row.bemerkung || '', (prev.durchsicht_nr || 0) + 1, prev.fehltage_pauschal || 0,
          prev.p_1_1_ausbildungsplan || '', prev.p_1_4_auszubildende || '', prev.p_1_5_bescheinigungen || '', prev.bescheinigungen_anzahl || 0,
-         prev.f_1_2_vertragliche_regelungen || '', prev.f_1_6_ausbildungsbetrieb || '', pruefer]);
+         prev.f_1_2_vertragliche_regelungen || '', prev.f_1_6_ausbildungsbetrieb || '', pruefer, pruefer]);
     }
     const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
     if (!keId) throw new Error('Kontrollergebnis konnte nicht angelegt werden');
     // 2) Einzel-Zuordnung zum Termin (Exporte, Schutz vor dem Aufräumen)
     App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [terminId, s.id]);
 
-    // 3) Wiedervorlage
+    // 3) Wiedervorlagen: ältere offene WV dieses Azubis (aus Durchsichten bis
+    //    zum nacherfassten Datum) sind durch die neue Durchsicht überholt –
+    //    wie in der Live-Kontrolle bei „In Ordnung" (_markOK). Jüngere bleiben.
+    const alteWV = App.query(`SELECT w.id FROM wiedervorlagen w
+      LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
+      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE w.schueler_id=? AND COALESCE(w.kontrollergebnis_id,0) != ? AND w.status IN ('offen','ueberfaellig')
+        AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') <= ?`, [s.id, keId, datum]);
+    const grund = row.ergebnis === 'in_ordnung'
+      ? 'Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung'
+      : `Überholt durch nacherfasste Durchsicht vom ${formatDate(datum)}`;
+    alteWV.forEach(w => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=? WHERE id=?", [datum, grund, w.id]));
+    const eigeneWV = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
     if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
-      const wvDa = App.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]);
-      if (!wvDa) App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
-        [s.id, keId, row.ergebnis, row.wvDate]);
+      if (eigeneWV) App.run("UPDATE wiedervorlagen SET art=?, frist_datum=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [row.ergebnis, row.wvDate, eigeneWV.id]);
+      else App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')", [s.id, keId, row.ergebnis, row.wvDate]);
+    } else if (eigeneWV && eigeneWV.status !== 'erledigt') {
+      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Ergebnis nachträglich auf „In Ordnung\" gesetzt' WHERE id=?", [datum, eigeneWV.id]);
     }
 
     // 4) Geprüft bis KW – derselbe Mechanismus wie in der Live-Kontrolle:
@@ -260,6 +273,22 @@ const NacherfassungHandler = {
     else if (row.codes) ziel = App.ajKwFuerStichtag(s.id, datum, this._kwVorschlag(datum));
     if (ziel) {
       KWNav.persistCodes(keId, ziel.aj, ziel.kw, row.codes || '', 0, s.id, true);
+    }
+    // Rückdatierte Mängel: gibt es bereits eine JÜNGERE Durchsicht mit
+    // „In Ordnung", sind sie behoben – sonst stünden sie als offen im Raster
+    // und in der Zulassungsprüfung.
+    if (ziel && row.codes) {
+      const spaeterOK = App.query(`SELECT ke.id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+        WHERE ke.schueler_id=? AND ke.id != ? AND ke.ergebnis='in_ordnung'
+          AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') > ?
+        ORDER BY kt.geplant_datum LIMIT 1`, [s.id, keId, datum])[0];
+      if (spaeterOK) {
+        const r = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, ziel.aj, ziel.kw])[0];
+        if (r && r.maengel_codes) {
+          const merged = [...new Set([...(r.behobene_codes || '').split(',').filter(Boolean), ...r.maengel_codes.split(',').filter(Boolean)])].join(',');
+          App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=?, behoben_bei=? WHERE id=?', [merged, spaeterOK.id, r.id]);
+        }
+      }
     }
 
     // 5) Fehltage gesamt (pauschal): Eingabe = Gesamtstand laut Berichtsheft.

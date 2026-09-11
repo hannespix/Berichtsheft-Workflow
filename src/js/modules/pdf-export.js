@@ -441,7 +441,8 @@ const PDFExport = {
       // 7) DIGITALE SIGNATUR
       // ══════════════════════════════════════
       y = Math.max(y, 270);
-      const prName = (ke?.geaendert_von || termin.pruefer || 'Ausbildungsberater').trim();
+      // Prüfer des Ergebnisses, sonst Termin-Prüfer; der letzte Schreiber nur als Notnagel
+      const prName = (ke?.pruefer || termin.pruefer || ke?.geaendert_von || 'Ausbildungsberater').trim();
       // Left: Name + Referat
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
       doc.setTextColor(0);

@@ -140,6 +140,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `nacherfassung-test.mjs` | Nacherfassung: geprüft-bis-KW-Kaskade, pauschale Fehltage, AJ/KW-Zuordnung, Termin-Wiederverwendung |
 | `workflow-test.mjs` | Vorlagen/Textbausteine, Dateinamen, Papierkorb (Azubi + Termin), Lösch-Logbuch |
 | `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus` |
+| `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
 **Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.
