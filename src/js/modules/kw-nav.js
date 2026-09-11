@@ -348,6 +348,26 @@ const KWNav = {
   // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
   // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
   // Mängel automatisch als "behoben" protokolliert.
+  // ── Zustand einer Woche für Undo/Redo (Modal, Sonstiges, „Keine
+  //    Beanstandungen") – die Inline-Tasten haben ihr eigenes Undo ──
+  kwZustand(sid, aj, kw) {
+    const r = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0];
+    return r ? { codes: r.maengel_codes || '', fehltage: r.fehltage || 0, behoben: r.behobene_codes || '', geprueft: !!r.geprueft, bemerkung: r.bemerkung || '' }
+             : { codes: '', fehltage: 0, behoben: '', geprueft: false, bemerkung: '' };
+  },
+  kwZustandSetzen(keId, aj, kw, sid, z) {
+    this.persistCodes(keId, aj, kw, z.codes, z.fehltage, sid, z.geprueft, z.behoben);
+    const da = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+    if (da) App.run('UPDATE kw_status SET bemerkung=? WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.bemerkung || '', sid, aj, kw]);
+    else if (z.bemerkung) App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,?,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung',
+      [sid, aj, kw, z.bemerkung, z.geprueft ? 1 : 0, keId]);
+  },
+  pushKWUndo(label, keId, aj, kw, sid, vorher, nachher) {
+    UndoManager.push(label,
+      () => { this.kwZustandSetzen(keId, aj, kw, sid, vorher); KontrolleHandler.renderSchueler(); },
+      () => { this.kwZustandSetzen(keId, aj, kw, sid, nachher); KontrolleHandler.renderSchueler(); });
+  },
+
   persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft, behobenOverride) {
     let sid = sidOpt ? parseInt(sidOpt) : null;
     if (!sid) {
@@ -550,6 +570,7 @@ const KWNav = {
   saveSonstiges(keId, aj, kw, sid) {
     const checked = document.getElementById('sonstI')?.checked;
     const bem = document.getElementById('sonstBem')?.value?.trim() || '';
+    const vorher = this.kwZustand(sid, aj, kw);
 
     // Toggle I code
     const cell = document.querySelector(`.kw-cell[data-ke="${keId}"][data-aj="${aj}"][data-kw="${kw}"]`);
@@ -573,6 +594,8 @@ const KWNav = {
       App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
         [sid, aj, kw, bem, keId]);
     }
+
+    this.pushKWUndo(`KW ${kw} Sonstiges`, keId, aj, kw, sid, vorher, this.kwZustand(sid, aj, kw));
 
     // Append to student's global Bemerkung field if there's text
     if (bem) {

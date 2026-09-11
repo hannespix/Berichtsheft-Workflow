@@ -1001,7 +1001,8 @@ const PlanungHandler = {
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
-  exportTerminPDF(terminId) {
+  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Schüler")
+  exportTerminPDF(terminId, nurIds) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const klassen = App.getTerminKlassen(terminId);
@@ -1014,7 +1015,11 @@ const PlanungHandler = {
     termin.schule = schule;
     termin.fachrichtung = fachrichtung;
     termin.lehrjahr = '';
-    const schuelerList = App.getTerminSchueler(terminId);
+    let schuelerList = App.getTerminSchueler(terminId);
+    if (Array.isArray(nurIds) && nurIds.length) {
+      const ids = nurIds.map(Number).filter(Boolean);
+      schuelerList = ids.length ? App.query(`SELECT * FROM schueler WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY nachname, vorname`, ids) : [];
+    }
     if (!schuelerList.length) return App.toast('Keine Schüler für diesen Termin', 'warning');
     PDFExport.generateBatch(doc => doc, termin, terminId, schuelerList);
   },

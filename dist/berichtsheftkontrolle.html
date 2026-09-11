@@ -8530,6 +8530,7 @@ const App = {
       sachberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
       zulassung_manuell INTEGER DEFAULT 0,
+      pruefer TEXT DEFAULT '',
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
@@ -9997,14 +9998,17 @@ const App = {
   _otherPositions: [],
   _posWriteWarnCount: 0,
 
-  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName) {
+  // seit = Zeitpunkt, seit dem der Prüfer auf DIESEM Azubi steht (bleibt bei
+  // Heartbeats erhalten; ts ist nur die Frische der Datei). Daraus entscheidet
+  // die Gegenseite, wer bei gleichzeitigem Einstieg Vorrang hat.
+  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit) {
     if (!this.dirHandle) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
       const handle = await posDir.getFileHandle('pos-' + safeName + '.json', { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now() }));
+      await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now() }));
       await writable.close();
     } catch(e) {
       if (this._posWriteWarnCount < 3) {
@@ -10026,7 +10030,7 @@ const App = {
           const file = await handle.getFile();
           const data = JSON.parse(await file.text());
           if (data.p && data.p !== myPruefer && data.ts && (now - data.ts < 15 * 60 * 1000)) {
-            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.ts).toISOString() });
+            positions.push({ pruefer: data.p, terminId: data.t, schuelerId: data.s, schuelerName: data.n, seit: new Date(data.seit || data.ts).toISOString() });
           }
         } catch(e) { /* skip unreadable files */ }
       }
@@ -12037,6 +12041,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefungsausschuss INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
@@ -14025,6 +14030,11 @@ Anlagen: {anlagen}` },
       // nach Reload bzw. beim Kollegen setzte die Automatik sie wieder auf 1)
       if (!keCols.includes('zulassung_manuell')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
+      }
+      // Prüfer, der das Ergebnis festgestellt hat (Unterschrift im Bogen) –
+      // geaendert_von ist nur der letzte Schreiber
+      if (!keCols.includes('pruefer')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
       }
       // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. aus dem Papierbogen):
       // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert
@@ -22005,7 +22015,8 @@ const PlanungHandler = {
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
-  exportTerminPDF(terminId) {
+  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Schüler")
+  exportTerminPDF(terminId, nurIds) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const klassen = App.getTerminKlassen(terminId);
@@ -22018,7 +22029,11 @@ const PlanungHandler = {
     termin.schule = schule;
     termin.fachrichtung = fachrichtung;
     termin.lehrjahr = '';
-    const schuelerList = App.getTerminSchueler(terminId);
+    let schuelerList = App.getTerminSchueler(terminId);
+    if (Array.isArray(nurIds) && nurIds.length) {
+      const ids = nurIds.map(Number).filter(Boolean);
+      schuelerList = ids.length ? App.query(`SELECT * FROM schueler WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY nachname, vorname`, ids) : [];
+    }
     if (!schuelerList.length) return App.toast('Keine Schüler für diesen Termin', 'warning');
     PDFExport.generateBatch(doc => doc, termin, terminId, schuelerList);
   },
@@ -22509,27 +22524,40 @@ const NacherfassungHandler = {
       WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id, terminId])[0] || {};
     const vorhanden = App.query('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
     if (vorhanden) {
-      App.run(`UPDATE kontrollergebnisse SET ergebnis=?, bemerkung=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`,
-        [row.ergebnis, row.bemerkung || '', pruefer, vorhanden.id]);
+      App.run(`UPDATE kontrollergebnisse SET ergebnis=?, bemerkung=?, pruefer=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`,
+        [row.ergebnis, row.bemerkung || '', pruefer, pruefer, vorhanden.id]);
     } else {
       App.run(`INSERT OR IGNORE INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, bemerkung, durchsicht_nr, geprueft_kws, fehltage_pauschal,
           p_1_1_ausbildungsplan, p_1_4_auszubildende, p_1_5_bescheinigungen, bescheinigungen_anzahl, f_1_2_vertragliche_regelungen, f_1_6_ausbildungsbetrieb,
-          erstellt_am, geaendert_am, geaendert_von)
-        VALUES (?,?,?,?,?,'{}',?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?)`,
+          erstellt_am, geaendert_am, geaendert_von, pruefer)
+        VALUES (?,?,?,?,?,'{}',?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?,?)`,
         [terminId, s.id, row.ergebnis, row.bemerkung || '', (prev.durchsicht_nr || 0) + 1, prev.fehltage_pauschal || 0,
          prev.p_1_1_ausbildungsplan || '', prev.p_1_4_auszubildende || '', prev.p_1_5_bescheinigungen || '', prev.bescheinigungen_anzahl || 0,
-         prev.f_1_2_vertragliche_regelungen || '', prev.f_1_6_ausbildungsbetrieb || '', pruefer]);
+         prev.f_1_2_vertragliche_regelungen || '', prev.f_1_6_ausbildungsbetrieb || '', pruefer, pruefer]);
     }
     const keId = App.scalar('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id]);
     if (!keId) throw new Error('Kontrollergebnis konnte nicht angelegt werden');
     // 2) Einzel-Zuordnung zum Termin (Exporte, Schutz vor dem Aufräumen)
     App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [terminId, s.id]);
 
-    // 3) Wiedervorlage
+    // 3) Wiedervorlagen: ältere offene WV dieses Azubis (aus Durchsichten bis
+    //    zum nacherfassten Datum) sind durch die neue Durchsicht überholt –
+    //    wie in der Live-Kontrolle bei „In Ordnung" (_markOK). Jüngere bleiben.
+    const alteWV = App.query(`SELECT w.id FROM wiedervorlagen w
+      LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
+      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE w.schueler_id=? AND COALESCE(w.kontrollergebnis_id,0) != ? AND w.status IN ('offen','ueberfaellig')
+        AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') <= ?`, [s.id, keId, datum]);
+    const grund = row.ergebnis === 'in_ordnung'
+      ? 'Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung'
+      : `Überholt durch nacherfasste Durchsicht vom ${formatDate(datum)}`;
+    alteWV.forEach(w => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=? WHERE id=?", [datum, grund, w.id]));
+    const eigeneWV = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
     if (row.ergebnis !== 'in_ordnung' && row.wvDate) {
-      const wvDa = App.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]);
-      if (!wvDa) App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
-        [s.id, keId, row.ergebnis, row.wvDate]);
+      if (eigeneWV) App.run("UPDATE wiedervorlagen SET art=?, frist_datum=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [row.ergebnis, row.wvDate, eigeneWV.id]);
+      else App.run("INSERT INTO wiedervorlagen (schueler_id, kontrollergebnis_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')", [s.id, keId, row.ergebnis, row.wvDate]);
+    } else if (eigeneWV && eigeneWV.status !== 'erledigt') {
+      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Ergebnis nachträglich auf „In Ordnung\" gesetzt' WHERE id=?", [datum, eigeneWV.id]);
     }
 
     // 4) Geprüft bis KW – derselbe Mechanismus wie in der Live-Kontrolle:
@@ -22540,6 +22568,22 @@ const NacherfassungHandler = {
     else if (row.codes) ziel = App.ajKwFuerStichtag(s.id, datum, this._kwVorschlag(datum));
     if (ziel) {
       KWNav.persistCodes(keId, ziel.aj, ziel.kw, row.codes || '', 0, s.id, true);
+    }
+    // Rückdatierte Mängel: gibt es bereits eine JÜNGERE Durchsicht mit
+    // „In Ordnung", sind sie behoben – sonst stünden sie als offen im Raster
+    // und in der Zulassungsprüfung.
+    if (ziel && row.codes) {
+      const spaeterOK = App.query(`SELECT ke.id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+        WHERE ke.schueler_id=? AND ke.id != ? AND ke.ergebnis='in_ordnung'
+          AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') > ?
+        ORDER BY kt.geplant_datum LIMIT 1`, [s.id, keId, datum])[0];
+      if (spaeterOK) {
+        const r = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, ziel.aj, ziel.kw])[0];
+        if (r && r.maengel_codes) {
+          const merged = [...new Set([...(r.behobene_codes || '').split(',').filter(Boolean), ...r.maengel_codes.split(',').filter(Boolean)])].join(',');
+          App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=?, behoben_bei=? WHERE id=?', [merged, spaeterOK.id, r.id]);
+        }
+      }
     }
 
     // 5) Fehltage gesamt (pauschal): Eingabe = Gesamtstand laut Berichtsheft.
@@ -23094,7 +23138,8 @@ const PDFExport = {
       // 7) DIGITALE SIGNATUR
       // ══════════════════════════════════════
       y = Math.max(y, 270);
-      const prName = (ke?.geaendert_von || termin.pruefer || 'Ausbildungsberater').trim();
+      // Prüfer des Ergebnisses, sonst Termin-Prüfer; der letzte Schreiber nur als Notnagel
+      const prName = (ke?.pruefer || termin.pruefer || ke?.geaendert_von || 'Ausbildungsberater').trim();
       // Left: Name + Referat
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
       doc.setTextColor(0);
@@ -23220,12 +23265,8 @@ const KontrolleHandler = {
       return;
     }
 
-    this.currentIndex = 0;
-    for (let i = 0; i < this.currentSchuelerList.length; i++) {
-      const existing = App.scalar(`SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=? AND ergebnis != ''`,
-        [terminId, this.currentSchuelerList[i].id]);
-      if (!existing) { this.currentIndex = i; break; }
-    }
+    const erster = this._ersterOffenerIndex();
+    this.currentIndex = erster >= 0 ? erster : 0;
     this._viewMode = this._viewMode || 'uebersicht';
     this.renderKontrolleView();
   },
@@ -23319,8 +23360,14 @@ const KontrolleHandler = {
       const wvOffen = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) > 0;
       const ampel = App.getSchuelerAmpel(s.id);
 
-      // Auto-Zulassung: wenn < 10% Fehltage UND Pflichtteile OK UND keine Mängel/WV
-      const autoZulassung = !fehlWarn && pflichtOK && offeneMaengel === 0 && !wvOffen && isDone && isOK;
+      // Zulassungsbedingungen: < 10% Fehltage UND Pflichtteile OK UND keine Mängel/WV
+      const bedingungenOK = !fehlWarn && pflichtOK && offeneMaengel === 0 && !wvOffen && isDone && isOK;
+      // Automatisch vorgeschlagen wird nur im LETZTEN Ausbildungsjahr – im
+      // 1. Lehrjahr gibt es noch nichts zuzulassen
+      const ajListe = App.getSchuelerAJs(s.id);
+      const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn || App.scalar('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [s.id]), s.id);
+      const imLetztenAJ = !ajJetzt || !ajListe.length || ajJetzt >= ajListe[ajListe.length - 1];
+      const autoZulassung = bedingungenOK && imLetztenAJ;
       // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
       // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
       // der Import es bei jedem Sync zurück und der Toast erscheint endlos).
@@ -23333,7 +23380,7 @@ const KontrolleHandler = {
       const isZulassung = ke.zulassung_ap === 1;
       const isPA = ke.pruefungsausschuss === 1;
       // Conditions NOT met → needs attention (red if not already zugelassen or PA)
-      const needsAttention = isDone && !autoZulassung && !isZulassung && !isPA;
+      const needsAttention = isDone && !bedingungenOK && !isZulassung && !isPA;
 
       const ergebnisLabels = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
@@ -23527,7 +23574,7 @@ const KontrolleHandler = {
     }).map(s => s.id);
     if (!ids.length) return App.toast('Keine offenen anwesenden Azubis', 'info');
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
-    if (!confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`)) return;
+    if (!confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`)) return;
     const r = this._markOK(ids);
     App.toast(`${r.count} Azubis als „In Ordnung" markiert${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderUebersicht();
@@ -23552,8 +23599,12 @@ const KontrolleHandler = {
         ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
       }
       if (!ke.ergebnis || ke.ergebnis === '') {
-        App.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?", [this.activePruefer || '', ke.id]);
+        App.run("UPDATE kontrollergebnisse SET ergebnis='in_ordnung', pruefer=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?", [this.activePruefer || '', this.activePruefer || '', ke.id]);
         pflichtFields.forEach(pf => App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]));
+        // „In Ordnung" heißt: alle Wochen bis zur Vorwoche des Kontrolltags
+        // wurden gesehen → im Raster als geprüft markieren (vorhandene Codes
+        // bleiben unangetastet, nur fehlende Wochen werden ergänzt)
+        this._markiereGeprueftBisVorwoche(ke.id, sid);
         const offene = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [sid]);
         offene.forEach(w => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [todayStr(), w.id]));
         wv += offene.length;
@@ -23561,6 +23612,35 @@ const KontrolleHandler = {
       }
     });
     return { count, wv };
+  },
+  // Alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft
+  // markieren – derselbe Kaskaden-Mechanismus wie die O-Taste im Raster
+  _markiereGeprueftBisVorwoche(keId, sid) {
+    const t = App.query('SELECT geplant_datum, durchgefuehrt_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
+    const d = App._parseDate(t?.durchgefuehrt_datum || t?.geplant_datum || todayStr());
+    if (!d) return null;
+    d.setDate(d.getDate() - 7);
+    const ziel = App.ajKwFuerStichtag(sid, d, App._isoKW(d));
+    if (ziel) KWNav.trackSessionKW(keId, ziel.aj, ziel.kw, sid);
+    return ziel;
+  },
+  // Erster offener (anwesender, unbewerteter) Azubi ab Position start –
+  // Azubis, an denen gerade ein Kollege arbeitet, werden übersprungen; nur
+  // wenn alle offenen belegt sind, wird der erste offene zurückgegeben.
+  // (Zwei Prüfer landeten sonst beide auf Nr. 1 und sperrten sich gegenseitig.)
+  _ersterOffenerIndex(start = -1) {
+    const n = this.currentSchuelerList.length;
+    let ersterOffen = -1;
+    for (let k = 1; k <= n; k++) {
+      const i = (start + k) % n;
+      const s = this.currentSchuelerList[i];
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
+      const offen = !ke || ((!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0);
+      if (!offen) continue;
+      if (ersterOffen < 0) ersterOffen = i;
+      if (!this.isLockedByOther(s.id)) return i;
+    }
+    return ersterOffen;
   },
   // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen
   _pruefeAbgeschlossen() {
@@ -23576,18 +23656,13 @@ const KontrolleHandler = {
     const tid = this.currentTerminId;
     const n = this.currentSchuelerList.length;
     if (!n) return;
-    const start = vonUebersicht ? -1 : this.currentIndex;
-    for (let k = 1; k <= n; k++) {
-      const i = (start + k) % n;
-      const s = this.currentSchuelerList[i];
-      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
-      if (!ke || ((!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0)) {
-        if (!vonUebersicht) this.saveAndRelease();
-        this.currentIndex = i;
-        this._viewMode = 'einzeln';
-        this.enterSchüler();
-        return;
-      }
+    const i = this._ersterOffenerIndex(vonUebersicht ? -1 : this.currentIndex);
+    if (i >= 0) {
+      if (!vonUebersicht) this.saveAndRelease();
+      this.currentIndex = i;
+      this._viewMode = 'einzeln';
+      this.enterSchüler();
+      return;
     }
     App.toast('Alle anwesenden Azubis sind bewertet – zurück zur Übersicht', 'success');
     if (!vonUebersicht) this.saveAndRelease();
@@ -24151,7 +24226,8 @@ const KontrolleHandler = {
             <div style="font-size:12px;color:var(--clr-text)">Dieser Schüler ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Schüler wechselt.</div>
             <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
               Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Schüler bearbeiten.
-              <button class="btn btn-sm" style="margin-left:12px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
+              <button class="btn btn-sm btn-primary" style="margin-left:12px;font-size:11px;padding:2px 8px" onclick="KontrolleHandler.nextOffen()">→ Nächster freier Azubi</button>
+              <button class="btn btn-sm" style="margin-left:6px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
             </div>
           </div>
         </div>
@@ -24597,18 +24673,24 @@ const KontrolleHandler = {
       wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
     }
     const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '');
+    const wvEigeneVorher = field === 'ergebnis' ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]) : null;
+    const prueferVorher = ke.pruefer || '';
     UndoManager.push(
       `${fieldLabels[field]||field}${nebenwirkungen} bei ${s.nachname}`,
       () => {
         App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [oldVal, pruefer, keId]);
+        if (field === 'ergebnis') App.run('UPDATE kontrollergebnisse SET pruefer=? WHERE id=?', [prueferVorher, keId]);
         Object.entries(pflichtVorher).forEach(([pf, v]) => App.run(`UPDATE kontrollergebnisse SET ${pf}=? WHERE id=?`, [v, keId]));
         wvVorher.forEach(w => App.run("UPDATE wiedervorlagen SET status=?, erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [w.status, w.id]));
+        if (wvEigeneVorher) this._wvZuruecksetzen(keId, wvEigeneVorher);
         this.renderSchueler();
       },
       () => { App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]); this.renderSchueler(); }
     );
 
     App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]);
+    // Wer das Ergebnis festgestellt hat, unterschreibt den Bogen
+    if (field === 'ergebnis' && value) App.run('UPDATE kontrollergebnisse SET pruefer=? WHERE id=?', [pruefer, keId]);
 
     // When "In Ordnung" → auto-set all Pflichtteile to "ja"
     if (field === 'ergebnis' && value === 'in_ordnung') {
@@ -24625,10 +24707,12 @@ const KontrolleHandler = {
     if (field === 'ergebnis') {
       const wvSec = document.getElementById('wvSection');
       if (wvSec) wvSec.style.display = (value && value !== 'in_ordnung') ? '' : 'none';
-      // Wiedervorlage-Frist gleich sinnvoll vorbelegen (wie im Abschluss-Dialog)
+      // Wiedervorlage folgt dem Ergebnis: Art nachziehen, fehlende anlegen,
+      // eine nach „In Ordnung" automatisch geschlossene wieder öffnen
       if (value && value !== 'in_ordnung') {
+        const wvId = this._wvNachErgebnis(keId, s.id, value);
         const inp = document.getElementById('wvDatum');
-        if (inp && !inp.value) { const d = this._wvDefaultFuer(value); inp.value = d; this.saveWV(keId, d); }
+        if (inp && !inp.value && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
       }
       // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
       const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
@@ -24669,6 +24753,34 @@ const KontrolleHandler = {
     });
     this.renderSchueler();
     App.toast(count ? `${count} Pflichtteile auf "Ja" gesetzt` : 'Alle Pflichtteile waren bereits "Ja"', count ? 'success' : 'info');
+  },
+
+  // Wiedervorlage zum Ergebnis eines Kontrollergebnisses (genau eine je KE):
+  // Art = Ergebnis; fehlt sie, wird sie mit Standardfrist angelegt; wurde sie
+  // durch ein zwischenzeitliches „In Ordnung" automatisch erledigt, wird sie
+  // wieder geöffnet. Liefert die WV-Id.
+  _wvNachErgebnis(keId, sid, ergebnis) {
+    const wv = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
+    if (wv) {
+      const wiederOeffnen = wv.status === 'erledigt' && /^Automatisch erledigt/.test(wv.erledigt_bemerkung || '');
+      if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, wv.id]);
+      else if (wv.art !== ergebnis) App.run('UPDATE wiedervorlagen SET art=? WHERE id=?', [ergebnis, wv.id]);
+      return wv.id;
+    }
+    App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
+      [keId, sid, ergebnis, this._wvDefaultFuer(ergebnis)]);
+    return App.scalar('SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId]);
+  },
+  // Undo eines Ergebniswechsels: WV dieses Ergebnisses auf den alten Stand,
+  // eine erst durch den Wechsel angelegte wieder entfernen
+  _wvZuruecksetzen(keId, vorher) {
+    const alt = new Map(vorher.map(w => [w.id, w]));
+    App.query('SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]).forEach(w => {
+      const v = alt.get(w.id);
+      if (!v) { App.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=?', [w.id]); App.run('DELETE FROM wiedervorlagen WHERE id=?', [w.id]); }
+      else App.run('UPDATE wiedervorlagen SET art=?, frist_datum=?, status=?, erledigt_datum=?, erledigt_bemerkung=? WHERE id=?',
+        [v.art, v.frist_datum, v.status, v.erledigt_datum || '', v.erledigt_bemerkung || '', w.id]);
+    });
   },
 
   saveWV(keId, datum) {
@@ -24738,26 +24850,29 @@ const KontrolleHandler = {
     setTimeout(() => { const btn = document.getElementById('kwBtnOK'); if (btn) btn.focus(); }, 100);
   },
 
-  // "Keine Beanstandungen" quick action
-  saveKWOk(keId, aj, kw) {
-    const s = this.currentSchuelerList[this.currentIndex];
-    if (s) {
-      // Mark as geprüft with no issues
-      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
-      if (existing.length) {
-        App.run('UPDATE kw_status SET maengel_codes="", fehltage=0, geprueft=1 WHERE id=?', [existing[0].id]);
-      } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET maengel_codes="", fehltage=0, geprueft=1',
-          [s.id, aj, kw, keId]);
-      }
-      KWNav.trackSessionKW(keId, aj, kw, s?.id);
-    }
-    // Also clear kw_maengel
-    App.run('DELETE FROM kw_maengel WHERE kontrollergebnis_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [keId, aj, kw]);
+  // Azubi zum Modal: aus der Zelle, sonst aus dem Kontrollergebnis – nie aus
+  // currentIndex (der angezeigte Azubi kann inzwischen ein anderer sein)
+  _kwModalSid(keId) {
+    const ctx = parseInt(this._kwModalContext?.cellEl?.dataset?.sid);
+    return ctx || App.scalar('SELECT schueler_id FROM kontrollergebnisse WHERE id=?', [keId]) || null;
+  },
+  _kwModalEnde(aj, kw) {
     App.closeModal();
     this._kwModalContext = null;
     this.renderSchueler();
     this._focusNextKW(aj, kw);
+  },
+
+  // "Keine Beanstandungen" – derselbe Weg wie die O-Taste: entfernte Codes
+  // wandern in die Mängel-Historie, Fehltage werden neu gerechnet, Undo möglich
+  saveKWOk(keId, aj, kw) {
+    const sid = this._kwModalSid(keId);
+    if (sid) {
+      const vorher = KWNav.kwZustand(sid, aj, kw);
+      KWNav.persistCodes(keId, aj, kw, '', 0, sid, true);
+      KWNav.pushKWUndo(`KW ${kw} ✓ OK`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    }
+    this._kwModalEnde(aj, kw);
   },
 
   saveKW(keId, aj, kw) {
@@ -24770,19 +24885,22 @@ const KontrolleHandler = {
     const codesStr = selected.join(',');
     const bem = document.getElementById('kwBemText')?.value?.trim() || '';
 
-    const sidCtx = this._kwModalContext?.cellEl?.dataset?.sid;
-    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sidCtx);
+    const sid = this._kwModalSid(keId);
+    if (!sid) return this._kwModalEnde(aj, kw);
+    const vorher = KWNav.kwZustand(sid, aj, kw);
+    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
 
     // Save bemerkung
-    const s = this.currentSchuelerList[this.currentIndex];
-    if (s) {
-      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
+    {
+      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
       if (existing.length) {
         App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
       } else if (bem) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
-          [s.id, aj, kw, bem, keId]);
+          [sid, aj, kw, bem, keId]);
       }
+      // Undo/Redo (das Anhängen an die Gesamt-Bemerkung bleibt bestehen)
+      KWNav.pushKWUndo(`KW ${kw} ${codesStr ? codesStr.replace(/,/g, ' ') : 'Modal'}`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
       if (bem) {
         const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
         if (ke) {
@@ -24796,18 +24914,17 @@ const KontrolleHandler = {
       }
     }
 
-    App.closeModal();
-    this._kwModalContext = null;
-    this.renderSchueler();
-    this._focusNextKW(aj, kw);
+    this._kwModalEnde(aj, kw);
   },
 
   clearKW(keId, aj, kw) {
-    KWNav.persistCodes(keId, aj, kw, '', 0, this._kwModalContext?.cellEl?.dataset?.sid);
-    App.closeModal();
-    this._kwModalContext = null;
-    this.renderSchueler();
-    this._focusNextKW(aj, kw);
+    const sid = this._kwModalSid(keId);
+    if (sid) {
+      const vorher = KWNav.kwZustand(sid, aj, kw);
+      KWNav.persistCodes(keId, aj, kw, '', 0, sid);
+      KWNav.pushKWUndo(`KW ${kw} geleert`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    }
+    this._kwModalEnde(aj, kw);
   },
 
   // ── Focus next KW cell after modal close ──
@@ -24909,14 +25026,16 @@ const KontrolleHandler = {
 
     // ── Write position file (tiny JSON, no DB lock needed) ──
     if (pruefer && App.dirHandle && !App.demoMode) {
-      this._lastWrittenPos = this.currentTerminId + ':' + s.id;
-      App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname);
+      const posKey = this.currentTerminId + ':' + s.id;
+      if (this._lastWrittenPos !== posKey || !this._posSeit) this._posSeit = Date.now();
+      this._lastWrittenPos = posKey;
+      App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit);
     }
 
     // Check if another prüfer has this student (from cached positions – updated by doLiveSync)
     const others = App._otherPositions || [];
     const lock = others.find(p => p.terminId === this.currentTerminId && p.schuelerId === s.id);
-    this.currentLock = lock || null;
+    this.currentLock = this._lockGiltFuerMich(lock);
 
     this.renderSchueler();
     this.startLiveSync();
@@ -24941,6 +25060,26 @@ const KontrolleHandler = {
 
   // Current lock state (null = not locked, object = locked by someone)
   currentLock: null,
+  // Aufgehobene Sperren (termin:schueler) – tauchen beim nächsten Abgleich
+  // nicht wieder auf (vorher kam die Sperre nach 8 s zurück)
+  _lockOverrides: new Set(),
+  _posSeit: 0,
+  // Gilt die Sperre eines Kollegen für mich? Vorrang hat, wer FRÜHER auf dem
+  // Azubi war. Bei Gleichstand (innerhalb 10 s, z.B. beide öffnen den Termin
+  // gleichzeitig) entscheidet der Name – so treffen beide Seiten dieselbe
+  // Entscheidung, statt sich gegenseitig zu sperren.
+  _lockGiltFuerMich(lock) {
+    if (!lock) return null;
+    if (this._lockOverrides.has(this.currentTerminId + ':' + lock.schuelerId)) return null;
+    const seitAnderer = Date.parse(lock.seit || '') || 0;
+    const seitIch = this._posSeit || 0;
+    if (seitIch && seitAnderer) {
+      const diff = seitAnderer - seitIch;
+      if (diff > 10000) return null;
+      if (Math.abs(diff) <= 10000 && String(lock.pruefer || '') > String(this.activePruefer || '')) return null;
+    }
+    return lock;
+  },
 
   // ════════════════════════════════════════
   //  LIVE SYNC – Echtzeit-Prüfer-Positionen
@@ -24987,7 +25126,7 @@ const KontrolleHandler = {
           if (posKey !== this._lastWrittenPos || stale) {
             this._lastWrittenPos = posKey;
             this._lastPosWriteTime = now;
-            App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname);
+            App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit);
           }
         }
       }
@@ -25016,7 +25155,7 @@ const KontrolleHandler = {
       // Check if current student is now locked
       const currentStudent = this.currentSchuelerList[this.currentIndex];
       if (currentStudent) {
-        const lockedNow = others.find(o => o.schuelerId === currentStudent.id);
+        const lockedNow = this._lockGiltFuerMich(others.find(o => o.schuelerId === currentStudent.id));
         if (lockedNow && !this.currentLock) {
           this.currentLock = lockedNow;
           const lockEl = document.getElementById('lockWarning');
@@ -25185,6 +25324,8 @@ const KontrolleHandler = {
 
   // Override lock (force edit despite another prüfer working on this student)
   overrideLock() {
+    const s = this.currentSchuelerList[this.currentIndex];
+    if (s) this._lockOverrides.add(this.currentTerminId + ':' + s.id);
     this.currentLock = null;
     const formArea = document.getElementById('lockableContent');
     if (formArea) { formArea.style.pointerEvents = ''; formArea.style.opacity = ''; formArea.style.userSelect = ''; }
@@ -25207,7 +25348,7 @@ const KontrolleHandler = {
     // Write position file with new name
     const s = this.currentSchuelerList[this.currentIndex];
     if (s && this.currentTerminId && name) {
-      App._writePositionFile(name, this.currentTerminId, s.id, s.nachname);
+      App._writePositionFile(name, this.currentTerminId, s.id, s.nachname, this._posSeit);
     }
   },
 
@@ -25469,10 +25610,10 @@ const KontrolleHandler = {
       const vorhanden = App.query('SELECT id FROM durchsicht_snapshots WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [ke.id])[0];
       if (vorhanden) {
         App.run(`UPDATE durchsicht_snapshots SET snapshot_datum=?, kw_daten_json=?, geprueft_kws_json=?, pflichtteile_json=?, ergebnis=?, bemerkung=?, pruefer=? WHERE id=?`,
-          [datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
+          [datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
       } else {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.geaendert_von || termin?.pruefer || '']);
+          [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '']);
       }
     });
 
@@ -25523,7 +25664,9 @@ const KontrolleHandler = {
         if (ke?.ergebnis && ke.ergebnis !== 'in_ordnung') mangelIds.push(s.id);
       });
       if (mangelIds.length) {
-        setTimeout(() => PlanungHandler.exportTerminPDF(tid), 300);
+        setTimeout(() => PlanungHandler.exportTerminPDF(tid, mangelIds), 300);
+      } else {
+        App.toast('Keine mangelhaften Bögen – kein PDF erzeugt', 'info');
       }
     }
     const doAemter = document.getElementById('wizAemter')?.checked;
@@ -26185,6 +26328,26 @@ const KWNav = {
   // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
   // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
   // Mängel automatisch als "behoben" protokolliert.
+  // ── Zustand einer Woche für Undo/Redo (Modal, Sonstiges, „Keine
+  //    Beanstandungen") – die Inline-Tasten haben ihr eigenes Undo ──
+  kwZustand(sid, aj, kw) {
+    const r = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0];
+    return r ? { codes: r.maengel_codes || '', fehltage: r.fehltage || 0, behoben: r.behobene_codes || '', geprueft: !!r.geprueft, bemerkung: r.bemerkung || '' }
+             : { codes: '', fehltage: 0, behoben: '', geprueft: false, bemerkung: '' };
+  },
+  kwZustandSetzen(keId, aj, kw, sid, z) {
+    this.persistCodes(keId, aj, kw, z.codes, z.fehltage, sid, z.geprueft, z.behoben);
+    const da = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+    if (da) App.run('UPDATE kw_status SET bemerkung=? WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.bemerkung || '', sid, aj, kw]);
+    else if (z.bemerkung) App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,?,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung',
+      [sid, aj, kw, z.bemerkung, z.geprueft ? 1 : 0, keId]);
+  },
+  pushKWUndo(label, keId, aj, kw, sid, vorher, nachher) {
+    UndoManager.push(label,
+      () => { this.kwZustandSetzen(keId, aj, kw, sid, vorher); KontrolleHandler.renderSchueler(); },
+      () => { this.kwZustandSetzen(keId, aj, kw, sid, nachher); KontrolleHandler.renderSchueler(); });
+  },
+
   persistCodes(keId, aj, kw, codesStr, fehltage, sidOpt, keepGeprueft, behobenOverride) {
     let sid = sidOpt ? parseInt(sidOpt) : null;
     if (!sid) {
@@ -26387,6 +26550,7 @@ const KWNav = {
   saveSonstiges(keId, aj, kw, sid) {
     const checked = document.getElementById('sonstI')?.checked;
     const bem = document.getElementById('sonstBem')?.value?.trim() || '';
+    const vorher = this.kwZustand(sid, aj, kw);
 
     // Toggle I code
     const cell = document.querySelector(`.kw-cell[data-ke="${keId}"][data-aj="${aj}"][data-kw="${kw}"]`);
@@ -26410,6 +26574,8 @@ const KWNav = {
       App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
         [sid, aj, kw, bem, keId]);
     }
+
+    this.pushKWUndo(`KW ${kw} Sonstiges`, keId, aj, kw, sid, vorher, this.kwZustand(sid, aj, kw));
 
     // Append to student's global Bemerkung field if there's text
     if (bem) {
