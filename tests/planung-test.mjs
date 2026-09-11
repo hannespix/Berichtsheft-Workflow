@@ -310,5 +310,29 @@ console.log('\n══ Stufe 3 (1): Jahresablauf, Ferien, Kampagnen-Ausschluss, N
   check(/kampOhneKontrollierte/.test(PLANUNG_SRC) && /nachholterminAnlegen\(\$\{t\.id\}\)/.test(VIEWS_SRC), 'Assistent-Schalter und Nachholtermin-Knopf verdrahtet');
 }
 
+console.log('\n══ Stufe 3 (3): LFK-Regeln, Blockplan-Übernahme, Kontrolltag-Cockpit ══');
+{
+  check(App.lfkRegeln()['034'] === 2 && App.lfkRegeln()['032'] === 3, 'LFK-Standardregeln (Obstbau ab 2., Gemüsebau ab 3. Jahr)');
+  App.lfkRegelnSetzen('034;3\n099;2');
+  check(App.lfkRegeln()['034'] === 3 && App.lfkRegeln()['099'] === 2 && !App.lfkRegeln()['032'], 'Eigene Regeltabelle ersetzt den Standard');
+  App.lfkRegelnSetzen('');
+  check(App.lfkRegeln()['032'] === 3, 'Leere Eingabe = Standard');
+  check(!/const lfkRegeln = \{/.test(APP_SRC) && /this\.lfkRegeln\(\)\[frCode\]/.test(APP_SRC), 'getAktuelleSchule liest die Regeltabelle');
+  const n = App.blockplanAusText(1, '2025/2026', '1: 36-38, 2\nLJ 2; 50-3\nquatsch');
+  check(n === 4 + 6, `Blockplan aus Text: Einzelwochen und Bereiche über den Jahreswechsel (${n} Wochen)`);
+  check(App.scalar("SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=1 AND schuljahr='2025/2026' AND lehrjahr=2") === 6 && App.scalar("SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=1 AND schuljahr='2025/2026' AND lehrjahr=2 AND kalenderwoche IN (52,1)") === 2, 'Bereich 50-3 umfasst 50,51,52,1,2,3 (2025 ohne KW 53)');
+  check(App.blockplanAusText(1, '2026/2027', '3: 52-1') === 3, 'Im 53-Wochen-Jahr 2026 umfasst 52-1 auch die KW 53');
+  const k = App.blockplanKopieren(1, '2025/2026', '2027/2028');
+  check(k === 10 && App.scalar("SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=1 AND schuljahr='2027/2028'") === 10, 'Schuljahr kopieren übernimmt alle Wochen');
+  // Cockpit: drei Ergebnisse um 9:00, 9:12, 9:24 → Ø 12 Min., 2 offen → fertig um 9:48
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,typ) VALUES (796,'2026-09-11','geplant','schulkontrolle')`);
+  db.run(`INSERT INTO kontrollergebnisse (kontrolltermin_id,schueler_id,ergebnis,anwesend,geaendert_am) VALUES (796,1,'in_ordnung',1,'2026-09-11 09:00:00'),(796,2,'in_ordnung',1,'2026-09-11 09:12:00'),(796,3,'post_an_rp',1,'2026-09-11 09:24:00'),(796,901,'',1,''),(796,4,'',1,'')`);
+  const c = App.kontrolltagCockpit(796, new Date('2026-09-11T09:24:00'));
+  check(c.fertig === 3 && c.offen === 2 && c.minutenProAzubi === 12 && c.prognose && c.prognose.getHours() === 9 && c.prognose.getMinutes() === 48, `Cockpit: Ø ${c.minutenProAzubi} Min., ${c.offen} offen → fertig ${c.prognose?.getHours()}:${c.prognose?.getMinutes()}`);
+  check(App.kontrolltagCockpit(796, new Date('2026-09-12T09:24:00')).minutenProAzubi === null, 'Ohne heutige Ergebnisse keine Prognose');
+  check(/await App\.prompt\('Begründung für die Übergabe an den Prüfungsausschuss/.test(KONTROLLE_SRC) && /\[PA\] \$\{grund\.trim\(\)\}/.test(KONTROLLE_SRC), 'Prüfungsausschuss verlangt eine Begründung, die in der Bemerkung landet');
+  check(/StammdatenTab\._blockplanKopieren\(\)/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/stammdaten.js'), 'utf8')) && /id="setLfkRegeln"/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8')), 'Blockplan-Knöpfe und LFK-Regeltabelle in der Oberfläche');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

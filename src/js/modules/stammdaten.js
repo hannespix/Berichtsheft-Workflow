@@ -1024,6 +1024,8 @@ const StammdatenTab = {
           <option value="${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}">${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}</option>
         </select>
       </div><div class="toolbar-right">
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._blockplanKopieren()" title="Blockplan des Vorjahres in das gewählte Schuljahr übernehmen">⧉ Vorjahr kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._blockplanImport()" title="Kalenderwochen je Lehrjahr als Text eintragen (z.B. aus dem Blockplan der Schule)">⇥ Aus Text übernehmen</button>
         <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">Zurücksetzen</button>
       </div></div>
       <div class="card" style="padding:12px">
@@ -1119,6 +1121,26 @@ const StammdatenTab = {
   },
 
 
+  _blockplanKopieren() {
+    const bsId = parseInt(document.getElementById('bpSchule')?.value);
+    const sj = document.getElementById('bpSJ')?.value || '';
+    if (!bsId || !sj) return App.toast('Schule und Schuljahr wählen', 'warning');
+    const y = parseInt(sj);
+    const vonSj = `${y - 1}/${y}`;
+    const n = App.blockplanKopieren(bsId, vonSj, sj);
+    App.toast(n ? `${n} Blockwochen aus ${vonSj} übernommen (vorhandene bleiben)` : `Kein Blockplan für ${vonSj} vorhanden`, n ? 'success' : 'info');
+    this._renderBlockplanGrid();
+  },
+  _blockplanImport() {
+    const bsId = parseInt(document.getElementById('bpSchule')?.value);
+    const sj = document.getElementById('bpSJ')?.value || '';
+    if (!bsId || !sj) return App.toast('Schule und Schuljahr wählen', 'warning');
+    App.openModal('Blockplan aus Text übernehmen', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Je Zeile ein Lehrjahr: <code>1: 36-40, 45, 3-6</code> – Kalenderwochen einzeln oder als Bereich (Schuljahres-Reihenfolge, also 50-3 möglich). Vorhandene Wochen bleiben erhalten.</div>
+      <textarea class="form-control" id="bpImportText" rows="6" style="font-family:monospace;font-size:12px" placeholder="1: 36-40, 2-6&#10;2: 41-45, 7-11&#10;3: 46-50, 12-16"></textarea>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+       <button class="btn btn-primary" onclick="const n=App.blockplanAusText(${bsId},'${sj}',document.getElementById('bpImportText').value);App.closeModal();App.toast(n+' Blockwochen übernommen','success');StammdatenTab._renderBlockplanGrid()">Übernehmen</button>`);
+  },
   _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
     const sj = document.getElementById('bpSJ')?.value || '';

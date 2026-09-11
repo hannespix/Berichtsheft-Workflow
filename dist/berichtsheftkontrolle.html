@@ -13327,13 +13327,7 @@ const App = {
 
     // Regeln: Code → ab welchem AJ gilt die Landesfachklasse
     // Gemüsebau (032/172): 3. AJ | Obstbau (034/174): 2.+3. AJ | Baumschule (033/173): 3. AJ | Stauden (035/175): 3. AJ
-    const lfkRegeln = {
-      '032': 3, '172': 3,   // Gemüsebau
-      '034': 2, '174': 2,   // Obstbau (ab 2. AJ)
-      '033': 3, '173': 3,   // Baumschule
-      '035': 3, '175': 3,   // Staudengärtnerei
-    };
-    const abAJ = lfkRegeln[frCode];
+    const abAJ = this.lfkRegeln()[frCode];
     if (abAJ && aj >= abAJ) {
       return { schule: lfk, isLandesfachklasse: true };
     }
@@ -13416,6 +13410,72 @@ const App = {
     // First KW: week of ausbildungsbeginn
     const getKW = (dt) => { const target = new Date(dt.valueOf()); const dayNr = (dt.getDay() + 6) % 7; target.setDate(target.getDate() - dayNr + 3); const firstThursday = target.valueOf(); target.setMonth(0, 1); if (target.getDay() !== 4) target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7); return 1 + Math.round((firstThursday - target) / 604800000); };
     return { startKW: getKW(d), endKW: getKW(new Date()) };
+  },
+
+  // ── Landesfachklassen-Regeln: Fachrichtungs-Code → ab welchem Ausbildungsjahr
+  //    (Tabelle in den Einstellungen statt fest im Code) ──
+  LFK_REGELN_STANDARD: { '032': 3, '172': 3, '034': 2, '174': 2, '033': 3, '173': 3, '035': 3, '175': 3 },
+  lfkRegeln() {
+    try {
+      const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='lfk_regeln'");
+      if (j) { const o = JSON.parse(j); if (o && typeof o === 'object' && Object.keys(o).length) return o; }
+    } catch(e) {}
+    return this.LFK_REGELN_STANDARD;
+  },
+  lfkRegelnSetzen(text) {
+    // Zeilen "Code;abAJ" (z.B. "034;2"); leer = Standard
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [code, ab] = z.split(/[;,\t ]+/);
+      const n = parseInt(ab);
+      if (code && n >= 1 && n <= 4) o[code.trim()] = n;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('lfk_regeln',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='lfk_regeln'");
+    return o;
+  },
+
+  // ── Kontrolltag-Cockpit: Startzeit, Ø Minuten je Durchsicht, Prognose ──
+  // Aus den Änderungszeitpunkten der heutigen Ergebnisse (geaendert_am)
+  kontrolltagCockpit(terminId, jetzt) {
+    jetzt = jetzt || new Date();
+    const heute = `${jetzt.getFullYear()}-${String(jetzt.getMonth() + 1).padStart(2, '0')}-${String(jetzt.getDate()).padStart(2, '0')}`;
+    const zeiten = this.query("SELECT geaendert_am FROM kontrollergebnisse WHERE kontrolltermin_id=? AND ergebnis != '' AND substr(geaendert_am,1,10)=? ORDER BY geaendert_am", [terminId, heute])
+      .map(r => this._parseDate ? new Date(String(r.geaendert_am).replace(' ', 'T')) : null).filter(d => d && !isNaN(d));
+    const offen = this.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND ergebnis='' AND anwesend != 0", [terminId]) || 0;
+    if (zeiten.length < 2) return { fertig: zeiten.length, offen, start: zeiten[0] || null, minutenProAzubi: null, prognose: null };
+    const start = zeiten[0], letzte = zeiten[zeiten.length - 1];
+    const minuten = (letzte - start) / 60000 / (zeiten.length - 1);
+    const prognose = offen ? new Date(jetzt.getTime() + offen * minuten * 60000) : null;
+    return { fertig: zeiten.length, offen, start, minutenProAzubi: Math.round(minuten * 10) / 10, prognose };
+  },
+  // Blockplan eines Schuljahres kopieren bzw. aus Text (je Zeile "LJ: KW, KW, …") übernehmen
+  blockplanKopieren(bsId, vonSj, nachSj) {
+    const rows = this.query('SELECT lehrjahr, kalenderwoche FROM blockplan WHERE berufsschule_id=? AND schuljahr=?', [bsId, vonSj]);
+    rows.forEach(r => this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id,schuljahr,lehrjahr,kalenderwoche) VALUES (?,?,?,?)', [bsId, nachSj, r.lehrjahr, r.kalenderwoche]));
+    return rows.length;
+  },
+  blockplanAusText(bsId, sj, text) {
+    // Zeilen wie "1: 36-40, 45, 3-6"  oder "LJ 2; 41 42 43"  (Bereiche im Schuljahres-Sinn: 36-40, 50-3)
+    // KW 53 nur in 53-Wochen-Jahren (ISO), sonst springt 52 → 1
+    const y1 = parseInt(sj) || new Date().getFullYear();
+    const order = []; for (let i = 36; i <= (this.hatKW53(y1) ? 53 : 52); i++) order.push(i); for (let i = 1; i <= 35; i++) order.push(i);
+    let n = 0;
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const m = z.match(/^(?:LJ\s*)?([1-4])\s*[:;]\s*(.*)$/i);
+      if (!m) return;
+      const lj = parseInt(m[1]);
+      m[2].split(/[,;\s]+/).filter(Boolean).forEach(tok => {
+        const r = tok.match(/^(\d{1,2})-(\d{1,2})$/);
+        let kws = [];
+        if (r) {
+          const a = order.indexOf(parseInt(r[1])), b = order.indexOf(parseInt(r[2]));
+          if (a >= 0 && b >= 0) kws = a <= b ? order.slice(a, b + 1) : order.slice(a).concat(order.slice(0, b + 1));
+        } else if (/^\d{1,2}$/.test(tok)) kws = [parseInt(tok)];
+        kws.filter(k => k >= 1 && k <= 53).forEach(kw => { this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id,schuljahr,lehrjahr,kalenderwoche) VALUES (?,?,?,?)', [bsId, sj, lj, kw]); n++; });
+      });
+    });
+    return n;
   },
 
   // ── Betriebs- und Schul-Ampel (Stufe 3) ──
@@ -16697,6 +16757,14 @@ const Views = {
         </div>
       </div>
 
+      <!-- Landesfachklassen-Regeln -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Je Zeile <code>Fachrichtungs-Code;ab AJ</code> (IBYKUS-Code, z.B. <code>034;2</code> = Obstbau ab dem 2. Jahr an der Landesfachklasse). Leer = Standard des Programms.</div>
+        <textarea class="form-control" id="setLfkRegeln" rows="5" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.lfkRegeln()).map(([c, ab]) => `${c};${ab}`).join('\n'))}</textarea>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.lfkRegelnSetzen(document.getElementById('setLfkRegeln').value);App.toast(Object.keys(o).length+' Regeln gespeichert','success')">Regeln speichern</button></div>
+      </div>
+
       <!-- Schulferien BW (für den Jahreskalender) -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
@@ -19391,6 +19459,8 @@ const StammdatenTab = {
           <option value="${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}">${parseInt(currentSJ)+1}/${parseInt(currentSJ)+2}</option>
         </select>
       </div><div class="toolbar-right">
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._blockplanKopieren()" title="Blockplan des Vorjahres in das gewählte Schuljahr übernehmen">⧉ Vorjahr kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._blockplanImport()" title="Kalenderwochen je Lehrjahr als Text eintragen (z.B. aus dem Blockplan der Schule)">⇥ Aus Text übernehmen</button>
         <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._clearBlockplan()">Zurücksetzen</button>
       </div></div>
       <div class="card" style="padding:12px">
@@ -19486,6 +19556,26 @@ const StammdatenTab = {
   },
 
 
+  _blockplanKopieren() {
+    const bsId = parseInt(document.getElementById('bpSchule')?.value);
+    const sj = document.getElementById('bpSJ')?.value || '';
+    if (!bsId || !sj) return App.toast('Schule und Schuljahr wählen', 'warning');
+    const y = parseInt(sj);
+    const vonSj = `${y - 1}/${y}`;
+    const n = App.blockplanKopieren(bsId, vonSj, sj);
+    App.toast(n ? `${n} Blockwochen aus ${vonSj} übernommen (vorhandene bleiben)` : `Kein Blockplan für ${vonSj} vorhanden`, n ? 'success' : 'info');
+    this._renderBlockplanGrid();
+  },
+  _blockplanImport() {
+    const bsId = parseInt(document.getElementById('bpSchule')?.value);
+    const sj = document.getElementById('bpSJ')?.value || '';
+    if (!bsId || !sj) return App.toast('Schule und Schuljahr wählen', 'warning');
+    App.openModal('Blockplan aus Text übernehmen', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Je Zeile ein Lehrjahr: <code>1: 36-40, 45, 3-6</code> – Kalenderwochen einzeln oder als Bereich (Schuljahres-Reihenfolge, also 50-3 möglich). Vorhandene Wochen bleiben erhalten.</div>
+      <textarea class="form-control" id="bpImportText" rows="6" style="font-family:monospace;font-size:12px" placeholder="1: 36-40, 2-6&#10;2: 41-45, 7-11&#10;3: 46-50, 12-16"></textarea>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+       <button class="btn btn-primary" onclick="const n=App.blockplanAusText(${bsId},'${sj}',document.getElementById('bpImportText').value);App.closeModal();App.toast(n+' Blockwochen übernommen','success');StammdatenTab._renderBlockplanGrid()">Übernehmen</button>`);
+  },
   _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
     const sj = document.getElementById('bpSJ')?.value || '';
@@ -24325,8 +24415,10 @@ const KontrolleHandler = {
         <!-- Statistik-Leiste -->
         <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
           <div style="padding:6px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
-            <strong>${anwCount}</strong>/${schueler.length} anwesend
+            <strong>${anwCount}</strong>/${schueler.length} ${istEinsendung ? 'Hefte da' : 'anwesend'}
           </div>
+          ${(() => { if (termin.status === 'durchgefuehrt') return ''; const c = App.kontrolltagCockpit(terminId); if (!c.start) return ''; const hm = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+            return `<div style="padding:6px 12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">⏱ Start ${hm(c.start)}${c.minutenProAzubi != null ? ` · Ø ${c.minutenProAzubi} Min./Azubi` : ''}${c.prognose ? ` · voraussichtlich fertig ${hm(c.prognose)}` : (c.offen === 0 && c.fertig ? ' · alle bewertet' : '')}</div>`; })()}
           <div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
             ✓ <strong>${okCount}</strong> in Ordnung
           </div>
@@ -24637,9 +24729,19 @@ const KontrolleHandler = {
   },
 
   // Toggle Prüfungsausschuss (mutually exclusive with Zulassung)
-  togglePA(schuelerId, checked) {
+  async togglePA(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
+    if (checked) {
+      // Übergabe an den Prüfungsausschuss braucht eine Begründung (steht in der Bemerkung)
+      const grund = await App.prompt('Begründung für die Übergabe an den Prüfungsausschuss (erscheint in der Bemerkung und im Bogen):', { titel: 'Prüfungsausschuss', platzhalter: 'z.B. Berichtsheft trotz zweifacher Aufforderung nicht vorgelegt' });
+      if (grund === null) { this.renderUebersicht(); return; }
+      if (grund.trim()) {
+        const bem = (ke.bemerkung || '').trim();
+        const zeile = `[PA] ${grund.trim()}`;
+        if (!bem.includes(zeile)) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bem ? bem + '\n' + zeile : zeile, ke.id]);
+      }
+    }
     if (checked && ke.zulassung_ap === 1) {
       // Unset Zulassung when setting PA
       App.run('UPDATE kontrollergebnisse SET zulassung_ap=0, pruefungsausschuss=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
