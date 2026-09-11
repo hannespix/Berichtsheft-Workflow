@@ -1,9 +1,16 @@
 const WiedervorlagenHandler = {
+  // Filter der WV-Liste: „unerledigt" (offen + überfällig) ist der Standard –
+  // „nur offene" versteckte die überfälligen, also die dringendsten
   filter(status) {
     const rows = document.querySelectorAll('#wvTableBody tr');
     rows.forEach(r => {
-      if (status === 'all') r.style.display = '';
-      else r.style.display = r.dataset.status === status ? '' : 'none';
+      const st = r.dataset.status;
+      let show;
+      if (status === 'all') show = true;
+      else if (status === 'unerledigt') show = st !== 'erledigt';
+      else if (status === 'ohne_versand') show = st !== 'erledigt' && r.dataset.versand !== '1';
+      else show = st === status;
+      r.style.display = show ? '' : 'none';
     });
   },
 
@@ -223,11 +230,13 @@ const WiedervorlagenHandler = {
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id
       WHERE w.status IN ('offen','ueberfaellig')`);
     if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen', 'warning');
+    // Wiedervorlagen als AUFGABEN (VTODO) mit Fälligkeit, stabile UID je WV
     App.exportICS(wvs.map(w => ({
+      uid: 'bhk-wv-' + w.id, todo: true,
       date: w.frist_datum,
       title: `Wiedervorlage: ${w.nachname}, ${w.vorname} – BH-Kontrolle`,
-      description: wvArtLabel(w.art)
-    })));
+      description: wvArtLabel(w.art) + (w.versand_datum ? `\nAngeschrieben: ${formatDate(w.versand_datum)}` : '\nNoch kein Anschreiben vermerkt')
+    })), App.safeFilename(['BH-Wiedervorlagen', todayStr()], 'ics'));
     App.toast('ICS-Datei exportiert', 'success');
   }
 };

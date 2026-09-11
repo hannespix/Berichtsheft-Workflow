@@ -2462,6 +2462,8 @@ const KontrolleHandler = {
 
     // 3) Set termin status
     App.run("UPDATE kontrolltermine SET status='durchgefuehrt', durchgefuehrt_datum=? WHERE id=?", [datum, tid]);
+    // Statuskette: Abschluss-Assistent = Nachbereitung (Archiv, WV, Mitteilungen)
+    App.terminSchritt(tid, 'nachbereitet');
     App.closeModal();
 
     // 4) Post-actions

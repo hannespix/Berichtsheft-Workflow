@@ -1188,7 +1188,11 @@ const App = {
       pruefer TEXT DEFAULT '',
       status TEXT DEFAULT 'geplant' CHECK (status IN ('geplant','durchgefuehrt','abgesagt')),
       typ TEXT DEFAULT 'schulkontrolle' CHECK (typ IN ('schulkontrolle','einsendung')),
-      bemerkung TEXT DEFAULT ''
+      bemerkung TEXT DEFAULT '',
+      angefragt_am TEXT DEFAULT '',
+      angefragt_von TEXT DEFAULT '',
+      bestaetigt_am TEXT DEFAULT '',
+      nachbereitet_am TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4756,6 +4760,11 @@ const App = {
     // kontrolltermine columns
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
     run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL");
+    // Termin-Statuskette: angefragt → bestätigt → durchgeführt → nachbereitet
+    run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -6049,6 +6058,32 @@ const App = {
     return { startKW: getKW(d), endKW: getKW(new Date()) };
   },
 
+  // ── Termin-Statuskette (Stufe 2) ──
+  // angefragt (Schul-Mail geöffnet) → bestätigt (Schule hat zugesagt) →
+  // durchgeführt (status) → nachbereitet (Abschluss-Assistent / Ergebnis-Mail).
+  // Jeder Schritt mit Datum; „angefragt" merkt sich auch, wer angefragt hat –
+  // zwei Kollegen fragten sonst doppelt an.
+  terminSchritt(terminId, schritt) {
+    const heute = new Date().toISOString().slice(0, 10);
+    if (schritt === 'angefragt') this.run('UPDATE kontrolltermine SET angefragt_am=?, angefragt_von=? WHERE id=?', [heute, this.currentUser || '', terminId]);
+    else if (schritt === 'bestaetigt') this.run('UPDATE kontrolltermine SET bestaetigt_am=? WHERE id=?', [heute, terminId]);
+    else if (schritt === 'nachbereitet') this.run("UPDATE kontrolltermine SET nachbereitet_am=? WHERE id=? AND COALESCE(nachbereitet_am,'')=''", [heute, terminId]);
+    else if (schritt === 'anfrage_zurueck') this.run("UPDATE kontrolltermine SET angefragt_am='', angefragt_von='', bestaetigt_am='' WHERE id=?", [terminId]);
+    else return;
+    try { this.invalidateTerminCache(); } catch(e) {}
+  },
+  // Lesbarer Stand der Kette für Listen/Dashboard: {schritt, label, farbe}
+  terminKette(t) {
+    if (!t) return { schritt: '', label: '', farbe: '' };
+    if (t.status === 'durchgefuehrt') return t.nachbereitet_am
+      ? { schritt: 'nachbereitet', label: `nachbereitet ${formatDate(t.nachbereitet_am)}`, farbe: 'var(--clr-green)' }
+      : { schritt: 'offen_nachbereitung', label: 'Nachbereitung offen', farbe: 'var(--clr-amber)' };
+    if (t.status !== 'geplant') return { schritt: t.status, label: '', farbe: '' };
+    if (t.bestaetigt_am) return { schritt: 'bestaetigt', label: `bestätigt ${formatDate(t.bestaetigt_am)}`, farbe: 'var(--clr-green)' };
+    if (t.angefragt_am) return { schritt: 'angefragt', label: `angefragt ${formatDate(t.angefragt_am)}${t.angefragt_von ? ' (' + t.angefragt_von + ')' : ''}`, farbe: 'var(--clr-blue)' };
+    return { schritt: 'nicht_angefragt', label: 'noch nicht angefragt', farbe: 'var(--clr-text-light)' };
+  },
+
   // ── Kalender-Helfer für Planung und Blockplan ──
   // ISO 8601: ein Jahr hat 53 Wochen, wenn der 1. Januar ein Donnerstag ist
   // (Schaltjahr: auch Mittwoch). Sonst zeigte das Raster KW 53 in
@@ -6887,6 +6922,10 @@ Anlagen: {anlagen}` },
       // kontrolltermine: typ (schulkontrolle vs einsendung)
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
       // Relax fachrichtungen CHECK constraint + add new professions
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='fachrichtungen'")[0]?.sql || '';
@@ -7368,16 +7407,29 @@ Anlagen: {anlagen}` },
   },
 
   // ── ICS Export ──
-  exportICS(events, dateiname) {
-    // Feldinhalte nach RFC 5545 maskieren – ein Komma im Schulnamen zerbrach
-    // sonst die SUMMARY-Zeile
+  // ICS-Text (RFC 5545): Termine als VEVENT mit stabiler UID (bhk-termin-<id>,
+  // Re-Import aktualisiert statt zu doppeln), DTSTAMP/DTEND/LOCATION;
+  // Wiedervorlagen als VTODO mit Fälligkeit. e: {uid, date, title,
+  // description, location, todo}
+  icsText(events) {
+    // Feldinhalte maskieren – ein Komma im Schulnamen zerbrach sonst die SUMMARY-Zeile
     const esc5545 = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Berichtsheftkontrolle//DE\r\nCALSCALE:GREGORIAN\r\n';
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const dOnly = d => String(d || '').slice(0, 10).replace(/-/g, '');
+    const folgetag = d => { const x = this._parseDate(String(d || '').slice(0, 10)) || new Date(); x.setDate(x.getDate() + 1); return `${x.getFullYear()}${String(x.getMonth() + 1).padStart(2, '0')}${String(x.getDate()).padStart(2, '0')}`; };
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Berichtsheftkontrolle//DE\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
     events.forEach((e, i) => {
-      const dtStart = e.date.replace(/-/g, '');
-      ics += `BEGIN:VEVENT\r\nUID:bhk-${dtStart}-${i}@berichtsheftkontrolle\r\nDTSTART;VALUE=DATE:${dtStart}\r\nSUMMARY:${esc5545(e.title)}\r\nDESCRIPTION:${esc5545(e.description || '')}\r\nEND:VEVENT\r\n`;
+      const uid = `${e.uid || 'bhk-' + dOnly(e.date) + '-' + i}@berichtsheftkontrolle`;
+      if (e.todo) {
+        ics += `BEGIN:VTODO\r\nUID:${uid}\r\nDTSTAMP:${stamp}\r\nDUE;VALUE=DATE:${dOnly(e.date)}\r\nSUMMARY:${esc5545(e.title)}\r\nDESCRIPTION:${esc5545(e.description || '')}\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\n`;
+      } else {
+        ics += `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTAMP:${stamp}\r\nDTSTART;VALUE=DATE:${dOnly(e.date)}\r\nDTEND;VALUE=DATE:${folgetag(e.date)}\r\nSUMMARY:${esc5545(e.title)}\r\n${e.location ? 'LOCATION:' + esc5545(e.location) + '\r\n' : ''}DESCRIPTION:${esc5545(e.description || '')}\r\nEND:VEVENT\r\n`;
+      }
     });
-    ics += 'END:VCALENDAR';
+    return ics + 'END:VCALENDAR';
+  },
+  exportICS(events, dateiname) {
+    const ics = this.icsText(events);
     const blob = new Blob([ics], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

@@ -230,5 +230,48 @@ console.log('\n══ Audit 7 Paket D: Planung im Termin-Modell ══');
   check(/ortSel\.value = String\(bsId\)/.test(PLANUNG_SRC), 'Standort-Klick setzt den Ort des Termins');
 }
 
+console.log('\n══ Stufe 2 (1): Termin-Statuskette, Arbeitsliste, WV-Filter, ICS ══');
+{
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,typ,berufsschule_id,pruefer) VALUES (790,'2026-12-01','geplant','schulkontrolle',1,'Test')`);
+  App.currentUser = 'Muster, Max';
+  let k = App.terminKette(App.query('SELECT * FROM kontrolltermine WHERE id=790')[0]);
+  check(k.schritt === 'nicht_angefragt', 'Neuer Termin: noch nicht angefragt');
+  App.terminSchritt(790, 'angefragt');
+  let t = App.query('SELECT * FROM kontrolltermine WHERE id=790')[0];
+  check(t.angefragt_am && t.angefragt_von === 'Muster, Max' && App.terminKette(t).schritt === 'angefragt', `Schul-Mail vermerkt „angefragt" mit Datum und Person (${t.angefragt_am}/${t.angefragt_von})`);
+  App.terminSchritt(790, 'bestaetigt');
+  t = App.query('SELECT * FROM kontrolltermine WHERE id=790')[0];
+  check(t.bestaetigt_am && App.terminKette(t).schritt === 'bestaetigt', 'Zusage der Schule → bestätigt');
+  db.run(`UPDATE kontrolltermine SET status='durchgefuehrt' WHERE id=790`);
+  t = App.query('SELECT * FROM kontrolltermine WHERE id=790')[0];
+  check(App.terminKette(t).schritt === 'offen_nachbereitung', 'Durchgeführt ohne Nachbereitung wird als offen erkannt');
+  App.terminSchritt(790, 'nachbereitet');
+  t = App.query('SELECT * FROM kontrolltermine WHERE id=790')[0];
+  check(t.nachbereitet_am && App.terminKette(t).schritt === 'nachbereitet', 'Abschluss-Assistent/Ergebnis-Mail → nachbereitet');
+  App.terminSchritt(790, 'anfrage_zurueck');
+  t = App.query('SELECT * FROM kontrolltermine WHERE id=790')[0];
+  check(t.angefragt_am === '' && t.bestaetigt_am === '', 'Anfrage-Vermerk lässt sich zurücksetzen');
+  const W_SRC = WORKFLOWS_SRC;
+  check(/App\.terminSchritt\(p\.terminId, p\.isDone \? 'nachbereitet' : 'angefragt'\)/.test(W_SRC) && /bitte nicht doppelt anfragen/.test(W_SRC), 'Schul-Mail setzt den Schritt und warnt vor doppelter Anfrage');
+  check(/App\.terminSchritt\(tid, 'nachbereitet'\)/.test(KONTROLLE_SRC), 'Abschluss-Assistent vermerkt die Nachbereitung');
+  const diskDb = new SQL.Database();
+  diskDb.run(`CREATE TABLE kontrolltermine (id INTEGER PRIMARY KEY AUTOINCREMENT, geplant_datum TEXT, status TEXT)`);
+  for (const tb of ['schueler','kontrollergebnisse','berufsschulen','klassen','abschlussjahrgaenge','fachrichtungen','wiedervorlagen']) diskDb.run(`CREATE TABLE ${tb} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);
+  App._migrateDiskDb(diskDb);
+  const cols = []; const st = diskDb.prepare('PRAGMA table_info(kontrolltermine)'); while (st.step()) cols.push(st.getAsObject().name); st.free();
+  check(['angefragt_am','angefragt_von','bestaetigt_am','nachbereitet_am'].every(c => cols.includes(c)), 'Statuskette-Spalten auch auf der Disk-Datenbank');
+  diskDb.close();
+  // Arbeitsliste + WV-Filter (Quelltext)
+  const VIEWS_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/Arbeitsliste – heute \/ diese Woche/.test(VIEWS_SRC) && /termineOhneAbschluss/.test(VIEWS_SRC) && /termineOhnePruefer/.test(VIEWS_SRC) && /wvOhneVersand/.test(VIEWS_SRC) && /termineNichtAngefragt/.test(VIEWS_SRC), 'Dashboard-Arbeitsliste: überfällig, fällig, ohne Versand, ohne Abschluss, ohne Prüfer, nicht angefragt');
+  check(/<option value="unerledigt" selected>/.test(VIEWS_SRC) && /status === 'unerledigt'\) show = st !== 'erledigt'/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/wiedervorlagen.js'), 'utf8')), 'WV-Liste: Standardfilter „unerledigt" (offen + überfällig)');
+  // ICS
+  const ics = App.icsText([{ uid: 'bhk-termin-790', date: '2026-12-01', title: 'BH-Kontrolle: BS Freiburg, Hauptstelle', location: 'BS Freiburg, Freiburg', description: 'Prüfer: Test' },
+                           { uid: 'bhk-wv-5', todo: true, date: '2026-12-15', title: 'Wiedervorlage: Muster', description: 'Nachholung' }]);
+  check(/UID:bhk-termin-790@berichtsheftkontrolle/.test(ics) && /DTSTAMP:\d{8}T\d{6}Z/.test(ics) && /DTEND;VALUE=DATE:20261202/.test(ics) && /LOCATION:BS Freiburg\\, Freiburg/.test(ics), 'ICS-Termin: stabile UID, DTSTAMP, DTEND (Folgetag), LOCATION maskiert');
+  check(/BEGIN:VTODO[\s\S]*UID:bhk-wv-5@berichtsheftkontrolle[\s\S]*DUE;VALUE=DATE:20261215[\s\S]*END:VTODO/.test(ics), 'Wiedervorlagen als Aufgaben (VTODO mit Fälligkeit)');
+  check(/SUMMARY:BH-Kontrolle: BS Freiburg\\, Hauptstelle/.test(ics), 'Komma im Schulnamen maskiert');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

@@ -8515,7 +8515,11 @@ const App = {
       pruefer TEXT DEFAULT '',
       status TEXT DEFAULT 'geplant' CHECK (status IN ('geplant','durchgefuehrt','abgesagt')),
       typ TEXT DEFAULT 'schulkontrolle' CHECK (typ IN ('schulkontrolle','einsendung')),
-      bemerkung TEXT DEFAULT ''
+      bemerkung TEXT DEFAULT '',
+      angefragt_am TEXT DEFAULT '',
+      angefragt_von TEXT DEFAULT '',
+      bestaetigt_am TEXT DEFAULT '',
+      nachbereitet_am TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12083,6 +12087,11 @@ const App = {
     // kontrolltermine columns
     run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'");
     run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL");
+    // Termin-Statuskette: angefragt → bestätigt → durchgeführt → nachbereitet
+    run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -13376,6 +13385,32 @@ const App = {
     return { startKW: getKW(d), endKW: getKW(new Date()) };
   },
 
+  // ── Termin-Statuskette (Stufe 2) ──
+  // angefragt (Schul-Mail geöffnet) → bestätigt (Schule hat zugesagt) →
+  // durchgeführt (status) → nachbereitet (Abschluss-Assistent / Ergebnis-Mail).
+  // Jeder Schritt mit Datum; „angefragt" merkt sich auch, wer angefragt hat –
+  // zwei Kollegen fragten sonst doppelt an.
+  terminSchritt(terminId, schritt) {
+    const heute = new Date().toISOString().slice(0, 10);
+    if (schritt === 'angefragt') this.run('UPDATE kontrolltermine SET angefragt_am=?, angefragt_von=? WHERE id=?', [heute, this.currentUser || '', terminId]);
+    else if (schritt === 'bestaetigt') this.run('UPDATE kontrolltermine SET bestaetigt_am=? WHERE id=?', [heute, terminId]);
+    else if (schritt === 'nachbereitet') this.run("UPDATE kontrolltermine SET nachbereitet_am=? WHERE id=? AND COALESCE(nachbereitet_am,'')=''", [heute, terminId]);
+    else if (schritt === 'anfrage_zurueck') this.run("UPDATE kontrolltermine SET angefragt_am='', angefragt_von='', bestaetigt_am='' WHERE id=?", [terminId]);
+    else return;
+    try { this.invalidateTerminCache(); } catch(e) {}
+  },
+  // Lesbarer Stand der Kette für Listen/Dashboard: {schritt, label, farbe}
+  terminKette(t) {
+    if (!t) return { schritt: '', label: '', farbe: '' };
+    if (t.status === 'durchgefuehrt') return t.nachbereitet_am
+      ? { schritt: 'nachbereitet', label: `nachbereitet ${formatDate(t.nachbereitet_am)}`, farbe: 'var(--clr-green)' }
+      : { schritt: 'offen_nachbereitung', label: 'Nachbereitung offen', farbe: 'var(--clr-amber)' };
+    if (t.status !== 'geplant') return { schritt: t.status, label: '', farbe: '' };
+    if (t.bestaetigt_am) return { schritt: 'bestaetigt', label: `bestätigt ${formatDate(t.bestaetigt_am)}`, farbe: 'var(--clr-green)' };
+    if (t.angefragt_am) return { schritt: 'angefragt', label: `angefragt ${formatDate(t.angefragt_am)}${t.angefragt_von ? ' (' + t.angefragt_von + ')' : ''}`, farbe: 'var(--clr-blue)' };
+    return { schritt: 'nicht_angefragt', label: 'noch nicht angefragt', farbe: 'var(--clr-text-light)' };
+  },
+
   // ── Kalender-Helfer für Planung und Blockplan ──
   // ISO 8601: ein Jahr hat 53 Wochen, wenn der 1. Januar ein Donnerstag ist
   // (Schaltjahr: auch Mittwoch). Sonst zeigte das Raster KW 53 in
@@ -14214,6 +14249,10 @@ Anlagen: {anlagen}` },
       // kontrolltermine: typ (schulkontrolle vs einsendung)
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
       // Relax fachrichtungen CHECK constraint + add new professions
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='fachrichtungen'")[0]?.sql || '';
@@ -14695,16 +14734,29 @@ Anlagen: {anlagen}` },
   },
 
   // ── ICS Export ──
-  exportICS(events, dateiname) {
-    // Feldinhalte nach RFC 5545 maskieren – ein Komma im Schulnamen zerbrach
-    // sonst die SUMMARY-Zeile
+  // ICS-Text (RFC 5545): Termine als VEVENT mit stabiler UID (bhk-termin-<id>,
+  // Re-Import aktualisiert statt zu doppeln), DTSTAMP/DTEND/LOCATION;
+  // Wiedervorlagen als VTODO mit Fälligkeit. e: {uid, date, title,
+  // description, location, todo}
+  icsText(events) {
+    // Feldinhalte maskieren – ein Komma im Schulnamen zerbrach sonst die SUMMARY-Zeile
     const esc5545 = (t) => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Berichtsheftkontrolle//DE\r\nCALSCALE:GREGORIAN\r\n';
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const dOnly = d => String(d || '').slice(0, 10).replace(/-/g, '');
+    const folgetag = d => { const x = this._parseDate(String(d || '').slice(0, 10)) || new Date(); x.setDate(x.getDate() + 1); return `${x.getFullYear()}${String(x.getMonth() + 1).padStart(2, '0')}${String(x.getDate()).padStart(2, '0')}`; };
+    let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Berichtsheftkontrolle//DE\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
     events.forEach((e, i) => {
-      const dtStart = e.date.replace(/-/g, '');
-      ics += `BEGIN:VEVENT\r\nUID:bhk-${dtStart}-${i}@berichtsheftkontrolle\r\nDTSTART;VALUE=DATE:${dtStart}\r\nSUMMARY:${esc5545(e.title)}\r\nDESCRIPTION:${esc5545(e.description || '')}\r\nEND:VEVENT\r\n`;
+      const uid = `${e.uid || 'bhk-' + dOnly(e.date) + '-' + i}@berichtsheftkontrolle`;
+      if (e.todo) {
+        ics += `BEGIN:VTODO\r\nUID:${uid}\r\nDTSTAMP:${stamp}\r\nDUE;VALUE=DATE:${dOnly(e.date)}\r\nSUMMARY:${esc5545(e.title)}\r\nDESCRIPTION:${esc5545(e.description || '')}\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\n`;
+      } else {
+        ics += `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTAMP:${stamp}\r\nDTSTART;VALUE=DATE:${dOnly(e.date)}\r\nDTEND;VALUE=DATE:${folgetag(e.date)}\r\nSUMMARY:${esc5545(e.title)}\r\n${e.location ? 'LOCATION:' + esc5545(e.location) + '\r\n' : ''}DESCRIPTION:${esc5545(e.description || '')}\r\nEND:VEVENT\r\n`;
+      }
     });
-    ics += 'END:VCALENDAR';
+    return ics + 'END:VCALENDAR';
+  },
+  exportICS(events, dateiname) {
+    const ics = this.icsText(events);
     const blob = new Blob([ics], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -15003,6 +15055,24 @@ const Views = {
     const gfBet = App.gf('betriebe');
     const betriebOhneEmail = App.scalar(`SELECT COUNT(*) FROM betriebe b WHERE b.email = '' AND (SELECT COUNT(*) FROM schueler sq WHERE sq.betrieb_id=b.id AND ${aktivClause.replace(/\bs\./g,'sq.')}) > 0${gfBet}`) || 0;
 
+    // ── Arbeitsliste „Heute / diese Woche" ──
+    const in7 = addDaysStr(7), in21 = addDaysStr(21);
+    const wvHeute = App.query(`SELECT w.id, w.frist_datum, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum BETWEEN ? AND ?${jf.where} ORDER BY w.frist_datum`, [today, in7, ...jf.params]);
+    const wvOhneVersand = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND COALESCE(w.versand_datum,'')='' AND w.art != 'nachholung_naechste_durchsicht'${jf.where}`, jf.params) || 0;
+    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
+    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
+    const arbeitsliste = [
+      ueberfaellig ? { n: ueberfaellig, text: `Wiedervorlage${ueberfaellig > 1 ? 'n' : ''} überfällig`, farbe: 'var(--clr-red)', view: 'wiedervorlagen', filter: 'ueberfaellig' } : null,
+      wvHeute.length ? { n: wvHeute.length, text: `Wiedervorlage${wvHeute.length > 1 ? 'n' : ''} fällig bis ${formatDate(in7)}`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'unerledigt' } : null,
+      wvOhneVersand ? { n: wvOhneVersand, text: `offene Wiedervorlage${wvOhneVersand > 1 ? 'n' : ''} ohne Anschreiben (Versandnachweis fehlt)`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'ohne_versand' } : null,
+      termineOhneAbschluss.length ? { n: termineOhneAbschluss.length, text: `Termin${termineOhneAbschluss.length > 1 ? 'e' : ''} mit Ergebnissen, aber ohne Abschluss (${termineOhneAbschluss.map(t => formatDate(t.geplant_datum)).slice(0, 3).join(', ')})`, farbe: 'var(--clr-red)', view: 'kontrolle', terminId: termineOhneAbschluss[0].id } : null,
+      termineOhneNachbereitung.length ? { n: termineOhneNachbereitung.length, text: `durchgeführte${termineOhneNachbereitung.length > 1 ? '' : 'r'} Termin${termineOhneNachbereitung.length > 1 ? 'e' : ''} ohne Nachbereitung (Schul-Mitteilung/Betriebe)`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
+      termineNichtAngefragt.length ? { n: termineNichtAngefragt.length, text: `Schultermin${termineNichtAngefragt.length > 1 ? 'e' : ''} in den nächsten 3 Wochen noch nicht bei der Schule angefragt`, farbe: 'var(--clr-blue)', view: 'planung' } : null,
+      termineOhnePruefer.length ? { n: termineOhnePruefer.length, text: `Termin${termineOhnePruefer.length > 1 ? 'e' : ''} ohne Prüfer`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
+    ].filter(Boolean);
+
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
@@ -15019,6 +15089,18 @@ const Views = {
           ${naechste7Tage ? `<span style="padding:5px 12px;background:var(--clr-blue-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('planung')"><strong>${naechste7Tage}</strong> Termin${naechste7Tage>1?'e':''} in den nächsten 7 Tagen</span>` : ''}
           ${ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-red-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')"><span style="color:var(--clr-red)">◆</span> <strong>${ueberfaellig}</strong> Wiedervorlage${ueberfaellig>1?'n':''} überfällig!</span>` : ''}
           ${bald_ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-amber-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">⚠︎ <strong>${bald_ueberfaellig}</strong> WV laufen in 3 Tagen ab</span>` : ''}
+        </div>
+      </div>` : ''}
+
+      <!-- Arbeitsliste: was heute / diese Woche zu tun ist -->
+      ${arbeitsliste.length ? `
+      <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-amber)">
+        <strong style="font-size:14px;color:var(--clr-forest-dark)">☑ Arbeitsliste – heute / diese Woche</strong>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px">
+          ${arbeitsliste.map(a => `<div style="display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--radius);cursor:pointer;background:var(--clr-warm)"
+              onclick="${a.terminId ? `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${a.terminId}),100)` : a.filter ? `App.navigate('${a.view}');setTimeout(()=>{const f=document.getElementById('wvFilter');if(f){f.value='${a.filter}';WiedervorlagenHandler.filter('${a.filter}')}},150)` : `App.navigate('${a.view}')`}">
+            <strong style="min-width:28px;text-align:right;color:${a.farbe}">${a.n}</strong><span>${a.text}</span><span style="margin-left:auto;color:var(--clr-text-light)">→</span>
+          </div>`).join('')}
         </div>
       </div>` : ''}
 
@@ -15917,7 +15999,7 @@ const Views = {
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
-            <td data-sort="${t.status}">${statusBadge(t.status)}</td>
+            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:10px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td class="btn-group" style="flex-wrap:wrap">
               ${t.status === 'geplant' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)">Starten</button>` : ''}
               <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
@@ -16007,10 +16089,12 @@ const Views = {
       <div class="toolbar">
         <div class="toolbar-left">
           <select class="form-control" style="width:auto" onchange="WiedervorlagenHandler.filter(this.value)" id="wvFilter">
-            <option value="all" selected>Alle anzeigen</option>
-            <option value="offen">Nur offene</option>
+            <option value="unerledigt" selected>Unerledigt (offen + überfällig)</option>
             <option value="ueberfaellig">Nur überfällige</option>
+            <option value="offen">Nur offene (Frist läuft)</option>
+            <option value="ohne_versand">Unerledigt ohne Anschreiben</option>
             <option value="erledigt">Nur erledigte</option>
+            <option value="all">Alle anzeigen</option>
           </select>
         </div>
         <div class="toolbar-right">
@@ -16034,7 +16118,7 @@ const Views = {
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
           <th>Schüler</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
-          ${wvs.map(w => `<tr data-status="${w.status}">
+          ${wvs.map(w => `<tr data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
             <td><input type="checkbox" class="chk-wv" value="${w.id}" onchange="BulkWV.updateBar()"></td>
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
@@ -16055,7 +16139,7 @@ const Views = {
       </div>
     </div>`;
     // Apply initial filter
-    WiedervorlagenHandler.filter(document.getElementById('wvFilter')?.value || 'all');
+    WiedervorlagenHandler.filter(document.getElementById('wvFilter')?.value || 'unerledigt');
   },
 
   // ════════════════════════════════════════════
@@ -22150,12 +22234,26 @@ const PlanungHandler = {
       const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ');
       const n = App.getTerminSchueler(t.id).length;
       return {
+        uid: 'bhk-termin-' + t.id,
         date: t.geplant_datum,
+        location: bs ? `${bs.name}${bs.ort ? ', ' + bs.ort : ''}` : '',
         title: `BH-Kontrolle: ${schule}${klassenStr ? ' – ' + klassenStr : ''}${t.bemerkung && !klassenStr ? ' – ' + t.bemerkung : ''}`,
         description: `Prüfer: ${t.pruefer || '–'}\n${n} Azubi(s)${bs && bs.ort ? '\nOrt: ' + bs.ort : ''}${t.bemerkung ? '\n' + t.bemerkung : ''}`
       };
     }), App.safeFilename(['BH-Kontrolltermine', todayStr()], 'ics'));
     App.toast(`${termine.length} Termin(e) als ICS exportiert – in Outlook per Datei → Öffnen importieren`, 'success');
+  },
+
+  // ── Termin-Statuskette: Zusage der Schule vermerken / Anfrage zurücksetzen ──
+  terminBestaetigen(id) {
+    App.terminSchritt(id, 'bestaetigt');
+    App.toast('Zusage der Schule vermerkt', 'success');
+    Views.planung();
+  },
+  terminAnfrageZuruecksetzen(id) {
+    if (!confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?')) return;
+    App.terminSchritt(id, 'anfrage_zurueck');
+    Views.planung();
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
@@ -25845,6 +25943,8 @@ const KontrolleHandler = {
 
     // 3) Set termin status
     App.run("UPDATE kontrolltermine SET status='durchgefuehrt', durchgefuehrt_datum=? WHERE id=?", [datum, tid]);
+    // Statuskette: Abschluss-Assistent = Nachbereitung (Archiv, WV, Mitteilungen)
+    App.terminSchritt(tid, 'nachbereitet');
     App.closeModal();
 
     // 4) Post-actions
@@ -27799,7 +27899,12 @@ const Workflows = {
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
     const emailType = isDone ? 'Ergebnis-Mitteilung' : 'Terminanfrage';
-    window._pendingEmail = { to, subject: betreff, body, cc };
+    window._pendingEmail = { to, subject: betreff, body, cc, terminId, isDone };
+    // Statuskette: schon angefragt? (zwei Kollegen fragten sonst doppelt an)
+    const kette = App.terminKette(t.termin);
+    const anfrageHinweis = !isDone && t.termin.angefragt_am
+      ? `<div style="padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius);margin-bottom:8px;font-size:12px">⚠︎ Dieser Termin wurde bereits ${esc(kette.label)} – bitte nicht doppelt anfragen (ggf. Erinnerung/Änderung).</div>`
+      : '';
 
     if (!to) {
       App.openModal(`✉︎ ${emailType} an Schule`, `
@@ -27814,6 +27919,7 @@ const Workflows = {
       return;
     }
     App.openModal(`✉︎ ${emailType} an ${esc(schule.name)}`, `
+      ${anfrageHinweis}
       <div style="font-size:13px">
         <div><strong>An:</strong> ${esc(to)}</div>
         ${cc ? `<div><strong>CC:</strong> ${esc(cc)}</div>` : ''}
@@ -27824,15 +27930,25 @@ const Workflows = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('An: '+window._pendingEmail.to+'\\nBetreff: '+window._pendingEmail.subject+'\\n\\n'+window._pendingEmail.body);App.toast('In Zwischenablage kopiert','success')">▤ Kopieren</button>
-        <button class="btn btn-primary" onclick="Workflows.openMailto(window._pendingEmail.to, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);App.closeModal()">✉︎ In Outlook öffnen</button>`);
+        <button class="btn btn-primary" onclick="Workflows._schulMailOeffnen()">✉︎ In Outlook öffnen</button>`);
+  },
+  // Schul-Mail öffnen und den Schritt in der Statuskette vermerken
+  // (Terminanfrage → angefragt, Ergebnis-Mitteilung → nachbereitet)
+  _schulMailOeffnen(adresse) {
+    const p = window._pendingEmail || {};
+    this.openMailto(adresse || p.to, p.subject, p.body, p.cc);
+    if (p.terminId) {
+      App.terminSchritt(p.terminId, p.isDone ? 'nachbereitet' : 'angefragt');
+      try { if (App.currentView === 'planung') Views.planung(); } catch(e) {}
+    }
+    App.closeModal();
   },
   _schulEmailMerkenUndOeffnen(schuleId) {
     const adr = (document.getElementById('mSchEmail2')?.value || '').trim();
     if (!adr) return App.toast('Bitte E-Mail-Adresse eingeben', 'warning');
     // In den Stammdaten merken – sonst beim nächsten Mal wieder Handarbeit
     App.run('UPDATE berufsschulen SET email=? WHERE id=? AND (email IS NULL OR email=\'\')', [adr, schuleId]);
-    this.openMailto(adr, window._pendingEmail.subject, window._pendingEmail.body, window._pendingEmail.cc);
-    App.closeModal();
+    this._schulMailOeffnen(adr);
   },
 
   // ── Betriebs-Gruppierung eines Termins ──
@@ -28359,11 +28475,18 @@ const Workflows = {
 
 // ── wiedervorlagen.js ──
 const WiedervorlagenHandler = {
+  // Filter der WV-Liste: „unerledigt" (offen + überfällig) ist der Standard –
+  // „nur offene" versteckte die überfälligen, also die dringendsten
   filter(status) {
     const rows = document.querySelectorAll('#wvTableBody tr');
     rows.forEach(r => {
-      if (status === 'all') r.style.display = '';
-      else r.style.display = r.dataset.status === status ? '' : 'none';
+      const st = r.dataset.status;
+      let show;
+      if (status === 'all') show = true;
+      else if (status === 'unerledigt') show = st !== 'erledigt';
+      else if (status === 'ohne_versand') show = st !== 'erledigt' && r.dataset.versand !== '1';
+      else show = st === status;
+      r.style.display = show ? '' : 'none';
     });
   },
 
@@ -28583,11 +28706,13 @@ const WiedervorlagenHandler = {
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id
       WHERE w.status IN ('offen','ueberfaellig')`);
     if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen', 'warning');
+    // Wiedervorlagen als AUFGABEN (VTODO) mit Fälligkeit, stabile UID je WV
     App.exportICS(wvs.map(w => ({
+      uid: 'bhk-wv-' + w.id, todo: true,
       date: w.frist_datum,
       title: `Wiedervorlage: ${w.nachname}, ${w.vorname} – BH-Kontrolle`,
-      description: wvArtLabel(w.art)
-    })));
+      description: wvArtLabel(w.art) + (w.versand_datum ? `\nAngeschrieben: ${formatDate(w.versand_datum)}` : '\nNoch kein Anschreiben vermerkt')
+    })), App.safeFilename(['BH-Wiedervorlagen', todayStr()], 'ics'));
     App.toast('ICS-Datei exportiert', 'success');
   }
 };
