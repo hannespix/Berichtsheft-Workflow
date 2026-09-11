@@ -46,8 +46,8 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET klasse_id=? WHERE id=?', [klId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler zugeordnet`, 'success');
-    StammdatenTab._bulkDeselectAll();
-    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
+    this.deselectAll();
+    this._refresh();
   },
   assignJahrgang() {
     const ids = this.getSelected();
@@ -66,8 +66,8 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET jahrgang_id=? WHERE id=?', [jgId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler verschoben`, 'success');
-    StammdatenTab._bulkDeselectAll();
-    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
+    this.deselectAll();
+    this._refresh();
   },
   assignFachrichtung() {
     const ids = this.getSelected();
@@ -87,7 +87,7 @@ const BulkSchueler = {
     ids.forEach(id => App.run('UPDATE schueler SET fachrichtung_id=? WHERE id=?', [frId, id]));
     App.closeModal();
     App.toast(`${ids.length} Schüler aktualisiert`, 'success');
-    StammdatenTab._bulkDeselectAll();
-    StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'));
+    this.deselectAll();
+    this._refresh();
   },
 };

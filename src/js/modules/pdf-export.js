@@ -44,7 +44,7 @@ const PDFExport = {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
       const kwData = {};
       if (ke) App.query('SELECT * FROM kw_status WHERE schueler_id=?', [s.id]).forEach(r => {
-        kwData[`${r.ausbildungsjahr}_${r.kalenderwoche}`] = {codes:r.maengel_codes,behoben:r.behobene_codes,fehltage:r.fehltage};
+        kwData[`${r.ausbildungsjahr}_${r.kalenderwoche}`] = {codes:r.maengel_codes,behoben:r.behobene_codes,fehltage:r.fehltage,geprueft:r.geprueft};
       });
 
       let y = 10;
@@ -162,6 +162,12 @@ const PDFExport = {
                 displayCodes = displayCodes.replace(/\bH\b/, `H${fehl}`);
               }
               doc.text(displayCodes.replace(/,/g,' '), x + CW/2, y + 8, { align: 'center' });
+            } else if (hasCodes && d.codes.includes('H')) {
+              // Nur Fehltage (kein Mangel): wie am Bildschirm „H3" ausweisen –
+              // die Zelle blieb im PDF sonst leer, obwohl die AJ-Summe sie zählte
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+              doc.setTextColor(...COL_AMBER);
+              doc.text(fehl > 0 ? `H${fehl}` : 'H', x + CW/2, y + 8, { align: 'center' });
             }
 
             // Behoben codes (strikethrough-style)

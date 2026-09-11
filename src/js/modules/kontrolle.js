@@ -153,7 +153,7 @@ const KontrolleHandler = {
       if (ke.zulassung_ap === 1) zulCount++;
 
       // AP-Zulassung checks
-      const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
+      const fehlGesamt = App.getFehltageGesamt(s.id).gesamt;
       const arbeitstage = App.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, s.id);
       const fehlProzent = arbeitstage > 0 ? (fehlGesamt / arbeitstage * 100) : 0;
       const fehlWarn = fehlProzent >= 10;
@@ -521,7 +521,7 @@ const KontrolleHandler = {
       if (isDone && ke.ergebnis !== 'in_ordnung') mg++;
       if (isPA) pa++;
       if (isZul) zul++;
-      const fehl = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0;
+      const fehl = App.getFehltageGesamt(s.id).gesamt;
       const at = App.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, s.id);
       const fehlPct = at > 0 ? (fehl / at * 100) : 0;
       const fehlWarn = fehlPct >= 10;

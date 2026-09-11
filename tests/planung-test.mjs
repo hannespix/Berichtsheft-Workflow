@@ -161,5 +161,15 @@ console.log('\n══ Quelltext-Zusicherungen: Workflow-Reparaturen ══');
     'Kontroll-Vorlagen schalten den Amt-Filter aus (fremde Ämter mitkontrollieren)');
 }
 
+console.log('\n══ Audit 7 A6: Schülerzahl eines Termins zählt Einzel-Zuordnungen ══');
+{
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,typ) VALUES (777,'2026-11-24','geplant','schulkontrolle')`);
+  const ids = App.query('SELECT id FROM schueler WHERE aktiv=1 LIMIT 3').map(r => r.id);
+  ids.forEach(id => db.run('INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (777,?)', [id]));
+  App.invalidateTerminCache();
+  App.preloadTerminKlassen([777]);
+  check(App.getTerminSchuelerCount(777) === ids.length, `Kampagnen-Termin ohne Klassen zeigt ${ids.length} Azubis statt 0 (${App.getTerminSchuelerCount(777)})`);
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

@@ -423,6 +423,7 @@ const ImportHandler = {
     let klassen = App.query('SELECT k.*, bs.name as schule_name FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id');
     const today = new Date();
     let imported = 0, skipped = 0;
+    const gesehen = new Set(), exportFr = new Set(), exportAemter = new Set(); // Audit 7 B3: Abgleich Bestand ↔ Export
     let stats = { schulen: new Set(), jahrgaenge: new Set(), klassen: new Set(), frNotFound: new Set() };
 
     // ── Match Fachrichtung by IBYKUS code (31-37, 171-177) ──
@@ -612,8 +613,11 @@ const ImportHandler = {
       // BAV-Status → aktiv/inaktiv ableiten:
       // BESTAET (Bestätigt) + BEARB (Bearbeitet) = aktives Ausbildungsverhältnis
       // ENDE = Ausbildungsverhältnis beendet → inaktiv setzen
+      // ENDE + Prüfungserfolg "bestanden" ist der reguläre Abschluss, kein
+      // Abbruch; erst ENDE ohne bestandene Prüfung ist eine Vertragslösung.
       const bavAktiv = bav_status === 'ENDE' ? 0 : 1;
-      const bavStatus = bav_status === 'ENDE' ? 'abgebrochen' : 'aktiv';
+      const bavStatus = bav_status === 'ENDE' ? (pruefungserfolg === 'bestanden' ? 'ap_bestanden' : 'abgebrochen') : 'aktiv';
+      const bavGrund = bav_status === 'ENDE' ? (pruefungserfolg === 'bestanden' ? 'AP bestanden (IBYKUS)' : 'BAV beendet (IBYKUS)') : '';
 
       // 1) Fachrichtung (by numeric code)
       const frId = matchFR(berufCode);
@@ -637,7 +641,22 @@ const ImportHandler = {
       let existingId = null;
       if (ibyk) existingId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != ""', [ibyk]);
       // "jahrgang_id IS ?" statt "=?": bei jgId=null matcht "= NULL" nie → Massenduplikate bei Re-Import
-      if (!existingId && nachname && vorname) existingId = App.scalar('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id IS ?', [nachname,vorname,jgId]);
+      if (!existingId && nachname && vorname) {
+        // Namens-Fallback NUR auf Zeilen ohne (oder mit gleicher) BAV-Ident:
+        // ein Namenstreffer mit ANDERER Ident ist ein Neuvertrag/Betriebs-
+        // wechsel (IBYKUS vergibt eine neue Ident) oder eine echte Dublette –
+        // beides darf den bestehenden Vertrag nicht überschreiben.
+        const kand = App.query('SELECT id, ibykus_id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id IS ?', [nachname, vorname, jgId]);
+        const passend = kand.find(k => !k.ibykus_id || !ibyk || k.ibykus_id === ibyk);
+        if (passend) existingId = passend.id;
+        else if (kand.length && ibyk) {
+          if (!stats.neuvertraege) stats.neuvertraege = [];
+          stats.neuvertraege.push({ name: `${nachname}, ${vorname}`, ident: ibyk, alt: kand[0].ibykus_id, altId: kand[0].id });
+        }
+      }
+      if (existingId) gesehen.add(existingId);
+      if (frId) exportFr.add(frId);
+      if (amt) exportAemter.add(amt);
 
       if (existingId) {
         // Check if data changed → update
@@ -675,11 +694,14 @@ const ImportHandler = {
           // verlängert) darf davon nicht zu "abgebrochen" überschrieben werden.
           const ergebnisGepflegt = ['ap_bestanden', 'verlaengert', 'abgebrochen'].includes(ex.status);
           if (ex.status !== bavStatus && !(bavAktiv === 0 && ergebnisGepflegt)) changes.push(['status', bavStatus, ex.status]);
+          if (bavAktiv === 0 && bavStatus === 'ap_bestanden' && !ex.ap_bestanden) changes.push(['ap_bestanden', 1, ex.ap_bestanden]);
           if (bavAktiv === 0 && ex.aktiv === 1) {
-            const today = todayStr();
-            if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', today, ex.inaktiv_datum]);
-            if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', 'BAV beendet (IBYKUS)', ex.inaktiv_grund]);
+            // Inaktiv ab Vertragsende, nicht ab Importtag
+            if (!ex.inaktiv_datum) changes.push(['inaktiv_datum', aend || ex.ausbildungsende || todayStr(), ex.inaktiv_datum]);
+            if (!ex.inaktiv_grund) changes.push(['inaktiv_grund', bavGrund, ex.inaktiv_grund]);
             stats.bavEnde = (stats.bavEnde || 0) + 1;
+            if (!stats.beendetIds) stats.beendetIds = [];
+            stats.beendetIds.push(existingId);
           }
           if (bavAktiv === 1 && ex.aktiv === 0) {
             // BAV wieder aktiv (z.B. BEARB nach ENDE) → reaktivieren
@@ -720,8 +742,12 @@ const ImportHandler = {
       }
 
       // 7) Insert
-      App.run('INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,ausbildungsbeginn,ausbildungsende,ibykus_id,klasse_id,jahrgang_id,betrieb_id,telefon,email,zustaendiges_amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,aktiv,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,bavAktiv,bavStatus]);
+      App.run('INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,ausbildungsbeginn,ausbildungsende,ibykus_id,klasse_id,jahrgang_id,betrieb_id,telefon,email,zustaendiges_amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,aktiv,status,ap_bestanden,inaktiv_datum,inaktiv_grund) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [nachname,vorname,betrieb,frId,abeg,aend,ibyk,klId,jgId,betriebId,tel,email,amt,geschlecht,schulabschluss,pruefungserfolg,pruefungserfolg_wdh1,pruefungserfolg_wdh2,bav_status,zwischenpruefung,bavAktiv,bavStatus,
+         bavStatus === 'ap_bestanden' ? 1 : 0, bavAktiv ? '' : (aend || todayStr()), bavGrund]);
+      if (ibyk) { const neuId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=?', [ibyk]); if (neuId) gesehen.add(neuId); }
+      if (frId) exportFr.add(frId);
+      if (amt) exportAemter.add(amt);
       imported++;
       if (bavAktiv === 0) stats.bavEnde = (stats.bavEnde || 0) + 1;
      } catch(rowErr) {
@@ -734,6 +760,23 @@ const ImportHandler = {
     console.error('Import-Loop abgebrochen:', loopErr);
     App.toast('Import-Fehler: ' + loopErr.message, 'error');
    }
+
+    // ── Azubis, die im Export FEHLEN (Audit 7 B3) ──
+    // Der Export ist meist nach Fachrichtung/Status gefiltert – deshalb nur
+    // aktive Azubis mit BAV-Ident vergleichen, die zu den Fachrichtungen und
+    // Ämtern des Exports gehören. Fehlende sind in IBYKUS beendet oder aus
+    // dem Filter gefallen; sie werden hier gemeldet, nicht automatisch beendet.
+    if (imported + (stats.updated || 0) + skipped > 0 && (exportFr.size || exportAemter.size)) {
+      const frList = [...exportFr].map(Number).filter(n => !isNaN(n));
+      const amtList = [...exportAemter];
+      const kand = App.query(`SELECT s.id, s.nachname, s.vorname, s.ibykus_id, s.ausbildungsende FROM schueler s
+        WHERE s.aktiv=1 AND s.ibykus_id != '' AND s.ibykus_id IS NOT NULL
+        ${frList.length ? `AND s.fachrichtung_id IN (${frList.join(',')})` : ''}
+        ${amtList.length ? `AND s.zustaendiges_amt IN (${amtList.map(a => "'" + String(a).replace(/'/g, "''") + "'").join(',')})` : ''}
+        ORDER BY s.nachname, s.vorname`);
+      stats.fehlende = kand.filter(k => !gesehen.has(k.id));
+      this._pendingFehlende = stats.fehlende.map(k => k.id);
+    }
 
     // ── AUTO-SWITCH to the Jahrgang with most imported students ──
     if (imported > 0) {
@@ -770,6 +813,8 @@ const ImportHandler = {
     if (stats.frNotFound.size) parts.push(`⚠︎ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
     if (stats.bavEnde) parts.push(`⚠︎ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
     if (stats.bavReaktiviert) parts.push(`✓ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
+    if (stats.fehlende && stats.fehlende.length) parts.push(`⚠︎ <strong>${stats.fehlende.length}</strong> aktive Azubis (mit BAV-Ident, gleiche Fachrichtungen/Ämter) fehlen in diesem Export – siehe unten`);
+    if (stats.neuvertraege && stats.neuvertraege.length) parts.push(`⚠︎ <strong>${stats.neuvertraege.length}</strong> Namenstreffer mit ANDERER BAV-Ident als neue Verträge angelegt (Betriebswechsel/Dublette prüfen)`);
     if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
     if (datumsFehler.length) parts.push(`⚠︎ <strong>${datumsFehler.length}</strong> Zeilen mit unlesbarem Datum – Datensätze wurden <strong>ohne Datum</strong> importiert (Datumsformat im Dialog prüfen!)`);
@@ -812,6 +857,18 @@ const ImportHandler = {
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
         <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+      ${stats.fehlende && stats.fehlende.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
+        <strong>⚠︎ Nicht im Export enthalten (${stats.fehlende.length}):</strong> Diese aktiven Azubis kamen in der Datei nicht vor. Entweder ist ihr Vertrag in IBYKUS beendet (Status ENDE nicht mit exportiert) oder sie fielen aus dem Export-Filter.
+        <div style="max-height:130px;overflow-y:auto;margin-top:6px">${stats.fehlende.slice(0, 40).map(k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`).join('')}${stats.fehlende.length > 40 ? `<div>… und ${stats.fehlende.length - 40} weitere</div>` : ''}</div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => App.closeModal() })">Ausbildung beenden (Auswahl)…</button>
+          <span style="font-size:11px;color:var(--clr-text-light);align-self:center">Tipp: In IBYKUS ohne Status-Filter exportieren, dann übernimmt der Import den Status ENDE automatisch.</span>
+        </div>
+      </div>` : ''}
+      ${stats.neuvertraege && stats.neuvertraege.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
+        <strong>⚠︎ Namenstreffer mit anderer BAV-Ident (${stats.neuvertraege.length}):</strong> als neue Verträge angelegt; der alte Datensatz bleibt bestehen.
+        <div style="max-height:100px;overflow-y:auto;margin-top:4px">${stats.neuvertraege.slice(0, 20).map(k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')}</div>`).join('')}</div>
+      </div>` : ''}
       ${pKonf.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">
         <strong>⚠︎ ${pKonf.length} Phasen-Konflikte:</strong> Ausbildungsdaten haben sich geändert, aber Phasen sind hinterlegt. Die Datums-Felder wurden <strong>nicht überschrieben</strong>.
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
@@ -908,7 +965,9 @@ const ImportHandler = {
     const n = document.getElementById('mSNach').value.trim();
     const v = document.getElementById('mSVor').value.trim();
     if (!n || !v) return App.toast('Name und Vorname sind Pflichtfelder', 'error');
-    App.run(`INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,klasse_id,jahrgang_id,betrieb_id,ibykus_id,ausbildungsbeginn,ausbildungsende,telefon,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    // Zuständiges Amt vorbelegen: ohne Amt blendete der Standardfilter „§ 93"
+    // manuell angelegte Azubis überall aus
+    App.run(`INSERT INTO schueler (nachname,vorname,ausbildungsstaette,fachrichtung_id,klasse_id,jahrgang_id,betrieb_id,ibykus_id,ausbildungsbeginn,ausbildungsende,telefon,email,zustaendiges_amt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -918,7 +977,8 @@ const ImportHandler = {
        document.getElementById('mSBeginn').value,
        document.getElementById('mSEnde').value,
        document.getElementById('mSTelefon').value.trim(),
-       document.getElementById('mSEmail').value.trim()]);
+       document.getElementById('mSEmail').value.trim(),
+       (document.getElementById('mSAmt') && document.getElementById('mSAmt').value) || App.EIGENES_AMT]);
     App.closeModal();
     Views.importView();
     App.toast('Schüler hinzugefügt', 'success');
@@ -935,22 +995,18 @@ const ImportHandler = {
     const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
     const keCount = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=? AND ergebnis != ""', [id]) || 0;
     const wvCount = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [id]) || 0;
-    const fehlGesamt = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [id]) || 0;
+    const fehlGesamt = App.getFehltageGesamt(id).gesamt;
     const ampel = App.getSchuelerAmpel(id);
 
-    const statusLabels = {aktiv:'Aktiv',ap_zugelassen:'AP zugelassen',ap_bestanden:'AP bestanden',abgebrochen:'Abgebrochen',verlaengert:'Verlängert'};
+    const statusLabels = App.STATUS_LABELS;
     const geschlechtLabels = {'':'– Nicht angegeben –', m:'Männlich', w:'Weiblich', d:'Divers'};
     const peLabels = {'':'– Keine Angabe –', bestanden:'Bestanden', nicht_bestanden:'Nicht bestanden'};
 
-    // Lehrjahr berechnen
+    // Lehrjahr: dieselbe Berechnung wie Liste, Planung und Raster (phasen-aware)
     let lehrjahrInfo = '–';
     if (s.ausbildungsbeginn) {
-      const d = new Date(s.ausbildungsbeginn);
-      const now = new Date();
-      let lj = now.getFullYear() - d.getFullYear();
-      if (now.getMonth() < d.getMonth() || (now.getMonth()===d.getMonth() && now.getDate() < d.getDate())) lj--;
-      lj = Math.max(1, Math.min(4, lj + 1));
-      lehrjahrInfo = `${lj}. Lehrjahr`;
+      const lj = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+      if (lj) lehrjahrInfo = `${lj}. Lehrjahr`;
     }
 
     App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
@@ -1090,7 +1146,8 @@ const ImportHandler = {
     if (!n || !v) return App.toast('Name und Vorname sind Pflichtfelder', 'error');
     const oldS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     const status = document.getElementById('mSStatus').value;
-    const aktiv = (status === 'aktiv' || status === 'ap_zugelassen') ? 1 : 0;
+    // aktiv folgt dem Status (Verlängerer bleiben in Ausbildung!)
+    const aktiv = App.STATUS_AKTIV.has(status) ? 1 : 0;
     App.run(`UPDATE schueler SET nachname=?,vorname=?,ausbildungsstaette=?,fachrichtung_id=?,klasse_id=?,
       betrieb_id=?,jahrgang_id=?,ibykus_id=?,ausbildungsbeginn=?,ausbildungsende=?,
       telefon=?,email=?,zustaendiges_amt=?,landesfachklasse=?,
@@ -1128,6 +1185,8 @@ const ImportHandler = {
        parseInt(document.getElementById('mSVerk')?.value) || 0,
        document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
+    // Statuswechsel sauber nachziehen (Datum/Grund, Wiedervorlagen, Log)
+    if (status !== oldS.status || aktiv !== oldS.aktiv) App.setSchuelerStatus(id, status, { aktion: 'stammdaten_bearbeitet', datum: document.getElementById('mSInaktivDatum')?.value || '', grund: document.getElementById('mSInaktivGrund')?.value || null });
     // Änderungen loggen
     const newS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     App.IBYKUS_FELDER.forEach(f => { if (String(oldS[f]||'') !== String(newS[f]||'')) App.logChange(id, f, oldS[f], newS[f], 'stammdaten_bearbeitet'); });
@@ -1138,18 +1197,57 @@ const ImportHandler = {
     App.toast('Schüler aktualisiert', 'success');
   },
   setInaktiv(id) {
-    const today = todayStr();
-    App.logChange(id, 'status', 'aktiv', 'ap_bestanden', 'inaktiv_gesetzt');
-    App.run("UPDATE schueler SET aktiv=0, status='ap_bestanden', inaktiv_datum=? WHERE id=?", [today, id]);
     App.closeModal();
+    this.ausbildungBeenden([id]);
+  },
+  // ── EIN Dialog "Ausbildung beenden" für Einzel-, Sammel- und Import-Nachlauf ──
+  ausbildungBeenden(ids, opts = {}) {
+    ids = (ids || []).map(Number).filter(Boolean);
+    if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
+    const rows = App.query(`SELECT id, nachname, vorname, ausbildungsende, pruefungserfolg,
+      (SELECT COUNT(*) FROM wiedervorlagen w WHERE w.schueler_id=schueler.id AND w.status IN ('offen','ueberfaellig')) AS wv
+      FROM schueler WHERE id IN (${ids.join(',')}) ORDER BY nachname, vorname`);
+    const offeneWv = rows.reduce((n, r) => n + r.wv, 0);
+    const bestanden = rows.filter(r => r.pruefungserfolg === 'bestanden').length;
+    this._beendenIds = rows.map(r => r.id);
+    App.openModal(`Ausbildung beenden – ${rows.length} Azubi(s)`, `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:10px">Setzt Status und Aktiv-Kennzeichen, trägt Datum und Grund ein und schreibt alles ins Änderungs-Logbuch. Der Datensatz bleibt für Statistiken erhalten.</div>
+      <div class="form-row">
+        <div class="form-group"><label>Ergebnis</label><select class="form-control" id="mBeStatus">
+          <option value="ap_bestanden" ${bestanden === rows.length ? 'selected' : ''}>AP bestanden</option>
+          <option value="abgebrochen" ${bestanden !== rows.length ? 'selected' : ''}>Vertrag gelöst / Ausbildung beendet</option>
+        </select></div>
+        <div class="form-group"><label>Beendet am</label><input type="date" class="form-control" id="mBeDatum" value="${rows.length === 1 && rows[0].ausbildungsende ? rows[0].ausbildungsende : todayStr()}"></div>
+      </div>
+      <div class="form-group"><label>Grund (frei)</label><input class="form-control" id="mBeGrund" placeholder="z.B. Kündigung durch Betrieb, Betriebswechsel, Abschluss"></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="mBeWv" checked ${offeneWv ? '' : 'disabled'}> Offene Wiedervorlagen schließen (${offeneWv})</label>
+      <div style="max-height:180px;overflow:auto;margin-top:10px;font-size:12px;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:6px 10px">
+        ${rows.map(r => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="chk-beenden" value="${r.id}" checked>
+          ${esc(r.nachname)}, ${esc(r.vorname)} <span style="color:var(--clr-text-light)">${r.ausbildungsende ? 'Ende ' + formatDate(r.ausbildungsende) : ''}${r.pruefungserfolg === 'bestanden' ? ' · bestanden' : r.pruefungserfolg === 'nicht_bestanden' ? ' · <span style="color:var(--clr-red)">nicht bestanden</span>' : ''}${r.wv ? ' · ' + r.wv + ' offene WV' : ''}</span></label>`).join('')}
+      </div>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+       <button class="btn btn-primary" onclick="ImportHandler._doAusbildungBeenden()">Beenden</button>`);
+    this._beendenNachher = opts.nachher || null;
+  },
+  _doAusbildungBeenden() {
+    const ids = [...document.querySelectorAll('.chk-beenden:checked')].map(c => parseInt(c.value));
+    if (!ids.length) return App.toast('Keine Azubis angehakt', 'warning');
+    const status = document.getElementById('mBeStatus').value;
+    const datum = document.getElementById('mBeDatum').value || todayStr();
+    const grund = document.getElementById('mBeGrund').value.trim() || (status === 'ap_bestanden' ? 'AP bestanden' : 'Ausbildung beendet');
+    const wv = document.getElementById('mBeWv').checked;
+    let wvN = 0;
+    ids.forEach(id => { const r = App.setSchuelerStatus(id, status, { datum, grund, wvSchliessen: wv, aktion: 'ausbildung_beendet' }); if (r) wvN += r.wvGeschlossen; });
+    App.closeModal();
+    const nachher = this._beendenNachher; this._beendenNachher = null;
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
-    App.toast('Schüler auf inaktiv gesetzt', 'success');
+    App.toast(`${ids.length} Ausbildung(en) beendet${wvN ? `, ${wvN} Wiedervorlage(n) geschlossen` : ''}`, 'success');
+    if (typeof nachher === 'function') { try { nachher(); } catch(e) {} }
   },
   setAktiv(id) {
-    App.logChange(id, 'status', 'inaktiv', 'aktiv', 'reaktiviert');
-    App.run("UPDATE schueler SET aktiv=1, status='aktiv', inaktiv_datum='', inaktiv_grund='' WHERE id=?", [id]);
+    App.setSchuelerStatus(id, 'aktiv', { aktion: 'reaktiviert' });
     App.closeModal();
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
@@ -1518,7 +1616,9 @@ const ImportHandler = {
     // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
     // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
     // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
-    App.query('SELECT id FROM kontrolltermine WHERE jahrgang_id=?', [jg]).forEach(t => App.deleteTerminKaskade(t.id));
+    // Termine NICHT löschen: kontrolltermine.jahrgang_id ist nur der Jahrgang
+    // der ersten Klasse – am Termin hängen Ergebnisse anderer Jahrgänge.
+    // Die Azubi-Kaskade entfernt deren Ergebnisse und Einzel-Zuordnungen.
     App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
     App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
     App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');

@@ -81,6 +81,43 @@ const BerichteHandler = {
     App.closeModal();
   },
 
+  // Letztes Kontrollergebnis je Azubi als korrelierter Subselect (Alias s).
+  // Optional auf einen Zeitraum (Termindatum) begrenzt – Grundlage für ALLE
+  // Kopfzählungen. Früher zählten Excel-Dashboard, Jahresbericht und
+  // Schulstatistik Ergebnis-ZEILEN: nach drei Durchsichten stand jeder Azubi
+  // dreifach in „Gesamt", ein Azubi war zugleich „ok" und „mangelhaft".
+  _letztesErgebnisSql(von, bis) {
+    const zr = von && bis ? ` AND kt.geplant_datum BETWEEN '${von}' AND '${bis}'` : '';
+    return `(SELECT ke.ergebnis FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE ke.schueler_id=s.id AND ke.ergebnis != ''${zr} ORDER BY kt.geplant_datum DESC, ke.id DESC LIMIT 1)`;
+  },
+  // Kopfstatistik je Gruppe (schule | betrieb | fachrichtung | amt): ein Azubi
+  // zählt genau einmal, Einordnung nach seinem LETZTEN Ergebnis (im Zeitraum).
+  statistikGruppe(gruppe, opts = {}) {
+    const LE = this._letztesErgebnisSql(opts.von, opts.bis);
+    const kopf = `COUNT(s.id) AS gesamt,
+      SUM(CASE WHEN ${LE}='in_ordnung' THEN 1 ELSE 0 END) AS ok,
+      SUM(CASE WHEN ${LE} IS NOT NULL AND ${LE} != 'in_ordnung' THEN 1 ELSE 0 END) AS mangelhaft,
+      SUM(CASE WHEN ${LE} IS NULL THEN 1 ELSE 0 END) AS unkontrolliert`;
+    const q = {
+      schule: `SELECT bs.name AS schule, bs.ort, k.klassenbezeichnung, k.lehrjahr, ${kopf}
+        FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+        WHERE s.aktiv=1 GROUP BY bs.name, k.klassenbezeichnung, k.lehrjahr ORDER BY bs.name, k.klassenbezeichnung`,
+      schule_gesamt: `SELECT bs.name AS schule, bs.ort, ${kopf}
+        FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id
+        WHERE s.aktiv=1 GROUP BY bs.id ORDER BY bs.name`,
+      betrieb: `SELECT COALESCE(b.name, s.ausbildungsstaette) AS betrieb, b.ort, b.email, b.telefon, ${kopf}
+        FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id
+        WHERE s.aktiv=1 GROUP BY COALESCE(b.name, s.ausbildungsstaette), b.ort ORDER BY mangelhaft DESC, betrieb`,
+      fachrichtung: `SELECT CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(fr.bezeichnung,'Unbekannt') AS fachrichtung, fr.typ, ${kopf}
+        FROM schueler s LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
+        WHERE s.aktiv=1 GROUP BY fr.id ORDER BY gesamt DESC`,
+      amt: `SELECT s.zustaendiges_amt AS amt, ${kopf}
+        FROM schueler s WHERE s.aktiv=1 AND s.zustaendiges_amt != '' GROUP BY s.zustaendiges_amt ORDER BY gesamt DESC`,
+    }[gruppe];
+    return q ? App.query(q) : [];
+  },
+
   exportStatistik() {
     App.showLoading('Excel-Dashboard wird erstellt...');
     setTimeout(() => {
@@ -125,19 +162,8 @@ const BerichteHandler = {
       ws1['!autofilter'] = { ref: autoRef(rdHeader.length, rdRows.length) };
       XLSX.utils.book_append_sheet(wb, ws1, 'Rohdaten');
 
-      // ═══ Blatt 2: Schulstatistik ═══
-      const schulData = App.query(`SELECT bs.name as schule, k.klassenbezeichnung, k.lehrjahr,
-        COUNT(s.id) as gesamt,
-        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
-        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
-        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
-        FROM schueler s
-        JOIN klassen k ON s.klasse_id=k.id
-        JOIN berufsschulen bs ON k.berufsschule_id=bs.id
-        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-        WHERE s.aktiv=1
-        GROUP BY bs.name, k.klassenbezeichnung, k.lehrjahr
-        ORDER BY bs.name, k.klassenbezeichnung`);
+      // ═══ Blatt 2: Schulstatistik (Kopfzählung: letztes Ergebnis je Azubi) ═══
+      const schulData = this.statistikGruppe('schule');
       const sh2Header = ['Schule','Klasse','Lehrjahr','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
       const sh2Rows = schulData.map(r => [r.schule, r.klassenbezeichnung, r.lehrjahr||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
         r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
@@ -150,18 +176,7 @@ const BerichteHandler = {
       XLSX.utils.book_append_sheet(wb, ws2, 'Schulstatistik');
 
       // ═══ Blatt 3: Betriebsstatistik ═══
-      const betriebData = App.query(`SELECT
-        COALESCE(b.name, s.ausbildungsstaette) as betrieb, b.ort, b.email, b.telefon,
-        COUNT(s.id) as azubi_count,
-        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
-        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
-        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
-        FROM schueler s
-        LEFT JOIN betriebe b ON s.betrieb_id=b.id
-        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-        WHERE s.aktiv=1
-        GROUP BY COALESCE(b.name, s.ausbildungsstaette), b.ort
-        ORDER BY mangelhaft DESC, betrieb`);
+      const betriebData = this.statistikGruppe('betrieb').map(r => ({ ...r, azubi_count: r.gesamt }));
       const sh3Header = ['Betrieb','Ort','E-Mail','Telefon','Azubis','In Ordnung','Mangelhaft','Unkontrolliert','Mängelquote %'];
       const sh3Rows = betriebData.map(r => [r.betrieb||'', r.ort||'', r.email||'', r.telefon||'',
         r.azubi_count, r.ok, r.mangelhaft, r.unkontrolliert,
@@ -172,18 +187,7 @@ const BerichteHandler = {
       XLSX.utils.book_append_sheet(wb, ws3, 'Betriebsstatistik');
 
       // ═══ Blatt 4: Fachrichtungsstatistik ═══
-      const frData = App.query(`SELECT
-        CASE WHEN fr.typ='Fachwerker' THEN 'FW: ' ELSE '' END || fr.bezeichnung as fachrichtung, fr.typ,
-        COUNT(s.id) as gesamt,
-        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
-        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
-        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
-        FROM schueler s
-        JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
-        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-        WHERE s.aktiv=1
-        GROUP BY fr.bezeichnung, fr.typ
-        ORDER BY gesamt DESC`);
+      const frData = this.statistikGruppe('fachrichtung');
       const sh4Header = ['Fachrichtung','Typ','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
       const sh4Rows = frData.map(r => [r.fachrichtung, r.typ||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
         r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
@@ -195,16 +199,7 @@ const BerichteHandler = {
       XLSX.utils.book_append_sheet(wb, ws4, 'Fachrichtungen');
 
       // ═══ Blatt 5: Amt-Statistik ═══
-      const amtData = App.query(`SELECT s.zustaendiges_amt as amt,
-        COUNT(s.id) as gesamt,
-        SUM(CASE WHEN ke.ergebnis='in_ordnung' THEN 1 ELSE 0 END) as ok,
-        SUM(CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN 1 ELSE 0 END) as mangelhaft,
-        SUM(CASE WHEN ke.ergebnis='' OR ke.ergebnis IS NULL THEN 1 ELSE 0 END) as unkontrolliert
-        FROM schueler s
-        LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-        WHERE s.aktiv=1 AND s.zustaendiges_amt != ''
-        GROUP BY s.zustaendiges_amt
-        ORDER BY gesamt DESC`);
+      const amtData = this.statistikGruppe('amt');
       const sh5Header = ['Amt (Code)','Amt (Name)','Gesamt','In Ordnung','Mangelhaft','Unkontrolliert','OK-Quote %'];
       const sh5Rows = amtData.map(r => [r.amt||'', App.AEMTER[r.amt]||'', r.gesamt, r.ok, r.mangelhaft, r.unkontrolliert,
         r.gesamt > 0 ? Math.round(r.ok / r.gesamt * 100) : 0]);
@@ -305,7 +300,82 @@ const BerichteHandler = {
     setTimeout(() => { App.hideLoading(); App.toast('Gesamtpaket erstellt', 'success'); }, delay + 300);
   },
 
-  jahresbericht() {
+  // Kennzahlen eines Schuljahres (1.8.–31.7.). Alle Kontroll-Zahlen über
+  // Termine im Zeitraum; Einordnung je Azubi nach seinem letzten Ergebnis
+  // im Zeitraum – dieselbe Regel wie Klassenübersicht und Excel-Dashboard.
+  // Früher summierte der Bericht alles seit Datenbankanlage.
+  schuljahrOptionen() {
+    const jahre = new Set();
+    const heute = new Date();
+    jahre.add(heute.getMonth() >= 7 ? heute.getFullYear() : heute.getFullYear() - 1);
+    App.query("SELECT DISTINCT substr(geplant_datum,1,7) AS m FROM kontrolltermine WHERE status='durchgefuehrt'").forEach(r => {
+      const y = parseInt(r.m.slice(0, 4)), mo = parseInt(r.m.slice(5, 7));
+      if (y) jahre.add(mo >= 8 ? y : y - 1);
+    });
+    return [...jahre].sort((a, b) => b - a);
+  },
+  jahresberichtDaten(sjStart) {
+    const von = `${sjStart}-08-01`, bis = `${sjStart + 1}-07-31`;
+    const LE = this._letztesErgebnisSql(von, bis);
+    const zr = `kt.geplant_datum BETWEEN '${von}' AND '${bis}'`;
+    const D = { sjStart, von, bis, sj: `${sjStart}/${sjStart + 1}` };
+    D.totalSchueler = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
+    D.totalInaktiv = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
+    D.totalAbgeschlossen = App.scalar("SELECT COUNT(*) FROM schueler WHERE status='ap_bestanden'") || 0;
+    D.kontrolliert = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
+      JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id JOIN schueler s ON s.id=ke.schueler_id
+      WHERE ke.ergebnis != '' AND s.aktiv=1 AND ${zr}`) || 0;
+    D.nichtKontrolliert = Math.max(0, D.totalSchueler - D.kontrolliert);
+    D.okCount = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND ${LE}='in_ordnung'`) || 0;
+    D.mangelCount = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=1 AND ${LE} IS NOT NULL AND ${LE} != 'in_ordnung'`) || 0;
+    D.termine = App.scalar(`SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND ${zr}`) || 0;
+    D.termineGeplant = App.scalar(`SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND ${zr}`) || 0;
+    D.einsendungen = App.scalar(`SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.typ='einsendung' AND kt.status='durchgefuehrt' AND ${zr}`) || 0;
+    // Wiedervorlagen: entstanden im Zeitraum (Termin) bzw. heute noch offen
+    D.wvAngelegt = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
+      JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ${zr}`) || 0;
+    D.erledigteWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
+      JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE w.status='erledigt' AND ${zr}`) || 0;
+    D.offeneWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
+    // Mängelcodes der Wochen, die bei Durchsichten im Zeitraum erfasst wurden
+    // (erstellt_bei → Kontrollergebnis → Termin); Altdaten ohne Verweis zählen mit
+    const codeCount = {};
+    App.query(`SELECT kws.maengel_codes FROM kw_status kws JOIN schueler s ON s.id=kws.schueler_id
+      LEFT JOIN kontrollergebnisse ke ON ke.id=kws.erstellt_bei LEFT JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id
+      WHERE kws.maengel_codes != '' AND s.aktiv=1 AND (kt.id IS NULL OR ${zr})`)
+      .forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { if (c !== 'H') codeCount[c] = (codeCount[c] || 0) + 1; }));
+    D.sortedCodes = Object.entries(codeCount).sort((a, b) => b[1] - a[1]);
+    D.totalCodeEntries = D.sortedCodes.reduce((sum, [, c]) => sum + c, 0);
+    D.codeLabels = { A: 'Unterschrift Azubi', B: 'Unterschrift Ausbilder', C: 'BS-Themen', D: 'Wetter', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen', G: 'Datum/KW', H: 'Fehltage', I: 'Sonstiges' };
+    D.schoolStats = this.statistikGruppe('schule_gesamt', { von, bis }).map(r => ({ schule: r.schule, ort: r.ort, total: r.gesamt, ok: r.ok, mangel: r.mangelhaft, offen: r.unkontrolliert }));
+    D.frStats = this.statistikGruppe('fachrichtung', { von, bis }).map(r => ({ fachrichtung: r.fachrichtung, total: r.gesamt, ok: r.ok, mangel: r.mangelhaft }));
+    D.betriebRank = App.query(`SELECT
+      CASE WHEN b.zusatzbezeichnung != '' THEN b.zusatzbezeichnung || ' ' ELSE '' END || COALESCE(b.vorname || ' ','') || COALESCE(b.name, s.ausbildungsstaette) as betrieb,
+      COUNT(DISTINCT s.id) as azubis,
+      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND ${zr} THEN ke.id END) as maengel,
+      COUNT(DISTINCT CASE WHEN w.status IN ('offen','ueberfaellig') THEN w.id END) as offene_wv
+      FROM schueler s
+      LEFT JOIN betriebe b ON s.betrieb_id=b.id
+      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
+      LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      LEFT JOIN wiedervorlagen w ON w.schueler_id=s.id
+      WHERE s.aktiv=1
+      GROUP BY COALESCE(b.id, s.ausbildungsstaette) HAVING maengel > 0
+      ORDER BY maengel DESC LIMIT 10`);
+    return D;
+  },
+  jahresbericht(sjStart) {
+    if (sjStart == null) {
+      const opts = this.schuljahrOptionen();
+      App.openModal('Jahresbericht erstellen', `
+        <div class="form-group"><label>Schuljahr (1. August – 31. Juli)</label>
+          <select class="form-control" id="jbSchuljahr">${opts.map(y => `<option value="${y}">${y}/${y + 1}</option>`).join('')}</select>
+          <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Gezählt werden Termine und Ergebnisse in diesem Zeitraum; jeder Azubi nach seinem letzten Ergebnis im Schuljahr.</div>
+        </div>`,
+        `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+         <button class="btn btn-primary" onclick="const v=parseInt(document.getElementById('jbSchuljahr').value);App.closeModal();BerichteHandler.jahresbericht(v)">Bericht erstellen</button>`);
+      return;
+    }
     try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
@@ -316,83 +386,10 @@ const BerichteHandler = {
     const COL_LIGHT = [245, 240, 232];
     const COL_GRAY = [130, 130, 130];
     const today = new Date().toLocaleDateString('de-DE');
-    const sj = (() => { const now = new Date(); return now.getMonth() >= 7 ? `${now.getFullYear()}/${now.getFullYear()+1}` : `${now.getFullYear()-1}/${now.getFullYear()}`; })();
-
-    // ── Data queries ──
-    const totalSchueler = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
-    const totalInaktiv = App.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=0') || 0;
-    const totalAbgeschlossen = App.scalar("SELECT COUNT(*) FROM schueler WHERE status='ap_bestanden'") || 0;
-    // Alle Kontroll-Kennzahlen nur über AKTIVE Azubis: sonst zählen archivierte
-    // Jahrgänge weiter als 'kontrolliert', während der Nenner nur die Aktiven
-    // enthält -> die Abdeckung stieg nach jedem Jahrgangsabschluss und lief
-    // über 100 %, 'noch offen' wurde negativ.
-    const kontrolliert = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
-      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND s.aktiv=1`) || 0;
-    const nichtKontrolliert = Math.max(0, totalSchueler - kontrolliert);
-    // Kopf-Kennzahlen (nicht Ergebnis-Zeilen): Bei mehreren Durchsichten pro
-    // Azubi ergab die Zeilenzählung Erfolgsquoten weit über 100 %.
-    const okCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
-      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis='in_ordnung' AND s.aktiv=1
-      AND ke.schueler_id NOT IN (SELECT schueler_id FROM kontrollergebnisse WHERE ergebnis!='' AND ergebnis!='in_ordnung')`) || 0;
-    const mangelCount = App.scalar(`SELECT COUNT(DISTINCT ke.schueler_id) FROM kontrollergebnisse ke
-      JOIN schueler s ON s.id=ke.schueler_id WHERE ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' AND s.aktiv=1`) || 0;
-    const termine = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="durchgefuehrt"') || 0;
-    const termineGeplant = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE status="geplant"') || 0;
-    const offeneWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
-    const erledigteWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='erledigt'") || 0;
-    const einsendungen = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE typ='einsendung' AND status='durchgefuehrt'") || 0;
-
-    // Top Mängel-Codes
-    // Nur Wochen aktiver Azubis; 'H' (Fehltage) ist kein Mangelcode und wird
-    // beim Aufsplitten unten einzeln aussortiert – der frühere Filter griff
-    // nur bei GENAU 'H', bei "A,H" wurde das H mitgezählt.
-    const topCodes = App.query(`SELECT kws.maengel_codes FROM kw_status kws
-      JOIN schueler s ON s.id=kws.schueler_id
-      WHERE kws.maengel_codes != '' AND s.aktiv=1`);
-    const codeCount = {};
-    topCodes.forEach(r => r.maengel_codes.split(',').filter(Boolean).forEach(c => { if (c !== 'H') codeCount[c] = (codeCount[c]||0) + 1; }));
-    const sortedCodes = Object.entries(codeCount).sort((a,b) => b[1] - a[1]);
-    const totalCodeEntries = sortedCodes.reduce((s, [,c]) => s + c, 0);
-    const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'BS-Themen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen',G:'Datum/KW',H:'Fehltage',I:'Sonstiges'};
-
-    // Per-school stats
-    const schoolStats = App.query(`SELECT bs.name as schule, bs.ort,
-      COUNT(DISTINCT s.id) as total,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as mangel,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis IS NULL OR ke.ergebnis='' THEN s.id END) as offen
-      FROM schueler s
-      JOIN klassen k ON s.klasse_id=k.id
-      JOIN berufsschulen bs ON k.berufsschule_id=bs.id
-      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      WHERE s.aktiv=1
-      GROUP BY bs.id ORDER BY bs.name`);
-
-    // Per-Fachrichtung stats
-    const frStats = App.query(`SELECT 
-      CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'Unbekannt') as fachrichtung,
-      COUNT(DISTINCT s.id) as total,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis='in_ordnung' THEN s.id END) as ok,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN s.id END) as mangel
-      FROM schueler s
-      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
-      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      WHERE s.aktiv=1
-      GROUP BY f.id ORDER BY total DESC`);
-
-    // Betrieb-Ranking (top 10 problematic)
-    const betriebRank = App.query(`SELECT 
-      CASE WHEN b.zusatzbezeichnung != '' THEN b.zusatzbezeichnung || ' ' ELSE '' END || COALESCE(b.vorname || ' ','') || COALESCE(b.name, s.ausbildungsstaette) as betrieb,
-      COUNT(DISTINCT s.id) as azubis,
-      COUNT(DISTINCT CASE WHEN ke.ergebnis != '' AND ke.ergebnis != 'in_ordnung' THEN ke.id END) as maengel,
-      COUNT(DISTINCT CASE WHEN w.status IN ('offen','ueberfaellig') THEN w.id END) as offene_wv
-      FROM schueler s
-      LEFT JOIN betriebe b ON s.betrieb_id=b.id
-      LEFT JOIN kontrollergebnisse ke ON s.id=ke.schueler_id
-      LEFT JOIN wiedervorlagen w ON w.schueler_id=s.id
-      WHERE s.aktiv=1
-      GROUP BY COALESCE(b.id, s.ausbildungsstaette) HAVING maengel > 0
-      ORDER BY maengel DESC LIMIT 10`);
+    const DATEN = this.jahresberichtDaten(parseInt(sjStart));
+    const { sj, totalSchueler, totalInaktiv, totalAbgeschlossen, kontrolliert, nichtKontrolliert, okCount, mangelCount,
+      termine, termineGeplant, offeneWV, erledigteWV, einsendungen, sortedCodes, totalCodeEntries, codeLabels,
+      schoolStats, frStats, betriebRank } = DATEN;
 
     // ── Helper functions ──
     function drawHeader(doc, y) {
@@ -402,7 +399,7 @@ const BerichteHandler = {
       doc.setFont('helvetica','bold'); doc.setFontSize(14);
       doc.text('Jahresbericht Berichtsheftkontrolle Gärtner', LM + 5, y + 9);
       doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      doc.text(`Schuljahr ${sj}`, RM - 5, y + 6, { align: 'right' });
+      doc.text(`Schuljahr ${sj} (${formatDate(DATEN.von)} – ${formatDate(DATEN.bis)})`, RM - 5, y + 6, { align: 'right' });
       doc.text(`Stand: ${today}`, RM - 5, y + 10, { align: 'right' });
       return y + 18;
     }
@@ -969,6 +966,15 @@ const BerichteHandler = {
       } else if (!s.inaktiv_grund) {
         add('hinweis', 'Azubi', nm, 'Inaktiv ohne hinterlegten Grund', 'inaktiv_grund', edit, s.ibykus_id);
       }
+      // Status-Modell (Audit 7 Paket B): aktiv-Kennzeichen und Status müssen zusammenpassen
+      const endStatus = ['ap_bestanden', 'abgebrochen'];
+      if (s.status && !App.STATUS_LABELS[s.status]) add('fehler', 'Azubi', nm, `Unbekannter Status „${s.status}" – bitte über „Ausbildung beenden" oder den Dialog neu setzen`, 'status', edit, s.ibykus_id);
+      if (s.aktiv && endStatus.includes(s.status)) add('fehler', 'Azubi', nm, `Aktiv, aber Status „${s.status}"`, 'status/aktiv', edit, s.ibykus_id);
+      if (!s.aktiv && (s.status === 'aktiv' || s.status === 'ap_zugelassen' || s.status === 'verlaengert')) add('fehler', 'Azubi', nm, `Inaktiv, aber Status „${s.status}"`, 'status/aktiv', edit, s.ibykus_id);
+      if (!s.aktiv && !s.inaktiv_datum) add('hinweis', 'Azubi', nm, 'Inaktiv ohne Datum', 'inaktiv_datum', edit, s.ibykus_id);
+      if (s.aktiv && String(s.bav_status || '').toUpperCase() === 'ENDE') add('warnung', 'Azubi', nm, 'BAV-Status ENDE (IBYKUS), aber im Tool noch aktiv', 'bav_status', edit, s.ibykus_id);
+      if (s.ap_bestanden && s.pruefungserfolg === 'nicht_bestanden') add('warnung', 'Azubi', nm, '„AP bestanden" gesetzt, Prüfungserfolg aber „nicht bestanden"', 'ap_bestanden', edit, s.ibykus_id);
+      if (s.aktiv && !s.zustaendiges_amt) add('warnung', 'Azubi', nm, 'Kein zuständiges Amt – wird vom Standardfilter „§ 93" ausgeblendet', 'zustaendiges_amt', edit, s.ibykus_id);
       if (datesOk && s.ausbildungsbeginn && s.ausbildungsende) {
         if (s.ausbildungsende <= s.ausbildungsbeginn) add('fehler', 'Azubi', nm, 'Ausbildungsende liegt vor dem Beginn', 'beginn/ende', edit, s.ibykus_id);
         else {
@@ -1020,7 +1026,16 @@ const BerichteHandler = {
     App.query(`SELECT k.*, bs.name AS schule, (SELECT COUNT(*) FROM schueler WHERE klasse_id=k.id AND aktiv=1) AS cnt
       FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id`).forEach(k => {
       const edit = () => { App.closeModal(); StammdatenTab.editKlasse(k.id); };
-      if (k.cnt > 0 && !k.lehrjahr) add('hinweis', 'Klasse', `${k.klassenbezeichnung} (${k.schule || '?'})`, 'Kein Lehrjahr gepflegt (Anzeige nutzt Fallback-Berechnung)', 'lehrjahr', edit);
+      // Lehrjahr wird überall berechnet – ein gepflegter Klassenwert ist nur
+      // dann ein Problem, wenn er dem Ausbildungsstand der Mitglieder widerspricht
+      if (k.cnt > 0 && k.lehrjahr) {
+        const ajs = App.query('SELECT id, ausbildungsbeginn FROM schueler WHERE klasse_id=? AND aktiv=1', [k.id]).map(m => App.getCurrentAJ(m.ausbildungsbeginn, m.id)).filter(Boolean);
+        if (ajs.length) {
+          const haeufig = {}; ajs.forEach(a => { haeufig[a] = (haeufig[a] || 0) + 1; });
+          const top = parseInt(Object.entries(haeufig).sort((a, b) => b[1] - a[1])[0][0]);
+          if (top !== k.lehrjahr) add('hinweis', 'Klasse', `${k.klassenbezeichnung} (${k.schule || '?'})`, `Klassen-Lehrjahr ${k.lehrjahr} widerspricht dem berechneten Stand der Mitglieder (${top}. Lehrjahr) – Feld ist nur informativ`, 'lehrjahr', edit);
+        }
+      }
       if (k.cnt > 0 && !k.jahrgang_id) add('hinweis', 'Klasse', `${k.klassenbezeichnung} (${k.schule || '?'})`, 'Kein Jahrgang zugeordnet', 'jahrgang', edit);
     });
     App.query(`SELECT bs.*, (SELECT COUNT(*) FROM schueler s JOIN klassen k ON s.klasse_id=k.id WHERE k.berufsschule_id=bs.id AND s.aktiv=1) AS cnt FROM berufsschulen bs`).forEach(sc => {
