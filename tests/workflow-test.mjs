@@ -164,5 +164,62 @@ console.log('══ Papierkorb: Größenschutz & Aufräumen ══');
   check(App.ID_TABLES.has('bhk_papierkorb'), 'bhk_papierkorb vergibt globale IDs (Mehrbenutzer)');
 }
 
+console.log('\n══ Audit 7 Paket E: Nachbereitung und Bedienung ══');
+{
+  const K_SRC = read('src/js/modules/kontrolle.js');
+  const V_SRC = read('src/js/modules/views.js');
+  const W_SRC = read('src/js/modules/workflows.js');
+  // E1: Vorlage je Betrieb – Abwesende sind keine „ohne Beanstandung"
+  const gOk = { azubis: [{ ke: { ergebnis: 'in_ordnung' } }] };
+  const gAbw = { azubis: [{ ke: { ergebnis: '', anwesend: 0 } }] };
+  const gMix = { azubis: [{ ke: { ergebnis: 'in_ordnung' } }, { ke: { ergebnis: 'post_an_rp' } }] };
+  check(Workflows._betriebVorlageTyp(gOk, true) === 'betrieb_ok' && Workflows._betriebVorlageTyp(gMix, true) === 'betrieb_maengel', 'Betrieb: ohne Beanstandung bzw. Mängelmitteilung nach der Kontrolle');
+  check(Workflows._betriebVorlageTyp(gAbw, true) === 'nachholung', 'Betrieb mit nur abwesenden Azubis bekommt die Nachhol-Aufforderung');
+  check(Workflows._betriebVorlageTyp(gOk, false) === 'betrieb_ankuendigung', 'Vor der Kontrolle: Ankündigung');
+  check(/nicht anwesend/.test(Workflows._azubiBlock([{ nachname: 'A', vorname: 'B', ke: { ergebnis: '', anwesend: 0 } }], true)), 'Azubi-Block nennt Abwesende ausdrücklich');
+  check(/const typ = isDone \? this\._betriebVorlageTyp\(g, true\) : 'brief_betrieb';/.test(W_SRC), 'PDF-Briefe nach der Kontrolle nutzen die Ergebnis-Vorlagen statt der Terminankündigung');
+  // E5: fremde Ämter nicht anschreiben, Nachholungs-WV mit Nachhol-Text, Versandnachweis
+  // eigener Bestand (Termin 100 wurde oben im Papierkorb-Test gelöscht)
+  db.run(`INSERT INTO betriebe (id,name,betriebsnummer,email) VALUES (11,'Gärtnerei Zwei','B-2','zwei@example.org')`);
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,klasse_id,jahrgang_id,betrieb_id,ausbildungsbeginn,ausbildungsende,zustaendiges_amt,ibykus_id) VALUES
+    (801,'Eigen','Emma',1,1,1,11,'2024-09-01','2027-08-31','93','IB-801'),
+    (802,'Fremd','Fritz',1,1,1,11,'2024-09-01','2027-08-31','94','IB-802')`);
+  db.run(`INSERT INTO kontrolltermine (id,berufsschule_id,geplant_datum,pruefer,status,typ) VALUES (800,1,'2026-10-06','Muster, Max','durchgefuehrt','schulkontrolle')`);
+  db.run(`INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (800,801),(800,802)`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend) VALUES (8001,800,801,'',0),(8002,800,802,'in_ordnung',1)`);
+  App.invalidateTerminCache();
+  const bt = Workflows._betriebeDesTermins(800, true);
+  check(bt.fremde.length === 1 && bt.fremde[0].id === 802 && !bt.schueler.some(s => s.id === 802), `Azubi eines fremden Amts ist von Betriebs-Anschreiben ausgenommen (fremde: ${bt.fremde.length})`);
+  check(bt.betriebe.length === 1 && Workflows._betriebVorlageTyp(bt.betriebe[0], true) === 'nachholung', 'Betrieb des abwesenden eigenen Azubis bekommt die Nachhol-Aufforderung');
+  check(/if \(App\.istFremdesAmt\(s\)\) return;/.test(K_SRC), 'Abschluss-Assistent legt für fremde Ämter keine Nachhol-Wiedervorlage an');
+  check(Workflows._wvVorlageTyp({ art: 'nachholung_naechste_durchsicht' }, false) === 'nachholung' && Workflows._wvVorlageTyp({ art: 'post_an_rp' }, false) === 'wv_mahnung' && Workflows._wvVorlageTyp({ art: 'nachholung' }, true) === 'wv_erinnerung', 'WV-Mail: Nachholung → Nachhol-Aufforderung, Mangel → Mängelmitteilung, überfällig → Erinnerung');
+  const cols = App.query('PRAGMA table_info(wiedervorlagen)').map(c => c.name);
+  check(cols.includes('versand_datum') && cols.includes('versand_art') && cols.includes('mahnstufe'), 'Wiedervorlagen tragen Versandnachweis und Mahnstufe');
+  db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (850,8001,801,'nachholung_naechste_durchsicht','2026-10-27','offen')`);
+  const notizenVorher = App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=850');
+  Workflows.versandVermerken(850, 'email', 'nachholung');
+  let w = App.query('SELECT * FROM wiedervorlagen WHERE id=850')[0];
+  check(w.versand_datum === '2026-09-15' && w.versand_art === 'email' && w.mahnstufe === 1, `Erstes Anschreiben: Versanddatum + Mahnstufe 1 (${w.versand_datum}/${w.mahnstufe})`);
+  Workflows.versandVermerken(850, 'email', 'wv_erinnerung', 'neue Frist 01.10.2026');
+  w = App.query('SELECT * FROM wiedervorlagen WHERE id=850')[0];
+  check(w.mahnstufe === 2, 'Erinnerung erhöht die Mahnstufe');
+  check(App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=850') === notizenVorher + 2, 'Jeder Versand hinterlässt eine Notiz');
+  check(/versandVermerken\(p\.wvId, 'email', p\.typ/.test(W_SRC), 'Öffnen der WV-Mail vermerkt den Versand');
+  const diskDb = new SQL.Database();
+  diskDb.run(`CREATE TABLE wiedervorlagen (id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER, frist_datum TEXT)`);
+  for (const t of ['schueler','kontrolltermine','kontrollergebnisse','berufsschulen','klassen','abschlussjahrgaenge','fachrichtungen']) diskDb.run(`CREATE TABLE ${t} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);
+  App._migrateDiskDb(diskDb);
+  const dCols = []; const st = diskDb.prepare('PRAGMA table_info(wiedervorlagen)'); while (st.step()) dCols.push(st.getAsObject().name); st.free();
+  check(dCols.includes('versand_datum') && dCols.includes('mahnstufe'), 'Versand-Spalten auch auf der Disk-Datenbank');
+  diskDb.close();
+  // E2/E3/E4/E6: Quelltext-Prüfungen
+  check((APP_SRC.match(/_modalBackPending/g) || []).length >= 5, 'Dialogwechsel: ausstehender Zurück-Schritt wird gemerkt und vom popstate konsumiert');
+  check(APP_SRC.indexOf('// ── Restore current user ──') < APP_SRC.indexOf('// ── Restore last position after reload ──'), 'Benutzer wird VOR der letzten Ansicht wiederhergestellt');
+  check(/async disconnectDB\(\) \{[\s\S]*?await this\.doAutoSave\(\);/.test(APP_SRC) && /App\.disconnectDB\(\)\.then\(\(\)=>App\.start\(\)\)/.test(APP_SRC), '„Verbindung trennen" wartet auf den Auto-Save');
+  check(/_wartetAufPruefer = true;/.test(K_SRC) && /KontrolleHandler\._wartetAufPruefer\) KontrolleHandler\.loadTermin/.test(APP_SRC), 'Kontrolle verlangt einen gewählten Prüfer und lädt nach der Wahl nach');
+  check((APP_SRC.match(/INSERT OR IGNORE INTO pruefer/g) || []).length === 1, 'Klarnamen-Prüfer nur noch im SEED_DATA neuer Datenbanken');
+  check(!/8-Sekunden/.test(V_SRC) && !/Sperrsystem \(Locking\)/.test(V_SRC) && !/v2\.0/.test(V_SRC) && /App\.VERSION/.test(V_SRC), 'Hilfe: 3-s-Protokollabgleich, Bearbeitungshinweis statt Sperrsystem, Version aus App.VERSION');
+}
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);

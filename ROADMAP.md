@@ -1,6 +1,6 @@
 # Roadmap – Ergebnis des Gesamt-Workflow-Audits (Audit 7, September 2026)
 
-> **Stand:** Stufe 1 Pakete A, B, C und D sind umgesetzt (siehe Git-Historie sowie `tests/status-test.mjs`, `tests/kontrolltag-test.mjs`, Abschnitt Paket D in `tests/planung-test.mjs`).
+> **Stand:** Stufe 1 (Pakete A–E) ist umgesetzt – siehe Git-Historie sowie `tests/status-test.mjs`, `tests/kontrolltag-test.mjs`, Abschnitt Paket D in `tests/planung-test.mjs` und Abschnitt Paket E in `tests/workflow-test.mjs`. Offen aus Stufe 1: Hilfe-Tab-Namen im Detail (E6) – siehe Stufe 2 „Glossar/Hilfe".
 
 > Grundlage: fünf parallele Prüfbereiche entlang des Jahresablaufs (Stammdaten/Import,
 > Planung, Durchführung, Nachbereitung/Berichte, Querschnitt/Bedienung), alle hohen
