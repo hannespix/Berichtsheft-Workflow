@@ -136,7 +136,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `search-test.mjs` | Fuzzy-Suche, Mehrwortsuche, Ranking |
 | `dq-test.mjs` | Datenqualitäts-Regeln |
 | `filter-test.mjs` | Globale Filter: Mehrfachauswahl, AP∪ZP-Vereinigung, Standortgruppen |
-| `planung-test.mjs` | Schultermin-Workflow: gf(termine), Termin-Azubi-Menge, fremde Ämter, Lehrjahre |
+| `planung-test.mjs` | Schultermin-Workflow: gf(termine), Termin-Azubi-Menge, fremde Ämter, Lehrjahre, Kampagnenfenster/Kohorte, Stichtag-Lehrjahr, KW 53, Doppeltermine |
 | `nacherfassung-test.mjs` | Nacherfassung: geprüft-bis-KW-Kaskade, pauschale Fehltage, AJ/KW-Zuordnung, Termin-Wiederverwendung |
 | `workflow-test.mjs` | Vorlagen/Textbausteine, Dateinamen, Papierkorb (Azubi + Termin), Lösch-Logbuch |
 | `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus` |

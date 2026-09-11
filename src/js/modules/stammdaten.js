@@ -1066,11 +1066,9 @@ const StammdatenTab = {
     // Build KW list with real dates: KW 36-52 → year1, KW 1-35 → year2
     const kwList = [];
     for (let kw = 36; kw <= 52; kw++) kwList.push({ kw, year: year1, date: kwToMonday(kw, year1) });
-    // Some years have KW 53
-    const kw53test = kwToMonday(53, year1);
-    if (kw53test.getFullYear() === year1 || (kw53test.getMonth() === 11 && kw53test.getDate() >= 28)) {
-      kwList.push({ kw: 53, year: year1, date: kwToMonday(53, year1) });
-    }
+    // KW 53 nur in echten 53-Wochen-Jahren (ISO-Regel) – die alte Prüfung
+    // über den Montag zeigte sie auch in 52-Wochen-Jahren
+    if (App.hatKW53(year1)) kwList.push({ kw: 53, year: year1, date: kwToMonday(53, year1) });
     for (let kw = 1; kw <= 35; kw++) kwList.push({ kw, year: year2, date: kwToMonday(kw, year2) });
 
     const monthNames = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];

@@ -171,5 +171,64 @@ console.log('\n══ Audit 7 A6: Schülerzahl eines Termins zählt Einzel-Zuord
   check(App.getTerminSchuelerCount(777) === ids.length, `Kampagnen-Termin ohne Klassen zeigt ${ids.length} Azubis statt 0 (${App.getTerminSchuelerCount(777)})`);
 }
 
+console.log('\n══ Audit 7 Paket D: Planung im Termin-Modell ══');
+{
+  sandbox.formatDate = (d) => String(d || ''); sandbox.esc = (x) => String(x ?? ''); sandbox.todayStr = () => new Date().toISOString().slice(0, 10);
+  vm.runInContext(PLANUNG_SRC + '\n;globalThis.PlanungHandler = PlanungHandler;', sandbox, { filename: 'planung.js' });
+  const PH = sandbox.PlanungHandler;
+  // D1: Kohortenjahr aus dem Kampagnenfenster – im Januar 2026 liegt das
+  // Nov./Dez.-Fenster im Jahr 2026, die Kohorte ist also AP S2027 (nicht S2026)
+  const jan = new Date(2026, 0, 15);
+  const f = PH._kampFensterRoh('kontrolle23', jan);
+  check(f.von.getFullYear() === 2026 && f.von.getMonth() === 10, `Januar 2026: Fenster der 2.+3.-AJ-Kontrolle = Nov./Dez. 2026 (${f.von.getFullYear()}-${f.von.getMonth() + 1})`);
+  const v = PH._kontrollVorlagen(jan).find(x => x.key === 'kontrolle23');
+  check(v.jgLabels.includes('S2027') && !v.jgLabels.includes('S2026'), `Kohorte dazu ist AP S2027 (${v.jgLabels.join(',')})`);
+  const vApril = PH._kontrollVorlagen(new Date(2026, 3, 1)).find(x => x.key === 'zpF');
+  check(vApril.zps.includes('F2027') || vApril.fehlt.includes('ZP F2027'), 'April 2026: ZP-Frühjahr-Kampagne zielt auf F2027 (Fenster Jan.–März 2027)');
+  const vSep = PH._kontrollVorlagen(new Date(2026, 8, 11)).find(x => x.key === 'kontrolle23');
+  check(vSep.jgLabels.includes('S2027'), 'September 2026: weiterhin AP S2027 (Fenster Nov./Dez. 2026)');
+
+  // D2: Lehrjahr zum Stichtag der Kampagne, nicht zu heute
+  const heute = new Date();
+  const beginn = `${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, '0')}-01`;
+  const ende = `${heute.getFullYear() + 3}-${String(heute.getMonth() + 1).padStart(2, '0')}-01`;
+  const spaeter = new Date(heute.getFullYear(), heute.getMonth() + 15, 15);
+  const refDate = `${spaeter.getFullYear()}-${String(spaeter.getMonth() + 1).padStart(2, '0')}-15`;
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,klasse_id,jahrgang_id,fachrichtung_id,zustaendiges_amt,ausbildungsbeginn,ausbildungsende) VALUES (901,'Zukunft','Z',1,3,2,1,'93',?,?)`, [beginn, ende]);
+  const heuteLJ2 = App.getStandortgruppen({ lehrjahre: [2] }).some(g => g.schueler.some(x => x.id === 901));
+  const spaeterLJ2 = App.getStandortgruppen({ lehrjahre: [2], refDate }).some(g => g.schueler.some(x => x.id === 901));
+  check(!heuteLJ2 && spaeterLJ2, `Lehrjahr-Filter zum Stichtag ${refDate}: heutiger 1.-Lehrjahr-Azubi zählt dann als 2. Lehrjahr`);
+  check(/opts\.refDate = /.test(PLANUNG_SRC) && /if \(terminDatum\) opts\.refDate = terminDatum;/.test(PLANUNG_SRC), 'Assistent und Termin-Dialog übergeben den Stichtag');
+
+  // D3/D4: Gruppen eines Kampagnen-Termins (nur Einzel-Zuordnung, keine Klassen)
+  db.run(`UPDATE kontrolltermine SET berufsschule_id=1 WHERE id=777`);
+  App.invalidateTerminCache();
+  const gr = App.terminGruppen(777);
+  check(gr.length > 0 && gr.reduce((n, g) => n + g.count, 0) === App.getTerminSchueler(777).length, `Kampagnen-Termin: Gruppen aus den Azubis (${gr.map(g => g.fr + ' ' + g.aj + '. AJ: ' + g.count).join(' | ')})`);
+  check(App.formatTerminFrAj(777) !== '–', `Fachrichtung/AJ des Kampagnen-Termins nicht mehr „–" (${App.formatTerminFrAj(777)})`);
+  const VIEWS_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check((VIEWS_SRC.match(/App\.getTerminSchule\(t\.id\)/g) || []).length >= 3 && !/const schule = klassen\.length \? klassen\[0\]\.schule : '–';\n/.test(VIEWS_SRC.split('Durchsichtsbögen exportieren')[0].split('Nächste Kontrolltermine')[1] || ''), 'Dashboard/Kalender/Berichte zeigen den Ort des Termins (getTerminSchule)');
+  check(/terminDays\[day\] = terminDays\[day\] \|\| \[\]/.test(VIEWS_SRC), 'Kalender fasst mehrere Termine je Tag');
+  check(/App\.terminGruppen\(t\.termin\.id/.test(WORKFLOWS_SRC) && /!klassen\.length && schuelerList\.length/.test(WORKFLOWS_SRC), 'Terminanfrage: Gruppen, Klassen und Fachrichtung auch aus den Azubis');
+
+  // D5: Kalender-Helfer
+  check(App.hatKW53(2026) && !App.hatKW53(2025) && App.hatKW53(2020) && !App.hatKW53(2027), 'KW 53 nach ISO-Regel (2026 und 2020 ja, 2025 und 2027 nein)');
+  check(App.schuljahrZu('2026-11-24') === '2026/2027' && App.schuljahrZu('2027-03-01') === '2026/2027' && App.schuljahrZu('2027-08-15') === '2027/2028', 'Schuljahr zu einem Datum');
+  check(/App\.hatKW53\(year1\)/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/stammdaten.js'), 'utf8')), 'Blockplan-Raster nutzt die ISO-Regel');
+  check(/App\.schuljahrZu\(document\.getElementById\('mKtDatum'\)/.test(PLANUNG_SRC) && /if \(!schulIds\.length && ortId\) schulIds = \[ortId\];/.test(PLANUNG_SRC), 'KW-Kalender im Dialog: Schuljahr des Termindatums, Schule auch über den Ort');
+  check(/berufsschule_id=\? AND schuljahr=\?'/.test(PLANUNG_SRC.split('_kampBlockplanKws(bsId, datum)')[1] || ''), 'Datumsvorschläge lesen den Blockplan je Schuljahr');
+
+  // D6: Schule zum Standortnamen, Doppeltermine
+  check(App.berufsschuleIdZuName('BS Freiburg') === 1 && App.berufsschuleIdZuName('Freiburg') === 1, 'Berufsschule zu Standortname (exakt und enthalten)');
+  check(App.berufsschuleIdZuName('Landesfachklasse BS Heidelberg Obstbau') === 2 && App.berufsschuleIdZuName('Nirgendwo') === null, 'Freitext-LFK-Standort findet die Schule, Unbekanntes nicht');
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,typ,berufsschule_id,pruefer) VALUES (778,'2026-11-30','geplant','schulkontrolle',1,'Test')`);
+  const k1 = App.terminKollisionen(1, '2026-11-24', 14);
+  check(k1.some(t => t.id === 778), 'Doppeltermin ±14 Tage an derselben Schule erkannt');
+  check(!App.terminKollisionen(1, '2026-11-24', 14, 778).some(t => t.id === 778), 'Beim Bearbeiten zählt der eigene Termin nicht');
+  check(App.terminKollisionen(1, '2027-01-20', 14).length === 0 && App.terminKollisionen(null, '2026-11-30').length === 0, 'Außerhalb des Umkreises bzw. ohne Schule keine Kollision');
+  check(/App\.terminKollisionen\(ortId, dt, 14, id \|\| null\)/.test(PLANUNG_SRC) && /const doppelt = \[\];/.test(PLANUNG_SRC), 'Termin-Dialog und Assistent fragen bei Doppelterminen nach');
+  check(/ortSel\.value = String\(bsId\)/.test(PLANUNG_SRC), 'Standort-Klick setzt den Ort des Termins');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

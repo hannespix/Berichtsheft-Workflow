@@ -22,17 +22,19 @@ const PlanungHandler = {
   // Merkhinweise (Hersendung-Schulen, Fachrichtungs-Ausnahmen) erscheinen
   // als Checkliste unter der Werkzeugleiste.
   _aktiveVorlage: null,
-  _kontrollVorlagen() {
-    const heute = new Date();
-    const jahr = heute.getFullYear();
-    const monat = heute.getMonth(); // 0 = Januar
-    // Kampagnen-Jahre relativ zum typischen Planungszeitpunkt:
-    const folgeJahr = monat >= 6 ? jahr + 1 : jahr;   // Nov./Dez.-Kontrolle zielt auf AP S + ZP F des Folgejahres
-    const zpFJahr = monat <= 2 ? jahr : jahr + 1;     // ZP Frühjahr (~Februar)
-    const zpHJahr = monat <= 10 ? jahr : jahr + 1;    // ZP Herbst (Sept.–Nov.)
-    const apSJahr = monat <= 6 ? jahr : jahr + 1;     // Zulassungskontrolle AP S (April)
+  _kontrollVorlagen(heute) {
+    heute = heute || new Date();
+    // Kampagnen-Jahre aus dem KAMPAGNENFENSTER ableiten (nicht getrennt aus
+    // dem heutigen Monat): sonst liefen Fenster und Kohorte auseinander –
+    // im Januar z.B. „AP S2026" mit Fenster Nov./Dez. 2026.
+    const fensterJahr = key => this._kampFensterRoh(key, heute).bis.getFullYear();
+    const folgeJahr = fensterJahr('kontrolle23') + 1; // Nov./Dez.-Kontrolle zielt auf AP S + ZP F des Folgejahres
+    const zpFJahr = fensterJahr('zpF');               // ZP Frühjahr (~Februar)
+    const zpHJahr = fensterJahr('zpH');               // ZP Herbst (Sept.–Nov.)
+    const apSJahr = fensterJahr('apS');               // Zulassungskontrolle AP S (April)
+    const apWJahr = fensterJahr('apW');               // Anmeldung zum 1.11. → nächster Winter-Jahrgang
     const jgRow = (typ, j) => App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE typ=? AND jahr=?', [typ, j])[0];
-    const apW = App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE typ=? AND jahr>=? ORDER BY jahr LIMIT 1', ['Winter', jahr])[0];
+    const apW = App.query('SELECT id, bezeichnung FROM abschlussjahrgaenge WHERE typ=? AND jahr>=? ORDER BY jahr LIMIT 1', ['Winter', apWJahr])[0];
     const zpVorhanden = new Set(App.query("SELECT DISTINCT zwischenpruefung FROM schueler WHERE aktiv=1 AND zwischenpruefung != ''").map(r => r.zwischenpruefung));
 
     const bau = (key, titel, termin, jgWuensche, zpWuensche, hinweise) => {
@@ -450,6 +452,9 @@ const PlanungHandler = {
     if (amt.length) opts.amt = amt;
     if (zp.length) opts.zwischenpruefung = zp;
     if (lj.length) opts.lehrjahre = lj.map(Number);
+    // Lehrjahr/LFK-Standort zum TERMINDATUM, nicht zu heute
+    const terminDatum = document.getElementById('mKtDatum')?.value;
+    if (terminDatum) opts.refDate = terminDatum;
 
     const gruppen = App.getStandortgruppen(opts);
     if (!gruppen.length) {
@@ -460,6 +465,7 @@ const PlanungHandler = {
 
     // Wenn Schule gefiltert: nur Gruppen an diesen Schulen ODER LFK-Gruppen dort zeigen
     const filtered = bs.length ? gruppen.filter(g => bs.some(b => g.schule.toLowerCase().includes(b.toLowerCase()))) : gruppen;
+    this._standortGruppen = filtered;
 
     // Check ob es LFK-Schüler gibt
     const hasAnyLFK = filtered.some(g => g.hasLFK);
@@ -477,8 +483,8 @@ const PlanungHandler = {
     content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
         Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Schüler an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
       </div>`
-    + filtered.map(g => {
-      const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s).isLandesfachklasse).length;
+    + filtered.map((g, gi) => {
+      const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s, terminDatum || undefined).isLandesfachklasse).length;
       const regCount = g.schueler.length - lfkCount;
       const klasseIds = [...g.klasse_ids];
 
@@ -489,7 +495,7 @@ const PlanungHandler = {
       return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;background:var(--clr-white);border-radius:6px;border:1px solid var(--clr-purple-line);cursor:pointer;transition:all .15s"
         onmouseenter="this.style.borderColor='var(--clr-purple)';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
         onmouseleave="this.style.borderColor='var(--clr-purple-line)';this.style.boxShadow='none'"
-        onclick="PlanungHandler._selectStandort([${klasseIds.join(',')}], [${g.schueler.map(s => s.id).join(',')}])"
+        onclick="PlanungHandler._selectStandort(${gi})"
         title="${schuelerNames}${moreHint}">
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
@@ -506,15 +512,25 @@ const PlanungHandler = {
     </div>` : '');
   },
 
-  _selectStandort(klasseIds, schuelerIds) {
+  _selectStandort(gruppeOderKlassen, schuelerIdsOpt) {
     // NUR die Azubis dieser Standortgruppe übernehmen – als EINZEL-Zuordnung.
     // Früher wurden stattdessen die STAMMklassen angehakt (das holte ganze
     // Klassen anderer Schulen mit herein) und eine bereits getroffene Auswahl
     // wurde stillschweigend gelöscht. Jetzt: mergen, Klassen unangetastet.
+    const g = typeof gruppeOderKlassen === 'number' ? (this._standortGruppen || [])[gruppeOderKlassen] : null;
+    const schuelerIds = g ? g.schueler.map(s => s.id) : (schuelerIdsOpt || []);
     const menge = new Set(this._standortSchuelerIds || []);
     schuelerIds.forEach(sid => menge.add(sid));
     this._standortSchuelerIds = [...menge];
     App.toast(`${schuelerIds.length} Azubis dieser Standortgruppe übernommen (${this._standortSchuelerIds.length} Einzel-Zuordnungen insgesamt)`, 'success');
+    // Ort des Termins = dieser Standort (sonst brach die Terminanfrage
+    // mangels Schule ab); eine ausdrückliche Wahl bleibt bestehen
+    const ortSel = document.getElementById('mKtOrt');
+    if (g && ortSel && !ortSel.value) {
+      const bsId = App.berufsschuleIdZuName(g.schule);
+      if (bsId) ortSel.value = String(bsId);
+      else App.toast(`Für „${g.schule}" ist keine Berufsschule in den Stammdaten hinterlegt – bitte den Ort des Termins von Hand wählen`, 'warning');
+    }
     this._renderEinsendSelected && this._renderStandortInfo();
     this.updateBpHint && this.updateBpHint();
   },
@@ -623,8 +639,12 @@ const PlanungHandler = {
       const klassen = App.getTerminKlassen(this._editTerminId);
       schulIds = [...new Set(klassen.map(k => k.berufsschule_id).filter(Boolean))];
     }
-    if (!schulIds.length) { grid.textContent = 'Klassen auswählen…'; return; }
-    const sj = (() => { const now = new Date(); return now.getMonth() >= 7 ? `${now.getFullYear()}/${now.getFullYear()+1}` : `${now.getFullYear()-1}/${now.getFullYear()}`; })();
+    // Kampagnen-/Standort-Termine haben keine Klassen: Ort des Termins nutzen
+    const ortId = parseInt(document.getElementById('mKtOrt')?.value) || (this._editTerminId ? App.scalar('SELECT berufsschule_id FROM kontrolltermine WHERE id=?', [this._editTerminId]) : null);
+    if (!schulIds.length && ortId) schulIds = [ortId];
+    if (!schulIds.length) { grid.textContent = 'Klassen oder Ort des Termins auswählen…'; return; }
+    // Schuljahr des gewählten Datums (nicht das heutige – Sommerplanung für den Herbst)
+    const sj = App.schuljahrZu(document.getElementById('mKtDatum')?.value || new Date());
     const sjParts = sj.split('/');
     const year1 = parseInt(sjParts[0]), year2 = parseInt(sjParts[1]);
 
@@ -659,6 +679,7 @@ const PlanungHandler = {
     // Build KW list (Schuljahr order)
     const kwList = [];
     for (let kw = 36; kw <= 52; kw++) kwList.push({ kw, yr: year1 });
+    if (App.hatKW53(year1)) kwList.push({ kw: 53, yr: year1 });
     for (let kw = 1; kw <= 35; kw++) kwList.push({ kw, yr: year2 });
 
     const months = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
@@ -731,6 +752,12 @@ const PlanungHandler = {
     // Ort des Termins: explizite Auswahl, sonst Stammschule der ersten Klasse
     // (data-bs am Checkbox-Input trägt die berufsschule_id)
     const ortId = parseInt(document.getElementById('mKtOrt')?.value) || parseInt(firstChecked?.dataset?.bs) || null;
+    if (!selectedKlassen.length && !ortId) {
+      if (!confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?')) return;
+    }
+    // Doppeltermin: gleiche Schule ±14 Tage
+    const koll = App.terminKollisionen(ortId, dt, 14, id || null);
+    if (koll.length && !confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`)) return;
 
     if (id) {
       App.run('UPDATE kontrolltermine SET geplant_datum=?,pruefer=?,bemerkung=?,jahrgang_id=?,typ=?,berufsschule_id=? WHERE id=?', [dt,pr,bem,jgId,typ,ortId,id]);
@@ -1081,8 +1108,12 @@ const PlanungHandler = {
       }
     }
     if (ljs.length) opts.lehrjahre = ljs;
+    // Lehrjahr und LFK-Standort zum KAMPAGNENFENSTER bestimmen, nicht zu heute
+    const fenster = this._kampFensterRoh(key);
+    opts.refDate = `${fenster.von.getFullYear()}-${String(fenster.von.getMonth() + 1).padStart(2, '0')}-${String(fenster.von.getDate()).padStart(2, '0')}`;
     const gruppen = App.getStandortgruppen(opts);
     this._kampGruppen = gruppen;
+    this._kampFensterAktuell = fenster;
     if (!gruppen.length) {
       box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--clr-text-light);font-size:13px">Keine Azubis für diese Auswahl gefunden.</div>';
       return;
@@ -1094,8 +1125,10 @@ const PlanungHandler = {
         const fremd = g.schueler.filter(s => (s.zustaendiges_amt || '') !== '' && s.zustaendiges_amt !== App.EIGENES_AMT).length;
         let lfk = 0;
         g.schueler.forEach(s => { try { if (App.getAktuelleSchule(s).isLandesfachklasse) lfk++; } catch(e) {} });
+        const bsIdZeile = App.berufsschuleIdZuName(g.schule);
+        const vorhandene = bsIdZeile ? App.termineImZeitraum(bsIdZeile, fenster.von, fenster.bis) : [];
         return `<tr>
-          <td><strong>${esc(g.schule)}</strong></td>
+          <td><strong>${esc(g.schule)}</strong>${!bsIdZeile ? '<div style="font-size:10px;color:var(--clr-red)">⚠ keine Berufsschule in den Stammdaten – Termin ohne Ort</div>' : ''}${vorhandene.length ? `<div style="font-size:10px;color:var(--clr-amber)">⚠ ${vorhandene.length} Termin(e) im Zeitfenster: ${vorhandene.map(t => formatDate(t.geplant_datum)).join(', ')}</div>` : ''}</td>
           <td style="text-align:right">${g.schueler.length}</td>
           <td style="text-align:right">${fremd ? `<span class="badge-status badge-open">${fremd}</span>` : '0'}</td>
           <td style="text-align:right">${lfk || '–'}</td>
@@ -1113,11 +1146,13 @@ const PlanungHandler = {
       die Weitergabe der Ergebnisse läuft danach über „§ Ämter" am Termin.
     </div>`;
   },
-  // Zeitfenster der Kampagne (von/bis als Date) – Grundlage für die Datumsvorschläge
-  _kampFenster(key) {
-    const heute = new Date(); const j = heute.getFullYear(); const m = heute.getMonth();
+  // Zeitfenster der Kampagne (von/bis als Date): das nächste noch nicht
+  // abgelaufene Fenster ab „heute" – Grundlage für Kohortenjahre UND
+  // Datumsvorschläge, damit beides zusammenpasst.
+  _kampFensterRoh(key, heute) {
+    heute = heute || new Date();
+    const j = heute.getFullYear(); const m = heute.getMonth();
     const D = (y, mo, d) => new Date(y, mo, d, 12);
-    const v = this._kontrollVorlagen().find(x => x.key === key);
     let von, bis;
     if (key === 'kontrolle23') { const y = m >= 6 ? j : j - 1; von = D(y, 10, 20); bis = D(y, 11, 18); }
     else if (key === 'zpF') { const y = m <= 2 ? j : j + 1; von = D(y, 0, 20); bis = D(y, 2, 10); }
@@ -1126,8 +1161,24 @@ const PlanungHandler = {
     else if (key === 'apW') { const y = m <= 10 ? j : j + 1; von = D(y, 9, 1); bis = D(y, 10, 15); }
     else { von = D(j, m, 1); bis = new Date(j, m + 3, 0, 12); }
     if (bis < heute) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
+    return { von, bis };
+  },
+  _kampFenster(key, heute) {
+    const { von, bis } = this._kampFensterRoh(key, heute);
+    const v = this._kontrollVorlagen(heute).find(x => x.key === key);
     const fmt = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
     return { von, bis, label: (v ? v.termin + ': ' : '') + fmt(von) + ' – ' + fmt(bis) };
+  },
+  // Blockplan-Wochen einer Schule für das Schuljahr des Datums, eingeschränkt
+  // auf die im Assistenten gewählten Lehrjahre (sonst alle)
+  _kampBlockplanKws(bsId, datum) {
+    if (!bsId) return new Set();
+    const sj = App.schuljahrZu(datum);
+    const ljs = [...document.querySelectorAll('.chk-kamp-lj:checked')].map(c => parseInt(c.value)).filter(Boolean);
+    let sql = 'SELECT DISTINCT kalenderwoche FROM blockplan WHERE berufsschule_id=? AND schuljahr=?';
+    const p = [bsId, sj];
+    if (ljs.length) { sql += ` AND lehrjahr IN (${ljs.map(() => '?').join(',')})`; p.push(...ljs); }
+    return new Set(App.query(sql, p).map(r => r.kalenderwoche));
   },
   _kampVorschlaege() {
     const key = document.getElementById('kampVorlage')?.value;
@@ -1138,13 +1189,16 @@ const PlanungHandler = {
       if (inp.value) return; // vorhandene Eingaben nicht überschreiben
       const g = this._kampGruppen[parseInt(inp.dataset.idx)];
       if (!g) return;
-      const bsId = App.scalar('SELECT id FROM berufsschulen WHERE name=?', [g.schule]);
-      const bpKws = bsId ? new Set(App.query('SELECT DISTINCT kalenderwoche FROM blockplan WHERE berufsschule_id=?', [bsId]).map(r => r.kalenderwoche)) : new Set();
+      const bsId = App.berufsschuleIdZuName(g.schule);
+      // Blockplan des SCHULJAHRES der jeweiligen Woche (das Fenster kann über
+      // die Sommerferien reichen) – nicht alle Jahre durcheinander
+      const bpCache = {};
+      const bpKwsFuer = d => { const sj = App.schuljahrZu(d); if (!bpCache[sj]) bpCache[sj] = this._kampBlockplanKws(bsId, d); return bpCache[sj]; };
       let treffer = null, ersterDienstag = null;
       for (let d = new Date(von); d <= bis; d.setDate(d.getDate() + 1)) {
         if (d.getDay() !== 2) continue; // Dienstag
         if (!ersterDienstag) ersterDienstag = new Date(d);
-        if (bpKws.has(App._isoKW(d))) { treffer = new Date(d); break; }
+        if (bpKwsFuer(d).has(App._isoKW(d))) { treffer = new Date(d); break; }
       }
       const wahl = treffer || ersterDienstag;
       if (!wahl) return;
@@ -1162,11 +1216,12 @@ const PlanungHandler = {
     if (!inp.value) { cell.textContent = '–'; return; }
     const kw = App._isoKW(new Date(inp.value + 'T12:00:00'));
     const g = this._kampGruppen[i];
-    const bsId = App.scalar('SELECT id FROM berufsschulen WHERE name=?', [g.schule]);
+    const bsId = App.berufsschuleIdZuName(g.schule);
     let bp = '';
     if (bsId) {
-      const n = App.scalar('SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=? AND kalenderwoche=?', [bsId, kw]) || 0;
-      bp = n ? ' · Blockplan ✓' : ' · ⚠ kein Blockplan-Eintrag';
+      bp = this._kampBlockplanKws(bsId, inp.value).has(kw) ? ' · Blockplan ✓' : ' · ⚠ kein Blockplan-Eintrag';
+      const koll = App.terminKollisionen(bsId, inp.value, 14);
+      if (koll.length) bp += ` · ⚠ Termin am ${koll.map(t => formatDate(t.geplant_datum)).join(', ')} vorhanden`;
     }
     cell.textContent = 'KW ' + kw + bp;
   },
@@ -1178,11 +1233,21 @@ const PlanungHandler = {
     const daten = [...document.querySelectorAll('.kamp-datum')]
       .map(inp => ({ idx: parseInt(inp.dataset.idx), datum: inp.value })).filter(x => x.datum);
     if (!daten.length) return App.toast('Bei mindestens einer Schule ein Datum eintragen', 'error');
+    // Doppeltermine: bereits vorhandene Termine derselben Schule ±14 Tage
+    // (ein zweiter Lauf des Assistenten legte sonst alles doppelt an)
+    const doppelt = [];
+    daten.forEach(({ idx, datum }) => {
+      const g = this._kampGruppen[idx];
+      const bsId = g ? App.berufsschuleIdZuName(g.schule) : null;
+      const koll = bsId ? App.terminKollisionen(bsId, datum, 14) : [];
+      if (koll.length) doppelt.push(`${g.schule}: ${koll.map(t => formatDate(t.geplant_datum) + (t.status === 'durchgefuehrt' ? ' (durchgeführt)' : '')).join(', ')}`);
+    });
+    if (doppelt.length && !confirm(`An diesen Schulen gibt es bereits Termine im Umkreis von 14 Tagen:\n\n${doppelt.join('\n')}\n\nTrotzdem zusätzlich anlegen?`)) return;
     let angelegt = 0;
     daten.forEach(({ idx, datum }) => {
       const g = this._kampGruppen[idx];
       if (!g || !g.schueler.length) return;
-      const bsId = App.scalar('SELECT id FROM berufsschulen WHERE name=?', [g.schule]) || null;
+      const bsId = App.berufsschuleIdZuName(g.schule) || null;
       const titel = (v ? v.titel : 'Berichtsheftkontrolle') + ' – ' + g.schule;
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, berufsschule_id, geplant_datum, pruefer, bemerkung, typ, status) VALUES (?,?,?,?,?,?,?,?)',
         [null, (v && v.jgIds.length === 1) ? v.jgIds[0] : null, bsId, datum, pr, titel, 'schulkontrolle', 'geplant']);

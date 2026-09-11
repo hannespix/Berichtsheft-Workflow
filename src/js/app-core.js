@@ -5601,17 +5601,42 @@ const App = {
 
   // Format FR + AJ for display (e.g. "GaLaBau 2. AJ, Zierpfl. 2. AJ")
   formatTerminFrAj(terminId, refDate) {
+    return this.terminGruppen(terminId, refDate).map(g => `${g.fr} ${g.aj != null ? g.aj + '. AJ' : 'AJ ?'}`).join(', ') || '–';
+  },
+  // Gruppen (Fachrichtung + Ausbildungsjahr ZUM TERMINDATUM) eines Termins:
+  // aus den verknüpften Klassen und zusätzlich aus allen Azubis, die keiner
+  // dieser Klassen angehören (Einzel-Zuordnung, LFK-Gäste, Kampagnen-Termine
+  // ohne Klassen – die zeigten vorher „–" bzw. „– – –" im Betreff).
+  // Liefert [{fr, aj, jgBez, count}], sortiert nach Fachrichtung und AJ.
+  terminGruppen(terminId, refDate) {
+    const datum = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum || new Date().toISOString().slice(0, 10);
     const klassen = this.getTerminKlassen(terminId);
-    const termin = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum;
+    const schueler = this.getTerminSchueler(terminId);
     const groups = {};
     klassen.forEach(k => {
-      const aj = this.getAJFromJahrgang(k.jahrgang_id, termin);
+      const aj = this.getAJFromJahrgang(k.jahrgang_id, datum);
       const fr = k.fachrichtung || 'Gartenbau';
       const key = `${fr}|${aj}`;
-      if (!groups[key]) groups[key] = { fr, aj };
+      if (!groups[key]) groups[key] = { fr, aj, jgBez: k.jg_bez || '', count: 0 };
     });
-    const sorted = Object.values(groups).sort((a,b) => a.fr.localeCompare(b.fr) || a.aj - b.aj);
-    return sorted.map(g => `${g.fr} ${g.aj}. AJ`).join(', ') || '–';
+    const frCache = {}, jgCache = {};
+    schueler.forEach(s => {
+      const k = klassen.find(x => x.id === s.klasse_id);
+      if (k) {
+        const key = `${k.fachrichtung || 'Gartenbau'}|${this.getAJFromJahrgang(k.jahrgang_id, datum)}`;
+        if (groups[key]) { groups[key].count++; return; }
+      }
+      if (s.fachrichtung_id && frCache[s.fachrichtung_id] === undefined) frCache[s.fachrichtung_id] = this.query('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0]?.bezeichnung || '';
+      const fr = (s.fachrichtung_id && frCache[s.fachrichtung_id]) || 'Gartenbau';
+      let aj = null;
+      try { aj = s.ausbildungsbeginn ? this.getAJAtDate(s.ausbildungsbeginn, datum, s.id) : null; } catch(e) {}
+      if (aj == null) aj = this.getAJFromJahrgang(s.jahrgang_id, datum);
+      if (s.jahrgang_id && jgCache[s.jahrgang_id] === undefined) jgCache[s.jahrgang_id] = this.query('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [s.jahrgang_id])[0]?.bezeichnung || '';
+      const key = `${fr}|${aj}`;
+      if (!groups[key]) groups[key] = { fr, aj, jgBez: (s.jahrgang_id && jgCache[s.jahrgang_id]) || '', count: 0 };
+      groups[key].count++;
+    });
+    return Object.values(groups).sort((a, b) => a.fr.localeCompare(b.fr) || (a.aj || 0) - (b.aj || 0));
   },
 
   // ── Verkürzer-Erkennung: < 30 Monate Ausbildungszeit ──
@@ -5964,11 +5989,14 @@ const App = {
     // Azubis berechnet (Ausbildungsbeginn/Phasen – berücksichtigt Verkürzer),
     // Fallback ist das Lehrjahr-Feld der Stammklasse. Azubis, deren Lehrjahr
     // sich nicht bestimmen lässt, bleiben SICHTBAR statt still zu verschwinden.
+    // opts.refDate = Stichtag (z.B. Kampagnen-Fenster/Termindatum): das
+    // Lehrjahr wird ZU DIESEM Datum bestimmt – eine Juli-Planung für November
+    // verfehlte sonst alle künftigen 2.-Lehrjahre.
     const ljs = this._safeIntList(liste(opts.lehrjahre));
     if (ljs.length) {
       schuelerList = schuelerList.filter(s => {
         let aj = null;
-        try { aj = this.getCurrentAJ(s.ausbildungsbeginn, s.id); } catch(e) {}
+        try { aj = opts.refDate ? this.getAJAtDate(s.ausbildungsbeginn, opts.refDate, s.id) : this.getCurrentAJ(s.ausbildungsbeginn, s.id); } catch(e) {}
         if (aj == null && s.lehrjahr) aj = s.lehrjahr;
         return aj == null ? true : ljs.includes(aj);
       });
@@ -5998,6 +6026,51 @@ const App = {
     // First KW: week of ausbildungsbeginn
     const getKW = (dt) => { const target = new Date(dt.valueOf()); const dayNr = (dt.getDay() + 6) % 7; target.setDate(target.getDate() - dayNr + 3); const firstThursday = target.valueOf(); target.setMonth(0, 1); if (target.getDay() !== 4) target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7); return 1 + Math.round((firstThursday - target) / 604800000); };
     return { startKW: getKW(d), endKW: getKW(new Date()) };
+  },
+
+  // ── Kalender-Helfer für Planung und Blockplan ──
+  // ISO 8601: ein Jahr hat 53 Wochen, wenn der 1. Januar ein Donnerstag ist
+  // (Schaltjahr: auch Mittwoch). Sonst zeigte das Raster KW 53 in
+  // 52-Wochen-Jahren.
+  hatKW53(jahr) {
+    const jan1 = new Date(jahr, 0, 1).getDay();
+    const schalt = (jahr % 4 === 0 && jahr % 100 !== 0) || jahr % 400 === 0;
+    return jan1 === 4 || (schalt && jan1 === 3);
+  },
+  // Schuljahr-Bezeichnung „2026/2027" zu einem Datum (ab August neues Schuljahr)
+  schuljahrZu(datum) {
+    const d = datum instanceof Date ? datum : (this._parseDate(datum) || new Date());
+    const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+    return `${y}/${y + 1}`;
+  },
+  // Berufsschule zu einem (Freitext-)Standortnamen, z.B. aus Landesfachklassen-
+  // Angaben: exakt, sonst enthält der Name den Suchbegriff oder umgekehrt.
+  berufsschuleIdZuName(name) {
+    const n = String(name || '').trim();
+    if (!n) return null;
+    const exakt = this.scalar('SELECT id FROM berufsschulen WHERE name=? COLLATE NOCASE', [n]);
+    if (exakt) return exakt;
+    const enthaelt = this.scalar('SELECT id FROM berufsschulen WHERE name LIKE ? COLLATE NOCASE ORDER BY length(name) LIMIT 1', ['%' + n + '%']);
+    if (enthaelt) return enthaelt;
+    const alle = this.query('SELECT id, name FROM berufsschulen WHERE name != \'\'');
+    const nl = n.toLowerCase();
+    const treffer = alle.filter(b => b.name.length >= 4 && nl.includes(b.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
+    return treffer ? treffer.id : null;
+  },
+  // Termine an einer Schule im Zeitraum (Doppeltermin-Prüfung)
+  termineImZeitraum(bsId, von, bis, ausserId) {
+    if (!bsId) return [];
+    const iso = d => d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : String(d || '');
+    return this.query(`SELECT id, geplant_datum, status, pruefer, bemerkung FROM kontrolltermine
+      WHERE berufsschule_id=? AND geplant_datum BETWEEN ? AND ? AND status != 'abgesagt' AND id != ? ORDER BY geplant_datum`,
+      [bsId, iso(von), iso(bis), ausserId || 0]);
+  },
+  terminKollisionen(bsId, datum, tage = 14, ausserId) {
+    const d = datum instanceof Date ? new Date(datum) : this._parseDate(datum);
+    if (!d || !bsId) return [];
+    const von = new Date(d); von.setDate(von.getDate() - tage);
+    const bis = new Date(d); bis.setDate(bis.getDate() + tage);
+    return this.termineImZeitraum(bsId, von, bis, ausserId);
   },
 
   // ── KW-Nummern-Berechnung (ISO 8601) ──

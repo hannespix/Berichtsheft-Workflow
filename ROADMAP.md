@@ -1,6 +1,6 @@
 # Roadmap – Ergebnis des Gesamt-Workflow-Audits (Audit 7, September 2026)
 
-> **Stand:** Stufe 1 Pakete A, B und C sind umgesetzt (siehe Git-Historie und `tests/status-test.mjs`, `tests/kontrolltag-test.mjs`).
+> **Stand:** Stufe 1 Pakete A, B, C und D sind umgesetzt (siehe Git-Historie sowie `tests/status-test.mjs`, `tests/kontrolltag-test.mjs`, Abschnitt Paket D in `tests/planung-test.mjs`).
 
 > Grundlage: fünf parallele Prüfbereiche entlang des Jahresablaufs (Stammdaten/Import,
 > Planung, Durchführung, Nachbereitung/Berichte, Querschnitt/Bedienung), alle hohen
