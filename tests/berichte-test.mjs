@@ -143,5 +143,23 @@ console.log('\n══ Mängelcodes: Fehltage (H) zählen nicht als Mangel ══
   check(codeCount['A'] === 1 && codeCount['B'] === 1, `A und B werden gezählt (${JSON.stringify(codeCount)})`);
 }
 
+console.log('\n══ Stufe 2 (4): Vorjahresvergleich, Filter, Dialoge, Glossar ══');
+{
+  const D = BerichteHandler.jahresberichtDaten(2025);
+  check(D.vorjahr && D.vorjahr.sj === '2024/2025' && typeof D.vorjahr.kontrolliert === 'number', `Jahresbericht trägt die Vorjahreszahlen (${D.vorjahr?.sj})`);
+  check(BerichteHandler.jahresberichtDaten(2025, { ohneVorjahr: true }).vorjahr === undefined, 'Vorjahr wird nur eine Ebene tief berechnet');
+  const BER_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/berichte.js'), 'utf8');
+  check(/Vorjahr \$\{V\.sj\}: /.test(BER_SRC), 'PDF zeigt die Vorjahreszeile mit Differenzen');
+  const APP = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
+  check(/^  confirm\(text, opts = \{\}\) \{/m.test(APP) && /^  prompt\(text, opts = \{\}\) \{/m.test(APP) && /_dialogEnde\(v\)/.test(APP), 'App.confirm()/App.prompt() als Promise-Dialoge vorhanden');
+  check(/_modalTrapInstalled/.test(APP) && /aria-modal/.test(APP) && /_modalVorherFokus/.test(APP), 'Dialog: Fokus-Falle, Rolle dialog, Fokus-Rückgabe');
+  check(/setAttribute\('aria-live', 'polite'\)/.test(APP) && /setAttribute\('role', 'alert'\)/.test(APP), 'Toasts: aria-live, Fehler als alert');
+  check(/if \(hashView && validViews\.includes\(hashView\)\) \{ this\.navigate\(hashView\); restored = true; \}/.test(APP), 'Ausdrücklicher Hash gewinnt gegen die gemerkte Ansicht');
+  check(/this\.filterZp = \[\];\n    this\.filterFachrichtungen = \[\];\n    this\.filterAmt = \[\];\n    this\.filterBavStatus = 'aktiv';\n    this\.extraFilters = \[\];/.test(APP), 'Datenbank-Wechsel setzt alle globalen Filter zurück');
+  check(/§ Standard: \$\{esc\(this\.amtLabel\(this\.filterAmt\[0\]\)\)\}/.test(APP), 'Standardfilter (eigenes Amt) erscheint als Standard-Chip ohne ✕');
+  const VIEWS = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/id="help_glossar"/.test(VIEWS) && /<h2>Durchführung<\/h2>/.test(VIEWS) && /role="button" tabindex="0"/.test(VIEWS) && /Azubis gesamt/.test(VIEWS), 'Glossar in der Hilfe, Seitentitel = Sidebar-Label, Arbeitsliste per Tastatur bedienbar, „Azubis" statt „Schüler"');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

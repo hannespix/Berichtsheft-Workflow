@@ -906,6 +906,10 @@ const App = {
     if (this.filterAmt.length) {
       if (this.filterAmt[0] === '-1') {
         parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+      } else if (this.filterAmt.length === 1 && this.filterAmt[0] === this.EIGENES_AMT) {
+        // Standardfilter (eigenes Amt) – kein „✕": er ist die Normalansicht,
+        // andere Ämter über die Amt-Auswahl in der Topbar
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-warm);border:1px dashed var(--clr-sand);border-radius:8px;font-size:11px;color:var(--clr-text-light)" title="Standard: nur Azubis des eigenen Amts. Andere Ämter über „§" in der Topbar wählen">§ Standard: ${esc(this.amtLabel(this.filterAmt[0]))}</span>`);
       } else {
         const label = this.filterAmt.length === 1 ? this.amtLabel(this.filterAmt[0]) : this.filterAmt.length + ' Ämter';
         parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:11px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
@@ -1694,9 +1698,14 @@ const App = {
     this.demoMode = false;
     this._lastFileSize = 0;
     this._tkCache = {};
+    // Globale Filter VOLLSTÄNDIG zurücksetzen – Amt/ZP blieben sonst von der
+    // vorigen Datenbank stehen und blendeten in der neuen alles aus
     this.filterJahrgang = [];
+    this.filterZp = [];
     this.filterFachrichtungen = [];
+    this.filterAmt = [];
     this.filterBavStatus = 'aktiv';
+    this.extraFilters = [];
     // Sync-v3-Zustand vollständig zurücksetzen: Sonst bliebe _v3Ready=true mit
     // dem Op-Puffer und den Offsets der ALTEN Datenbank stehen – nach einem
     // DB-Wechsel würden fremde Ops in die falsche Datenbank repliziert.
@@ -6676,9 +6685,12 @@ Anlagen: {anlagen}` },
     if (this.currentUser) this._restoreUserSettings();
 
     // ── Restore last position after reload ──
+    // Ein ausdrücklicher Hash (#planung, Lesezeichen/Link) gewinnt gegen die
+    // gemerkte letzte Ansicht
     let restored = false;
+    if (hashView && validViews.includes(hashView)) { this.navigate(hashView); restored = true; }
     try {
-      const lastView = App.uGet('last_view') || '';
+      const lastView = restored ? '' : (App.uGet('last_view') || '');
       const pos = JSON.parse(App.uGet('last_position') || 'null');
 
       if (lastView === 'kontrolle' && pos && pos.terminId && (Date.now() - pos.timestamp < 4 * 60 * 60 * 1000)) {
@@ -7384,8 +7396,10 @@ Anlagen: {anlagen}` },
 
   toast(msg, type = 'info') {
     const c = document.getElementById('toastContainer');
+    if (c && !c.getAttribute('aria-live')) { c.setAttribute('aria-live', 'polite'); c.setAttribute('role', 'status'); }
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
+    if (type === 'error') t.setAttribute('role', 'alert');
     t.textContent = msg;
     c.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
@@ -7404,7 +7418,30 @@ Anlagen: {anlagen}` },
       <div class="modal-body">${bodyHtml}</div>
       ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
     `;
-    document.getElementById('modalOverlay').classList.add('active');
+    const ov = document.getElementById('modalOverlay');
+    ov.classList.add('active');
+    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-label', String(title || '').replace(/<[^>]*>/g, ''));
+    // Fokus in den Dialog holen und dort halten (Tab läuft im Kreis);
+    // beim Schließen zurück zum auslösenden Element
+    if (!this._modalHatFokus) this._modalVorherFokus = document.activeElement;
+    this._modalHatFokus = true;
+    if (!this._modalTrapInstalled) {
+      this._modalTrapInstalled = true;
+      ov.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab' || !ov.classList.contains('active')) return;
+        const f = [...m.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
+    }
+    setTimeout(() => {
+      if (!ov.classList.contains('active') || m.contains(document.activeElement)) return;
+      const f = m.querySelector('.modal-body input:not([type=hidden]),.modal-body select,.modal-body textarea,.modal-footer .btn-primary,.modal-footer button');
+      if (f) { try { f.focus({ preventScroll: true }); } catch(e) { f.focus(); } }
+    }, 40);
     // Zurück-Taste (v.a. Mobile) soll das Modal schließen, nicht die Ansicht
     // verlassen: einen History-Eintrag pushen, den popstate wieder konsumiert.
     // Bei ausstehendem Zurück-Schritt (Dialogwechsel) keinen neuen Eintrag
@@ -7414,8 +7451,39 @@ Anlagen: {anlagen}` },
     }
     setTimeout(() => TableSort.initAll(), 50);
   },
+  // Promise-Dialoge statt window.confirm/prompt: gleiches Aussehen wie die
+  // übrigen Dialoge, Enter = OK, Esc/X = Abbrechen, Fokus auf der Aktion
+  confirm(text, opts = {}) {
+    return new Promise(resolve => {
+      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(!!v); };
+      this._dialogAbbruchWert = false;
+      this.openModal(esc(opts.titel || 'Bestätigung'), `<div style="font-size:13px;white-space:pre-wrap">${esc(text)}</div>`,
+        `<button class="btn btn-secondary" onclick="App._dialogEnde(false)">${esc(opts.abbrechen || 'Abbrechen')}</button>
+         <button class="btn btn-primary" id="dlgOk" ${opts.gefaehrlich ? 'style="background:var(--clr-red);border-color:var(--clr-red)"' : ''} onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`);
+      setTimeout(() => document.getElementById('dlgOk')?.focus(), 50);
+    });
+  },
+  prompt(text, opts = {}) {
+    return new Promise(resolve => {
+      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(v); };
+      this._dialogAbbruchWert = null;
+      this.openModal(esc(opts.titel || 'Eingabe'), `<div style="font-size:13px;margin-bottom:8px;white-space:pre-wrap">${esc(text)}</div>
+        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();App._dialogEnde(this.value)}">`,
+        `<button class="btn btn-secondary" onclick="App._dialogEnde(null)">Abbrechen</button>
+         <button class="btn btn-primary" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`);
+      setTimeout(() => { const i = document.getElementById('dlgWert'); if (i) { i.focus(); i.select(); } }, 50);
+    });
+  },
+  _dialogEnde(v) { const r = this._dialogResolve; if (r) r(v); },
+
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    // Offener Promise-Dialog per X/Esc/Zurück geschlossen → als Abbruch auflösen
+    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
+    // Fokus zurück zum auslösenden Element
+    this._modalHatFokus = false;
+    const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;
+    if (zurueck && zurueck.focus && document.contains(zurueck)) { try { zurueck.focus({ preventScroll: true }); } catch(e) {} }
     // KW-Modal-Kontext aufräumen: bleibt er stehen, schreibt ein späterer
     // Tastendruck (O/Enter) in einem FREMDEN Dialog auf die zuletzt
     // betrachtete Kalenderwoche.

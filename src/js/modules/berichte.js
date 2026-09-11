@@ -314,7 +314,7 @@ const BerichteHandler = {
     });
     return [...jahre].sort((a, b) => b - a);
   },
-  jahresberichtDaten(sjStart) {
+  jahresberichtDaten(sjStart, opts) {
     const von = `${sjStart}-08-01`, bis = `${sjStart + 1}-07-31`;
     const LE = this._letztesErgebnisSql(von, bis);
     const zr = `kt.geplant_datum BETWEEN '${von}' AND '${bis}'`;
@@ -362,6 +362,13 @@ const BerichteHandler = {
       WHERE s.aktiv=1
       GROUP BY COALESCE(b.id, s.ausbildungsstaette) HAVING maengel > 0
       ORDER BY maengel DESC LIMIT 10`);
+    // Vorjahresvergleich: dieselben Kennzahlen für das Schuljahr davor
+    if (!(opts && opts.ohneVorjahr)) {
+      try {
+        const V = this.jahresberichtDaten(sjStart - 1, { ohneVorjahr: true });
+        D.vorjahr = { sj: V.sj, kontrolliert: V.kontrolliert, okCount: V.okCount, mangelCount: V.mangelCount, termine: V.termine, wvAngelegt: V.wvAngelegt, erledigteWV: V.erledigteWV, totalCodeEntries: V.totalCodeEntries };
+      } catch(e) { D.vorjahr = null; }
+    }
     return D;
   },
   jahresbericht(sjStart) {
@@ -466,6 +473,13 @@ const BerichteHandler = {
     drawMetric(doc, LM + mw + 5, y, mw, 'Kontrolliert', kontrolliert, `${totalSchueler > 0 ? Math.round(kontrolliert/totalSchueler*100) : 0}% Abdeckung`);
     drawMetric(doc, LM + 2*(mw+5), y, mw, 'In Ordnung', okCount, `${kontrolliert > 0 ? Math.round(okCount/kontrolliert*100) : 0}% Erfolgsquote`);
     y += 26;
+    if (DATEN.vorjahr) {
+      // Vorjahresvergleich (gleiche Zahlenbasis: letztes Ergebnis je Azubi im Schuljahr)
+      const V = DATEN.vorjahr; const dlt = (a, b) => { const x = (a || 0) - (b || 0); return x > 0 ? `+${x}` : `${x}`; };
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...COL_GRAY);
+      doc.text(`Vorjahr ${V.sj}: ${V.kontrolliert} kontrolliert (${dlt(kontrolliert, V.kontrolliert)}) · ${V.okCount} in Ordnung (${dlt(okCount, V.okCount)}) · ${V.mangelCount} mit Mängeln (${dlt(mangelCount, V.mangelCount)}) · ${V.termine} Termine (${dlt(termine, V.termine)})`, LM, y);
+      y += 6;
+    }
     drawMetric(doc, LM, y, mw, 'Beanstandungen', mangelCount, '');
     drawMetric(doc, LM + mw + 5, y, mw, 'Termine', termine, einsendungen ? `davon ${einsendungen} Einsendungen` : `${termineGeplant} geplant`);
     drawMetric(doc, LM + 2*(mw+5), y, mw, 'Wiedervorlagen', offeneWV, `${erledigteWV} erledigt`);

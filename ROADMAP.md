@@ -1,6 +1,6 @@
 # Roadmap – Ergebnis des Gesamt-Workflow-Audits (Audit 7, September 2026)
 
-> **Stand:** Stufe 1 (Pakete A–E) ist umgesetzt – siehe Git-Historie sowie `tests/status-test.mjs`, `tests/kontrolltag-test.mjs`, Abschnitt Paket D in `tests/planung-test.mjs` und Abschnitt Paket E in `tests/workflow-test.mjs`. Offen aus Stufe 1: Hilfe-Tab-Namen im Detail (E6) – siehe Stufe 2 „Glossar/Hilfe".
+> **Stand:** Stufe 1 (Pakete A–E) und Stufe 2 sind umgesetzt – siehe Git-Historie sowie die Abschnitte „Stufe 2 (1–4)" in `tests/planung-test.mjs`, `tests/kontrolltag-test.mjs`, `tests/status-test.mjs`, `tests/workflow-test.mjs`, `tests/berichte-test.mjs`. Hinweis zu Stufe 2: `App.confirm()/App.prompt()` stehen als Promise-Dialoge bereit, die vorhandenen `window.confirm`-Aufrufe wurden noch nicht flächendeckend umgestellt; das Wording „Azubi" ist an den prominenten Stellen und im Glossar umgesetzt, nicht in jedem Dialogtext.
 
 > Grundlage: fünf parallele Prüfbereiche entlang des Jahresablaufs (Stammdaten/Import,
 > Planung, Durchführung, Nachbereitung/Berichte, Querschnitt/Bedienung), alle hohen
