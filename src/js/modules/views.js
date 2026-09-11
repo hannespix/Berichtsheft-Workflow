@@ -142,6 +142,45 @@ const Views = {
       termineOhnePruefer.length ? { n: termineOhnePruefer.length, text: `Termin${termineOhnePruefer.length > 1 ? 'e' : ''} ohne Prüfer`, farbe: 'var(--clr-amber)', view: 'planung' } : null,
     ].filter(Boolean);
 
+    // ── Jahresablauf: Wo stehen wir? / Schnellstart ──
+    const st = App.jahresstand();
+    const ns = App.naechsterSchritt(st);
+    const schrittAktion = (s) => ({
+      pruefer: "App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('pruefer'),100)",
+      import: "App.navigate('import')",
+      abschluss: "App.navigate('kontrolle')",
+      wv: "App.navigate('wiedervorlagen')",
+      nachbereitung: "App.navigate('planung')",
+      anfrage: "App.navigate('planung')",
+      kampagne: "App.navigate('planung');setTimeout(()=>PlanungHandler.jahresplanAssistent(),150)",
+      ok: "App.navigate('berichte')",
+    })[s] || "App.navigate('dashboard')";
+    const stufe = (ok, label, detail) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius);background:${ok ? 'var(--clr-green-light)' : 'var(--clr-warm)'};font-size:12px;min-width:150px"><span style="font-size:15px">${ok ? '●' : '○'}</span><div><div style="font-weight:600">${label}</div><div style="color:var(--clr-text-light)">${detail}</div></div></div>`;
+    const startseiteHtml = st.azubis === 0 ? `
+      <div class="card" style="margin-bottom:20px;padding:16px 20px;border-left:4px solid var(--clr-forest)">
+        <strong style="font-size:15px;color:var(--clr-forest-dark)">Schnellstart – in drei Schritten arbeitsfähig</strong>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:stretch">
+          ${stufe(st.pruefer > 0, '1. Prüfer anlegen', st.pruefer ? `${st.pruefer} Prüfer vorhanden` : 'Stammdaten → Prüfer')}
+          ${stufe(false, '2. IBYKUS-Export importieren', 'CSV aus IBYKUS, Spalten werden erkannt')}
+          ${stufe(false, '3. Kampagne planen', 'Kontrollplanung → Kampagnen-Assistent')}
+        </div>
+        <div style="margin-top:10px"><button class="btn btn-primary" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button></div>
+      </div>` : `
+      <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-forest)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <strong style="font-size:14px;color:var(--clr-forest-dark)">Wo stehen wir?</strong>
+          <span style="font-size:11px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Kontrolle → Nachbereitung → Berichte</span>
+          <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          ${stufe(st.importAlterTage !== null && st.importAlterTage <= 90, 'Import', st.letzterImport ? `zuletzt ${formatDate(st.letzterImport)} (vor ${st.importAlterTage} Tagen)` : 'noch kein Import protokolliert')}
+          ${stufe(!!(st.kampagne && st.kampagne.termine), 'Kampagne', st.kampagne ? `${esc(st.kampagne.titel)}: ${formatDate(st.kampagne.vonIso)}–${formatDate(st.kampagne.bisIso)} · ${st.kampagne.termine} Termin(e)` : '–')}
+          ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Termine', `${st.termineOffen} geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
+          ${stufe(!st.ohneAbschluss, 'Kontrolle', st.ohneAbschluss ? `${st.ohneAbschluss} Termin(e) ohne Abschluss` : 'keine offenen Abschlüsse')}
+          ${stufe(!st.ohneNachbereitung && !st.wvUeberfaellig, 'Nachbereitung', `${st.ohneNachbereitung} ohne Nachbereitung · ${st.wvUeberfaellig} WV überfällig`)}
+        </div>
+      </div>`;
+
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
@@ -149,6 +188,7 @@ const Views = {
         <p>Gesamtübersicht</p>
       </div>
       ${App.filterBadgeHtml()}
+      ${startseiteHtml}
 
       <!-- Morgen-Briefing -->
       ${(naechste7Tage || bald_ueberfaellig || ueberfaellig) ? `
@@ -981,6 +1021,7 @@ const Views = {
         <div class="toolbar-right">
           <button class="btn btn-sm btn-secondary" id="planViewTbl" onclick="document.getElementById('planTable').style.display='';document.getElementById('planCalendar').style.display='none';this.style.fontWeight='700';document.getElementById('planViewCal').style.fontWeight='400'" style="font-weight:700">▤ Tabelle</button>
           <button class="btn btn-sm btn-secondary" id="planViewCal" onclick="document.getElementById('planCalendar').style.display='';document.getElementById('planTable').style.display='none';this.style.fontWeight='700';document.getElementById('planViewTbl').style.fontWeight='400'">Kalender</button>
+          <button class="btn btn-secondary" onclick="Views.jahreskalenderToggle()" title="Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien">▦ Jahreskalender</button>
           <button class="btn btn-secondary" onclick="PlanungHandler.exportICS()">ICS-Export</button>
         </div>
       </div>
@@ -1048,6 +1089,7 @@ const Views = {
         })()}
       </div>
 
+      <div id="planJahreskalender" style="display:none;margin-bottom:16px"></div>
       <div id="planTable" class="card">
         ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
@@ -1076,6 +1118,7 @@ const Views = {
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">▤ PDF</button>
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${t.id})" title="Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)">§ Ämter</button>
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
+              ${t.status === 'durchgefuehrt' ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.nachholterminAnlegen(${t.id})" title="Nachholtermin für die am Kontrolltag abwesenden Azubis anlegen">↻ Nachholtermin</button>` : ''}
               <button class="btn-icon btn-sm" onclick="PlanungHandler.editTermin(${t.id})" title="Bearbeiten">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
               </button>
@@ -1127,6 +1170,90 @@ const Views = {
       document.getElementById('selKontrolltermin').value = letzter;
       KontrolleHandler.loadTermin(letzter);
     }
+  },
+
+  // ── Jahreskalender: Kampagnenfenster, Blockwochen je Schule, Ferien BW, Termine ──
+  jahreskalenderToggle() {
+    const box = document.getElementById('planJahreskalender');
+    if (!box) return;
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+    box.style.display = '';
+    if (!this._jkSj) { const d = new Date(); this._jkSj = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; }
+    this.jahreskalender(this._jkSj, this._jkBs || 0);
+  },
+  jahreskalender(sjStart, bsId) {
+    const box = document.getElementById('planJahreskalender');
+    if (!box) return;
+    this._jkSj = sjStart; this._jkBs = bsId || 0;
+    const sj = `${sjStart}/${sjStart + 1}`;
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const heute = todayStr();
+    // Kampagnenfenster des Schuljahres (Bezugspunkt 1. September)
+    const ref = new Date(sjStart, 8, 1);
+    const farben = { kontrolle23: 'var(--clr-amber-light)', zpF: 'var(--clr-blue-light)', zpH: 'var(--clr-blue-light)', apS: 'var(--clr-green-light)', apW: 'var(--clr-green-light)' };
+    const vorlagen = PlanungHandler._kontrollVorlagen(ref);
+    const fenster = ['zpH', 'apW', 'kontrolle23', 'zpF', 'apS'].map(k => { const f = PlanungHandler._kampFensterRoh(k, ref); return { key: k, von: iso(f.von), bis: iso(f.bis), titel: (vorlagen.find(v => v.key === k) || {}).titel || k }; });
+    const ferien = App.ferienBW();
+    const termine = App.query("SELECT id, geplant_datum, status, typ, berufsschule_id, bemerkung, pruefer FROM kontrolltermine WHERE geplant_datum BETWEEN ? AND ? AND status != 'abgesagt'", [`${sjStart}-08-01`, `${sjStart + 1}-07-31`]);
+    const terminTage = {}; termine.forEach(t => (terminTage[t.geplant_datum] = terminTage[t.geplant_datum] || []).push(t));
+    const schulen = App.query('SELECT DISTINCT bs.id, bs.name FROM berufsschulen bs JOIN blockplan b ON b.berufsschule_id=bs.id WHERE b.schuljahr=? ORDER BY bs.name', [sj]);
+    const blockKws = {}; // kw → Set(lehrjahre) für die gewählte Schule
+    if (bsId) App.query('SELECT kalenderwoche, lehrjahr FROM blockplan WHERE berufsschule_id=? AND schuljahr=?', [bsId, sj]).forEach(r => (blockKws[r.kalenderwoche] = blockKws[r.kalenderwoche] || new Set()).add(r.lehrjahr));
+    // „Diese Woche"
+    const jetzt = new Date(); const kwJetzt = App._isoKW(jetzt);
+    const mo = new Date(jetzt); mo.setDate(mo.getDate() - ((mo.getDay() + 6) % 7)); const so = new Date(mo); so.setDate(so.getDate() + 6);
+    const wocheTermine = App.query("SELECT id, geplant_datum, bemerkung FROM kontrolltermine WHERE geplant_datum BETWEEN ? AND ? AND status != 'abgesagt' ORDER BY geplant_datum", [iso(mo), iso(so)]);
+    const wocheWV = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig') AND frist_datum BETWEEN ? AND ?", [iso(mo), iso(so)]) || 0;
+    const wocheBlock = App.query('SELECT DISTINCT bs.name FROM blockplan b JOIN berufsschulen bs ON bs.id=b.berufsschule_id WHERE b.schuljahr=? AND b.kalenderwoche=? ORDER BY bs.name', [App.schuljahrZu(jetzt), kwJetzt]).map(r => r.name);
+    const monate = [];
+    for (let i = 0; i < 12; i++) monate.push(new Date(sjStart, 7 + i, 1));
+    const monatHtml = (m) => {
+      const y = m.getFullYear(), mi = m.getMonth();
+      const tage = new Date(y, mi + 1, 0).getDate();
+      const first = (new Date(y, mi, 1).getDay() + 6) % 7;
+      let cells = '';
+      for (let i = 0; i < first; i++) cells += '<div></div>';
+      for (let d = 1; d <= tage; d++) {
+        const dt = new Date(y, mi, d); const s = iso(dt);
+        const fer = ferien.find(f => f.von <= s && s <= f.bis);
+        const kamp = fenster.find(f => f.von <= s && s <= f.bis);
+        const kw = App._isoKW(dt); const block = bsId && blockKws[kw];
+        const tt = terminTage[s] || [];
+        const we = dt.getDay() === 0 || dt.getDay() === 6;
+        const bg = fer ? 'var(--clr-sand)' : kamp ? farben[kamp.key] : we ? 'transparent' : 'var(--clr-white)';
+        const title = [kw ? `KW ${kw}` : '', fer ? fer.name : '', kamp ? kamp.titel : '', block ? `Blockwoche LJ ${[...block].sort().join('+')}` : '', ...tt.map(t => `Termin: ${t.bemerkung || ''} (${t.pruefer || '–'})`)].filter(Boolean).join(' · ');
+        cells += `<div title="${esc(title)}" style="height:20px;font-size:9px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:${bg};${s === heute ? 'outline:2px solid var(--clr-forest);' : ''}${block ? 'border-bottom:2px solid var(--clr-purple);' : ''}color:${we && !fer && !kamp ? 'var(--clr-text-light)' : 'var(--clr-text)'};cursor:${tt.length ? 'pointer' : 'default'}" ${tt.length ? `onclick="PlanungHandler.editTermin(${tt[0].id})"` : ''}>${tt.length ? `<strong style="color:${tt.every(t => t.status === 'durchgefuehrt') ? 'var(--clr-green)' : 'var(--clr-red)'}">●</strong>` : d}</div>`;
+      }
+      return `<div style="min-width:150px;flex:1"><div style="font-size:11px;font-weight:600;color:var(--clr-forest);margin-bottom:3px">${m.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">${cells}</div></div>`;
+    };
+    box.innerHTML = `<div class="card">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <strong style="font-size:14px;color:var(--clr-forest-dark)">▦ Jahreskalender ${sj}</strong>
+        <button class="btn btn-sm btn-secondary" onclick="Views.jahreskalender(${sjStart - 1}, ${bsId || 0})">‹</button>
+        <button class="btn btn-sm btn-secondary" onclick="Views.jahreskalender(${sjStart + 1}, ${bsId || 0})">›</button>
+        <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Views.jahreskalender(${sjStart}, parseInt(this.value)||0)" title="Blockwochen dieser Schule anzeigen">
+          <option value="0">Blockwochen: Schule wählen…</option>
+          ${schulen.map(sc => `<option value="${sc.id}" ${sc.id === bsId ? 'selected' : ''}>${esc(sc.name)}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:var(--clr-text-light);display:flex;gap:10px;flex-wrap:wrap;margin-left:auto">
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-amber-light);vertical-align:middle;border-radius:2px"></span> Kontrolle 2.+3. AJ</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-blue-light);vertical-align:middle;border-radius:2px"></span> ZP</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green-light);vertical-align:middle;border-radius:2px"></span> AP-Zulassung</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-sand);vertical-align:middle;border-radius:2px"></span> Ferien BW</span>
+          <span><span style="display:inline-block;width:10px;height:3px;background:var(--clr-purple);vertical-align:middle"></span> Blockwoche</span>
+          <span>● Termin</span>
+        </span>
+      </div>
+      <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;margin-bottom:10px">
+        <strong>Diese Woche (KW ${kwJetzt}):</strong>
+        ${wocheTermine.length ? wocheTermine.map(t => `<a href="#" onclick="PlanungHandler.editTermin(${t.id});return false" style="color:var(--clr-forest)">${formatDate(t.geplant_datum)} ${esc(t.bemerkung || 'Termin')}</a>`).join(' · ') : 'keine Termine'}
+        · ${wocheWV} Wiedervorlage(n) fällig
+        · Blockwochen: ${wocheBlock.length ? esc(wocheBlock.join(', ')) : 'keine Schule mit Blockplan-Eintrag'}
+        ${App.istFerien(heute) ? ` · <span style="color:var(--clr-amber)">${esc(App.istFerien(heute))}</span>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">${monate.map(monatHtml).join('')}</div>
+      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ferientermine sind Richtwerte (Einstellungen → Schulferien anpassen). Kampagnenfenster wie in den Kontroll-Vorlagen.</div>
+    </div>`;
   },
 
   // ════════════════════════════════════════════
@@ -1368,6 +1495,15 @@ const Views = {
             Statistiken &amp; Jahresbericht einblenden
           </label>
         </div>
+      </div>
+
+      <!-- Schulferien BW (für den Jahreskalender) -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms.</div>
+        <textarea class="form-control" id="setFerienBW" rows="6" style="font-size:12px;font-family:monospace">${esc(App.ferienBW().map(f => `${f.name};${f.von};${f.bis}`).join('\n'))}</textarea>
+        <div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-secondary" onclick="Views.saveFerien()">Ferien speichern</button>
+          <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='ferien_bw'&quot;);App.toast('Richtwerte wiederhergestellt','success');Views.einstellungen()">Richtwerte</button></div>
       </div>
 
       <!-- Kontaktdaten für E-Mails und PDFs -->
@@ -1694,6 +1830,17 @@ const Views = {
     App.toast(enabled ? 'Statistiken & Jahresbericht aktiviert — Seite neu laden' : 'Statistiken & Jahresbericht deaktiviert', 'success');
   },
 
+  saveFerien() {
+    const zeilen = (document.getElementById('setFerienBW')?.value || '').split('\n').map(z => z.trim()).filter(Boolean);
+    const liste = [];
+    for (const z of zeilen) {
+      const [name, von, bis] = z.split(';').map(x => (x || '').trim());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(von) || !/^\d{4}-\d{2}-\d{2}$/.test(bis) || von > bis) return App.toast(`Zeile nicht lesbar: „${z}" (Name;JJJJ-MM-TT;JJJJ-MM-TT)`, 'warning');
+      liste.push({ name: name || 'Ferien', von, bis });
+    }
+    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('ferien_bw',?)", [JSON.stringify(liste)]);
+    App.toast(`${liste.length} Ferienabschnitte gespeichert`, 'success');
+  },
   saveEinstellungen() {
     const sets = [
       ['email_freisprechung', document.getElementById('setEmailFreispr').value.trim()],

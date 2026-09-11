@@ -1029,6 +1029,48 @@ const PlanungHandler = {
     App.toast(`${termine.length} Termin(e) als ICS exportiert – in Outlook per Datei → Öffnen importieren`, 'success');
   },
 
+  // Standortgruppen ohne Azubis, die seit `seit` schon ein Ergebnis haben
+  _ohneKontrollierte(gruppen, seit) {
+    const ids = new Set(App.query(`SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE ke.ergebnis != '' AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum) >= ?`, [seit || '0000-00-00']).map(r => r.schueler_id));
+    let ausgeschlossen = 0;
+    const out = gruppen.map(g => {
+      const rest = g.schueler.filter(s => !ids.has(s.id));
+      ausgeschlossen += g.schueler.length - rest.length;
+      return { ...g, schueler: rest };
+    }).filter(g => g.schueler.length);
+    return { gruppen: out, ausgeschlossen };
+  },
+
+  // ── Nachholtermin aus den Abwesenden eines durchgeführten Termins ──
+  // (gleiche Schule, nur die am Kontrolltag abwesenden Azubis des eigenen Amts)
+  _nachholterminAnlegen(terminId, datum) {
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!t) return { ok: false, grund: 'Termin nicht gefunden' };
+    const abwesende = App.getTerminSchueler(terminId).filter(s => {
+      const ke = App.query('SELECT anwesend, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
+      return ke && ke.anwesend === 0 && !ke.ergebnis && !App.istFremdesAmt(s);
+    });
+    if (!abwesende.length) return { ok: false, grund: 'Keine abwesenden Azubis (eigenes Amt) an diesem Termin' };
+    const bs = App.getTerminSchule(terminId);
+    App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, berufsschule_id, geplant_datum, pruefer, bemerkung, typ, status) VALUES (?,?,?,?,?,?,?,?)',
+      [null, t.jahrgang_id || null, t.berufsschule_id || null, datum, t.pruefer || '', `Nachholtermin zu ${formatDate(t.geplant_datum)}${bs ? ' – ' + bs.name : ''}`, 'schulkontrolle', 'geplant']);
+    const neuId = App.scalar('SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()');
+    if (!neuId) return { ok: false, grund: 'Termin konnte nicht angelegt werden' };
+    abwesende.forEach(s => App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [neuId, s.id]));
+    App.invalidateTerminCache();
+    return { ok: true, id: neuId, anzahl: abwesende.length };
+  },
+  async nachholterminAnlegen(terminId) {
+    const datum = await App.prompt('Datum des Nachholtermins (JJJJ-MM-TT) – nur die am Kontrolltag abwesenden Azubis werden zugeordnet:', { titel: 'Nachholtermin anlegen', wert: addDaysStr(21) });
+    if (!datum) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return App.toast('Bitte ein Datum im Format JJJJ-MM-TT eingeben', 'warning');
+    const r = this._nachholterminAnlegen(terminId, datum);
+    if (!r.ok) return App.toast(r.grund, 'warning');
+    App.toast(`Nachholtermin am ${formatDate(datum)} mit ${r.anzahl} Azubi(s) angelegt`, 'success');
+    Views.planung();
+  },
+
   // ── Termin-Statuskette: Zusage der Schule vermerken / Anfrage zurücksetzen ──
   terminBestaetigen(id) {
     App.terminSchritt(id, 'bestaetigt');
@@ -1090,6 +1132,12 @@ const PlanungHandler = {
             <span style="color:var(--clr-text-light)">nichts angehakt = alle</span>
           </div>
         </div>
+        <div class="form-group"><label>Bereits kontrollierte ausschließen</label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px;padding:6px 0;cursor:pointer">
+            <input type="checkbox" id="kampOhneKontrollierte" onchange="PlanungHandler._kampLaden()" style="accent-color:var(--clr-forest)">
+            Azubis weglassen, die seit <input type="date" id="kampKontrolliertSeit" class="form-control" value="${(() => { const d = new Date(); const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; return `${y}-08-01`; })()}" style="width:140px;padding:2px 4px;font-size:12px" onchange="PlanungHandler._kampLaden()"> ein Ergebnis haben (z.B. an der ZP Herbst kontrolliert)
+          </label>
+        </div>
       </div>
       <div class="form-group"><label>Prüfer</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">
@@ -1125,7 +1173,14 @@ const PlanungHandler = {
     // Lehrjahr und LFK-Standort zum KAMPAGNENFENSTER bestimmen, nicht zu heute
     const fenster = this._kampFensterRoh(key);
     opts.refDate = `${fenster.von.getFullYear()}-${String(fenster.von.getMonth() + 1).padStart(2, '0')}-${String(fenster.von.getDate()).padStart(2, '0')}`;
-    const gruppen = App.getStandortgruppen(opts);
+    let gruppen = App.getStandortgruppen(opts);
+    // „Bereits kontrolliert" ausschließen (z.B. ZP-Herbst-Azubis bei der Nov./Dez.-Kontrolle)
+    this._kampAusgeschlossen = 0;
+    if (document.getElementById('kampOhneKontrollierte')?.checked) {
+      const seit = document.getElementById('kampKontrolliertSeit')?.value || '';
+      const r = this._ohneKontrollierte(gruppen, seit);
+      gruppen = r.gruppen; this._kampAusgeschlossen = r.ausgeschlossen;
+    }
     this._kampGruppen = gruppen;
     this._kampFensterAktuell = fenster;
     if (!gruppen.length) {
@@ -1153,7 +1208,7 @@ const PlanungHandler = {
     </tbody></table>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
       <button class="btn btn-sm btn-secondary" onclick="PlanungHandler._kampVorschlaege()">📅 Datumsvorschläge für alle</button>
-      <span style="font-size:11px;color:var(--clr-text-light)">${esc(this._kampFenster(key).label)} – je Schule die erste Blockplan-Woche im Zeitfenster (Dienstag); ohne Blockplan der erste Dienstag</span>
+      <span style="font-size:11px;color:var(--clr-text-light)">${esc(this._kampFenster(key).label)} – je Schule die erste Blockplan-Woche im Zeitfenster (Dienstag); ohne Blockplan der erste Dienstag${this._kampAusgeschlossen ? ` · <strong>${this._kampAusgeschlossen}</strong> bereits kontrollierte Azubis ausgeschlossen` : ''}</span>
     </div>
     <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">
       „§ n" = Azubis fremder Zuständigkeitsbereiche – sie werden mitkontrolliert;

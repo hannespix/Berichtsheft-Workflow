@@ -273,5 +273,42 @@ console.log('\n══ Stufe 2 (1): Termin-Statuskette, Arbeitsliste, WV-Filter, 
   check(/SUMMARY:BH-Kontrolle: BS Freiburg\\, Hauptstelle/.test(ics), 'Komma im Schulnamen maskiert');
 }
 
+console.log('\n══ Stufe 3 (1): Jahresablauf, Ferien, Kampagnen-Ausschluss, Nachholtermin ══');
+{
+  const PH = sandbox.PlanungHandler;
+  check(App.ferienBW().length >= 12 && App.istFerien('2025-12-25') === 'Weihnachtsferien 2025/26' && App.istFerien('2026-03-10') === '', 'Ferien BW: Richtwerte, Weihnachten erkannt, Schultag nicht');
+  db.run(`INSERT INTO einstellungen (schluessel,wert) VALUES ('ferien_bw','[{"name":"Test","von":"2030-01-01","bis":"2030-01-05"}]')`);
+  check(App.istFerien('2030-01-03') === 'Test' && App.istFerien('2025-12-25') === '', 'Eigene Ferienliste ersetzt die Richtwerte');
+  db.run("DELETE FROM einstellungen WHERE schluessel='ferien_bw'");
+  const st = App.jahresstand();
+  check(typeof st.azubis === 'number' && typeof st.termineOffen === 'number' && 'kampagne' in st && 'importAlterTage' in st, 'Jahresstand liefert Kennzahlen des Ablaufs');
+  check(App.naechsterSchritt({ pruefer: 0 }).schritt === 'pruefer' && App.naechsterSchritt({ pruefer: 1, azubis: 0 }).schritt === 'import', 'Schnellstart: erst Prüfer, dann Import');
+  check(App.naechsterSchritt({ pruefer: 1, azubis: 5, ohneAbschluss: 2 }).schritt === 'abschluss' && App.naechsterSchritt({ pruefer: 1, azubis: 5, wvUeberfaellig: 3 }).schritt === 'wv', 'Nächster Schritt: offene Abschlüsse vor überfälligen WV');
+  check(App.naechsterSchritt({ pruefer: 1, azubis: 5, kampagne: { termine: 0, tageBis: 30, titel: 'K', vonIso: '2026-11-20' } }).schritt === 'kampagne', 'Kampagne ohne Termine in den nächsten 8 Wochen → planen');
+  check(App.naechsterSchritt({ pruefer: 1, azubis: 5, importAlterTage: 200, kampagne: { termine: 3, tageBis: 30 } }).schritt === 'import' && App.naechsterSchritt({ pruefer: 1, azubis: 5, importAlterTage: 10, kampagne: { termine: 3, tageBis: 30 } }).schritt === 'ok', 'Alter Import → aktualisieren, sonst alles im grünen Bereich');
+  // Kampagnen-Ausschluss bereits kontrollierter Azubis
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,durchgefuehrt_datum,status,typ,berufsschule_id) VALUES (795,'2026-10-06','2026-10-06','durchgefuehrt','schulkontrolle',1)`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend) VALUES (7951,795,1,'in_ordnung',1),(7952,795,2,'',0),(7953,795,3,'',0)`);
+  db.run(`INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (795,1),(795,2),(795,3)`);
+  App.invalidateTerminCache();
+  const gr = [{ schule: 'BS Freiburg', schueler: [{ id: 1 }, { id: 2 }] }, { schule: 'Nur Eins', schueler: [{ id: 1 }] }];
+  const r = PH._ohneKontrollierte(gr, '2026-08-01');
+  check(r.ausgeschlossen === 2 && r.gruppen.length === 1 && r.gruppen[0].schueler.length === 1 && r.gruppen[0].schueler[0].id === 2, 'Seit Schuljahresbeginn kontrollierte Azubis fallen aus der Kampagne, leere Gruppen verschwinden');
+  check(PH._ohneKontrollierte(gr, '2026-12-01').ausgeschlossen === 0, 'Stichtag nach der Kontrolle → niemand ausgeschlossen');
+  // Nachholtermin aus Abwesenden: Azubi 1 (Amt 93, eigen) abwesend, Azubi 2 (Amt 94) und 3 (Amt 76) fremd
+  App.run("UPDATE kontrollergebnisse SET anwesend=0, ergebnis='' WHERE id=7951");
+  App.run("UPDATE kontrollergebnisse SET anwesend=1, ergebnis='in_ordnung' WHERE id=7952");
+  const nh = PH._nachholterminAnlegen(795, '2026-10-27');
+  check(nh.ok && nh.anzahl === 1, `Nachholtermin nur mit den abwesenden Azubis des eigenen Amts (${nh.anzahl})`);
+  const nt = App.query('SELECT * FROM kontrolltermine WHERE id=?', [nh.id])[0];
+  check(nt && nt.geplant_datum === '2026-10-27' && nt.berufsschule_id === 1 && /Nachholtermin zu (06\.10\.2026|2026-10-06)/.test(nt.bemerkung), 'Nachholtermin an derselben Schule mit Bezug auf den Ursprungstermin');
+  check(App.getTerminSchueler(nh.id).map(s => s.id).join(',') === '1', 'Zugeordnet ist genau der abwesende eigene Azubi');
+  check(!PH._nachholterminAnlegen(790, '2026-12-10').ok, 'Termin ohne Abwesende → kein Nachholtermin');
+  const VIEWS_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/Wo stehen wir\?/.test(VIEWS_SRC) && /Schnellstart – in drei Schritten/.test(VIEWS_SRC) && /Nächster Schritt: \$\{esc\(ns\.text\)\}/.test(VIEWS_SRC), 'Dashboard: Jahresablauf-Startseite und Schnellstart');
+  check(/jahreskalender\(sjStart, bsId\)/.test(VIEWS_SRC) && /Diese Woche \(KW/.test(VIEWS_SRC) && /blockKws/.test(VIEWS_SRC) && /ferien\.find/.test(VIEWS_SRC), 'Jahreskalender mit Kampagnenfenstern, Blockwochen, Ferien und „Diese Woche"');
+  check(/kampOhneKontrollierte/.test(PLANUNG_SRC) && /nachholterminAnlegen\(\$\{t\.id\}\)/.test(VIEWS_SRC), 'Assistent-Schalter und Nachholtermin-Knopf verdrahtet');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
