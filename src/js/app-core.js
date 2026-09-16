@@ -1196,7 +1196,8 @@ const App = {
       angefragt_am TEXT DEFAULT '',
       angefragt_von TEXT DEFAULT '',
       bestaetigt_am TEXT DEFAULT '',
-      nachbereitet_am TEXT DEFAULT ''
+      nachbereitet_am TEXT DEFAULT '',
+      aufteilung TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1456,6 +1457,8 @@ const App = {
 
   // ── Initialize (auto-load DB from same folder) ──
   async init() {
+    // Lokaler Stand vorhanden? Dann „Offline weiterarbeiten" auf dem Startbildschirm anbieten
+    this._offlineStartAnbieten();
     // Step 1: Try to auto-load .sqlite via fetch (only works via http/https server, not file://)
     if (location.protocol !== 'file:') {
       const dbNames = ['berichtsheftkontrolle.sqlite', 'datenbank.sqlite', 'bhk.sqlite', 'kontrolle.sqlite'];
@@ -2039,6 +2042,35 @@ const App = {
   _lastSaveDurationMs: 0,
   _networkQuality: 'good', // 'good' | 'slow' | 'very-slow'
   _pollIntervalMs: 3000,
+  // ── Feldmodus (mobil / VPN) und Lag-Budget ──
+  // Grundsatz: keine Bedienaktion wartet je auf das Netzlaufwerk. Abgleich und
+  // Speichern laufen im Hintergrund und werden gedrosselt, sobald sie langsam
+  // werden. Der Feldmodus erzwingt die gedrosselten Werte von Hand.
+  LOG_ROTATE_BYTES: 256 * 1024, // eigenes Protokoll ab 256 KB auf neue Generation drehen (Chrome kopiert beim Anhängen die ganze Datei)
+  _lastPollMs: 0,
+  // ── Offline-Betrieb (Kontrollort ohne Netz) ──
+  offlineModus: false,
+  _offlineSeit: 0,      // Beginn der Offline-Phase (für die Konfliktanzeige beim Zusammenführen)
+  _konflikte: [],       // Feld-Konflikte beim Zusammenführen: [{table, key, cols, meinTs, fremdTs, fremdC, gewinner}]
+  get feldmodus() { return this.lsGet('bhk_feldmodus') === '1'; },
+  setFeldmodus(an) {
+    this.lsSet('bhk_feldmodus', an ? '1' : '0');
+    this._updateNetworkUI();
+    try { if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; if (this._schedulePoll && this.dirHandle) this._schedulePoll(); } } catch(e) {}
+    try { if (typeof KontrolleHandler !== 'undefined') KontrolleHandler.restartLiveSyncTimer(); } catch(e) {}
+    this.toast(an ? 'Feldmodus an: Abgleich alle 30 s, Speichern gebündelt, Positionsanzeige seltener' : 'Feldmodus aus: normale Abgleich-Intervalle', 'info');
+  },
+  // Abgleich-Takt: 3 s nur bei schneller Leitung; sonst 10 s / 30 s; Feldmodus immer 30 s
+  _pollIntervallBerechnen() {
+    if (this.feldmodus) return 30000;
+    const q = this._networkQuality;
+    return q === 'good' ? 3000 : q === 'slow' ? 10000 : 30000;
+  },
+  // Live-Abgleich in der Kontrolle (Positionsdateien): 8 s / 20 s / 30 s
+  _liveSyncIntervallBerechnen() {
+    if (this.feldmodus) return 30000;
+    return this._networkQuality === 'good' ? 8000 : this._networkQuality === 'slow' ? 20000 : 30000;
+  },
   _idbHandle: null,
 
   async start() {
@@ -2161,7 +2193,8 @@ const App = {
     document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Geändert…';
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
     // Adaptive delay: on slow connections, debounce longer to batch changes and reduce traffic
-    const delay = Math.max(this.autoSaveDelay, Math.min(this._lastSaveDurationMs * 2, 30000));
+    const minDelay = this.feldmodus ? 10000 : this.autoSaveDelay;
+    const delay = Math.max(minDelay, Math.min(this._lastSaveDurationMs * 2, 30000));
     this.autoSaveTimer = setTimeout(() => this.doAutoSave(), delay);
   },
 
@@ -2326,12 +2359,13 @@ const App = {
     this._lastSyncVersion = null; // eindeutiges Token, wird beim ersten Marker-Write gesetzt
 
     this._schedulePoll = () => {
-      // Adapt polling interval: 3s (good), 10s (slow), 30s (very-slow)
-      const interval = this._networkQuality === 'good' ? 3000
-        : this._networkQuality === 'slow' ? 10000 : 30000;
+      // Takt aus Netzqualität bzw. Feldmodus (3 s / 10 s / 30 s)
+      const interval = this._pollIntervallBerechnen();
       this._pollIntervalMs = interval;
       this.pollInterval = setTimeout(async () => {
-        if (!document.hidden && this.dirHandle && !this._mergeInProgress) {
+        // Nie parallel zu einem laufenden Anhängen: Chrome reiht Dateizugriffe
+        // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
+        if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this.offlineModus) {
           if (this._v3Active()) await this._pollOplogs();
           else await this._pollSyncMarker();
         }
@@ -2343,6 +2377,7 @@ const App = {
       this._bootstrapV3().then(() => {
         this._smartRefresh();
         this._schedulePoll();
+        this._offlineCachePlanen();
       }).catch(() => this._schedulePoll());
     } else {
       this._schedulePoll();
@@ -2575,20 +2610,33 @@ const App = {
 
   // ── Network quality tracking ──
   _updateNetworkQuality() {
-    const dur = this._lastSaveDurationMs;
+    // Speichern UND Abgleich fließen ein (ein Abgleich hat viele Round-Trips,
+    // deshalb ×3 gewichtet). Schwellen so, dass 3-Sekunden-Abgleiche nur bei
+    // wirklich schneller Leitung laufen.
+    const dur = Math.max(this._lastSaveDurationMs || 0, (this._lastPollMs || 0) * 3);
     const prev = this._networkQuality;
-    if (dur < 5000) this._networkQuality = 'good';
-    else if (dur < 15000) this._networkQuality = 'slow';
+    if (dur < 1500) this._networkQuality = 'good';
+    else if (dur < 5000) this._networkQuality = 'slow';
     else this._networkQuality = 'very-slow';
     if (this._networkQuality !== prev) {
       console.log(`[Network] Quality: ${prev} → ${this._networkQuality} (${(dur/1000).toFixed(1)}s)`);
+      if (this._networkQuality === 'very-slow' && !this.feldmodus && !this._feldmodusHinweis) {
+        this._feldmodusHinweis = true;
+        this.toast('Sehr langsame Verbindung – Tipp: Feldmodus in den Einstellungen einschalten (oder offline weiterarbeiten)', 'warning');
+      }
     }
     this._updateNetworkUI();
   },
   _updateNetworkUI() {
     const el = document.getElementById('networkQuality');
     if (!el) return;
-    if (this._networkQuality === 'good') {
+    if (this.offlineModus) {
+      el.style.display = '';
+      el.innerHTML = `<span style="color:var(--clr-amber)">Offline · ${this._dirtyOps.length + (this._opsInFlight || []).length} Änderungen lokal</span>`;
+    } else if (this.feldmodus) {
+      el.style.display = '';
+      el.innerHTML = `<span style="color:var(--clr-blue)" title="Feldmodus: Abgleich alle ${(this._pollIntervalMs / 1000).toFixed(0)} s, Speichern gebündelt">Feldmodus</span>`;
+    } else if (this._networkQuality === 'good') {
       el.style.display = 'none';
     } else {
       el.style.display = '';
@@ -2606,8 +2654,12 @@ const App = {
   _getIDB() {
     return new Promise((resolve, reject) => {
       if (this._idbHandle) { resolve(this._idbHandle); return; }
-      const req = indexedDB.open('bhk_sync', 1);
-      req.onupgradeneeded = () => req.result.createObjectStore('dirtyOps', { keyPath: 'id' });
+      const req = indexedDB.open('bhk_sync', 2);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains('dirtyOps')) d.createObjectStore('dirtyOps', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('snapshot')) d.createObjectStore('snapshot', { keyPath: 'id' }); // lokaler Stand für den Offline-Start
+      };
       req.onsuccess = () => { this._idbHandle = req.result; resolve(req.result); };
       req.onerror = () => reject(req.error);
     });
@@ -2648,7 +2700,7 @@ const App = {
         // Laptop ließ den Puffer sonst am nächsten Morgen still verfallen.
         // Die Ops tragen ihren Original-Zeitstempel – Last-Write-Wins ordnet
         // sie korrekt hinter zwischenzeitliche Änderungen der Kollegen ein.
-        if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 7 * 86400000) {
+        if (record && record.ops && record.ops.length > 0 && Date.now() - record.ts < 30 * 86400000) {
           // Sync-v3: Ops, die bereits im eigenen Log stehen, nicht erneut puffern
           const offen = this._ownLogUids
             ? record.ops.filter(o => !o.uid || !this._ownLogUids.has(o.uid))
@@ -2675,12 +2727,31 @@ const App = {
   _applyRestoredOps(ops) {
     let n = 0;
     const cid = this._getClientId();
+    const seit = this._offlineSeit || 0;
     for (const o of ops) {
-      if (o.ts && this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq })) continue;
+      const op = { sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq };
+      // Konflikt: dieselbe Zeile/Spalte wurde von einem Kollegen geändert,
+      // während ich offline war – egal wer gewinnt, das gehört angezeigt
+      try {
+        const sig = seit ? this._opSignatur(o.sql, o.params) : null;
+        if (sig) {
+          const eintrag = this._rowStamps && this._rowStamps.get(sig.table + '|' + sig.key);
+          if (eintrag) {
+            const fremd = sig.cols.map(c => eintrag[c]).filter(st => st && st.c && st.c !== cid && st.ts >= seit - 60000);
+            if (fremd.length) {
+              const f = fremd.sort((a, b) => b.ts - a.ts)[0];
+              const verloren = !!(o.ts && this._lwwSkip(op));
+              this._konflikte.push({ table: sig.table, key: sig.key, cols: sig.cols, meinTs: o.ts || 0, fremdTs: f.ts, fremdC: f.c, gewinner: verloren ? 'kollege' : 'ich' });
+            }
+          }
+        }
+      } catch(e) {}
+      if (o.ts && this._lwwSkip(op)) continue;
       try { this.db.run(o.sql, o.params || []); n++; this._notiereStamp(o.sql, o.params, o.ts, cid, o.seq); }
       catch(e) { console.warn('[Restore] Op nicht anwendbar:', e.message, (o.sql || '').slice(0, 60)); }
     }
     if (n) {
+      try { this._entdoppleWiedervorlagen(); } catch(e) {}
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       try { this._smartRefresh(); } catch(e) {}
     }
@@ -2905,6 +2976,15 @@ const App = {
 
   markDirty() {
     this.unsavedChanges = true;
+    if (this.offlineModus) {
+      // Offline: nur lokal puffern (IndexedDB), Anzeige mit Zähler
+      const n = this._dirtyOps.length + (this._opsInFlight || []).length;
+      const el = document.getElementById('dbStatusIndicator');
+      if (el) el.innerHTML = `<span class="dot dot-amber"></span>Offline · ${n} lokal`;
+      try { this._updateNetworkUI(); this._offlineBannerAktualisieren(); } catch(e) {}
+      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      return;
+    }
     if (!this.dbFileHandle && !this.demoMode) {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-amber"></span>Nur-Lesen';
       if (!this._writeAccessPrompted) {
@@ -3417,6 +3497,15 @@ const App = {
       }
       this._myLogSize = size + bytes.length;
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+      // Kleine Protokolle: Chrome kopiert beim Anhängen die ganze Datei in
+      // eine Swap-Datei – ab LOG_ROTATE_BYTES neue Generation. Die alte bleibt
+      // liegen, bis der Snapshot sie enthält (siehe _pruneAlteGenerationen).
+      if (this._myLogSize >= this.LOG_ROTATE_BYTES) {
+        this._logOffsets[this._myOplogName()] = this._myLogSize;
+        this._logGen++;
+        this._myLogSize = 0;
+        console.log(`[SyncV3] Eigenes Log ab ${Math.round(this.LOG_ROTATE_BYTES / 1024)} KB rotiert → Generation ${this._logGen}`);
+      }
       this._opsInFlight = null;
       this.unsavedChanges = this._dirtyOps.length > 0 || !!this._bulkPending;
       this.saveCount++;
@@ -3494,6 +3583,7 @@ const App = {
     const dir = this._syncDirV3();
     if (!dir || !this.db) return;
     this._pollBusy = true;
+    const pollStart = Date.now();
     try {
       // ZUERST prüfen, ob ein anderer Rechner den Snapshot ersetzt hat: Wird er
       // danach getauscht, wären die soeben gelesenen Ops wieder verworfen.
@@ -3532,6 +3622,7 @@ const App = {
       if (!this._syncReady) this._syncReady = true;
       if (applied > 0) {
         console.log(`[SyncV3] ${applied} fremde Änderungen übernommen`);
+        try { this._entdoppleWiedervorlagen(); } catch(e) {}
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green" style="animation:syncPulse 0.6s"></span>Sync ✓';
         setTimeout(() => {
           const el = document.getElementById('dbStatusIndicator');
@@ -3547,6 +3638,9 @@ const App = {
       }
     } finally {
       this._pollBusy = false;
+      // Dauer des Abgleichs fließt in die Netzqualität ein (Takt-Drosselung)
+      this._lastPollMs = Date.now() - pollStart;
+      try { this._updateNetworkQuality(); } catch(e) {}
     }
   },
 
@@ -4190,8 +4284,21 @@ const App = {
         if (!isNaN(n)) gens.push(n);
       }
       gens.sort((a, b) => b - a);
+      // Nur löschen, was der Snapshot vollständig enthält (Offsets in snapmeta):
+      // seit der Größen-Rotation können mehrere unkompaktierte Generationen
+      // liegen – die dürfen nie verschwinden
+      let offsets = {};
+      try {
+        const mh = await dir.getFileHandle(this._snapMetaName(), { create: false });
+        offsets = (JSON.parse(await (await mh.getFile()).text()) || {}).offsets || {};
+      } catch(e) {}
       for (const n of gens.slice(2)) {
-        try { await dir.removeEntry(eigen + n + '.jsonl'); } catch(e) {}
+        const name = eigen + n + '.jsonl';
+        try {
+          const size = (await (await dir.getFileHandle(name, { create: false })).getFile()).size;
+          if (size > 0 && !(offsets[name] >= size)) continue;
+          await dir.removeEntry(name);
+        } catch(e) {}
       }
     } catch(e) {}
   },
@@ -4797,6 +4904,8 @@ const App = {
     run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''");
     run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''");
     run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''");
+    // Prüferaufteilung am Termin (JSON {Prüfer: [von, bis]}) – für Offline-Betrieb in der DB, nicht nur in Positionsdateien
+    run("ALTER TABLE kontrolltermine ADD COLUMN aufteilung TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -6297,6 +6406,262 @@ const App = {
     return { schritt: 'ok', text: 'Alles im grünen Bereich – Berichte und Statistik ansehen', view: 'berichte' };
   },
 
+  // ═══════════════════════════════════════════
+  //  OFFLINE-BETRIEB (Kontrollort ohne Netz)
+  //  Jeder Rechner arbeitet auf seiner Kopie; Änderungen liegen als Ops mit
+  //  Zeitstempel im Browser-Speicher. Beim Wiederverbinden: Kollegen-Logs
+  //  einziehen (Bootstrap), eigene Ops nachspielen (Last-Write-Wins je Feld),
+  //  anhängen, Konflikte anzeigen. Die Prüferaufteilung steht in der DB.
+  // ═══════════════════════════════════════════
+  _offlineCacheKey(name) { return 'snap_' + (name || this.autoLoadedDbName || 'default'); },
+  async _offlineCacheSchreiben() {
+    if (!this.db || this.demoMode || this._tabIsPrimary === false) return false;
+    try {
+      try { this._stampsSpeichern(); } catch(e) {}
+      const bytes = this.db.export();
+      const db = await this._getIDB();
+      const tx = db.transaction('snapshot', 'readwrite');
+      const st = tx.objectStore('snapshot');
+      const name = this.autoLoadedDbName || 'default';
+      const rec = { id: this._offlineCacheKey(name), name, bytes, ts: Date.now(), gen: this._snapGen || 0, saveCount: this.saveCount || 0, dirName: (this.dirHandle && this.dirHandle.name) || '' };
+      st.put(rec);
+      st.put({ id: 'snap_letzte', name, ts: rec.ts });
+      this._offlineCacheSaveCount = this.saveCount || 0;
+      this._offlineCacheTs = rec.ts;
+      return true;
+    } catch(e) { console.warn('[Offline] Lokaler Stand konnte nicht gesichert werden:', e.message); return false; }
+  },
+  async _offlineCacheLesen(name) {
+    try {
+      const db = await this._getIDB();
+      const tx = db.transaction('snapshot', 'readonly');
+      const st = tx.objectStore('snapshot');
+      const get = (k) => new Promise((res, rej) => { const r = st.get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); });
+      if (!name) { const l = await get('snap_letzte'); if (!l) return null; name = l.name; }
+      return await get(this._offlineCacheKey(name));
+    } catch(e) { return null; }
+  },
+  // Lokalen Stand regelmäßig auffrischen (nur wenn sich etwas geändert hat)
+  _offlineCachePlanen() {
+    if (this._offlineCacheTimer) return;
+    setTimeout(() => this._offlineCacheSchreiben(), 20000);
+    this._offlineCacheTimer = setInterval(() => {
+      if (this.offlineModus || document.hidden) return;
+      if ((this.saveCount || 0) !== (this._offlineCacheSaveCount || 0) || Date.now() - (this._offlineCacheTs || 0) > 60 * 60 * 1000) this._offlineCacheSchreiben();
+    }, 10 * 60 * 1000);
+  },
+  async _offlineStartAnbieten() {
+    try {
+      const rec = await this._offlineCacheLesen();
+      const box = document.getElementById('connectActions');
+      if (!rec || !box || document.getElementById('btnOfflineStart')) return;
+      const wann = new Date(rec.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="font-size:13px;padding:8px 16px;width:100%;border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
+        ⇅ Offline weiterarbeiten<div style="font-size:11px;font-weight:400;color:var(--clr-text-light)">„${esc(rec.name)}", lokaler Stand vom ${wann}</div></button>`);
+    } catch(e) {}
+  },
+  // Start ohne Netzlaufwerk: lokaler Stand + gepufferte eigene Änderungen
+  async startOffline() {
+    const rec = await this._offlineCacheLesen();
+    if (!rec || !rec.bytes) return this.toast('Kein lokaler Stand vorhanden – bitte einmal mit Netzlaufwerk starten', 'warning');
+    try {
+      const SQL = await App._getSqlJs();
+      this.db = new SQL.Database(new Uint8Array(rec.bytes));
+      this.autoLoadedDbName = rec.name;
+      this.migrateDB();
+      try { this._stampsLaden(); } catch(e) {}
+      this.offlineModus = true;
+      this._offlineSeit = this._offlineSeit || Date.now();
+      this.demoMode = false;
+      document.getElementById('dbFileName').textContent = `${rec.name} (offline, Stand ${new Date(rec.ts).toLocaleDateString('de-DE')})`;
+      this.showApp();
+      this._offlineBannerZeigen();
+      this.toast('Offline-Modus: Änderungen werden lokal gesammelt und beim Wiederverbinden zusammengeführt', 'info');
+    } catch(e) { console.warn('Offline-Start:', e); this.toast('Lokaler Stand konnte nicht geladen werden', 'error'); }
+  },
+  // Verbunden → offline (z.B. vor dem Kontrolltag ohne Netz)
+  async offlineModusEinschalten() {
+    if (this.offlineModus) return;
+    if (!this.db) return;
+    if (this.dbFileHandle && this._dirtyOps.length) { try { await this._saveV3(); } catch(e) {} }
+    const ok = await this._offlineCacheSchreiben();
+    if (!ok) return this.toast('Lokaler Stand konnte nicht gesichert werden – Offline-Modus nicht möglich', 'error');
+    this._dirHandleOffline = this.dirHandle;
+    this._dbNameOffline = this.autoLoadedDbName;
+    this._subDirOffline = this.dbDirHandle ? 'Datenbanken' : '';
+    if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; }
+    if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
+    try { KontrolleHandler.stopLiveSync(); } catch(e) {}
+    this.offlineModus = true;
+    this._offlineSeit = Date.now();
+    this._konflikte = [];
+    this.dirHandle = null; this.bhkDirHandle = null; this.dbFileHandle = null; this.dbDirHandle = null;
+    this._v3Ready = false;
+    document.getElementById('dbFileName').textContent = `${this._dbNameOffline} (offline)`;
+    this._offlineBannerZeigen();
+    this.toast('Offline-Modus an – Änderungen werden lokal gesammelt', 'info');
+  },
+  offlineUmschalten() { return this.offlineModus ? this.wiederverbinden() : this.offlineModusEinschalten(); },
+  _offlineBannerZeigen() {
+    let banner = document.getElementById('offlineBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'offlineBanner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9000;padding:8px 16px;text-align:center;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap';
+      document.body.prepend(banner);
+    }
+    const n = this._dirtyOps.length + (this._opsInFlight || []).length;
+    banner.style.background = '#fef7ec'; banner.style.color = '#92400e'; banner.style.transform = 'translateY(0)';
+    banner.innerHTML = `<span style="color:var(--clr-amber)">⇅</span> Offline-Modus – <span id="offlineOpsZahl">${n}</span> Änderung(en) lokal gesammelt
+      <button class="btn btn-sm btn-primary" style="margin-left:8px;padding:3px 12px;font-size:11px" onclick="App.wiederverbinden()">↻ Wiederverbinden &amp; zusammenführen</button>
+      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:11px" onclick="App.exportOpPuffer()" title="Falls dieser Rechner nicht mehr ans Netz kommt: Änderungen als Datei sichern und an einem anderen Rechner einspielen">Änderungen als Datei</button>`;
+  },
+  _offlineBannerAktualisieren() {
+    const el = document.getElementById('offlineOpsZahl');
+    if (el) el.textContent = this._dirtyOps.length + (this._opsInFlight || []).length;
+  },
+  // Offline → verbunden: Ordner wieder öffnen, Stand vom Netz laden, eigene
+  // Ops aus dem Puffer nachspielen (Crash-Restore-Pfad), Konflikte zeigen
+  async wiederverbinden() {
+    if (!this.offlineModus) return;
+    await this._persistDirtyOps();
+    const anzahl = this._dirtyOps.length + (this._opsInFlight || []).length;
+    let dir = this._dirHandleOffline;
+    try {
+      if (dir) {
+        let perm = await dir.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') dir = null;
+      }
+      if (!dir) {
+        const startIn = await this.restoreDirHandle() || 'desktop';
+        dir = await window.showDirectoryPicker({ mode: 'readwrite', startIn });
+        await this.storeDirHandle(dir);
+      }
+    } catch(e) { if (e.name !== 'AbortError') this.toast('Ordner konnte nicht geöffnet werden: ' + e.message, 'error'); return; }
+    const name = this._dbNameOffline || this.autoLoadedDbName;
+    // Filter/Ansicht über den Neustart retten
+    const filter = { j: this.filterJahrgang, z: this.filterZp, f: this.filterFachrichtungen, a: this.filterAmt, b: this.filterBavStatus, e: this.extraFilters };
+    const konflikteVorher = this._konflikte;
+    this._cleanupDB();
+    this.offlineModus = false;
+    this._konflikte = konflikteVorher || [];
+    this._offlineOpsErwartet = anzahl;
+    this.dirHandle = dir;
+    try {
+      await this.ensureAppDirs();
+      const dbs = await this.scanForDatabases();
+      const treffer = dbs.find(d => d.name === name) || (dbs.length === 1 ? dbs[0] : null);
+      if (!treffer) { this.toast(`Datenbank „${name}" im Ordner nicht gefunden`, 'error'); return; }
+      Object.assign(this, { filterJahrgang: filter.j, filterZp: filter.z, filterFachrichtungen: filter.f, filterAmt: filter.a, filterBavStatus: filter.b, extraFilters: filter.e });
+      const banner = document.getElementById('offlineBanner'); if (banner) banner.remove();
+      await this.loadDatabaseFromHandle(treffer.handle, treffer.subDir);
+      this.toast(`Wieder verbunden – ${anzahl} lokale Änderung(en) werden zusammengeführt`, 'success');
+      // Konfliktbericht, sobald Bootstrap + Crash-Restore durch sind
+      setTimeout(() => this._konfliktBerichtZeigen(), 4000);
+    } catch(e) { console.warn('Wiederverbinden:', e); this.toast('Wiederverbinden fehlgeschlagen: ' + e.message, 'error'); }
+  },
+  // Konflikte lesbar machen: Zeile → Azubi/Termin, Spalten → Feldnamen
+  _konfliktBeschreibung(k) {
+    let wer = k.table;
+    try {
+      const sid = (k.key.match(/schueler_id:(\d+)/) || [])[1] || (k.table === 'schueler' ? (k.key.match(/id:(\d+)/) || [])[1] : null);
+      if (sid) { const s = this.query('SELECT nachname, vorname FROM schueler WHERE id=?', [sid])[0]; if (s) wer = `${s.nachname}, ${s.vorname}`; }
+      const tid = (k.key.match(/kontrolltermin_id:(\d+)/) || [])[1];
+      if (tid) { const t = this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [tid])[0]; if (t) wer += ` (Termin ${typeof formatDate === 'function' ? formatDate(t.geplant_datum) : t.geplant_datum})`; }
+    } catch(e) {}
+    return { wer, felder: (k.cols || []).join(', ') };
+  },
+  _konfliktBerichtZeigen() {
+    const liste = this._konflikte || [];
+    this._konflikte = [];
+    if (!liste.length) { if (this._offlineOpsErwartet) this.toast('Zusammenführung ohne Konflikte', 'success'); this._offlineOpsErwartet = 0; return; }
+    const fmt = ts => ts ? new Date(ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+    this.openModal(`Zusammenführung: ${liste.length} Feld-Konflikt(e)`, `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Diese Felder wurden während Ihrer Offline-Phase auch von einem Kollegen geändert. Es gilt je Feld die zeitlich spätere Änderung – bitte prüfen.</div>
+      <table class="data-table" style="font-size:12px"><thead><tr><th>Wer / Zeile</th><th>Felder</th><th>Meine Änderung</th><th>Kollege</th><th>Gilt</th></tr></thead><tbody>
+      ${liste.slice(0, 200).map(k => { const b = this._konfliktBeschreibung(k); return `<tr><td>${esc(b.wer)}</td><td>${esc(b.felder)}</td><td>${fmt(k.meinTs)}</td><td>${fmt(k.fremdTs)} (${esc(String(k.fremdC || '?').slice(0, 8))})</td><td>${k.gewinner === 'ich' ? '<span style="color:var(--clr-green)">meine</span>' : '<span style="color:var(--clr-red)">Kollege</span>'}</td></tr>`; }).join('')}
+      </tbody></table>`, '<button class="btn btn-primary" onclick="App.closeModal()">Verstanden</button>');
+    this._offlineOpsErwartet = 0;
+  },
+  // Genau EINE Wiedervorlage je Kontrollergebnis: zwei Prüfer (offline oder
+  // im selben Poll-Fenster) legten sonst je eine an. Deterministisch: die
+  // kleinste id bleibt, Notizen wandern mit – auf allen Rechnern gleich.
+  _entdoppleWiedervorlagen() {
+    const dop = this.query(`SELECT kontrollergebnis_id AS ke, MIN(id) AS behalten, COUNT(*) AS n FROM wiedervorlagen
+      WHERE kontrollergebnis_id IS NOT NULL GROUP BY kontrollergebnis_id HAVING n > 1`);
+    let entfernt = 0;
+    dop.forEach(d => {
+      const andere = this.query('SELECT id, status, erledigt_datum, erledigt_bemerkung FROM wiedervorlagen WHERE kontrollergebnis_id=? AND id != ?', [d.ke, d.behalten]);
+      andere.forEach(w => {
+        this.run('UPDATE wiedervorlage_notizen SET wiedervorlage_id=? WHERE wiedervorlage_id=?', [d.behalten, w.id]);
+        // Erledigt-Status nicht verlieren, wenn nur das Duplikat erledigt war
+        if (w.status === 'erledigt') this.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=? WHERE id=? AND status != 'erledigt'", [w.erledigt_datum || '', w.erledigt_bemerkung || '', d.behalten]);
+        this.run('DELETE FROM wiedervorlagen WHERE id=?', [w.id]);
+        entfernt++;
+      });
+    });
+    return entfernt;
+  },
+  // Änderungspuffer als Datei (Notausgang, wenn der Rechner nicht ans Netz kommt)
+  _opPufferText() {
+    const cid = this._getClientId();
+    const alle = [...(this._opsInFlight || []), ...this._dirtyOps];
+    return alle.map(o => JSON.stringify({ uid: o.uid, ts: o.ts, seq: o.seq, c: cid, sql: o.sql, params: o.params })).join('\n') + (alle.length ? '\n' : '');
+  },
+  exportOpPuffer() {
+    const text = this._opPufferText();
+    if (!text) return this.toast('Keine lokalen Änderungen vorhanden', 'info');
+    const blob = new Blob([text], { type: 'application/x-ndjson' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = this.safeFilename(['bhk_aenderungen', this.autoLoadedDbName || 'db', this._getClientId(), new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')], 'jsonl');
+    a.click();
+    this.toast('Änderungen als Datei gesichert – auf einem verbundenen Rechner unter Einstellungen → Verbindung einspielen', 'success');
+  },
+  // Datei eines anderen Rechners einspielen: lokal anwenden (Last-Write-Wins)
+  // und ins eigene Protokoll übernehmen, damit alle Kollegen sie bekommen
+  importOpPufferText(text) {
+    const lines = String(text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const ops = [];
+    lines.forEach(l => { try { const o = JSON.parse(l); if (o && o.sql) ops.push(o); } catch(e) {} });
+    if (!ops.length) return { angewendet: 0, uebernommen: 0 };
+    const neu = ops.filter(o => !o.uid || !((this._ownLogUids && this._ownLogUids.has(o.uid)) || (this._appliedForeignUids && this._appliedForeignUids.has(o.uid))));
+    const angewendet = this._applyOps(neu.map(o => JSON.stringify(o)));
+    neu.forEach(o => this._dirtyOps.push({ uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params }));
+    try { this._entdoppleWiedervorlagen(); } catch(e) {}
+    if (neu.length) { this.unsavedChanges = true; this.scheduleAutoSave(); this._smartRefresh(); }
+    return { angewendet, uebernommen: neu.length };
+  },
+  async importOpPufferDatei(file) {
+    if (!file) return;
+    const r = this.importOpPufferText(await file.text());
+    this.toast(`${r.uebernommen} Änderung(en) eingespielt (${r.angewendet} angewendet)`, r.uebernommen ? 'success' : 'info');
+  },
+  // Prüferaufteilung am Termin (in der DB, damit sie offline gilt)
+  terminAufteilung(terminId) {
+    try { const j = this.scalar('SELECT aufteilung FROM kontrolltermine WHERE id=?', [terminId]); const o = j ? JSON.parse(j) : {}; return o && typeof o === 'object' ? o : {}; } catch(e) { return {}; }
+  },
+  terminAufteilungSetzen(terminId, pruefer, bereich) {
+    if (!terminId || !pruefer) return;
+    const o = this.terminAufteilung(terminId);
+    if (bereich && bereich.von) o[pruefer] = [bereich.von, bereich.bis]; else delete o[pruefer];
+    this.run('UPDATE kontrolltermine SET aufteilung=? WHERE id=?', [Object.keys(o).length ? JSON.stringify(o) : '', terminId]);
+    try { this.invalidateTerminCache(); } catch(e) {}
+  },
+
+  // ── Alte Termine ausblenden: „anstehend" (geplant, auch überfällig ohne
+  //    Abschluss), „kuerzlich" (in den letzten 90 Tagen), sonst „alt" ──
+  TERMIN_KUERZLICH_TAGE: 90,
+  terminAktuell(t, heute) {
+    if (!t) return 'alt';
+    heute = heute || new Date().toISOString().slice(0, 10);
+    if (t.status === 'geplant') return 'anstehend';
+    const grenze = new Date(heute + 'T00:00:00'); grenze.setDate(grenze.getDate() - this.TERMIN_KUERZLICH_TAGE);
+    const g = `${grenze.getFullYear()}-${String(grenze.getMonth() + 1).padStart(2, '0')}-${String(grenze.getDate()).padStart(2, '0')}`;
+    return (t.geplant_datum || '') >= g ? 'kuerzlich' : 'alt';
+  },
+
   // ── Termin-Statuskette (Stufe 2) ──
   // angefragt (Schul-Mail geöffnet) → bestätigt (Schule hat zugesagt) →
   // durchgeführt (status) → nachbereitet (Abschluss-Assistent / Ergebnis-Mail).
@@ -7190,6 +7555,7 @@ Anlagen: {anlagen}` },
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN aufteilung TEXT DEFAULT ''"); } catch(e) {}
       // Relax fachrichtungen CHECK constraint + add new professions
       try {
         const chk = this.query("SELECT sql FROM sqlite_master WHERE name='fachrichtungen'")[0]?.sql || '';

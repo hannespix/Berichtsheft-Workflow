@@ -334,5 +334,18 @@ console.log('\n══ Stufe 3 (3): LFK-Regeln, Blockplan-Übernahme, Kontrolltag
   check(/StammdatenTab\._blockplanKopieren\(\)/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/stammdaten.js'), 'utf8')) && /id="setLfkRegeln"/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8')), 'Blockplan-Knöpfe und LFK-Regeltabelle in der Oberfläche');
 }
 
+console.log('\n══ Alte Termine ausblenden (Regel statt Archiv-Status) ══');
+{
+  const h = '2026-09-16';
+  check(App.terminAktuell({ status: 'geplant', geplant_datum: '2025-01-01' }, h) === 'anstehend', 'Geplanter Termin in der Vergangenheit bleibt „anstehend/offen" (Abschluss fehlt)');
+  check(App.terminAktuell({ status: 'durchgefuehrt', geplant_datum: '2026-08-01' }, h) === 'kuerzlich', 'Durchgeführt vor 6 Wochen → kürzlich');
+  check(App.terminAktuell({ status: 'durchgefuehrt', geplant_datum: '2026-06-01' }, h) === 'alt', 'Durchgeführt vor > 90 Tagen → alt');
+  const VIEWS_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/optgroup label="Anstehend \/ offen/.test(VIEWS_SRC) && /ältere Termine anzeigen/.test(VIEWS_SRC) && /\^Nacherfassung\/\.test\(t\.bemerkung/.test(VIEWS_SRC), 'Durchführung: Dropdown in Anstehend / Kürzlich, ältere und Nacherfassungen nur auf Wunsch');
+  check(/<option value="nachbereitung">/.test(VIEWS_SRC) && /<option value="alt">/.test(VIEWS_SRC) && /data-alt=/.test(VIEWS_SRC), 'Planung: Filter „Nachbereitung offen" und „Archiv"');
+  check(/st === 'durchgefuehrt' && !alt/.test(PLANUNG_SRC) && /status === 'nachbereitung'/.test(PLANUNG_SRC), 'Planungsfilter blendet alte durchgeführte Termine standardmäßig aus');
+  check(/kt\.geplant_datum BETWEEN '\$\{berVon\}' AND '\$\{berBis\}'/.test(VIEWS_SRC) && /Schuljahr \$\{o\}/.test(VIEWS_SRC), 'Berichte: Export-Liste nach Schuljahr (Standard laufendes)');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

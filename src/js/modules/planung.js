@@ -3,8 +3,16 @@ const PlanungHandler = {
     const rows = document.querySelectorAll('#planTableBody tr');
     let visible = 0;
     rows.forEach(r => {
-      if (status === 'all') { r.style.display = ''; visible++; }
-      else { const show = r.dataset.status === status; r.style.display = show ? '' : 'none'; if (show) visible++; }
+      const st = r.dataset.status, alt = r.dataset.alt === '1', nachbereitet = r.dataset.nachbereitet === '1';
+      let show;
+      if (status === 'all') show = true;
+      else if (status === 'geplant') show = st === 'geplant';
+      else if (status === 'nachbereitung') show = st === 'durchgefuehrt' && !nachbereitet;
+      else if (status === 'durchgefuehrt') show = st === 'durchgefuehrt' && !alt;   // Archiv (älter als 90 Tage) nicht dauerhaft
+      else if (status === 'alt') show = alt;
+      else show = st === status;
+      r.style.display = show ? '' : 'none';
+      if (show) visible++;
     });
     // Update count in dropdown label
     const sel = document.getElementById('planFilter');

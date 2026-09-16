@@ -1007,7 +1007,9 @@ const Views = {
         <div class="toolbar-left">
           <select class="form-control" style="width:auto" onchange="PlanungHandler.filterStatus(this.value)" id="planFilter">
             <option value="geplant" selected>Geplante Termine</option>
-            <option value="durchgefuehrt">Durchgeführte</option>
+            <option value="nachbereitung">Durchgeführt, Nachbereitung offen</option>
+            <option value="durchgefuehrt">Durchgeführt (letzte 90 Tage)</option>
+            <option value="alt">Ältere Termine (Archiv)</option>
             <option value="all">Alle anzeigen</option>
           </select>
           <button class="btn btn-primary" onclick="PlanungHandler.addTermin()">
@@ -1102,7 +1104,7 @@ const Views = {
             const frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ') || '–';
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
-            return `<tr data-status="${t.status}">
+            return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
             <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}</td>
             <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
             <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
@@ -1156,10 +1158,23 @@ const Views = {
       <div class="card">
         <div class="card-header">Kontrolltermin auswählen</div>
         <div class="form-group">
-          <select class="form-control" id="selKontrolltermin" onchange="KontrolleHandler.loadTermin(this.value)">
-            <option value="">– Bitte wählen –</option>
-            ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
-          </select>
+          ${(() => {
+            // Abgeschlossene und alte Termine nicht dauerhaft anbieten: Gruppen
+            // „Anstehend" / „Kürzlich" – ältere (auch Nacherfassungen) nur auf Wunsch
+            const alteZeigen = App.uGet('kontrolle_alte') === '1';
+            const grp = { anstehend: [], kuerzlich: [], alt: [] };
+            termine.forEach(t => { const k = /^Nacherfassung/.test(t.bemerkung || '') ? 'alt' : App.terminAktuell(t); grp[k].push(t); });
+            const opt = t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`;
+            return `<select class="form-control" id="selKontrolltermin" onchange="KontrolleHandler.loadTermin(this.value)">
+              <option value="">– Bitte wählen –</option>
+              ${grp.anstehend.length ? `<optgroup label="Anstehend / offen (${grp.anstehend.length})">${grp.anstehend.map(opt).join('')}</optgroup>` : ''}
+              ${grp.kuerzlich.length ? `<optgroup label="Durchgeführt, letzte ${App.TERMIN_KUERZLICH_TAGE} Tage (${grp.kuerzlich.length})">${grp.kuerzlich.map(opt).join('')}</optgroup>` : ''}
+              ${alteZeigen && grp.alt.length ? `<optgroup label="Ältere Termine und Nacherfassungen (${grp.alt.length})">${grp.alt.map(opt).join('')}</optgroup>` : ''}
+            </select>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;margin-top:6px;cursor:pointer;color:var(--clr-text-light)">
+              <input type="checkbox" ${alteZeigen ? 'checked' : ''} onchange="App.uSet('kontrolle_alte', this.checked ? '1' : '0');Views.kontrolle()" style="accent-color:var(--clr-forest)"> ältere Termine anzeigen${!alteZeigen && grp.alt.length ? ` (${grp.alt.length} ausgeblendet)` : ''}
+            </label>`;
+          })()}
         </div>
       </div>
       <div id="kontrolleContent"></div>
@@ -1346,11 +1361,17 @@ const Views = {
   berichte() {
     const mc = document.getElementById('mainContent');
     const jfkt = App.jgWhere('kt.jahrgang_id');
+    // Export-Liste: nur das gewählte Schuljahr (Standard: laufendes) – die
+    // Liste wuchs sonst über alle Jahre
+    const berSj = this._berExportSj || App.schuljahrZu(new Date());
+    const berVon = berSj.slice(0, 4) + '-08-01', berBis = (parseInt(berSj) + 1) + '-07-31';
     const termine = App.query(`SELECT kt.*,
       (SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=kt.id AND ergebnis != '') as kontrolliert
       FROM kontrolltermine kt
-      WHERE kt.status='durchgefuehrt'${jfkt.where}
+      WHERE kt.status='durchgefuehrt'${jfkt.where} AND kt.geplant_datum BETWEEN '${berVon}' AND '${berBis}'
       ORDER BY kt.geplant_datum DESC`, jfkt.params);
+    const berSjListe = App.query("SELECT DISTINCT substr(geplant_datum,1,4) AS j FROM kontrolltermine ORDER BY j DESC").map(r => parseInt(r.j)).filter(Boolean);
+    const berSjOptionen = [...new Set([...berSjListe, ...berSjListe.map(j => j - 1), parseInt(berSj)])].sort((a, b) => b - a).map(j => `${j}/${j + 1}`);
     App.preloadTerminKlassen(termine.map(t => t.id));
 
     mc.innerHTML = `<div class="fade-in">
@@ -1366,7 +1387,10 @@ const Views = {
       </div>
 
       <div class="card" style="margin-bottom:16px">
-        <div class="card-header">▤ Durchsichtsbögen exportieren (pro Kontrolltermin)</div>
+        <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">▤ Durchsichtsbögen exportieren (pro Kontrolltermin)
+          <select class="form-control" style="width:auto;margin-left:auto;font-size:12px;padding:2px 6px" onchange="Views._berExportSj=this.value;Views.berichte()" title="Schuljahr der Termine">
+            ${berSjOptionen.map(o => `<option value="${o}" ${o === berSj ? 'selected' : ''}>Schuljahr ${o}</option>`).join('')}
+          </select></div>
         ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Klasse(n)</th><th>Kontrolliert</th><th>Export</th></tr></thead><tbody>
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
@@ -1503,6 +1527,27 @@ const Views = {
             Statistiken &amp; Jahresbericht einblenden
           </label>
         </div>
+      </div>
+
+      <!-- Verbindung: Feldmodus für mobil / VPN -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">⇅ Verbindung &amp; Feldmodus (mobil, VPN, langsames Netzlaufwerk)</div>
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px">
+          <input type="checkbox" ${App.feldmodus ? 'checked' : ''} onchange="App.setFeldmodus(this.checked)" style="accent-color:var(--clr-forest);width:18px;height:18px">
+          Feldmodus: Abgleich alle 30 s statt 3 s, Speichern gebündelt (10 s), Positionsanzeige seltener
+        </label>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px;line-height:1.6">
+          Das Tool wartet nie auf das Netzlaufwerk – Abgleich und Speichern laufen im Hintergrund und drosseln sich selbst
+          (aktuell: Netzqualität <strong>${esc(App._networkQuality)}</strong>, letzter Abgleich ${App._lastPollMs ? Math.round(App._lastPollMs) + ' ms' : '–'}, letztes Speichern ${App._lastSaveDurationMs ? Math.round(App._lastSaveDurationMs) + ' ms' : '–'}).
+          Über Mobilfunk/VPN wird jede Dateioperation langsam; der Feldmodus nimmt den Takt heraus. Für längere Termine ohne Netz: <strong>Offline-Modus</strong> (Schaltfläche in der Kopfzeile).
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">
+          <button class="btn btn-secondary" onclick="App.offlineUmschalten()">${App.offlineModus ? '↻ Wiederverbinden & zusammenführen' : '⇅ Offline-Modus einschalten'}</button>
+          <button class="btn btn-secondary" onclick="App._offlineCacheSchreiben().then(ok=>App.toast(ok?'Lokaler Stand gesichert':'Sichern fehlgeschlagen',ok?'success':'error'))" title="Aktuellen Stand im Browser sichern (für „Offline weiterarbeiten" auf dem Startbildschirm)">Lokalen Stand jetzt sichern</button>
+          <button class="btn btn-secondary" onclick="App.exportOpPuffer()" title="Lokale, noch nicht übertragene Änderungen als Datei">Änderungen als Datei</button>
+          <label class="btn btn-secondary" style="cursor:pointer" title="Änderungsdatei eines anderen Rechners einspielen">Änderungsdatei einspielen <input type="file" accept=".jsonl,.txt" style="display:none" onchange="App.importOpPufferDatei(this.files[0]);this.value=''"></label>
+        </div>
+        <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
       </div>
 
       <!-- Landesfachklassen-Regeln -->
