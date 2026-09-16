@@ -141,6 +141,8 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `workflow-test.mjs` | Vorlagen/Textbausteine, Dateinamen, Papierkorb (Azubi + Termin), Lösch-Logbuch, Nachbereitung (Betriebs-Vorlagen, fremde Ämter, Versandnachweis/Mahnstufe), WV-Nachweis, Akten-Dateien, Betriebs-/Schul-Ampel, Sammel-Erinnerung, Kontexthilfe, Rollen |
 | `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus`, Import-Vorschau (Savepoint) |
 | `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift, Prüferaufteilung, Ergebnis-Kürzel, Undo-Verlauf |
+| `feldmodus-test.mjs` | Feldmodus/Lag-Budget: Abgleich-Takt aus Netzqualität, Messung der Abgleichdauer, Log-Rotation nach Größe, Bereinigung nur bei Snapshot-Abdeckung |
+| `offline-test.mjs` | Offline-Betrieb: Prüferaufteilung in der DB, Zusammenführung nach Offline-Phase (LWW je Feld) mit Konfliktliste, eine WV je Ergebnis, Änderungsdatei als Notausgang |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
 **Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.
@@ -169,6 +171,8 @@ jeder hängt seine Änderungen an sein **eigenes** Op-Log an
 3-Sekunden-Takt ab ihrer Leseposition. Die `.sqlite`-Datei ist nur noch der
 Snapshot und wird selten und mit Sperre kompaktiert; `snapmeta_<db>.json`
 hält Log-Offsets und Snapshot-Generation. Details: `TECHSTACK.md`.
+
+**Feldmodus und Offline-Betrieb:** Keine Bedienaktion wartet auf das Netzlaufwerk. Der Abgleich-Takt folgt der gemessenen Netzqualität (Speichern und Abgleichdauer): 3 s / 10 s / 30 s, der Feldmodus (`App.feldmodus`, Einstellungen) erzwingt 30 s und bündelt das Speichern. Das eigene Protokoll rotiert ab `LOG_ROTATE_BYTES` auf eine neue Generation (Chrome kopiert beim Anhängen die ganze Datei); alte Generationen werden nur gelöscht, wenn `snapmeta` sie vollständig abdeckt. Offline-Modus (`App.offlineModusEinschalten()` / `startOffline()` / `wiederverbinden()`): lokaler Snapshot in IndexedDB (`snapshot`-Store), Änderungen im Puffer (30 Tage), Zusammenführung über den Crash-Restore-Pfad mit Konfliktliste (`_konflikte`), genau eine Wiedervorlage je Ergebnis (`_entdoppleWiedervorlagen`), Prüferaufteilung in `kontrolltermine.aufteilung`.
 
 **Beim Ändern von Schreibpfaden beachten:**
 - Schreibende IDs müssen global eindeutig sein → Tabelle in `App.ID_TABLES`

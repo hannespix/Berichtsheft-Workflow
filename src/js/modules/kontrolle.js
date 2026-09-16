@@ -59,7 +59,9 @@ const KontrolleHandler = {
     // Undo-Verlauf gehört zum Termin; Aufteilung und Aufklapp-Zustand ebenso
     if (this._geladenerTermin !== this.currentTerminId) {
       try { UndoManager.clear && UndoManager.clear(); } catch(e) {}
-      this._bereich = null;
+      // Aufteilung aus der DB (gilt auch offline): eigener Bereich wieder herstellen
+      const auft = App.terminAufteilung(this.currentTerminId)[this.activePruefer];
+      this._bereich = Array.isArray(auft) ? { von: auft[0], bis: auft[1] } : null;
       this._ajZustand = new Map();
       this._geladenerTermin = this.currentTerminId;
     }
@@ -480,7 +482,10 @@ const KontrolleHandler = {
   _imEigenenBereich(i) { return !this._bereich || (i + 1 >= this._bereich.von && i + 1 <= this._bereich.bis); },
   _imFremdenBereich(i) {
     if (this._bereich && this._imEigenenBereich(i)) return false;
-    return (App._otherPositions || []).some(p => p.terminId === this.currentTerminId && p.bereich && i + 1 >= p.bereich.von && i + 1 <= p.bereich.bis);
+    if ((App._otherPositions || []).some(p => p.terminId === this.currentTerminId && p.bereich && i + 1 >= p.bereich.von && i + 1 <= p.bereich.bis)) return true;
+    // Aufteilung aus der DB (auch ohne Positionsdateien, z.B. offline)
+    const auft = App.terminAufteilung(this.currentTerminId);
+    return Object.entries(auft).some(([name, b]) => name !== this.activePruefer && Array.isArray(b) && i + 1 >= b[0] && i + 1 <= b[1]);
   },
   setzeBereich(bereich) {
     const n = this.currentSchuelerList.length;
@@ -493,6 +498,8 @@ const KontrolleHandler = {
       this._bereich = null;
     }
     const pruefer = this.activePruefer || '';
+    // In der DB festhalten – so gilt die Aufteilung auch offline und nach Neustart
+    if (pruefer && !App.demoMode) App.terminAufteilungSetzen(this.currentTerminId, pruefer, this._bereich);
     if (pruefer && App.dirHandle && !App.demoMode) {
       const s = this._viewMode === 'einzeln' ? this.currentSchuelerList[this.currentIndex] : null;
       App._writePositionFile(pruefer, this.currentTerminId, s ? s.id : null, s ? s.nachname : '', this._posSeit || Date.now(), this._bereich);
@@ -2002,9 +2009,15 @@ const KontrolleHandler = {
 
   startLiveSync() {
     if (this._liveSyncTimer) return; // already running
-    if (App.demoMode) return; // no sync in demo
-    this._liveSyncTimer = setInterval(() => this.doLiveSync(), 8000); // every 8 seconds (relaxed)
+    if (App.demoMode || App.offlineModus) return; // no sync in demo / offline
+    this._liveSyncTimer = setInterval(() => this.doLiveSync(), App._liveSyncIntervallBerechnen());
     this._liveSyncCycle = 0;
+  },
+  // Takt an Netzqualität/Feldmodus anpassen, ohne die Position freizugeben
+  restartLiveSyncTimer() {
+    if (!this._liveSyncTimer) return;
+    clearInterval(this._liveSyncTimer);
+    this._liveSyncTimer = setInterval(() => this.doLiveSync(), App._liveSyncIntervallBerechnen());
   },
 
   stopLiveSync() {
@@ -2029,6 +2042,9 @@ const KontrolleHandler = {
 
   async doLiveSync() {
     if (!this.currentTerminId) return;
+    // Läuft gerade ein Anhängen ans Protokoll, den Zyklus auslassen – die
+    // Ordner-Auflistung würde sich sonst dahinter einreihen (spürbarer Lag)
+    if (App._appendInProgress || App.offlineModus) return;
     const pruefer = this.activePruefer || '';
     this._liveSyncCycle = (this._liveSyncCycle || 0) + 1;
 
@@ -2039,7 +2055,7 @@ const KontrolleHandler = {
         if (s) {
           const posKey = this.currentTerminId + ':' + s.id;
           const now = Date.now();
-          const stale = !this._lastPosWriteTime || (now - this._lastPosWriteTime > 120000); // 2 min heartbeat
+          const stale = !this._lastPosWriteTime || (now - this._lastPosWriteTime > (App.feldmodus ? 300000 : 120000)); // Heartbeat 2 min (Feldmodus 5 min)
           if (posKey !== this._lastWrittenPos || stale) {
             this._lastWrittenPos = posKey;
             this._lastPosWriteTime = now;
@@ -2403,7 +2419,9 @@ const KontrolleHandler = {
   },
 
   // ── Kontrolle abschließen ──
+  // (offline gesperrt: Archiv-Bögen, Wiedervorlagen und Mitteilungen brauchen den gemeinsamen Stand)
   abschliessen() {
+    if (App.offlineModus) return App.toast('Offline-Modus: Kontrolle erst nach dem Wiederverbinden abschließen (Archiv-Bögen und Mitteilungen brauchen den gemeinsamen Stand)', 'warning');
     const tid = this.currentTerminId;
     const total = this.currentSchuelerList.length;
     const klassen = App.getTerminKlassen(tid);
