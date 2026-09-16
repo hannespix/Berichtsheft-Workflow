@@ -710,7 +710,11 @@ const Workflows = {
         hinweis = 'Empfängerliste und Text wurden in die Zwischenablage kopiert (zu lang für den Link) – bitte in der E-Mail einfügen.';
       }
     }
-    const w = window.open(url, '_self');
+    // Nicht window.open(url, '_self'): Chrome meldet bei file:-Seiten dafür
+    // „Unsafe attempt to load URL" – location.href öffnet das Mailprogramm
+    // ohne diese Warnung
+    let w = null;
+    try { location.href = url; w = window; } catch(e) { w = null; }
     if (hinweis) App.toast(hinweis, 'warning');
     if (!w) {
       navigator.clipboard.writeText(`An: ${to}${cc ? '\nCC: ' + cc : ''}${bcc ? '\nBCC: ' + bcc : ''}\nBetreff: ${subject}\n\n${body}`).then(() => {

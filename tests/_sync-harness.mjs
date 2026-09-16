@@ -169,6 +169,8 @@ export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   app.markDirty = function () { this.unsavedChanges = true; };
   app.db = new SQL.Database(dbBytes);
   app.migrateDB();
+  // Die Datenbankdatei liegt im (Fake-)Laufwerk – die Netzabriss-Probe fasst sie an
+  if (!store.files.has('test.sqlite')) store.files.set('test.sqlite', { data: new Uint8Array(dbBytes), mtime: Date.now() });
   app.dbFileHandle = new FakeFileHandle(store, 'test.sqlite');
   app.dirHandle = opts.dir || new FakeDir(store);
   app.bhkDirHandle = null;

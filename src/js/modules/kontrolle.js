@@ -2059,7 +2059,7 @@ const KontrolleHandler = {
     if (!this.currentTerminId) return;
     // Läuft gerade ein Anhängen ans Protokoll, den Zyklus auslassen – die
     // Ordner-Auflistung würde sich sonst dahinter einreihen (spürbarer Lag)
-    if (App._appendInProgress || App.offlineModus) return;
+    if (App._appendInProgress || App.offlineModus || App._netzWeg) return;
     const pruefer = this.activePruefer || '';
     this._liveSyncCycle = (this._liveSyncCycle || 0) + 1;
 

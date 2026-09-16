@@ -2048,6 +2048,113 @@ const App = {
   // werden. Der Feldmodus erzwingt die gedrosselten Werte von Hand.
   LOG_ROTATE_BYTES: 256 * 1024, // eigenes Protokoll ab 256 KB auf neue Generation drehen (Chrome kopiert beim Anhängen die ganze Datei)
   _lastPollMs: 0,
+  // ── Netzabriss (Netzlaufwerk plötzlich nicht erreichbar, z.B. VPN weg) ──
+  // Erkennen, alles Netz-Schreibende pausieren, nur noch alle 30 s eine
+  // leichte Probe; Änderungen bleiben im lokalen Puffer. Vorher liefen
+  // Abgleich, Positionsdateien, Backups und Anhängen im 3-Sekunden-Takt gegen
+  // die tote Freigabe und füllten die Konsole.
+  _netzWeg: false,
+  _netzWegSeit: 0,
+  _verbFehler: 0,
+  _istVerbindungsFehler(e) {
+    if (!e) return false;
+    const n = e.name || '', m = String(e.message || '');
+    if (n === 'NotFoundError' || n === 'NotAllowedError' || n === 'NetworkError') return true;
+    if (n === 'AbortError' && /safe browsing/i.test(m)) return true;
+    if (/Oplog-Append Timeout|Timeout/i.test(m)) return true;
+    if (n === 'TypeError' && /network|fetch|Failed to/i.test(m)) return true;
+    return false;
+  },
+  // Rückgabe: true, wenn es ein Verbindungsfehler war (Aufrufer verzichtet dann auf Sofort-Retries)
+  _verbindungsProblem(e, quelle) {
+    if (!this._istVerbindungsFehler(e)) return false;
+    if (e.name === 'AbortError' && /safe browsing/i.test(String(e.message || ''))) {
+      // Chrome prüft jede geschriebene Datei bei Safe Browsing; ohne Internet
+      // (VPN ohne Ausleitung) bricht die Prüfung ab – nicht unser Fehler,
+      // aber Backups/Anhängen scheitern. 30 Min keine Backups, einmal erklären.
+      this._safeBrowsingBis = Date.now() + 30 * 60 * 1000;
+      if (!this._safeBrowsingHinweis) { this._safeBrowsingHinweis = true; this.toast('Chrome hat einen Schreibvorgang abgebrochen (Safe-Browsing-Prüfung ohne Internet). Hilfe → Mehrbenutzer-Betrieb beschreibt die IT-Einstellung.', 'warning'); }
+    }
+    if (e.name === 'NotFoundError' || e.name === 'NotAllowedError') {
+      // Eine fehlende OPTIONALE Datei (snapmeta vor der ersten Kompaktierung,
+      // Positionsdatei) ist normal – ob das Laufwerk weg ist, entscheidet die
+      // Datenbankdatei selbst: asynchron prüfen, nicht sofort zählen
+      this._netzPruefenAsync(quelle);
+      return false;
+    }
+    this._verbFehlerZaehlen(quelle, e);
+    return true;
+  },
+  _netzPruefenAsync(quelle) {
+    if (this._netzPruefungLaeuft) return this._netzPruefungLaeuft;
+    this._netzPruefungLaeuft = (async () => {
+      try {
+        if (!this.dirHandle || this.offlineModus) return;
+        const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
+        if (!name) return;
+        await (await this.dirHandle.getFileHandle(name, { create: false })).getFile();
+      } catch(err) {
+        if (this._istVerbindungsFehler(err)) this._verbFehlerZaehlen(quelle, err);
+      } finally { this._netzPruefungLaeuft = null; }
+    })();
+    return this._netzPruefungLaeuft;
+  },
+  _verbFehlerZaehlen(quelle, e) {
+    this._verbFehler++;
+    this._lastSaveDurationMs = Math.max(this._lastSaveDurationMs || 0, 30000);
+    try { this._updateNetworkQuality(); } catch(_) {}
+    if (this._verbFehler >= 2 && !this._netzWeg) {
+      this._netzWeg = true; this._netzWegSeit = Date.now();
+      console.warn(`[Netz] Netzlaufwerk nicht erreichbar (${quelle}: ${e.name || ''} ${String(e.message || '').slice(0, 80)}) – Abgleich und Speichern pausiert, Probe alle 30 s`);
+      try { this._netzWegBanner(); } catch(_) {}
+      try { this._updateNetworkUI(); } catch(_) {}
+      try { this._persistDirtyOps(); } catch(_) {}
+      // Poll-Timer auf Probe-Takt umstellen
+      try { if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; if (this._schedulePoll) this._schedulePoll(); } } catch(_) {}
+    }
+    return true;
+  },
+  _netzWegBanner() {
+    let banner = document.getElementById('offlineBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'offlineBanner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9000;padding:8px 16px;text-align:center;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap';
+      document.body.prepend(banner);
+    }
+    const n = this._dirtyOps.length + (this._opsInFlight || []).length;
+    const seit = this._netzWegSeit ? new Date(this._netzWegSeit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+    banner.style.background = '#fde8e8'; banner.style.color = '#991b1b'; banner.style.transform = 'translateY(0)';
+    banner.innerHTML = `<span style="color:var(--clr-red)">◆</span> Netzlaufwerk nicht erreichbar${seit ? ' seit ' + seit : ''} – <span id="offlineOpsZahl">${n}</span> Änderung(en) werden lokal gehalten, Probe alle 30 s
+      <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:11px" onclick="App._netzProbe(true)">↻ Erneut verbinden</button>
+      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:11px" onclick="App.offlineModusEinschalten()" title="Bewusst ohne Netz weiterarbeiten; Zusammenführung beim Wiederverbinden">⇅ Offline weiterarbeiten</button>`;
+  },
+  // Leichte Probe: nur die Datenbankdatei anfassen. Erfolg → alles wieder an.
+  async _netzProbe(manuell) {
+    if (!this.dirHandle) return false;
+    try {
+      const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
+      const h = await this.dirHandle.getFileHandle(name, { create: false });
+      await h.getFile();
+      this.dbFileHandle = h;
+      if (this._netzWeg) console.log('[Netz] Netzlaufwerk wieder erreichbar');
+      this._netzWeg = false; this._verbFehler = 0; this._saveRetryCount = 0; this._saveCooldownUntil = null; this._reconnectAttempts = 0;
+      this._lastSaveDurationMs = 0;
+      try { this._hideOfflineBanner(); } catch(_) {}
+      try { await this.ensureAppDirs(); } catch(_) {}
+      try { this._updateNetworkQuality(); } catch(_) {}
+      const el = document.getElementById('dbStatusIndicator');
+      if (el) el.innerHTML = '<span class="dot dot-green"></span>Verbunden';
+      if (manuell) this.toast('Verbindung wiederhergestellt', 'success');
+      if (this._dirtyOps.length) this.scheduleAutoSave();
+      try { if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; if (this._schedulePoll) this._schedulePoll(); } } catch(_) {}
+      return true;
+    } catch(e) {
+      if (manuell) this.toast('Netzlaufwerk weiterhin nicht erreichbar (' + (e.name || 'Fehler') + ')', 'warning');
+      return false;
+    }
+  },
+
   // ── Offline-Betrieb (Kontrollort ohne Netz) ──
   offlineModus: false,
   _offlineSeit: 0,      // Beginn der Offline-Phase (für die Konfliktanzeige beim Zusammenführen)
@@ -2190,6 +2297,12 @@ const App = {
   // ── Auto-Save (debounced 2s after last change) ──
   scheduleAutoSave() {
     if (this.demoMode || !this.dbFileHandle) return;
+    if (this._netzWeg) {
+      document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal`;
+      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      try { this._offlineBannerAktualisieren(); } catch(e) {}
+      return;
+    }
     document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Geändert…';
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
     // Adaptive delay: on slow connections, debounce longer to batch changes and reduce traffic
@@ -2267,6 +2380,7 @@ const App = {
   // ── Backup History ──
   async createBackup(tag) {
     if (!this.backupsDirHandle || !this.db) return;
+    if (this._netzWeg || this.offlineModus || (this._safeBrowsingBis && Date.now() < this._safeBrowsingBis)) return;
     try {
       const now = new Date();
       const ts = now.toISOString().replace(/[:.]/g, '-').substring(0, 19);
@@ -2285,6 +2399,7 @@ const App = {
       await this.cleanOldBackups(30);
     } catch (e) {
       console.warn('Backup failed:', e);
+      this._verbindungsProblem(e, 'backup');
     }
   },
 
@@ -2360,12 +2475,15 @@ const App = {
 
     this._schedulePoll = () => {
       // Takt aus Netzqualität bzw. Feldmodus (3 s / 10 s / 30 s)
-      const interval = this._pollIntervallBerechnen();
+      const interval = this._netzWeg ? 30000 : this._pollIntervallBerechnen();
       this._pollIntervalMs = interval;
       this.pollInterval = setTimeout(async () => {
+        if (this._netzWeg && !this.offlineModus) {
+          // Netzlaufwerk weg: nur eine leichte Probe, kein Abgleich
+          if (!document.hidden && this.dirHandle) await this._netzProbe(false);
+        } else if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this.offlineModus) {
         // Nie parallel zu einem laufenden Anhängen: Chrome reiht Dateizugriffe
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
-        if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this.offlineModus) {
           if (this._v3Active()) await this._pollOplogs();
           else await this._pollSyncMarker();
         }
@@ -2633,6 +2751,9 @@ const App = {
     if (this.offlineModus) {
       el.style.display = '';
       el.innerHTML = `<span style="color:var(--clr-amber)">Offline · ${this._dirtyOps.length + (this._opsInFlight || []).length} Änderungen lokal</span>`;
+    } else if (this._netzWeg) {
+      el.style.display = '';
+      el.innerHTML = `<span style="color:var(--clr-red)">Netzlaufwerk nicht erreichbar · ${this._dirtyOps.length + (this._opsInFlight || []).length} lokal</span>`;
     } else if (this.feldmodus) {
       el.style.display = '';
       el.innerHTML = `<span style="color:var(--clr-blue)" title="Feldmodus: Abgleich alle ${(this._pollIntervalMs / 1000).toFixed(0)} s, Speichern gebündelt">Feldmodus</span>`;
@@ -2770,7 +2891,7 @@ const App = {
   // bereich = {von, bis} (1-basierte Nummern in der Terminliste): „Ich nehme
   // #1–20" – die Kollegen überspringen diesen Bereich beim Weiterschalten.
   async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich) {
-    if (!this.dirHandle) return;
+    if (!this.dirHandle || this._netzWeg || this.offlineModus) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
@@ -3452,6 +3573,14 @@ const App = {
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-green"></span>Gespeichert';
       return;
     }
+    if (this._netzWeg) {
+      // Netzlaufwerk weg: kein Anhängen (würde 30 s hängen) – Puffer halten,
+      // die Probe schaltet das Speichern wieder ein
+      this._persistDirtyOps();
+      document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal`;
+      try { this._offlineBannerAktualisieren(); } catch(e) {}
+      return;
+    }
     this._appendInProgress = true;
     const claimed = this._dirtyOps.splice(0);
     this._opsInFlight = claimed; // für _persistDirtyOps: Crash-Puffer behält sie
@@ -3537,10 +3666,12 @@ const App = {
       this.unsavedChanges = true;
       this._persistDirtyOps(); // Crash-Puffer sofort aktualisieren
       console.error('[SyncV3] Append-Fehler:', e);
+      // Netzabriss / Safe-Browsing-Abbruch: pausieren statt sofort wieder anzurennen
+      const netzFehler = this._verbindungsProblem(e, 'anhaengen');
       // Nach drei Fehlversuchen in Folge sichtbar machen: Banner mit
       // "Erneut verbinden" (holt die Datei-Handles neu) statt nur roter Punkt.
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
-      if (this._saveRetryCount >= 3) {
+      if (this._saveRetryCount >= 3 && !this._netzWeg) {
         try { this._showOfflineBanner(true); } catch(_) {}
         if (!this._lastReconnectAttempt || Date.now() - this._lastReconnectAttempt > 60000) {
           this._lastReconnectAttempt = Date.now();
@@ -3564,10 +3695,10 @@ const App = {
         this._myLogSize = 0;
         console.warn(`[SyncV3] Datei-Cache-Fehler → eigenes Log rotiert auf Generation ${this._logGen}`);
         setTimeout(() => this.scheduleAutoSave(), 500);
-      } else {
-        setTimeout(() => this.scheduleAutoSave(), 5000);
+      } else if (!this._netzWeg) {
+        setTimeout(() => this.scheduleAutoSave(), netzFehler ? 15000 : 5000);
       }
-      document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
+      document.getElementById('dbStatusIndicator').innerHTML = this._netzWeg ? `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal` : '<span class="dot dot-red"></span>Fehler';
     } finally {
       this._appendInProgress = false;
     }
@@ -3633,6 +3764,7 @@ const App = {
       await this._rotateOwnLogIfCovered();
     } catch(e) {
       this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+      this._verbindungsProblem(e, 'abgleich');
       if (this._reconnectAttempts > 5) {
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Getrennt';
       }
@@ -4218,7 +4350,10 @@ const App = {
       }
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       this._smartRefresh();
-    } catch(e) { console.warn('[SyncV3] Snapshot-Prüfung:', e.message); }
+    } catch(e) {
+      if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
+      else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
+    }
   },
   // Nach einem Snapshot-Tausch: KE-Zeilen mit gleichem fachlichem Schlüssel,
   // aber fremder ID, auf die bisherige LOKALE ID zurückschreiben (samt
@@ -4788,8 +4923,11 @@ const App = {
       return 'ok';
     } catch(e) {
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
-      this._lastSaveDurationMs = Date.now() - t0;
+      // Ein schneller Fehlschlag ist keine schnelle Leitung: Dauer nie nach
+      // unten korrigieren (sonst sprang der Takt zurück auf 3 s)
+      this._lastSaveDurationMs = Math.max(this._lastSaveDurationMs || 0, Date.now() - t0, 5000);
       this._updateNetworkQuality();
+      this._verbindungsProblem(e, 'speichern');
 
       const isStale = e.name === 'InvalidStateError' || e.message?.includes('state');
       const isPermission = e.name === 'NotAllowedError' || e.name === 'NotFoundError' || e.message?.includes('not allowed');
@@ -6483,8 +6621,9 @@ const App = {
   async offlineModusEinschalten() {
     if (this.offlineModus) return;
     if (!this.db) return;
-    if (this.dbFileHandle && this._dirtyOps.length) { try { await this._saveV3(); } catch(e) {} }
+    if (this.dbFileHandle && this._dirtyOps.length && !this._netzWeg) { try { await this._saveV3(); } catch(e) {} }
     const ok = await this._offlineCacheSchreiben();
+    this._netzWeg = false; this._verbFehler = 0;
     if (!ok) return this.toast('Lokaler Stand konnte nicht gesichert werden – Offline-Modus nicht möglich', 'error');
     this._dirHandleOffline = this.dirHandle;
     this._dbNameOffline = this.autoLoadedDbName;
@@ -7979,6 +8118,7 @@ Anlagen: {anlagen}` },
     banner.style.transform = 'translateY(0)';
   },
   _hideOfflineBanner() {
+    this._netzWeg = false; this._verbFehler = 0;
     const banner = document.getElementById('offlineBanner');
     if (banner) banner.remove();
   },

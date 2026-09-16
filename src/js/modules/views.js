@@ -2588,6 +2588,10 @@ const Views = {
             <p>• Beim Öffnen eines Termins startet jeder Prüfer beim ersten offenen Azubi, an dem noch niemand arbeitet; „Nächster freier Azubi" springt weiter</p>
             <p>• „Sperre aufheben" erlaubt das Bearbeiten trotzdem und bleibt für diesen Azubi gemerkt – gleichzeitige Änderungen löst dann „die spätere gewinnt" je Feld auf</p>
             <p>• Der Hinweis verschwindet, sobald der Kollege weiterblättert oder „Speichern &amp; Freigeben" klickt; Positionen älter als 15 Minuten werden ignoriert, beim Schließen des Browsers wird die eigene Position gelöscht</p>
+            <p><strong>Netzlaufwerk weggebrochen (VPN getrennt, Laufwerk P: nicht mehr da):</strong></p>
+            <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
+            <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
+            <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
