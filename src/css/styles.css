@@ -855,6 +855,30 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── KW Legend Bar ── */
+/* Sticky-Kopf der Einzelansicht: wer wird gerade bearbeitet (bleibt beim Scrollen oben, über der Legende) */
+.azubi-sticky {
+  position: sticky;
+  top: -1px;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 32px;
+  margin: 0 -32px 0;
+  background: var(--clr-white);
+  border-bottom: 1px solid var(--clr-sand);
+  font-size: 12px;
+  color: var(--clr-text-light);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.azubi-sticky .as-name { font-size: 14px; font-weight: 700; color: var(--clr-forest-dark); overflow: hidden; text-overflow: ellipsis; }
+.azubi-sticky .as-nr { font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 10px; background: var(--clr-warm); color: var(--clr-text); font-weight: 600; }
+.azubi-sticky .as-meta { overflow: hidden; text-overflow: ellipsis; }
+.azubi-sticky .as-nav { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+.azubi-sticky .as-nav .btn { padding: 1px 8px; font-size: 11px; }
+body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color: var(--clr-sand); }
 .kw-legend {
   display: flex;
   flex-wrap: wrap;
@@ -865,7 +889,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   margin: 0 -32px 0;
   border-bottom: 1px solid var(--clr-sand);
   position: sticky;
-  top: -1px;
+  top: 33px; /* unter dem Azubi-Kopf */
   z-index: 20;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   align-items: center;

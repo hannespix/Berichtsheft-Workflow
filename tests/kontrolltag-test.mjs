@@ -295,5 +295,12 @@ console.log('\n══ Stufe 2 (2): Prüferaufteilung, Ergebnis-Kürzel, heutige 
   check(/const zu = this\._ajZustand\.has\(aj\)/.test(K_SRC) && /frueher && !maengelCount && geprueftCount >= activeCount/.test(K_SRC), 'Frühere, vollständig geprüfte Ausbildungsjahre sind eingeklappt');
 }
 
+console.log('\n══ Sticky-Kopf der Einzelansicht ══');
+{
+  check(/id="azubiSticky"/.test(K_SRC) && /<span class="as-nr">#\$\{this\.currentIndex \+ 1\}\/\$\{total\}<\/span>/.test(K_SRC) && /c\.innerHTML = `\$\{stickyHtml\}\$\{kwLegendHtml\}/.test(K_SRC), 'Aktueller Azubi steht in einem Sticky-Kopf über der Legende (Nr., Name, Ergebnis, Betrieb/Klasse, Navigation)');
+  const CSS = read('src/css/styles.css');
+  check(/\.azubi-sticky \{[\s\S]*position: sticky;[\s\S]*z-index: 21;/.test(CSS) && /top: 33px; \/\* unter dem Azubi-Kopf \*\//.test(CSS), 'Legende klebt unter dem Azubi-Kopf');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

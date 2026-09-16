@@ -1161,9 +1161,10 @@ const Views = {
           ${(() => {
             // Abgeschlossene und alte Termine nicht dauerhaft anbieten: Gruppen
             // „Anstehend" / „Kürzlich" – ältere (auch Nacherfassungen) nur auf Wunsch
-            const alteZeigen = App.uGet('kontrolle_alte') === '1';
             const grp = { anstehend: [], kuerzlich: [], alt: [] };
             termine.forEach(t => { const k = /^Nacherfassung/.test(t.bemerkung || '') ? 'alt' : App.terminAktuell(t); grp[k].push(t); });
+            // Gibt es nur ältere Termine, werden sie gezeigt – ein leeres Dropdown hilft niemandem
+            const alteZeigen = App.uGet('kontrolle_alte') === '1' || (!grp.anstehend.length && !grp.kuerzlich.length);
             const opt = t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`;
             return `<select class="form-control" id="selKontrolltermin" onchange="KontrolleHandler.loadTermin(this.value)">
               <option value="">– Bitte wählen –</option>

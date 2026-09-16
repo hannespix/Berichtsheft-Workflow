@@ -1126,7 +1126,22 @@ const KontrolleHandler = {
     const isAnwesend = ke.anwesend !== 0;
     const isLocked = this.currentLock;
 
-    c.innerHTML = `${kwLegendHtml}
+    // Sticky-Kopf: aktueller Azubi immer sichtbar (kein Hochscrollen nötig)
+    const klasseStk = s.klasse_id ? (App.query('SELECT k.klassenbezeichnung, bs.name AS schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {}) : {};
+    const ergStk = ke.ergebnis ? `<span class="badge-status ${ke.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}" style="font-size:10px">${esc(ergebnisLabels[ke.ergebnis] || ke.ergebnis)}</span>` : (ke.anwesend === 0 ? '<span class="badge-status badge-overdue" style="font-size:10px">abwesend</span>' : '<span style="font-size:10px;color:var(--clr-text-light)">noch offen</span>');
+    const stickyHtml = `<div class="azubi-sticky" id="azubiSticky" title="Aktuell bearbeiteter Azubi">
+      <span class="as-nr">#${this.currentIndex + 1}/${total}</span>
+      <span class="as-name">${esc(s.nachname)}, ${esc(s.vorname)}</span>
+      ${ergStk}
+      <span class="as-meta">${[s.ausbildungsstaette, klasseStk.klassenbezeichnung, klasseStk.schule].filter(Boolean).map(esc).join(' · ')}</span>
+      <span class="as-nav">
+        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" ${this.currentIndex === 0 ? 'disabled' : ''}>‹</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.nextOffen()" title="Nächster offener Azubi">offen ›</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">▤</button>
+      </span>
+    </div>`;
+    c.innerHTML = `${stickyHtml}${kwLegendHtml}
     <div class="fade-in" style="margin-top:0">
       ${isLocked ? `<!-- Lock Warning -->
       <div class="card" id="lockWarning" style="margin-bottom:8px;border-left:4px solid var(--clr-red);background:var(--clr-red-light)">
