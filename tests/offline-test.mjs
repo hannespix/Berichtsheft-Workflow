@@ -102,6 +102,38 @@ console.log('\n══ Änderungsdatei als Notausgang ══');
   check(C3.scalar('SELECT nachname FROM schueler WHERE id=3') === 'Dora-per-Datei', 'Eingespielte Änderung erreicht die Kollegen über das Protokoll');
 }
 
+console.log('\n══ Netzabriss: erkennen, pausieren, Probe, weiter ══');
+{
+  const E = await makeClient(SQL, store, 'erik', new Uint8Array(seed), { quiet: true });
+  const F = await makeClient(SQL, store, 'frieda', new Uint8Array(seed), { quiet: true });
+  const echt = APP_SRC.match(/_updateNetworkQuality\(\) \{[\s\S]*?\n  \},/)[0];
+  E._updateNetworkQuality = new Function('return function ' + echt.replace(/,\s*$/, '')).call(null); E._updateNetworkUI = () => {};
+  const nf = () => { const err = new Error('A requested file or directory could not be found'); err.name = 'NotFoundError'; throw err; };
+  const tot = { kind: 'directory', getFileHandle: async () => nf(), getDirectoryHandle: async () => nf(), removeEntry: async () => nf(), entries: async function* () { nf(); }, values: async function* () { nf(); } };
+  const echterDir = E.dirHandle;
+  E.dirHandle = tot; E.bhkDirHandle = null;
+  E.run('UPDATE schueler SET nachname=? WHERE id=?', ['Netz-weg', 3]);
+  await E.mergeAndSave(true); await (E._netzPruefungLaeuft || null);
+  check(E._verbFehler === 1 && !E._netzWeg && E._dirtyOps.length >= 1, 'Erster Fehlversuch zählt, Änderung bleibt im Puffer, noch kein Netzabriss');
+  await E.mergeAndSave(true); await (E._netzPruefungLaeuft || null);
+  check(E._netzWeg === true && E._dirtyOps.some(o => /Netz-weg/.test(JSON.stringify(o.params || []))), 'Zweiter Fehlversuch → Netzabriss erkannt, Puffer bleibt');
+  const anzahl = E._dirtyOps.length, fehler = E._verbFehler;
+  await E.mergeAndSave(true); await (E._netzPruefungLaeuft || null);
+  check(E._dirtyOps.length === anzahl && E._verbFehler === fehler, 'Kein weiteres Anrennen gegen die tote Freigabe');
+  check(E._networkQuality === 'very-slow', 'Fehlversuche zählen als sehr langsam – kein Rückfall auf den 3-Sekunden-Takt');
+  check((await E._netzProbe(false)) === false && E._netzWeg, 'Probe scheitert, solange das Laufwerk weg ist');
+  E.dirHandle = echterDir;
+  check((await E._netzProbe(false)) === true && !E._netzWeg && E._verbFehler === 0, 'Laufwerk wieder da: Probe hebt die Pause auf');
+  await E.mergeAndSave(true);
+  await F._pollOplogs();
+  check(F.scalar('SELECT nachname FROM schueler WHERE id=3') === 'Netz-weg', 'Gepufferte Änderung erreicht den Kollegen nach der Wiederverbindung');
+  const sb = new Error('Failed to perform Safe Browsing check'); sb.name = 'AbortError';
+  check(E._istVerbindungsFehler(sb) && E._istVerbindungsFehler(new Error('Oplog-Append Timeout')) && !E._istVerbindungsFehler(new Error('near "SELEC": syntax error')), 'Safe-Browsing-Abbruch und Append-Timeout gelten als Verbindungsproblem, SQL-Fehler nicht');
+  check(/if \(this\._netzWeg \|\| this\.offlineModus \|\| \(this\._safeBrowsingBis/.test(APP_SRC) && /if \(!this\.dirHandle \|\| this\._netzWeg \|\| this\.offlineModus\) return;/.test(APP_SRC), 'Backups und Positionsdateien pausieren bei Netzabriss');
+  check(/const interval = this\._netzWeg \? 30000 : this\._pollIntervallBerechnen\(\);/.test(APP_SRC) && /await this\._netzProbe\(false\);/.test(APP_SRC), 'Abgleich wird durch eine 30-s-Probe ersetzt');
+  check(/location\.href = url; w = window;/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/workflows.js'), 'utf8')), 'Mailprogramm über location.href (keine „Unsafe attempt"-Warnung auf file:-Seiten)');
+}
+
 console.log('\n══ Quelltext: Offline-Start, Puffer, Cache ══');
 {
   check(/async startOffline\(\)/.test(APP_SRC) && /_offlineStartAnbieten\(\)/.test(APP_SRC) && /btnOfflineStart/.test(APP_SRC), 'Startbildschirm bietet „Offline weiterarbeiten" mit lokalem Stand an');
