@@ -2301,6 +2301,31 @@ const App = {
        <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
   },
 
+  // In die Zwischenablage legen. navigator.clipboard gibt es auf file://
+  // nicht überall und scheitert dort still – deshalb immer mit Rückfallweg
+  // über ein unsichtbares Textfeld.
+  async kopieren(text, meldung) {
+    text = String(text == null ? '' : text);
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; }
+    } catch(e) { ok = false; }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch(e) { ok = false; }
+    }
+    this.toast(ok ? (meldung || 'In die Zwischenablage kopiert') : 'Kopieren nicht möglich – bitte den Text von Hand markieren', ok ? 'success' : 'warning');
+    return ok;
+  },
+
   // ═══════════════════════════════════════════
   //  DIAGNOSE UND SCHWÄRZUNG (für „Problem melden")
   //  Alles, was zur Fehlersuche taugt, ohne personenbezogene Angaben.

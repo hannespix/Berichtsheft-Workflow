@@ -58,7 +58,9 @@ const Melden = {
       ${this._tabelle(liste)}`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-secondary" onclick="Melden.oeffnen()">⚑ Selbst melden</button>
-       <button class="btn btn-primary" onclick="Melden.exportAlle()">Alle als Textdatei</button>`);
+       ${liste.length ? `<button class="btn btn-secondary" style="color:var(--clr-red)" onclick="Melden.alleLoeschen()">Alle löschen (${liste.length})</button>` : ''}
+       <button class="btn btn-primary" onclick="Melden.kopiereAlle()">▤ Alle kopieren</button>
+       <button class="btn btn-secondary" onclick="Melden.exportAlle()">Alle als Textdatei</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
     this._badge();
@@ -73,6 +75,7 @@ const Melden = {
         <td>${m.bild ? '✓' : '–'}</td>
         <td class="btn-group" style="white-space:nowrap">
           <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
+          <button class="btn btn-sm btn-secondary" onclick="Melden.kopiereEine('${esc(m._ordner)}')" title="Text dieser Meldung in die Zwischenablage">▤</button>
           <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
         </td></tr>`).join('')}
     </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
@@ -113,9 +116,10 @@ const Melden = {
         <textarea class="form-control" id="mdDiagnose" rows="10" style="font-size:11px;font-family:monospace;margin-top:4px">${esc(text)}</textarea>
       </details>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+       <button class="btn btn-secondary" onclick="App.kopieren(Melden.alsText(Melden.bauen(Melden._formular())), 'Meldung kopiert')" title="Text der Meldung in die Zwischenablage">▤ Kopieren</button>
        <button class="btn btn-secondary" onclick="Melden.alsDateiSpeichern()" title="Ohne Netzlaufwerk: Meldung als Textdatei herunterladen">Als Datei speichern</button>
        ${this.meldungsEmail() ? `<button class="btn btn-secondary" onclick="Melden.perEmail()" title="Meldung als E-Mail an ${esc(this.meldungsEmail())} (Bild bitte von Hand anhängen)">Per E-Mail</button>` : ''}
-       <button class="btn btn-primary" onclick="Melden.senden()">Melden</button>`);
+       <button class="btn btn-primary" id="mdSenden" onclick="Melden.senden()">Melden</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     setTimeout(() => this._bildFeldVerdrahten(), 60);
   },
@@ -160,7 +164,9 @@ const Melden = {
     const w = (id) => (document.getElementById(id)?.value || '').trim();
     return { beschreibung: w('mdBeschreibung'), schritte: w('mdSchritte'), diagnose: document.getElementById('mdDiagnose')?.value || '' };
   },
-  _id() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + (App._getClientId ? App._getClientId().slice(-4) : 'xxxx'); },
+  // Zeit + Rechner + Zufall: zwei Meldungen in derselben Sekunde bekamen sonst
+  // dieselbe Kennung und landeten im selben Ordner (die zweite überschrieb die erste)
+  _id() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + (App._getClientId ? App._getClientId().slice(-4) : 'xxxx') + '_' + Math.random().toString(36).slice(2, 6); },
   bauen(f) {
     return {
       id: this._id(), version: App.VERSION, zeitpunkt: new Date().toISOString(),
@@ -193,26 +199,50 @@ const Melden = {
     await w.write(data);
     await w.close();
   },
-  async senden() {
-    const f = this._formular();
-    if (!f.beschreibung) return App.toast('Bitte kurz beschreiben, was passiert ist', 'warning');
-    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) {
-      App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
-      return this.alsDateiSpeichern();
-    }
-    const m = this.bauen(f);
+  // Ablegen mit HÖCHSTENS einem Wiederholungsversuch und STABILER Kennung.
+  // Beides ist wichtig: Ohne Grenze wiederholte sich der Versuch endlos, und
+  // eine bei jedem Versuch neu erzeugte Kennung legte jedes Mal einen neuen
+  // Ordner an – aus einer Meldung wurden ein Dutzend.
+  async _ablegen(m, versuch = 0) {
     try {
       const dir = await this._ordner(true);
       const eigen = await dir.getDirectoryHandle(m.id, { create: true });
       await this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1));
       await this._schreiben(eigen, 'meldung.txt', this.alsText(m));
       if (this._bild) await this._schreiben(eigen, this._bild.name, this._bild.bytes);
+      return true;
     } catch(e) {
-      if (App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) return this.senden();
+      if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
+        console.warn('[Melden] Zugriffspunkt erneuert, ein zweiter Versuch mit derselben Kennung');
+        return await this._ablegen(m, 1);
+      }
       console.warn('[Melden]', e);
+      // Angefangenen, leeren Ordner wieder entfernen – sonst bleibt bei jedem
+      // Fehlversuch Müll auf dem Netzlaufwerk liegen.
+      try { const d = await this._ordner(false); await d.removeEntry(m.id, { recursive: true }); } catch(_) {}
       App.toast('Meldung konnte nicht abgelegt werden: ' + e.message + ' – bitte „Als Datei speichern" nutzen', 'error');
       return false;
     }
+  },
+  async senden() {
+    if (this._sendet) return false;              // Doppelklick erzeugt keine zweite Meldung
+    const f = this._formular();
+    if (!f.beschreibung) return App.toast('Bitte kurz beschreiben, was passiert ist', 'warning');
+    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) {
+      App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
+      return this.alsDateiSpeichern();
+    }
+    this._sendet = true;
+    const knopf = document.getElementById('mdSenden');
+    if (knopf) { knopf.disabled = true; knopf.textContent = 'Wird gespeichert…'; }
+    const m = this.bauen(f);
+    let ok = false;
+    try { ok = await this._ablegen(m); }
+    finally {
+      this._sendet = false;
+      if (knopf) { knopf.disabled = false; knopf.textContent = 'Melden'; }
+    }
+    if (!ok) return false;
     App.closeModal();
     App.toast('Danke, die Meldung ist abgelegt', 'success');
     this._letztePruefung = 0;
@@ -267,6 +297,7 @@ const Melden = {
       </p>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn btn-secondary btn-sm" onclick="Melden.oeffnen()">⚑ Problem melden (F2)</button>
+        <button class="btn btn-secondary btn-sm" onclick="Melden.kopiereAlle()" title="Alle Meldungen als Text in die Zwischenablage – zum Einfügen bei der Entwicklung">▤ Alle kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="Melden.exportAlle()">Alle als Textdatei</button>
         <button class="btn btn-secondary btn-sm" onclick="Melden.renderCard()">Aktualisieren</button>
       </div>
@@ -302,7 +333,8 @@ const Melden = {
       <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px">Zustand und Protokoll</summary>
         <pre style="font-size:11px;white-space:pre-wrap;max-height:40vh;overflow:auto;background:var(--clr-warm);padding:8px;border-radius:6px">${esc(m.diagnose || '')}</pre></details>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="Melden.exportEine('${esc(ordner)}')">Als Textdatei</button>`);
+       <button class="btn btn-primary" onclick="Melden.kopiereEine('${esc(ordner)}')">▤ Kopieren</button>
+       <button class="btn btn-secondary" onclick="Melden.exportEine('${esc(ordner)}')">Als Textdatei</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
   },
   async loeschen(ordner) {
@@ -310,6 +342,20 @@ const Melden = {
     try { await (await this._ordner(false)).removeEntry(ordner, { recursive: true }); } catch(e) { return App.toast('Löschen fehlgeschlagen: ' + e.message, 'error'); }
     App.closeModal();
     App.toast('Meldung gelöscht', 'success');
+    this.renderCard();
+  },
+  async alleLoeschen() {
+    const liste = this._meldungen || [];
+    if (!liste.length) return;
+    if (!(await App.confirm(`Alle ${liste.length} Meldungen endgültig löschen?\n\nVorher lohnt sich „Alle als Textdatei".`, { titel: 'Meldungen löschen', ok: 'Alle löschen', gefaehrlich: true }))) return;
+    let dir;
+    try { dir = await this._ordner(false); } catch(e) { return; }
+    let n = 0;
+    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); n++; } catch(e) {} }
+    App.closeModal();
+    App.toast(`${n} Meldungen gelöscht`, 'success');
+    this._letztePruefung = 0;
+    await this.pruefeNeue(true);
     this.renderCard();
   },
   _download(text, teile) {
@@ -325,12 +371,25 @@ const Melden = {
     this._download(this.alsText(m), ['Fehlermeldung', m.id]);
     App.toast('Meldung als Textdatei gespeichert', 'success');
   },
+  // Für die Weitergabe an die Entwicklung: ein Klick, dann einfügen
+  kopiereEine(ordner) {
+    const m = (this._meldungen || []).find(x => x._ordner === ordner);
+    if (!m) return;
+    return App.kopieren(this.alsText(m), 'Meldung kopiert – jetzt mit Strg+V einfügen');
+  },
+  _alleText(liste) {
+    return [`# Fehlermeldungen Berichtsheftkontrolle`, `Stand: ${new Date().toLocaleString('de-DE')} · ${liste.length} Meldung(en) · Programmversion ${App.VERSION}`, '',
+      ...liste.map(m => this.alsText(m) + '\n' + '─'.repeat(70) + '\n')].join('\n');
+  },
+  async kopiereAlle() {
+    const liste = await this.liste();
+    if (!liste.length) return App.toast('Keine Meldungen vorhanden', 'info');
+    return App.kopieren(this._alleText(liste), `${liste.length} Meldungen kopiert – jetzt mit Strg+V einfügen`);
+  },
   async exportAlle() {
     const liste = await this.liste();
     if (!liste.length) return App.toast('Keine Meldungen vorhanden', 'info');
-    const text = [`# Fehlermeldungen Berichtsheftkontrolle`, `Stand: ${new Date().toLocaleString('de-DE')} · ${liste.length} Meldung(en) · Programmversion ${App.VERSION}`, '',
-      ...liste.map(m => this.alsText(m) + '\n' + '─'.repeat(70) + '\n')].join('\n');
-    this._download(text, ['Fehlermeldungen', new Date().toISOString().slice(0, 10)]);
+    this._download(this._alleText(liste), ['Fehlermeldungen', new Date().toISOString().slice(0, 10)]);
     App.toast(`${liste.length} Meldungen als Textdatei gespeichert`, 'success');
   },
 };

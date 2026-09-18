@@ -46,7 +46,7 @@ const mkDir = (name) => {
 const bhk = mkDir('_bhk');
 
 const elemente = {};
-const el = (id) => elemente[id] || (elemente[id] = { id, value: '', innerHTML: '', textContent: '', title: '', style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false, toggle() {} }, appendChild() {}, remove() {}, focus() {}, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] });
+const el = (id) => elemente[id] || (elemente[id] = { id, value: '', innerHTML: '', textContent: '', title: '', disabled: false, style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false, toggle() {} }, appendChild() {}, remove() {}, focus() {}, select() {}, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] });
 let modalHtml = '';
 const downloads = [];
 const toasts = [];
@@ -58,7 +58,7 @@ const sandbox = {
     createElement: (tag) => (tag === 'a' ? { set download(v) { downloads.push(v); }, get download() { return downloads.at(-1); }, href: '', click() {} } : el('tmp_' + tag)),
     addEventListener() {}, hidden: false, activeElement: null, body: { classList: { add() {}, remove() {}, contains: () => false }, appendChild() {} },
   },
-  navigator: { userAgent: 'TestBrowser/1.0', language: 'de-DE' }, localStorage: { _s: {}, getItem(k) { return k in this._s ? this._s[k] : null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } },
+  navigator: { userAgent: 'TestBrowser/1.0', language: 'de-DE', clipboard: { async writeText(t) { sandbox.__clip = String(t); } } }, localStorage: { _s: {}, getItem(k) { return k in this._s ? this._s[k] : null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } },
   initSqlJs: async () => SQL, TableSort: { init() {}, initAll() {} }, UndoManager: { push() {}, clear() {} },
   confirm: () => false, esc: (x) => String(x ?? ''), todayStr: () => '2026-09-18', dateStr: (d) => d.toISOString().slice(0, 10),
   formatDate: (d) => d ? String(d).split('-').reverse().join('.') : '', svgIcon: () => '', Papa: {}, XLSX: {},
@@ -229,6 +229,79 @@ console.log('══ Zustellweg: Zähler, Übersicht, E-Mail ══');
   check(/^mailto:betreuung%40example\.de\?subject=/.test(ziel) && /Kaputt/.test(decodeURIComponent(ziel)), 'Per E-Mail öffnet den Mailversand an die hinterlegte Adresse');
   M.oeffnen();
   check(/Per E-Mail/.test(modalHtml), 'Melde-Fenster zeigt den E-Mail-Knopf, wenn eine Adresse hinterlegt ist');
+}
+
+console.log('══ Wiederholung begrenzt, keine Meldungsflut ══');
+{
+  const dir = await bhk.getDirectoryHandle('meldungen');
+  for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
+  M._gesehenSetzen('');
+  el('mdBeschreibung').value = 'Test Fehlermeldung';
+  el('mdSchritte').value = '';
+  el('mdDiagnose').value = 'x';
+  M._bild = { bytes: new Uint8Array([9]), typ: 'image/png', name: 'bild.png', groesse: 1 };
+  // Dauerhafter Cache-Fehler: JEDER Schreibversuch scheitert
+  let versuche = 0;
+  const echtesSchreiben = M._schreiben.bind(M);
+  M._schreiben = async () => { versuche++; const e = new Error('state had changed since it was read from disk'); e.name = 'InvalidStateError'; throw e; };
+  App._handlesNeuHolen = async () => true;
+  const ok = await M.senden();
+  check(ok === false, 'Dauerhafter Schreibfehler meldet Misserfolg statt endlos zu wiederholen');
+  check(versuche === 2, `Genau ein Wiederholungsversuch (${versuche} Schreibversuche statt endlos)`);
+  check(toasts.at(-1)[1] === 'error' && /Als Datei speichern/.test(toasts.at(-1)[0]), 'Der Nutzer bekommt den Ausweg genannt');
+  check(M._sendet === false, 'Die Sperre gegen Doppelklick wird auch im Fehlerfall gelöst');
+  // Zweiter Versuch scheitert erst, gelingt dann: SELBE Kennung, EIN Ordner
+  versuche = 0;
+  M._schreiben = async (d, name, data) => { versuche++; if (versuche === 1) { const e = new Error('state had changed since it was read from disk'); e.name = 'InvalidStateError'; throw e; } return echtesSchreiben(d, name, data); };
+  check(await M.senden() === true, 'Nach dem Erneuern gelingt der zweite Versuch');
+  check(dir.ordner.size === 1, `Aus einer Meldung wird EIN Ordner (${dir.ordner.size}) – der leere Ordner des Fehlversuchs wird aufgeräumt`);
+  const eigen = [...dir.ordner.values()].find(o => o.dateien.has('meldung.json'));
+  check(eigen.dateien.has('meldung.json') && eigen.dateien.has('meldung.txt') && eigen.dateien.has('bild.png'), 'Der wiederholte Versuch schreibt vollständig in denselben Ordner');
+  M._schreiben = echtesSchreiben;
+  // Doppelklick auf „Melden"
+  el('mdBeschreibung').value = 'Doppelklick';
+  M._bild = null;
+  const beide = await Promise.all([M.senden(), M.senden()]);
+  check(beide.filter(x => x === true).length === 1 && beide.includes(false), 'Ein zweiter Klick während des Speicherns wird abgewiesen');
+  check(/_ablegen\(m, 1\)/.test(MELD_SRC) && /versuch === 0/.test(MELD_SRC), 'Die Begrenzung steht im Quelltext');
+  // Sammel-Löschen
+  await M.pruefeNeue(true);
+  const vorher = (M._meldungen || []).length;
+  check(vorher >= 1, `Meldungen vorhanden (${vorher})`);
+  await M.alleLoeschen();
+  check(dir.ordner.size === 0 && (await M.liste()).length === 0, 'Alle Meldungen lassen sich auf einmal löschen');
+}
+
+console.log('══ Kopieren für die Weitergabe ══');
+{
+  const dir = await bhk.getDirectoryHandle('meldungen');
+  for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
+  el('mdBeschreibung').value = 'Erste Meldung';
+  el('mdDiagnose').value = 'verbindung: slow';
+  M._bild = null;
+  await M.senden();
+  el('mdBeschreibung').value = 'Zweite Meldung';
+  await M.senden();
+  check(dir.ordner.size === 2, `Zwei Meldungen in derselben Sekunde ergeben ZWEI Ordner (${dir.ordner.size})`);
+  const liste = await M.liste();
+  sandbox.__clip = '';
+  await M.kopiereEine(liste[0]._ordner);
+  check(/# Fehlermeldung/.test(sandbox.__clip) && /Was ist passiert/.test(sandbox.__clip) && /verbindung: slow/.test(sandbox.__clip), 'Eine Meldung landet vollständig in der Zwischenablage');
+  check(toasts.at(-1)[1] === 'success' && /Strg\+V/.test(toasts.at(-1)[0]), 'Rückmeldung nennt das Einfügen');
+  sandbox.__clip = '';
+  await M.kopiereAlle();
+  check(/Erste Meldung/.test(sandbox.__clip) && /Zweite Meldung/.test(sandbox.__clip) && /2 Meldung/.test(sandbox.__clip), 'Alle Meldungen auf einmal kopierbar');
+  // Rückfallweg, wenn die Zwischenablage-API fehlt (file://)
+  const merk = sandbox.navigator.clipboard;
+  sandbox.navigator.clipboard = null;
+  let kopiert = '';
+  sandbox.document.execCommand = () => { kopiert = 'fallback'; return true; };
+  check(await App.kopieren('abc') === true && kopiert === 'fallback', 'Ohne Zwischenablage-API greift der Rückfallweg über ein Textfeld');
+  sandbox.document.execCommand = () => false;
+  check(await App.kopieren('abc') === false && toasts.at(-1)[1] === 'warning', 'Scheitert auch der Rückfallweg, wird das ehrlich gemeldet');
+  sandbox.navigator.clipboard = merk;
+  check(/Melden\.kopiereAlle\(\)/.test(MELD_SRC) && /Melden\.kopiereEine\(/.test(MELD_SRC), 'Kopier-Knöpfe in Übersicht, Einzelansicht und Karte');
+  for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
 }
 
 console.log('══ Einbau ══');
