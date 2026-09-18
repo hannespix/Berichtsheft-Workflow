@@ -322,5 +322,27 @@ console.log('══ Eigene Sperre nach Schreibfehler (Safe Browsing) ══');
   store.clear();
 }
 
+console.log('══ Veralteter Datei-Zugriffspunkt (fremde Kompaktierung) ══');
+{
+  const zf = (msg) => { const e = new Error(msg); e.name = 'InvalidStateError'; return e; };
+  check(App._istZustandsFehler(zf('An operation that depends on state cached in an interface object was made but the state had changed since it was read from disk.')), 'InvalidStateError wird als Zustandsfehler erkannt');
+  check(App._istZustandsFehler({ name: 'x', message: 'the state had changed since it was read from disk' }), 'Auch ohne Fehlernamen am Wortlaut erkannt');
+  check(!App._istZustandsFehler(new Error('Failed to perform Safe Browsing check.')) && !App._istZustandsFehler(null), 'Safe-Browsing-Fehler und null sind keine Zustandsfehler');
+  // Neuholen aus dem Verzeichnis
+  let geholt = { bhk: 0, db: 0 };
+  const datei = { name: 'test.sqlite', neu: true };
+  App.dirHandle = {
+    async getDirectoryHandle(n) { if (n === '_bhk') { geholt.bhk++; return { async getDirectoryHandle() { return {}; } }; } return {}; },
+    async getFileHandle(n) { if (n !== 'test.sqlite') throw new Error('nf'); geholt.db++; return datei; },
+  };
+  App.bhkDirHandle = null; App.dbFileHandle = { name: 'test.sqlite', alt: true }; App.autoLoadedDbName = 'test.sqlite';
+  check(await App._handlesNeuHolen() === true && App.dbFileHandle === datei && geholt.bhk === 1 && geholt.db === 1, 'Zugriffspunkte für _bhk und Datenbankdatei werden frisch geholt');
+  App.dirHandle = null;
+  check(await App._handlesNeuHolen() === false, 'Ohne Ordner kein Neuholen');
+  check(/_istZustandsFehler\(err\) && await this\._handlesNeuHolen\(\)/.test(APP_SRC), 'Snapshot-Write wiederholt nach Erneuerung genau einmal');
+  check(/_istZustandsFehler\(e\) && !this\._lockHandleRetry/.test(APP_SRC), 'Sperre wird nach Erneuerung genau einmal erneut versucht');
+  check(/zwischenzeitlich von einem anderen Rechner ersetzt/.test(APP_SRC), 'Grund nennt die fremde Kompaktierung im Klartext');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
