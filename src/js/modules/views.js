@@ -1649,6 +1649,9 @@ const Views = {
       <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
       ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
 
+      <!-- Fehlermeldungen der Kolleginnen und Kollegen -->
+      ${typeof Melden !== 'undefined' ? Melden.cardHtml() : ''}
+
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✎ Textbausteine für Bemerkungen</div>
@@ -1752,7 +1755,7 @@ const Views = {
         </div>`;
       })()}
     </div>`;
-    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } }, 50);
+    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } if (typeof Melden !== 'undefined') { try { Melden.renderCard(); } catch(e) { console.warn('Melden:', e); } } }, 50);
   },
 
   // ── Vorlagen-Editor ──
@@ -2603,6 +2606,7 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
+            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code> und wird den anderen als Nachricht angekündigt; unter Einstellungen lassen sich alle Meldungen ansehen und für die Weitergabe an die Entwicklung als eine Textdatei ausgeben (Löschung nach 60 Tagen)</p>
             <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
             <p>• <strong>Wer ist online?</strong> Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Positionsanzeige:</strong></p>
