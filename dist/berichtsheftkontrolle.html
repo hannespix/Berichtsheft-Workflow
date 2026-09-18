@@ -7358,6 +7358,53 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 // ║  BERICHTSHEFTKONTROLLE – Main Application                   ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Ringspeicher für Konsolenmeldungen und abgefangene Fehler ──
+//  Muss VOR allem anderen laufen: Ohne Mitschnitt ist die Spur weg, sobald
+//  jemand das Fenster schließt. Reine Speicherhaltung, kein Netzzugriff.
+const BhkLog = {
+  MAX: 400,
+  MAX_FEHLER: 40,
+  zeilen: [],
+  fehler: [],
+  _kurz(x) {
+    if (x instanceof Error) return x.message + (x.stack ? '\n' + String(x.stack).split('\n').slice(0, 4).join('\n') : '');
+    if (typeof x === 'string') return x;
+    try { return JSON.stringify(x); } catch(e) { return String(x); }
+  },
+  notiere(stufe, args) {
+    try {
+      const text = Array.from(args).map(a => this._kurz(a)).join(' ').slice(0, 1200);
+      this.zeilen.push({ t: Date.now(), s: stufe, text });
+      if (this.zeilen.length > this.MAX) this.zeilen.splice(0, this.zeilen.length - this.MAX);
+    } catch(e) {}
+  },
+  fehlerNotieren(art, nachricht, stack, quelle) {
+    try {
+      this.fehler.push({ t: Date.now(), art, nachricht: String(nachricht || '').slice(0, 600), stack: String(stack || '').split('\n').slice(0, 8).join('\n'), quelle: String(quelle || '') });
+      if (this.fehler.length > this.MAX_FEHLER) this.fehler.splice(0, this.fehler.length - this.MAX_FEHLER);
+    } catch(e) {}
+  },
+  installieren() {
+    if (this._installiert || typeof console === 'undefined') return;
+    this._installiert = true;
+    ['log', 'warn', 'error'].forEach(stufe => {
+      const original = console[stufe] ? console[stufe].bind(console) : function() {};
+      this['_orig_' + stufe] = original;
+      console[stufe] = (...args) => { BhkLog.notiere(stufe, args); original(...args); };
+    });
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('error', (e) => {
+        BhkLog.fehlerNotieren('Programmfehler', e && (e.message || e.type), e && e.error && e.error.stack, e && e.filename ? `${e.filename}:${e.lineno}` : '');
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const r = e && e.reason;
+        BhkLog.fehlerNotieren('Unbehandelte Zusage', r && (r.message || r), r && r.stack, '');
+      });
+    }
+  },
+};
+BhkLog.installieren();
+
 const App = {
   // Versionsangabe für Handbuch/PDF-Fußzeilen – EINE Stelle statt fester Texte
   VERSION: '2.1',
@@ -9608,6 +9655,94 @@ const App = {
       <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ich: ${esc(this._praesenzName() || 'kein Prüfer gewählt')} · ${esc(this.VIEW_LABELS[this.currentView] || '')} · letztes Lebenszeichen ${this._praesenzLetzte ? esc(this._praesenzVor(this._praesenzLetzte)) : '–'}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
+  },
+
+  // ═══════════════════════════════════════════
+  //  DIAGNOSE UND SCHWÄRZUNG (für „Problem melden")
+  //  Alles, was zur Fehlersuche taugt, ohne personenbezogene Angaben.
+  //  Die Schwärzung gleicht Wörter gegen die Namen der eigenen Datenbank ab –
+  //  damit verschwinden Azubi-, Betriebs- und Ausbildernamen auch dann, wenn
+  //  sie mitten in einer Konsolenmeldung stehen.
+  // ═══════════════════════════════════════════
+  _namenSet: null,
+  _namenSetStand: 0,
+  _namenSammeln() {
+    if (this._namenSet && Date.now() - this._namenSetStand < 300000) return this._namenSet;
+    const set = new Set();
+    const add = (w) => {
+      String(w || '').split(/[^A-Za-zÄÖÜäöüß0-9-]+/).forEach(t => { if (t && t.length >= 3) set.add(t.toLowerCase()); });
+    };
+    try {
+      this.query('SELECT nachname, vorname, ibykus_id FROM schueler').forEach(r => { add(r.nachname); add(r.vorname); if (r.ibykus_id) set.add(String(r.ibykus_id).toLowerCase()); });
+      this.query('SELECT name, vorname FROM betriebe').forEach(r => { add(r.name); add(r.vorname); });
+      this.query('SELECT nachname, vorname FROM ausbilder').forEach(r => { add(r.nachname); add(r.vorname); });
+    } catch(e) { /* ohne Datenbank bleibt die Menge leer */ }
+    // Allerweltswörter zurücknehmen, sonst wird der Text unlesbar
+    ['der', 'die', 'das', 'und', 'von', 'für', 'gmbh', 'garten', 'gärtnerei', 'gaertnerei', 'baumschule', 'hof', 'schule', 'stadt', 'neu', 'alt', 'test'].forEach(w => set.delete(w));
+    this._namenSet = set;
+    this._namenSetStand = Date.now();
+    return set;
+  },
+  // Text für den Versand entschärfen: Zeichenketten aus SQL, E-Mails, Namen
+  schwaerzen(text) {
+    let t = String(text == null ? '' : text);
+    t = t.replace(/'(?:[^'\\]|\\.){1,200}'/g, "'…'");                 // Zeichenketten in SQL
+    t = t.replace(/"(nachname|vorname|name|von|anName|schueler_name|email)"\s*:\s*"[^"]*"/gi, '"$1":"…"');
+    t = t.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '…@…');                 // E-Mail-Adressen
+    const set = this._namenSammeln();
+    if (set.size) {
+      t = t.replace(/[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9-]{2,}/g, (w) => (set.has(w.toLowerCase()) ? '…' : w));
+    }
+    return t;
+  },
+  // Zustandsbild für eine Fehlermeldung (enthält KEINE personenbezogenen Daten)
+  diagnose() {
+    const z = (sql) => { try { return this.scalar(sql) || 0; } catch(e) { return 0; } };
+    const d = {
+      programm: { version: this.VERSION, zeitpunkt: new Date().toISOString() },
+      browser: { kennung: (typeof navigator !== 'undefined' && navigator.userAgent) || '', sprache: (typeof navigator !== 'undefined' && navigator.language) || '' },
+      sitzung: {
+        ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
+        zweitRegisterkarte: this._tabIsPrimary === false,
+        datenbank: this.autoLoadedDbName || '', rechner: this._getClientId ? this._getClientId().slice(-4) : '',
+      },
+      verbindung: {
+        netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
+        letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0),
+        abgleichTaktMs: this._pollIntervalMs || 0,
+      },
+      synchronisation: {
+        kompaktierungGrund: this._compactGrund || '', sperre: this._lockInfo ? `${this._lockInfo.von} (seit ${this._lockInfo.alterS} s)` : '',
+        importOffen: !!this._bulkPending, offenePufferOps: (this._dirtyOps || []).length,
+        snapshotGeneration: this._snapGen || 0, andereOnline: (this.onlineNutzer ? this.onlineNutzer().length : 0),
+      },
+      datenbank: {
+        dateiBytes: this._lastFileSize || 0,
+        azubisAktiv: z('SELECT COUNT(*) FROM schueler WHERE aktiv=1'), azubisInaktiv: z('SELECT COUNT(*) FROM schueler WHERE aktiv=0'),
+        termine: z('SELECT COUNT(*) FROM kontrolltermine'), ergebnisse: z('SELECT COUNT(*) FROM kontrollergebnisse'),
+        wochenzeilen: z('SELECT COUNT(*) FROM kw_status'), wiedervorlagenOffen: z("SELECT COUNT(*) FROM wiedervorlagen WHERE status!='erledigt'"),
+      },
+    };
+    return d;
+  },
+  diagnoseText(opts = {}) {
+    const d = this.diagnose();
+    const zeile = (k, v) => `  ${k}: ${v}`;
+    const teile = [];
+    Object.entries(d).forEach(([gruppe, werte]) => {
+      teile.push(gruppe + ':');
+      Object.entries(werte).forEach(([k, v]) => teile.push(zeile(k, v === '' ? '–' : v)));
+    });
+    if (opts.fehler !== false && typeof BhkLog !== 'undefined' && BhkLog.fehler.length) {
+      teile.push('', `abgefangene Fehler (${BhkLog.fehler.length}):`);
+      BhkLog.fehler.slice(-10).forEach(f => teile.push(`  [${new Date(f.t).toLocaleTimeString('de-DE')}] ${f.art}: ${this.schwaerzen(f.nachricht)}${f.quelle ? ' (' + f.quelle + ')' : ''}${f.stack ? '\n' + this.schwaerzen(f.stack).split('\n').map(x => '      ' + x.trim()).join('\n') : ''}`));
+    }
+    if (opts.protokoll !== false && typeof BhkLog !== 'undefined' && BhkLog.zeilen.length) {
+      const n = opts.zeilen || 150;
+      teile.push('', `Konsolenprotokoll (letzte ${Math.min(n, BhkLog.zeilen.length)} von ${BhkLog.zeilen.length}):`);
+      BhkLog.zeilen.slice(-n).forEach(z2 => teile.push(`  [${new Date(z2.t).toLocaleTimeString('de-DE')}] ${z2.s.toUpperCase()} ${this.schwaerzen(z2.text)}`));
+    }
+    return teile.join('\n');
   },
 
   // ── Offline-Betrieb (Kontrollort ohne Netz) ──
@@ -17860,6 +17995,9 @@ const Views = {
       <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
       ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
 
+      <!-- Fehlermeldungen der Kolleginnen und Kollegen -->
+      ${typeof Melden !== 'undefined' ? Melden.cardHtml() : ''}
+
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✎ Textbausteine für Bemerkungen</div>
@@ -17963,7 +18101,7 @@ const Views = {
         </div>`;
       })()}
     </div>`;
-    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } }, 50);
+    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } if (typeof Melden !== 'undefined') { try { Melden.renderCard(); } catch(e) { console.warn('Melden:', e); } } }, 50);
   },
 
   // ── Vorlagen-Editor ──
@@ -18814,6 +18952,7 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
+            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code> und wird den anderen als Nachricht angekündigt; unter Einstellungen lassen sich alle Meldungen ansehen und für die Weitergabe an die Entwicklung als eine Textdatei ausgeben (Löschung nach 60 Tagen)</p>
             <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
             <p>• <strong>Wer ist online?</strong> Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Positionsanzeige:</strong></p>
@@ -29370,6 +29509,7 @@ const GlobalSearch = {
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px 16px;font-size:13px">
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
         <strong style="color:var(--clr-forest)">Ctrl+M</strong><span>Nachrichten an Kolleg/innen</span>
+        <strong style="color:var(--clr-forest)">F2</strong><span>Problem melden</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>
         <strong style="color:var(--clr-forest)">Ctrl+Z / Y</strong><span>Undo / Redo</span>
         <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Schüler</span>
@@ -29392,6 +29532,12 @@ const GlobalSearch = {
 // ── keyboard-shortcuts.js ──
 
 document.addEventListener('keydown', (e) => {
+  // F2 = Problem melden (Zustandsbild + Protokoll werden mitgesammelt)
+  if (e.key === 'F2' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    if (typeof Melden !== 'undefined') Melden.oeffnen();
+    return;
+  }
   // Ctrl+M = Nachrichten an die Kolleginnen und Kollegen
   if ((e.ctrlKey || e.metaKey) && e.key === 'm' && !e.shiftKey) {
     e.preventDefault();
@@ -34982,6 +35128,282 @@ const Chat = {
     if (!ok) t.value = text; // Text nicht verlieren
     this._verlaufRendern();
     t.focus();
+  },
+};
+
+// ── melden.js ──
+// ══════════════════════════════════════════════════════════════
+//  PROBLEM MELDEN
+//  Eine Meldung besteht aus: Beschreibung, automatisch gesammeltem
+//  Zustandsbild, Konsolenprotokoll und optional einem Bildschirmfoto.
+//
+//  Ablage: _bhk/meldungen/<zeit>_<rechner>/meldung.json (+ bild.png).
+//  NICHT in der Chatdatei – Chrome kopiert beim Anhängen die ganze Datei,
+//  ein Bild darin würde jede weitere Nachricht über die Leitung schleppen.
+//  NICHT in der Datenbank – sie soll nicht wieder wachsen.
+//
+//  Datenschutz: Alles Übertragene läuft durch App.schwaerzen() und wird
+//  vor dem Absenden in einer bearbeitbaren Vorschau gezeigt. Automatische
+//  Löschung nach MELDUNG_TAGE.
+// ══════════════════════════════════════════════════════════════
+
+const Melden = {
+  ORDNER: 'meldungen',
+  MELDUNG_TAGE: 60,
+  BILD_MAX_BYTES: 4 * 1024 * 1024,
+  PROTOKOLL_ZEILEN: 150,
+  _bild: null,        // { bytes: Uint8Array, typ, name, vorschau }
+  _meldungen: [],
+
+  // ── Dialog ──
+  oeffnen(vorbelegung) {
+    this._bild = null;
+    const text = App.diagnoseText({ zeilen: this.PROTOKOLL_ZEILEN });
+    App.openModal('⚑ Problem melden', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Die Meldung landet als Datei im Ordner <code>_bhk/${esc(this.ORDNER)}/</code> und wird den anderen als Nachricht angekündigt.
+        <strong>Bitte prüfen:</strong> Namen von Azubis, Betrieben und Ausbildern sind unten automatisch durch <code>…</code> ersetzt. Der Text lässt sich vor dem Absenden ändern oder kürzen.
+      </div>
+      <div class="form-group"><label>Was ist passiert? *</label>
+        <textarea class="form-control" id="mdBeschreibung" rows="3" maxlength="2000" placeholder="z.B. Beim Speichern der Kontrolle kam eine rote Meldung und die Eingabe war weg.">${esc(vorbelegung || '')}</textarea></div>
+      <div class="form-group"><label>Was hast du davor gemacht? (Schritte)</label>
+        <textarea class="form-control" id="mdSchritte" rows="2" maxlength="1000" placeholder="z.B. Termin geöffnet, Azubi 5 angeklickt, KW 12 auf i.O. gesetzt"></textarea></div>
+      <div class="form-group">
+        <label>Bildschirmfoto (freiwillig)</label>
+        <div id="mdBildFeld" tabindex="0" style="border:2px dashed var(--clr-sand);border-radius:var(--radius);padding:12px;text-align:center;font-size:12px;color:var(--clr-text-light);cursor:pointer">
+          Hierher klicken und mit <strong>Strg+V</strong> einfügen (vorher <strong>Druck</strong> drücken), Bild hierher ziehen oder <label style="color:var(--clr-forest);text-decoration:underline;cursor:pointer">Datei wählen<input type="file" accept="image/*" style="display:none" onchange="Melden._bildAusDatei(this.files[0])"></label>
+        </div>
+        <div id="mdBildVorschau" style="margin-top:6px"></div>
+      </div>
+      <details style="margin-top:4px" open>
+        <summary style="cursor:pointer;font-size:12px">Mitgesendetes Zustandsbild und Protokoll (bearbeitbar)</summary>
+        <textarea class="form-control" id="mdDiagnose" rows="10" style="font-size:11px;font-family:monospace;margin-top:4px">${esc(text)}</textarea>
+      </details>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+       <button class="btn btn-secondary" onclick="Melden.alsDateiSpeichern()" title="Ohne Netzlaufwerk: Meldung als Textdatei herunterladen">Als Datei speichern</button>
+       <button class="btn btn-primary" onclick="Melden.senden()">Melden</button>`);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    setTimeout(() => this._bildFeldVerdrahten(), 60);
+  },
+  _bildFeldVerdrahten() {
+    const feld = document.getElementById('mdBildFeld');
+    if (!feld) return;
+    feld.onclick = () => feld.focus();
+    feld.onpaste = (e) => {
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (const it of items) {
+        if (it.type && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this._bildAusDatei(f); return; } }
+      }
+    };
+    feld.ondragover = (e) => { e.preventDefault(); feld.style.borderColor = 'var(--clr-forest)'; };
+    feld.ondragleave = () => { feld.style.borderColor = 'var(--clr-sand)'; };
+    feld.ondrop = (e) => { e.preventDefault(); feld.style.borderColor = 'var(--clr-sand)'; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this._bildAusDatei(f); };
+    // Einfügen ohne vorheriges Klicken ins Feld
+    document.getElementById('mdBeschreibung')?.addEventListener('paste', (e) => {
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (const it of items) if (it.type && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this._bildAusDatei(f); return; } }
+    });
+  },
+  async _bildAusDatei(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || '')) return App.toast('Nur Bilddateien', 'warning');
+    if (file.size > this.BILD_MAX_BYTES) return App.toast(`Bild zu groß (max. ${Math.round(this.BILD_MAX_BYTES / 1024 / 1024)} MB)`, 'warning');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const endung = (file.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').slice(0, 4);
+    this._bild = { bytes, typ: file.type, name: 'bild.' + endung, groesse: file.size };
+    const box = document.getElementById('mdBildVorschau');
+    if (box) {
+      const url = URL.createObjectURL(new Blob([bytes], { type: file.type }));
+      box.innerHTML = `<div style="display:flex;gap:8px;align-items:center">
+        <img src="${url}" style="max-height:120px;max-width:60%;border:1px solid var(--clr-sand);border-radius:6px">
+        <div style="font-size:11px;color:var(--clr-text-light)">${esc(this._bild.name)} · ${Math.round(file.size / 1024)} KB<br>
+        <a href="#" onclick="Melden._bild=null;document.getElementById('mdBildVorschau').innerHTML='';return false" style="color:var(--clr-red)">entfernen</a></div></div>`;
+    }
+  },
+
+  // ── Meldung zusammenstellen ──
+  _formular() {
+    const w = (id) => (document.getElementById(id)?.value || '').trim();
+    return { beschreibung: w('mdBeschreibung'), schritte: w('mdSchritte'), diagnose: document.getElementById('mdDiagnose')?.value || '' };
+  },
+  _id() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + (App._getClientId ? App._getClientId().slice(-4) : 'xxxx'); },
+  bauen(f) {
+    return {
+      id: this._id(), version: App.VERSION, zeitpunkt: new Date().toISOString(),
+      von: (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '',
+      rechner: App._getClientId ? App._getClientId() : '',
+      beschreibung: App.schwaerzen(f.beschreibung), schritte: App.schwaerzen(f.schritte),
+      diagnose: f.diagnose, bild: this._bild ? this._bild.name : '',
+    };
+  },
+  alsText(m) {
+    return [
+      `# Fehlermeldung ${m.id}`, '',
+      `Programmversion: ${m.version}`,
+      `Gemeldet: ${new Date(m.zeitpunkt).toLocaleString('de-DE')}${m.von ? ' von ' + m.von : ''}`,
+      m.bild ? `Bildschirmfoto: ${m.bild} (liegt neben dieser Datei)` : 'Bildschirmfoto: keines', '',
+      '## Was ist passiert?', m.beschreibung || '(nichts angegeben)', '',
+      '## Schritte davor', m.schritte || '(nichts angegeben)', '',
+      '## Zustand und Protokoll', m.diagnose || '(nichts)', '',
+    ].join('\n');
+  },
+
+  // ── Senden ──
+  async _ordner(create = true) {
+    if (!App.bhkDirHandle) throw new Error('Kein Datenbank-Ordner verbunden');
+    return await App.bhkDirHandle.getDirectoryHandle(this.ORDNER, { create });
+  },
+  async _schreiben(dir, name, data) {
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(data);
+    await w.close();
+  },
+  async senden() {
+    const f = this._formular();
+    if (!f.beschreibung) return App.toast('Bitte kurz beschreiben, was passiert ist', 'warning');
+    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) {
+      App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
+      return this.alsDateiSpeichern();
+    }
+    const m = this.bauen(f);
+    try {
+      const dir = await this._ordner(true);
+      const eigen = await dir.getDirectoryHandle(m.id, { create: true });
+      await this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1));
+      await this._schreiben(eigen, 'meldung.txt', this.alsText(m));
+      if (this._bild) await this._schreiben(eigen, this._bild.name, this._bild.bytes);
+    } catch(e) {
+      if (App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) return this.senden();
+      console.warn('[Melden]', e);
+      App.toast('Meldung konnte nicht abgelegt werden: ' + e.message + ' – bitte „Als Datei speichern" nutzen', 'error');
+      return false;
+    }
+    App.closeModal();
+    App.toast('Danke, die Meldung ist abgelegt', 'success');
+    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) await Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
+    this._bild = null;
+    return true;
+  },
+  alsDateiSpeichern() {
+    const m = this.bauen(this._formular());
+    const blob = new Blob([this.alsText(m)], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = App.safeFilename(['Fehlermeldung', m.id], 'txt');
+    a.click();
+    if (this._bild) {
+      const b = document.createElement('a');
+      b.href = URL.createObjectURL(new Blob([this._bild.bytes], { type: this._bild.typ }));
+      b.download = App.safeFilename(['Fehlermeldung', m.id], this._bild.name.split('.').pop());
+      b.click();
+    }
+    App.toast('Meldung als Datei gespeichert', 'success');
+    return true;
+  },
+
+  // ── Übersicht (Einstellungen) ──
+  async liste() {
+    const out = [];
+    let dir;
+    try { dir = await this._ordner(false); } catch(e) { return out; }
+    const grenze = Date.now() - this.MELDUNG_TAGE * 86400000;
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind !== 'directory') continue;
+      try {
+        const fh = await h.getFileHandle('meldung.json', { create: false });
+        const f = await fh.getFile();
+        if (f.lastModified < grenze) { try { await dir.removeEntry(name, { recursive: true }); } catch(_) {} continue; }
+        const m = JSON.parse(await f.text());
+        m._ordner = name;
+        out.push(m);
+      } catch(e) { /* unvollständiger Ordner */ }
+    }
+    this._meldungen = out.sort((a, b) => String(b.zeitpunkt).localeCompare(String(a.zeitpunkt)));
+    return this._meldungen;
+  },
+  cardHtml() {
+    return `<div class="card" style="margin-top:16px">
+      <div class="card-header">⚑ Fehlermeldungen der Kolleginnen und Kollegen</div>
+      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Meldungen aus <code>_bhk/${esc(this.ORDNER)}/</code>, inklusive Zustandsbild und Konsolenprotokoll. Namen sind beim Melden automatisch geschwärzt.
+        „Alle als Textdatei" fasst sie für die Weitergabe an die Entwicklung zusammen. Automatische Löschung nach ${this.MELDUNG_TAGE} Tagen.
+      </p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn btn-secondary btn-sm" onclick="Melden.oeffnen()">⚑ Problem melden (F2)</button>
+        <button class="btn btn-secondary btn-sm" onclick="Melden.exportAlle()">Alle als Textdatei</button>
+        <button class="btn btn-secondary btn-sm" onclick="Melden.renderCard()">Aktualisieren</button>
+      </div>
+      <div id="meldungenBox"><div style="font-size:12px;color:var(--clr-text-light)">Meldungen werden gelesen…</div></div>
+    </div>`;
+  },
+  async renderCard() {
+    const box = document.getElementById('meldungenBox');
+    if (!box) return;
+    if (!App.bhkDirHandle) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Nur bei verbundenem Datenbank-Ordner verfügbar.</div>'; return; }
+    const liste = await this.liste();
+    if (!document.getElementById('meldungenBox')) return;
+    box.innerHTML = liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
+      ${liste.map(m => `<tr>
+        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
+        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
+        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
+        <td>${m.bild ? '✓' : '–'}</td>
+        <td class="btn-group" style="white-space:nowrap">
+          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
+          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
+        </td></tr>`).join('')}
+    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
+  },
+  async anzeigen(ordner) {
+    const m = (this._meldungen || []).find(x => x._ordner === ordner);
+    if (!m) return;
+    let bildUrl = '';
+    if (m.bild) {
+      try {
+        const dir = await (await this._ordner(false)).getDirectoryHandle(ordner, { create: false });
+        const f = await (await dir.getFileHandle(m.bild, { create: false })).getFile();
+        bildUrl = URL.createObjectURL(f);
+      } catch(e) {}
+    }
+    App.openModal(`⚑ Meldung ${esc(m.id)}`, `
+      <div style="font-size:12px;color:var(--clr-text-light)">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}${m.von ? ' · ' + esc(m.von) : ''} · Version ${esc(m.version || '')}</div>
+      <div style="margin-top:8px"><strong>Was ist passiert?</strong><div style="white-space:pre-wrap;font-size:13px">${esc(m.beschreibung || '')}</div></div>
+      ${m.schritte ? `<div style="margin-top:8px"><strong>Schritte davor</strong><div style="white-space:pre-wrap;font-size:13px">${esc(m.schritte)}</div></div>` : ''}
+      ${bildUrl ? `<div style="margin-top:8px"><a href="${bildUrl}" target="_blank"><img src="${bildUrl}" style="max-width:100%;border:1px solid var(--clr-sand);border-radius:6px"></a></div>` : ''}
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px">Zustand und Protokoll</summary>
+        <pre style="font-size:11px;white-space:pre-wrap;max-height:40vh;overflow:auto;background:var(--clr-warm);padding:8px;border-radius:6px">${esc(m.diagnose || '')}</pre></details>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-primary" onclick="Melden.exportEine('${esc(ordner)}')">Als Textdatei</button>`);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+  },
+  async loeschen(ordner) {
+    if (!(await App.confirm('Diese Meldung endgültig löschen?', { titel: 'Meldung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
+    try { await (await this._ordner(false)).removeEntry(ordner, { recursive: true }); } catch(e) { return App.toast('Löschen fehlgeschlagen: ' + e.message, 'error'); }
+    App.closeModal();
+    App.toast('Meldung gelöscht', 'success');
+    this.renderCard();
+  },
+  _download(text, teile) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = App.safeFilename(teile, 'txt');
+    a.click();
+  },
+  exportEine(ordner) {
+    const m = (this._meldungen || []).find(x => x._ordner === ordner);
+    if (!m) return;
+    this._download(this.alsText(m), ['Fehlermeldung', m.id]);
+    App.toast('Meldung als Textdatei gespeichert', 'success');
+  },
+  async exportAlle() {
+    const liste = await this.liste();
+    if (!liste.length) return App.toast('Keine Meldungen vorhanden', 'info');
+    const text = [`# Fehlermeldungen Berichtsheftkontrolle`, `Stand: ${new Date().toLocaleString('de-DE')} · ${liste.length} Meldung(en) · Programmversion ${App.VERSION}`, '',
+      ...liste.map(m => this.alsText(m) + '\n' + '─'.repeat(70) + '\n')].join('\n');
+    this._download(text, ['Fehlermeldungen', new Date().toISOString().slice(0, 10)]);
+    App.toast(`${liste.length} Meldungen als Textdatei gespeichert`, 'success');
   },
 };
 

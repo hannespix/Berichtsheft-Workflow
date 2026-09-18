@@ -2,6 +2,53 @@
 // ║  BERICHTSHEFTKONTROLLE – Main Application                   ║
 // ╚══════════════════════════════════════════════════════════════╝
 
+// ── Ringspeicher für Konsolenmeldungen und abgefangene Fehler ──
+//  Muss VOR allem anderen laufen: Ohne Mitschnitt ist die Spur weg, sobald
+//  jemand das Fenster schließt. Reine Speicherhaltung, kein Netzzugriff.
+const BhkLog = {
+  MAX: 400,
+  MAX_FEHLER: 40,
+  zeilen: [],
+  fehler: [],
+  _kurz(x) {
+    if (x instanceof Error) return x.message + (x.stack ? '\n' + String(x.stack).split('\n').slice(0, 4).join('\n') : '');
+    if (typeof x === 'string') return x;
+    try { return JSON.stringify(x); } catch(e) { return String(x); }
+  },
+  notiere(stufe, args) {
+    try {
+      const text = Array.from(args).map(a => this._kurz(a)).join(' ').slice(0, 1200);
+      this.zeilen.push({ t: Date.now(), s: stufe, text });
+      if (this.zeilen.length > this.MAX) this.zeilen.splice(0, this.zeilen.length - this.MAX);
+    } catch(e) {}
+  },
+  fehlerNotieren(art, nachricht, stack, quelle) {
+    try {
+      this.fehler.push({ t: Date.now(), art, nachricht: String(nachricht || '').slice(0, 600), stack: String(stack || '').split('\n').slice(0, 8).join('\n'), quelle: String(quelle || '') });
+      if (this.fehler.length > this.MAX_FEHLER) this.fehler.splice(0, this.fehler.length - this.MAX_FEHLER);
+    } catch(e) {}
+  },
+  installieren() {
+    if (this._installiert || typeof console === 'undefined') return;
+    this._installiert = true;
+    ['log', 'warn', 'error'].forEach(stufe => {
+      const original = console[stufe] ? console[stufe].bind(console) : function() {};
+      this['_orig_' + stufe] = original;
+      console[stufe] = (...args) => { BhkLog.notiere(stufe, args); original(...args); };
+    });
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('error', (e) => {
+        BhkLog.fehlerNotieren('Programmfehler', e && (e.message || e.type), e && e.error && e.error.stack, e && e.filename ? `${e.filename}:${e.lineno}` : '');
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const r = e && e.reason;
+        BhkLog.fehlerNotieren('Unbehandelte Zusage', r && (r.message || r), r && r.stack, '');
+      });
+    }
+  },
+};
+BhkLog.installieren();
+
 const App = {
   // Versionsangabe für Handbuch/PDF-Fußzeilen – EINE Stelle statt fester Texte
   VERSION: '2.1',
@@ -2252,6 +2299,94 @@ const App = {
       <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ich: ${esc(this._praesenzName() || 'kein Prüfer gewählt')} · ${esc(this.VIEW_LABELS[this.currentView] || '')} · letztes Lebenszeichen ${this._praesenzLetzte ? esc(this._praesenzVor(this._praesenzLetzte)) : '–'}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
+  },
+
+  // ═══════════════════════════════════════════
+  //  DIAGNOSE UND SCHWÄRZUNG (für „Problem melden")
+  //  Alles, was zur Fehlersuche taugt, ohne personenbezogene Angaben.
+  //  Die Schwärzung gleicht Wörter gegen die Namen der eigenen Datenbank ab –
+  //  damit verschwinden Azubi-, Betriebs- und Ausbildernamen auch dann, wenn
+  //  sie mitten in einer Konsolenmeldung stehen.
+  // ═══════════════════════════════════════════
+  _namenSet: null,
+  _namenSetStand: 0,
+  _namenSammeln() {
+    if (this._namenSet && Date.now() - this._namenSetStand < 300000) return this._namenSet;
+    const set = new Set();
+    const add = (w) => {
+      String(w || '').split(/[^A-Za-zÄÖÜäöüß0-9-]+/).forEach(t => { if (t && t.length >= 3) set.add(t.toLowerCase()); });
+    };
+    try {
+      this.query('SELECT nachname, vorname, ibykus_id FROM schueler').forEach(r => { add(r.nachname); add(r.vorname); if (r.ibykus_id) set.add(String(r.ibykus_id).toLowerCase()); });
+      this.query('SELECT name, vorname FROM betriebe').forEach(r => { add(r.name); add(r.vorname); });
+      this.query('SELECT nachname, vorname FROM ausbilder').forEach(r => { add(r.nachname); add(r.vorname); });
+    } catch(e) { /* ohne Datenbank bleibt die Menge leer */ }
+    // Allerweltswörter zurücknehmen, sonst wird der Text unlesbar
+    ['der', 'die', 'das', 'und', 'von', 'für', 'gmbh', 'garten', 'gärtnerei', 'gaertnerei', 'baumschule', 'hof', 'schule', 'stadt', 'neu', 'alt', 'test'].forEach(w => set.delete(w));
+    this._namenSet = set;
+    this._namenSetStand = Date.now();
+    return set;
+  },
+  // Text für den Versand entschärfen: Zeichenketten aus SQL, E-Mails, Namen
+  schwaerzen(text) {
+    let t = String(text == null ? '' : text);
+    t = t.replace(/'(?:[^'\\]|\\.){1,200}'/g, "'…'");                 // Zeichenketten in SQL
+    t = t.replace(/"(nachname|vorname|name|von|anName|schueler_name|email)"\s*:\s*"[^"]*"/gi, '"$1":"…"');
+    t = t.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '…@…');                 // E-Mail-Adressen
+    const set = this._namenSammeln();
+    if (set.size) {
+      t = t.replace(/[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9-]{2,}/g, (w) => (set.has(w.toLowerCase()) ? '…' : w));
+    }
+    return t;
+  },
+  // Zustandsbild für eine Fehlermeldung (enthält KEINE personenbezogenen Daten)
+  diagnose() {
+    const z = (sql) => { try { return this.scalar(sql) || 0; } catch(e) { return 0; } };
+    const d = {
+      programm: { version: this.VERSION, zeitpunkt: new Date().toISOString() },
+      browser: { kennung: (typeof navigator !== 'undefined' && navigator.userAgent) || '', sprache: (typeof navigator !== 'undefined' && navigator.language) || '' },
+      sitzung: {
+        ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
+        zweitRegisterkarte: this._tabIsPrimary === false,
+        datenbank: this.autoLoadedDbName || '', rechner: this._getClientId ? this._getClientId().slice(-4) : '',
+      },
+      verbindung: {
+        netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
+        letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0),
+        abgleichTaktMs: this._pollIntervalMs || 0,
+      },
+      synchronisation: {
+        kompaktierungGrund: this._compactGrund || '', sperre: this._lockInfo ? `${this._lockInfo.von} (seit ${this._lockInfo.alterS} s)` : '',
+        importOffen: !!this._bulkPending, offenePufferOps: (this._dirtyOps || []).length,
+        snapshotGeneration: this._snapGen || 0, andereOnline: (this.onlineNutzer ? this.onlineNutzer().length : 0),
+      },
+      datenbank: {
+        dateiBytes: this._lastFileSize || 0,
+        azubisAktiv: z('SELECT COUNT(*) FROM schueler WHERE aktiv=1'), azubisInaktiv: z('SELECT COUNT(*) FROM schueler WHERE aktiv=0'),
+        termine: z('SELECT COUNT(*) FROM kontrolltermine'), ergebnisse: z('SELECT COUNT(*) FROM kontrollergebnisse'),
+        wochenzeilen: z('SELECT COUNT(*) FROM kw_status'), wiedervorlagenOffen: z("SELECT COUNT(*) FROM wiedervorlagen WHERE status!='erledigt'"),
+      },
+    };
+    return d;
+  },
+  diagnoseText(opts = {}) {
+    const d = this.diagnose();
+    const zeile = (k, v) => `  ${k}: ${v}`;
+    const teile = [];
+    Object.entries(d).forEach(([gruppe, werte]) => {
+      teile.push(gruppe + ':');
+      Object.entries(werte).forEach(([k, v]) => teile.push(zeile(k, v === '' ? '–' : v)));
+    });
+    if (opts.fehler !== false && typeof BhkLog !== 'undefined' && BhkLog.fehler.length) {
+      teile.push('', `abgefangene Fehler (${BhkLog.fehler.length}):`);
+      BhkLog.fehler.slice(-10).forEach(f => teile.push(`  [${new Date(f.t).toLocaleTimeString('de-DE')}] ${f.art}: ${this.schwaerzen(f.nachricht)}${f.quelle ? ' (' + f.quelle + ')' : ''}${f.stack ? '\n' + this.schwaerzen(f.stack).split('\n').map(x => '      ' + x.trim()).join('\n') : ''}`));
+    }
+    if (opts.protokoll !== false && typeof BhkLog !== 'undefined' && BhkLog.zeilen.length) {
+      const n = opts.zeilen || 150;
+      teile.push('', `Konsolenprotokoll (letzte ${Math.min(n, BhkLog.zeilen.length)} von ${BhkLog.zeilen.length}):`);
+      BhkLog.zeilen.slice(-n).forEach(z2 => teile.push(`  [${new Date(z2.t).toLocaleTimeString('de-DE')}] ${z2.s.toUpperCase()} ${this.schwaerzen(z2.text)}`));
+    }
+    return teile.join('\n');
   },
 
   // ── Offline-Betrieb (Kontrollort ohne Netz) ──
