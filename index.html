@@ -137,7 +137,8 @@
       <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <span id="onlineNutzer" style="display:none;font-size:10px;white-space:nowrap;cursor:pointer" onclick="App.onlineNutzerDialog()" title="Wer arbeitet gerade in dieser Datenbank?"></span>
-      <span id="chatBadge" style="display:none;font-size:12px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen">✉</span>
+      <span id="chatBadge" style="font-size:11px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2)">✉ Nachrichten</span>
+      <span id="meldungBadge" style="display:none;font-size:11px;white-space:nowrap;cursor:pointer;color:var(--clr-amber)" onclick="Melden.uebersicht()" title="Neue Fehlermeldungen"></span>
       <button class="btn btn-sm btn-secondary" style="font-size:10px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">Prüfer</option>

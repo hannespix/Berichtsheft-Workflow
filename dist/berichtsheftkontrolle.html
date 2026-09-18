@@ -7187,7 +7187,8 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
       <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <span id="onlineNutzer" style="display:none;font-size:10px;white-space:nowrap;cursor:pointer" onclick="App.onlineNutzerDialog()" title="Wer arbeitet gerade in dieser Datenbank?"></span>
-      <span id="chatBadge" style="display:none;font-size:12px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen">✉</span>
+      <span id="chatBadge" style="font-size:11px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2)">✉ Nachrichten</span>
+      <span id="meldungBadge" style="display:none;font-size:11px;white-space:nowrap;cursor:pointer;color:var(--clr-amber)" onclick="Melden.uebersicht()" title="Neue Fehlermeldungen"></span>
       <button class="btn btn-sm btn-secondary" style="font-size:10px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">Prüfer</option>
@@ -10082,6 +10083,8 @@ const App = {
           try { await this._sperreAufraeumen(); } catch(e) {}
           // Nachrichten der Kolleginnen und Kollegen abholen
           try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
+          // Neue Fehlermeldungen zählen (höchstens alle 5 Minuten)
+          try { if (typeof Melden !== 'undefined') await Melden.pruefeNeue(false); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);
@@ -17927,6 +17930,10 @@ const Views = {
         <div class="form-group"><label>RP-Adresse (Post, für Serienbriefe)</label>
           <textarea class="form-control" id="setRPPost" rows="2" style="font-size:12px">${esc(rpAdressePost)}</textarea>
         </div>
+        <div class="form-group"><label>E-Mail für Fehlermeldungen (Entwicklung/Betreuung)</label>
+          <input class="form-control" id="setMeldungEmail" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || '')}" placeholder="betreuung@example.de">
+          <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Ist hier eine Adresse hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Der Text geht dann direkt an diese Adresse; ein Bildschirmfoto muss von Hand angehängt werden.</div>
+        </div>
         <div class="form-group"><label>Funktions-E-Mail Berichtsheftkontrolle (Absender/Kopie bei allen E-Mails)</label>
           <input class="form-control" id="setRPEmail" value="${esc(rpEmail)}" placeholder="berichtsheft.GB@rpf.bwl.de">
           <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Wird bei Sammel-E-Mails an Betriebe als Empfänger („An") eingesetzt und in Vorlagen als {rp_email}. Prüfer-E-Mails werden unter Stammdaten → Prüfer gepflegt.</div>
@@ -18262,6 +18269,7 @@ const Views = {
       ['rp_adresse_persoenlich', document.getElementById('setRPPers').value.trim()],
       ['rp_adresse_post', document.getElementById('setRPPost').value.trim()],
       ['rp_email', document.getElementById('setRPEmail').value.trim()],
+      ['meldung_email', (document.getElementById('setMeldungEmail')?.value || '').trim()],
     ];
     sets.forEach(([k,v]) => {
       App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]);
@@ -18952,8 +18960,8 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
-            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code> und wird den anderen als Nachricht angekündigt; unter Einstellungen lassen sich alle Meldungen ansehen und für die Weitergabe an die Entwicklung als eine Textdatei ausgeben (Löschung nach 60 Tagen)</p>
-            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
+            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code>. <strong>Drei Wege zur Betreuung:</strong> die Kopfzeile zeigt neue Meldungen als <code>⚑</code> mit Zähler (Klick öffnet die Übersicht), der Chat kündigt sie sofort an, und unter Einstellungen lassen sich alle Meldungen ansehen und als eine Textdatei für die Weitergabe ausgeben. Ist unter Einstellungen eine E-Mail für Fehlermeldungen hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Ohne Netzlaufwerk wird die Meldung heruntergeladen. Löschung nach 60 Tagen</p>
+            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Das Symbol <code>✉ Nachrichten</code> in der Kopfzeile ist immer sichtbar und öffnet das Fenster, dort steht auch der Link zum Melden eines Problems. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
             <p>• <strong>Wer ist online?</strong> Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
@@ -35050,10 +35058,14 @@ const Chat = {
     const el = document.getElementById('chatBadge');
     if (!el) return;
     const n = this.ungelesen();
-    el.style.display = this.aktiv() || this._nachrichten.length ? '' : 'none';
-    el.innerHTML = n ? `✉ <strong>${n}</strong>` : '✉';
-    el.title = n ? `${n} ungelesene Nachricht(en)` : 'Nachrichten an Kolleginnen und Kollegen (gemeinsamer Ordner, nicht vertraulich)';
+    // Immer sichtbar: Nicht jeder kennt die Tastenkürzel, und das Symbol ist
+    // der einzige Weg zu Nachrichten und zum Melden eines Problems.
+    el.style.display = '';
+    el.innerHTML = n ? `✉ <strong>${n}</strong> Nachrichten` : '✉ Nachrichten';
+    el.title = (n ? `${n} ungelesene Nachricht(en). ` : '') + 'Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2). Gemeinsamer Ordner, nicht vertraulich.'
+      + (this.aktiv() ? '' : ' – ' + this._grund());
     el.style.color = n ? 'var(--clr-amber)' : '';
+    el.style.opacity = this.aktiv() ? '' : '0.55';
   },
   _nameZuClient(cid) {
     const a = (App._praesenzAndere || []).find(x => x.client === cid);
@@ -35072,6 +35084,9 @@ const Chat = {
         Kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben. Zustellung im Abgleich-Takt (wenige Sekunden, bei langsamem Netz bis zu einer halben Minute, im Feldmodus länger); im Offline-Modus ruht der Chat.
         <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar. Keine Namen von Azubis oder andere personenbezogene Angaben hineinschreiben. Automatische Löschung nach ${this.AUFBEWAHRUNG_TAGE} Tagen.
       </div>
+      <div style="font-size:12px;margin-bottom:6px">Etwas funktioniert nicht?
+        <a href="#" onclick="Chat.schliessen();Melden.oeffnen();return false" style="color:var(--clr-forest);font-weight:600">⚑ Problem melden</a>
+        <span style="color:var(--clr-text-light)">– schickt Zustandsbild, Protokoll und auf Wunsch ein Bildschirmfoto an die Entwicklung (Taste F2)</span></div>
       <div id="chatVerlauf" style="height:40vh;overflow:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px;background:var(--clr-warm)"></div>
       <div style="display:flex;gap:6px;align-items:flex-end;margin-top:8px">
         <div style="flex:0 0 auto">
@@ -35090,7 +35105,8 @@ const Chat = {
       </div>
       ${this._grund() ? `<div style="font-size:12px;color:var(--clr-red);margin-top:6px">${esc(this._grund())}</div>` : ''}`,
       `<button class="btn btn-secondary" onclick="Chat.schliessen()">Schließen</button>
-       <button class="btn btn-secondary" onclick="Chat.abholen().then(()=>Chat._verlaufRendern())">Jetzt abrufen</button>`);
+       <button class="btn btn-secondary" onclick="Chat.abholen().then(()=>Chat._verlaufRendern())">Jetzt abrufen</button>
+       <button class="btn btn-secondary" onclick="Chat.schliessen();Melden.oeffnen()" title="Fehler mit Zustandsbild, Protokoll und Bildschirmfoto melden (F2)">⚑ Problem melden</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     this._offen = true;
     this._verlaufRendern();
@@ -35152,8 +35168,75 @@ const Melden = {
   MELDUNG_TAGE: 60,
   BILD_MAX_BYTES: 4 * 1024 * 1024,
   PROTOKOLL_ZEILEN: 150,
+  PRUEF_TAKT_MS: 300000,   // höchstens alle 5 Minuten im Ordner nachsehen
   _bild: null,        // { bytes: Uint8Array, typ, name, vorschau }
   _meldungen: [],
+  _letztePruefung: 0,
+
+  // ── Zustellweg: Zähler in der Kopfzeile ──
+  _uKey() { return 'meldungen_gesehen_' + (App._dbSlug ? App._dbSlug() : 'db'); },
+  _gesehen() { return App.uGet ? (App.uGet(this._uKey(), '') || '') : ''; },
+  _gesehenSetzen(stand) { if (App.uSet) App.uSet(this._uKey(), stand || ''); },
+  neue() {
+    const stand = this._gesehen();
+    return (this._meldungen || []).filter(m => String(m.zeitpunkt || '') > stand);
+  },
+  _badge() {
+    const el = document.getElementById('meldungBadge');
+    if (!el) return;
+    const n = this.neue().length;
+    el.style.display = n ? '' : 'none';
+    el.innerHTML = `⚑ <strong>${n}</strong> Meldung${n === 1 ? '' : 'en'}`;
+    el.title = `${n} neue Fehlermeldung(en) – klicken zum Ansehen`;
+  },
+  // Hängt am Abgleich-Takt, sieht aber höchstens alle PRUEF_TAKT_MS nach
+  async pruefeNeue(erzwingen) {
+    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) return 0;
+    if (!erzwingen && Date.now() - this._letztePruefung < this.PRUEF_TAKT_MS) return 0;
+    this._letztePruefung = Date.now();
+    try { await this.liste(); } catch(e) { return 0; }
+    this._badge();
+    return this.neue().length;
+  },
+  async uebersicht() {
+    await this.pruefeNeue(true);
+    const liste = this._meldungen || [];
+    App.openModal('⚑ Fehlermeldungen', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Meldungen aus <code>_bhk/${esc(this.ORDNER)}/</code>. „Alle als Textdatei" fasst sie für die Weitergabe an die Entwicklung zusammen; Bildschirmfotos liegen als eigene Dateien in den jeweiligen Ordnern.
+      </div>
+      ${this._tabelle(liste)}`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-secondary" onclick="Melden.oeffnen()">⚑ Selbst melden</button>
+       <button class="btn btn-primary" onclick="Melden.exportAlle()">Alle als Textdatei</button>`);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
+    this._badge();
+  },
+  _tabelle(liste) {
+    const stand = this._gesehen();
+    return liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
+      ${liste.map(m => `<tr${String(m.zeitpunkt || '') > stand ? ' style="font-weight:600"' : ''}>
+        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
+        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
+        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
+        <td>${m.bild ? '✓' : '–'}</td>
+        <td class="btn-group" style="white-space:nowrap">
+          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
+          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
+        </td></tr>`).join('')}
+    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
+  },
+  // Weg 3: per E-Mail an die hinterlegte Adresse (Bild muss von Hand angehängt werden)
+  meldungsEmail() { try { return App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || ''; } catch(e) { return ''; } },
+  perEmail(m) {
+    const ziel = this.meldungsEmail();
+    const text = this.alsText(m || this.bauen(this._formular()));
+    const betreff = `Berichtsheftkontrolle: Fehlermeldung (Version ${App.VERSION})`;
+    const url = `mailto:${encodeURIComponent(ziel)}?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.slice(0, 1800))}`;
+    location.href = url;
+    App.toast(text.length > 1800 ? 'E-Mail geöffnet – der Text ist gekürzt, die vollständige Meldung liegt im Ordner' : 'E-Mail geöffnet', 'info');
+  },
 
   // ── Dialog ──
   oeffnen(vorbelegung) {
@@ -35181,6 +35264,7 @@ const Melden = {
       </details>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
        <button class="btn btn-secondary" onclick="Melden.alsDateiSpeichern()" title="Ohne Netzlaufwerk: Meldung als Textdatei herunterladen">Als Datei speichern</button>
+       ${this.meldungsEmail() ? `<button class="btn btn-secondary" onclick="Melden.perEmail()" title="Meldung als E-Mail an ${esc(this.meldungsEmail())} (Bild bitte von Hand anhängen)">Per E-Mail</button>` : ''}
        <button class="btn btn-primary" onclick="Melden.senden()">Melden</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     setTimeout(() => this._bildFeldVerdrahten(), 60);
@@ -35281,6 +35365,8 @@ const Melden = {
     }
     App.closeModal();
     App.toast('Danke, die Meldung ist abgelegt', 'success');
+    this._letztePruefung = 0;
+    try { await this.pruefeNeue(true); } catch(e) {}
     try { if (typeof Chat !== 'undefined' && Chat.aktiv()) await Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
     this._bild = null;
     return true;
@@ -35343,17 +35429,9 @@ const Melden = {
     if (!App.bhkDirHandle) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Nur bei verbundenem Datenbank-Ordner verfügbar.</div>'; return; }
     const liste = await this.liste();
     if (!document.getElementById('meldungenBox')) return;
-    box.innerHTML = liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
-      ${liste.map(m => `<tr>
-        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
-        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
-        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
-        <td>${m.bild ? '✓' : '–'}</td>
-        <td class="btn-group" style="white-space:nowrap">
-          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
-          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
-        </td></tr>`).join('')}
-    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
+    box.innerHTML = this._tabelle(liste);
+    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
+    this._badge();
   },
   async anzeigen(ordner) {
     const m = (this._meldungen || []).find(x => x._ordner === ordner);

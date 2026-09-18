@@ -186,10 +186,14 @@ const Chat = {
     const el = document.getElementById('chatBadge');
     if (!el) return;
     const n = this.ungelesen();
-    el.style.display = this.aktiv() || this._nachrichten.length ? '' : 'none';
-    el.innerHTML = n ? `✉ <strong>${n}</strong>` : '✉';
-    el.title = n ? `${n} ungelesene Nachricht(en)` : 'Nachrichten an Kolleginnen und Kollegen (gemeinsamer Ordner, nicht vertraulich)';
+    // Immer sichtbar: Nicht jeder kennt die Tastenkürzel, und das Symbol ist
+    // der einzige Weg zu Nachrichten und zum Melden eines Problems.
+    el.style.display = '';
+    el.innerHTML = n ? `✉ <strong>${n}</strong> Nachrichten` : '✉ Nachrichten';
+    el.title = (n ? `${n} ungelesene Nachricht(en). ` : '') + 'Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2). Gemeinsamer Ordner, nicht vertraulich.'
+      + (this.aktiv() ? '' : ' – ' + this._grund());
     el.style.color = n ? 'var(--clr-amber)' : '';
+    el.style.opacity = this.aktiv() ? '' : '0.55';
   },
   _nameZuClient(cid) {
     const a = (App._praesenzAndere || []).find(x => x.client === cid);
@@ -208,6 +212,9 @@ const Chat = {
         Kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben. Zustellung im Abgleich-Takt (wenige Sekunden, bei langsamem Netz bis zu einer halben Minute, im Feldmodus länger); im Offline-Modus ruht der Chat.
         <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar. Keine Namen von Azubis oder andere personenbezogene Angaben hineinschreiben. Automatische Löschung nach ${this.AUFBEWAHRUNG_TAGE} Tagen.
       </div>
+      <div style="font-size:12px;margin-bottom:6px">Etwas funktioniert nicht?
+        <a href="#" onclick="Chat.schliessen();Melden.oeffnen();return false" style="color:var(--clr-forest);font-weight:600">⚑ Problem melden</a>
+        <span style="color:var(--clr-text-light)">– schickt Zustandsbild, Protokoll und auf Wunsch ein Bildschirmfoto an die Entwicklung (Taste F2)</span></div>
       <div id="chatVerlauf" style="height:40vh;overflow:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px;background:var(--clr-warm)"></div>
       <div style="display:flex;gap:6px;align-items:flex-end;margin-top:8px">
         <div style="flex:0 0 auto">
@@ -226,7 +233,8 @@ const Chat = {
       </div>
       ${this._grund() ? `<div style="font-size:12px;color:var(--clr-red);margin-top:6px">${esc(this._grund())}</div>` : ''}`,
       `<button class="btn btn-secondary" onclick="Chat.schliessen()">Schließen</button>
-       <button class="btn btn-secondary" onclick="Chat.abholen().then(()=>Chat._verlaufRendern())">Jetzt abrufen</button>`);
+       <button class="btn btn-secondary" onclick="Chat.abholen().then(()=>Chat._verlaufRendern())">Jetzt abrufen</button>
+       <button class="btn btn-secondary" onclick="Chat.schliessen();Melden.oeffnen()" title="Fehler mit Zustandsbild, Protokoll und Bildschirmfoto melden (F2)">⚑ Problem melden</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     this._offen = true;
     this._verlaufRendern();

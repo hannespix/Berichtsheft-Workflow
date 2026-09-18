@@ -18,8 +18,75 @@ const Melden = {
   MELDUNG_TAGE: 60,
   BILD_MAX_BYTES: 4 * 1024 * 1024,
   PROTOKOLL_ZEILEN: 150,
+  PRUEF_TAKT_MS: 300000,   // höchstens alle 5 Minuten im Ordner nachsehen
   _bild: null,        // { bytes: Uint8Array, typ, name, vorschau }
   _meldungen: [],
+  _letztePruefung: 0,
+
+  // ── Zustellweg: Zähler in der Kopfzeile ──
+  _uKey() { return 'meldungen_gesehen_' + (App._dbSlug ? App._dbSlug() : 'db'); },
+  _gesehen() { return App.uGet ? (App.uGet(this._uKey(), '') || '') : ''; },
+  _gesehenSetzen(stand) { if (App.uSet) App.uSet(this._uKey(), stand || ''); },
+  neue() {
+    const stand = this._gesehen();
+    return (this._meldungen || []).filter(m => String(m.zeitpunkt || '') > stand);
+  },
+  _badge() {
+    const el = document.getElementById('meldungBadge');
+    if (!el) return;
+    const n = this.neue().length;
+    el.style.display = n ? '' : 'none';
+    el.innerHTML = `⚑ <strong>${n}</strong> Meldung${n === 1 ? '' : 'en'}`;
+    el.title = `${n} neue Fehlermeldung(en) – klicken zum Ansehen`;
+  },
+  // Hängt am Abgleich-Takt, sieht aber höchstens alle PRUEF_TAKT_MS nach
+  async pruefeNeue(erzwingen) {
+    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) return 0;
+    if (!erzwingen && Date.now() - this._letztePruefung < this.PRUEF_TAKT_MS) return 0;
+    this._letztePruefung = Date.now();
+    try { await this.liste(); } catch(e) { return 0; }
+    this._badge();
+    return this.neue().length;
+  },
+  async uebersicht() {
+    await this.pruefeNeue(true);
+    const liste = this._meldungen || [];
+    App.openModal('⚑ Fehlermeldungen', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Meldungen aus <code>_bhk/${esc(this.ORDNER)}/</code>. „Alle als Textdatei" fasst sie für die Weitergabe an die Entwicklung zusammen; Bildschirmfotos liegen als eigene Dateien in den jeweiligen Ordnern.
+      </div>
+      ${this._tabelle(liste)}`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-secondary" onclick="Melden.oeffnen()">⚑ Selbst melden</button>
+       <button class="btn btn-primary" onclick="Melden.exportAlle()">Alle als Textdatei</button>`);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
+    this._badge();
+  },
+  _tabelle(liste) {
+    const stand = this._gesehen();
+    return liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
+      ${liste.map(m => `<tr${String(m.zeitpunkt || '') > stand ? ' style="font-weight:600"' : ''}>
+        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
+        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
+        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
+        <td>${m.bild ? '✓' : '–'}</td>
+        <td class="btn-group" style="white-space:nowrap">
+          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
+          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
+        </td></tr>`).join('')}
+    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
+  },
+  // Weg 3: per E-Mail an die hinterlegte Adresse (Bild muss von Hand angehängt werden)
+  meldungsEmail() { try { return App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || ''; } catch(e) { return ''; } },
+  perEmail(m) {
+    const ziel = this.meldungsEmail();
+    const text = this.alsText(m || this.bauen(this._formular()));
+    const betreff = `Berichtsheftkontrolle: Fehlermeldung (Version ${App.VERSION})`;
+    const url = `mailto:${encodeURIComponent(ziel)}?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.slice(0, 1800))}`;
+    location.href = url;
+    App.toast(text.length > 1800 ? 'E-Mail geöffnet – der Text ist gekürzt, die vollständige Meldung liegt im Ordner' : 'E-Mail geöffnet', 'info');
+  },
 
   // ── Dialog ──
   oeffnen(vorbelegung) {
@@ -47,6 +114,7 @@ const Melden = {
       </details>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
        <button class="btn btn-secondary" onclick="Melden.alsDateiSpeichern()" title="Ohne Netzlaufwerk: Meldung als Textdatei herunterladen">Als Datei speichern</button>
+       ${this.meldungsEmail() ? `<button class="btn btn-secondary" onclick="Melden.perEmail()" title="Meldung als E-Mail an ${esc(this.meldungsEmail())} (Bild bitte von Hand anhängen)">Per E-Mail</button>` : ''}
        <button class="btn btn-primary" onclick="Melden.senden()">Melden</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
     setTimeout(() => this._bildFeldVerdrahten(), 60);
@@ -147,6 +215,8 @@ const Melden = {
     }
     App.closeModal();
     App.toast('Danke, die Meldung ist abgelegt', 'success');
+    this._letztePruefung = 0;
+    try { await this.pruefeNeue(true); } catch(e) {}
     try { if (typeof Chat !== 'undefined' && Chat.aktiv()) await Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
     this._bild = null;
     return true;
@@ -209,17 +279,9 @@ const Melden = {
     if (!App.bhkDirHandle) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Nur bei verbundenem Datenbank-Ordner verfügbar.</div>'; return; }
     const liste = await this.liste();
     if (!document.getElementById('meldungenBox')) return;
-    box.innerHTML = liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
-      ${liste.map(m => `<tr>
-        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
-        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
-        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
-        <td>${m.bild ? '✓' : '–'}</td>
-        <td class="btn-group" style="white-space:nowrap">
-          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
-          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
-        </td></tr>`).join('')}
-    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
+    box.innerHTML = this._tabelle(liste);
+    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
+    this._badge();
   },
   async anzeigen(ordner) {
     const m = (this._meldungen || []).find(x => x._ordner === ordner);
