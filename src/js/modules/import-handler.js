@@ -468,6 +468,9 @@ const ImportHandler = {
       return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
     }
 
+    // Zweit-Registerkarte kann den Snapshot nie schreiben – der Import bliebe
+    // dauerhaft „nicht gespeichert“ und ginge beim Schließen verloren.
+    if (!vorschau && App._tabIsPrimary === false) return App.toast('Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann nicht speichern. Bitte den Import in der zuerst geöffneten Registerkarte ausführen (oder alle anderen Tabs schließen und neu laden).', 'error');
     App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;

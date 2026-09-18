@@ -266,5 +266,28 @@ console.log('══ Speichern unter Last: Warten, längere Versuche, Nachholung 
   check(!/Kompaktierung läuft gerade – bitte kurz warten/.test(DBT_SRC) && /Warte auf laufende Kompaktierung/.test(DBT_SRC), 'Laufende Kompaktierung wird abgewartet statt abgelehnt');
 }
 
+console.log('══ Zweit-Registerkarte & Sperre ══');
+{
+  App._tabIsPrimary = false;
+  check(/Zweit-Registerkarte/.test(T._sperrgrund()), 'Zweit-Registerkarte wird vor jeder Änderung abgewiesen (kann nie den Snapshot schreiben)');
+  App._tabIsPrimary = true;
+  check(/_compactAbgelehnt\('Zweit-Registerkarte/.test(APP_SRC) && /_compactAbgelehnt\(`Sperre belegt/.test(APP_SRC) && /_compactAbgelehnt\(`fremder Snapshot/.test(APP_SRC) && /this\._compactGrund = '';/.test(APP_SRC), '_compact protokolliert jeden Ablehnungsgrund und löscht ihn bei Erfolg');
+  check(/Kompaktierung nicht möglich' \+ \(this\._compactGrund/.test(APP_SRC) && /weiterhin nicht kompaktiert \(\$\{this\._compactGrund/.test(APP_SRC), 'fullSave-Fehler und Nachhol-Warnung nennen den Grund');
+  check(/this\._lockInfo = \{ von: lock\.u/.test(APP_SRC) && /_lockName\(\) \{/.test(APP_SRC), 'Sperrhalter und Alter werden gemerkt, Sperrname zentral');
+  check(/App\._tabIsPrimary === false\) return App\.toast\('Diese Registerkarte ist eine Zweit-Registerkarte/.test(read('src/js/modules/import-handler.js')), 'Import in der Zweit-Registerkarte gesperrt');
+  check(/Verbunden \(Zweit-Tab\)/.test(APP_SRC), 'Zweit-Tab dauerhaft in der Statusanzeige sichtbar');
+  // Sperre lesen/entfernen mit Fake-Ordner
+  const store = new Map();
+  const dir = { async getFileHandle(name, o) { if (!store.has(name)) { if (!(o && o.create)) throw new Error('nf'); store.set(name, { data: '', mtime: Date.now() }); } return { async getFile() { const f = store.get(name); return { lastModified: f.mtime, async text() { return f.data; } }; }, async createWritable() { let b = ''; return { async write(d) { b = String(d); }, async close() { store.set(name, { data: b, mtime: Date.now() }); } }; } }; } };
+  App.autoLoadedDbName = 'test.sqlite';
+  check((await T._sperreLesen(dir)).frei === true, 'Keine Sperrdatei → frei');
+  store.set('lock_test', { data: JSON.stringify({ u: 'Bernd', t: new Date(Date.now() - 400000).toISOString(), n: 'x' }), mtime: Date.now() - 400000 });
+  const s1 = await T._sperreLesen(dir);
+  check(s1.frei === false && s1.von === 'Bernd' && s1.alterS >= 399, `Belegte Sperre mit Halter und Alter (${s1.von}, ${s1.alterS} s)`);
+  await T._sperreEntfernen(dir);
+  check((await T._sperreLesen(dir)).frei === true && store.get('lock_test').data === '', 'Freigeben leert die Sperrdatei (leer = frei für _acquireLock)');
+  check(/sperreDialog\(\)/.test(DBT_SRC) && /Sperre prüfen/.test(DBT_SRC) && /gefaehrlich: true/.test(DBT_SRC.split('sperreFreigeben() {')[1] || ''), 'Karte bietet „Sperre prüfen“, Freigeben nur mit roter Bestätigung');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

@@ -535,6 +535,7 @@ const DbTools = {
   // ─────────────────────────────────────────────
   _sperrgrund() {
     if (!App.db) return 'Keine Datenbank geladen';
+    if (App._tabIsPrimary === false) return 'Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann keinen Snapshot schreiben – bitte alle anderen Tabs/Fenster mit dieser Datenbank schließen und die Seite neu laden';
     if (App.offlineModus) return 'Im Offline-Modus nicht möglich – erst wiederverbinden';
     if (App._netzWeg) return 'Netzlaufwerk nicht erreichbar';
     if (App._bulkPending) return 'Ein Import ist noch nicht gespeichert – bitte warten';
@@ -650,6 +651,55 @@ const DbTools = {
   },
 
   // ─────────────────────────────────────────────
+  //  Sperre prüfen / freigeben (wenn die Nachholung hängt)
+  // ─────────────────────────────────────────────
+  async _sperreLesen(dir) {
+    dir = dir || App._syncDirV3();
+    if (!dir) return null;
+    try {
+      const fh = await dir.getFileHandle(App._lockName(), { create: false });
+      const f = await fh.getFile();
+      const text = (await f.text()).trim();
+      if (!text) return { frei: true, alterS: 0 };
+      const lock = JSON.parse(text);
+      const alterS = Math.round((Date.now() - Math.max(new Date(lock.t || 0).getTime() || 0, f.lastModified || 0)) / 1000);
+      return { frei: false, von: lock.u || '?', t: lock.t || '', alterS };
+    } catch(e) { return { frei: true, alterS: 0 }; }
+  },
+  async _sperreEntfernen(dir) {
+    dir = dir || App._syncDirV3();
+    const fh = await dir.getFileHandle(App._lockName(), { create: true });
+    const w = await fh.createWritable();
+    await w.write('');
+    await w.close();
+    return true;
+  },
+  async sperreDialog() {
+    if (App._tabIsPrimary === false) return App.toast(this._sperrgrund(), 'error');
+    const s = await this._sperreLesen();
+    const grund = App._compactGrund || '';
+    App.openModal('Kompaktierungs-Sperre', `
+      <div style="font-size:13px;line-height:1.7">
+        <div>Letzter Grund: <strong>${esc(grund || '–')}</strong></div>
+        <div>Sperrdatei <code>${esc(App._lockName())}</code>: ${!s ? 'nicht lesbar' : s.frei ? '<span style="color:var(--clr-green)">frei</span>' : `belegt von <strong>${esc(s.von)}</strong> seit ${s.alterS} s`}</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Eine Sperre älter als 150 s gilt automatisch als verwaist und wird beim nächsten Versuch übernommen. Nur wenn die Nachholung trotzdem minutenlang hängt und sicher kein Kollege gerade kompaktiert (Kopfzeile „online“), die Sperre von Hand freigeben.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Gerade online: ${esc(App.onlineNutzerText ? (App.onlineNutzerText() || 'niemand sonst') : '–')}</div>
+      </div>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-secondary" onclick="App._nachholenBulk().then(ok=>App.toast(ok?'Gespeichert':'Weiterhin nicht möglich: '+(App._compactGrund||'?'),ok?'success':'warning'))">Jetzt erneut versuchen</button>
+       ${s && !s.frei ? `<button class="btn btn-primary" style="background:var(--clr-red);border-color:var(--clr-red)" onclick="DbTools.sperreFreigeben()">Sperre freigeben</button>` : ''}`);
+  },
+  async sperreFreigeben() {
+    const ok = await App.confirm('Sperre wirklich freigeben?\n\nWenn ein Kollege gerade kompaktiert, können sich zwei Snapshots überschreiben. Nur ausführen, wenn niemand sonst online ist oder die Sperre offensichtlich verwaist ist.', { titel: 'Sperre freigeben', ok: 'Freigeben', gefaehrlich: true });
+    if (!ok) return;
+    try { await this._sperreEntfernen(); } catch(e) { return App.toast('Sperre konnte nicht freigegeben werden: ' + e.message, 'error'); }
+    App.closeModal();
+    App.toast('Sperre freigegeben – Speichern wird erneut versucht', 'success');
+    try { const r = await App._nachholenBulk(); if (r) App.toast('Gespeichert', 'success'); } catch(e) {}
+    this.renderCard();
+  },
+
+  // ─────────────────────────────────────────────
   //  Karte in den Einstellungen
   // ─────────────────────────────────────────────
   cardHtml() {
@@ -665,7 +715,7 @@ const DbTools = {
     const b = this.bestand();
     const gross = b.tabellen.filter(t => t.zeilen > 0).sort((x, y) => y.zeilen - x.zeilen);
     const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
-    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong> (Kompaktierung belegt, wird automatisch nachgeholt). Bitte das Fenster nicht schließen.</div>`
+    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong>, wird automatisch nachgeholt. Bitte das Fenster nicht schließen.${App._compactGrund ? `<br>Grund: ${esc(App._compactGrund)}` : ''} <button class="btn btn-sm btn-secondary" style="margin-left:6px" onclick="DbTools.sperreDialog()">Sperre prüfen</button></div>`
       : this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
     box.innerHTML = `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">

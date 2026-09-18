@@ -2627,7 +2627,8 @@ const App = {
               this._clientIdCache = this._getClientId() + 't' + Math.random().toString(36).slice(2, 6);
               this._logGen = 0;
             }
-            this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten', 'warning');
+            this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten. In dieser Zweit-Registerkarte sind Import und Datenbank-Tools gesperrt.', 'warning');
+            try { const ind = document.getElementById('dbStatusIndicator'); if (ind) { ind.innerHTML = '<span class="dot dot-green"></span>Verbunden (Zweit-Tab)'; ind.title = 'Diese Datenbank ist in einem anderen Tab/Fenster zuerst geöffnet worden. Diese Registerkarte kann keinen Snapshot schreiben: kein Import, keine Datenbank-Tools. Andere Tabs schließen und neu laden.'; } } catch(e) {}
           }
         }
       } catch(e) {}
@@ -2710,11 +2711,15 @@ const App = {
   _lockFileName: null,
   _lockNonce: null,
   _lockErrorCount: 0,
+  _lockName() { return 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/, '') : ''); },
+  // Grund der letzten verweigerten Kompaktierung (für Meldungen und Datenbank-Tools)
+  _compactGrund: '',
+  _compactAbgelehnt(grund) { this._compactGrund = grund; console.warn('[SyncV3] Kompaktierung nicht möglich: ' + grund); return false; },
   async _acquireLock() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
       if (!syncDir) return true;
-      const lockName = 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
+      const lockName = this._lockName();
       try {
         // create:true statt create:false: Der Windows-Redirector cacht "Datei
         // nicht vorhanden" (FileNotFoundCacheLifetime, 5 s). Ein create:false-
@@ -2734,6 +2739,7 @@ const App = {
         const ageMtime = Date.now() - file.lastModified;
         if (Math.min(ageEmbedded, ageMtime) < 150000) {
           this._lockErrorCount = 0;
+          this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
           return false;
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
@@ -2754,7 +2760,7 @@ const App = {
         try {
           const verify = await syncDir.getFileHandle(lockName, { create: false });
           const vLock = JSON.parse(await (await verify.getFile()).text());
-          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; return false; } // anderer User war schneller
+          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; this._lockInfo = { von: vLock.u || '?', alterS: 0, t: vLock.t || '' }; return false; } // anderer User war schneller
         } catch(e) {}
       }
       this._lockFileName = lockName;
@@ -3532,7 +3538,7 @@ const App = {
         this.unsavedChanges = true;
         document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>${o.label} nicht gespeichert`;
         this.toast(`${o.label} konnte noch nicht gespeichert werden (Kompaktierung blockiert) – wird automatisch nachgeholt. Bitte das Fenster NICHT schließen.`, 'error');
-        throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)');
+        throw new Error('Kompaktierung nicht möglich' + (this._compactGrund ? ': ' + this._compactGrund : ' (Lock belegt oder Schreibfehler)'));
       }
       // _dirtyOps NICHT leeren: _saveV3 innerhalb von _compact hat den Puffer
       // bereits geclaimt und angehängt. Was JETZT noch drin steht, entstand
@@ -4224,13 +4230,14 @@ const App = {
     } catch(e) { return false; }
   },
   async _compact(reason) {
-    if (this._tabIsPrimary === false) return false; // Zweit-Tab kompaktiert nie
-    if (this._compactInProgress || !this.db || !this.dbFileHandle) return false;
+    if (this._tabIsPrimary === false) return this._compactAbgelehnt('Zweit-Registerkarte dieser Datenbank – nur die zuerst geöffnete Registerkarte schreibt den Snapshot'); // Zweit-Tab kompaktiert nie
+    if (this._compactInProgress) return this._compactAbgelehnt('läuft bereits');
+    if (!this.db || !this.dbFileHandle) return this._compactAbgelehnt('keine Datenbankdatei verbunden');
     this._compactInProgress = true;
     let writable = null;
     try {
       const gotLock = await this._acquireLock();
-      if (!gotLock) return false; // ein anderer kompaktiert bereits – egal
+      if (!gotLock) return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); // ein anderer kompaktiert bereits
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       await this._saveV3();
       await this._pollOplogs();
@@ -4252,8 +4259,7 @@ const App = {
       if (diskGen > (this._snapGen || 0)) {
         // Es gibt einen Snapshot, den wir noch nicht übernommen haben – NICHT
         // blind überschreiben, erst regulär nachladen (nächster Poll).
-        console.warn(`[SyncV3] Kompaktierung abgebrochen: fremder Snapshot gen ${diskGen} noch nicht übernommen`);
-        return false;
+        return this._compactAbgelehnt(`fremder Snapshot (Generation ${diskGen}) noch nicht übernommen – wird beim nächsten Abgleich geladen`);
       }
       // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort).
       // Vorher Lock auffrischen: _saveV3 + _pollOplogs können auf langsamem
@@ -4309,6 +4315,7 @@ const App = {
           } catch(e) {}
         }
       } catch(e) {}
+      this._compactGrund = '';
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
       this._bulkOps = null;
       if (this._bulkPending) {
@@ -4346,7 +4353,7 @@ const App = {
     if (!this._bulkPending || this._compactInProgress) return false;
     this._lastBulkVersuch = Date.now();
     const ok = await this._compact('import-nachholung');
-    if (!ok) console.warn('[SyncV3] Import weiterhin nicht kompaktiert – nächster Versuch folgt');
+    if (!ok) console.warn(`[SyncV3] ${this._bulkLabel || 'Import'} weiterhin nicht kompaktiert (${this._compactGrund || 'Grund unbekannt'}) – nächster Versuch folgt`);
     return ok;
   },
 
