@@ -4448,7 +4448,8 @@ const App = {
   deleteSchuelerKaskade(id, opts) {
     if (!id) return;
     // Ohne Papierkorb = endgültig → Akten-Dateien mit entfernen
-    if (opts && opts.ohnePapierkorb) { try { this._loescheAkteDateien(id); } catch(e) {} }
+    // dateienBehalten: Aufrufer verschiebt die Akten-Dateien selbst (Archiv-Löschung)
+    if (opts && opts.ohnePapierkorb && !opts.dateienBehalten) { try { this._loescheAkteDateien(id); } catch(e) {} }
     if (!(opts && opts.ohnePapierkorb)) {
       try {
         const s = this.query('SELECT * FROM schueler WHERE id=?', [id])[0];
