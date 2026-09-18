@@ -48,11 +48,37 @@ const NacherfassungHandler = {
     this._kwDefault = neu;
   },
 
-  loadSchueler() {
+  // Fachrichtungs-Filter der Liste: 'global' = Vorbelegung aus dem globalen
+  // Filter (Berufe), '' = alle Fachrichtungen, sonst eine Fachrichtungs-Id.
+  // Der globale AMT-Filter gilt hier bewusst NICHT (mitkontrollierte Azubis
+  // fremder Ämter), der globale Berufs-Filter dagegen schon – sonst standen
+  // unter „Gärtner" plötzlich Landwirte in der Liste.
+  _fachrichtungWhere(auswahl, globalIds) {
+    const ids = (globalIds || []).map(Number).filter(n => n > 0);
+    if (auswahl === 'global') return ids.length ? { sql: ` AND s.fachrichtung_id IN (${ids.join(',')})`, params: [] } : { sql: '', params: [] };
+    const id = parseInt(auswahl);
+    return id > 0 ? { sql: ' AND s.fachrichtung_id=?', params: [id] } : { sql: '', params: [] };
+  },
+  // Gemeinsame lokale Filter (Schule, Klasse, Jahrgang, Amt, Fachrichtung)
+  _lokaleFilter() {
     const bsId = document.getElementById('neSchule')?.value;
     const klId = document.getElementById('neKlasse')?.value;
     const jgId = document.getElementById('neJahrgang')?.value;
     const amt = document.getElementById('neAmt')?.value;
+    const frSel = document.getElementById('neFachrichtung');
+    const fr = this._fachrichtungWhere(frSel ? frSel.value : 'global', App.filterFachrichtungen);
+    let where = 's.aktiv=1';
+    const params = [];
+    if (bsId) { where += ' AND k.berufsschule_id=?'; params.push(bsId); }
+    if (klId) { where += ' AND s.klasse_id=?'; params.push(klId); }
+    if (jgId) { where += ' AND s.jahrgang_id=?'; params.push(jgId); }
+    if (amt) { where += ' AND s.zustaendiges_amt=?'; params.push(amt); }
+    where += fr.sql; params.push(...fr.params);
+    return { bsId, klId, jgId, amt, where, params };
+  },
+
+  loadSchueler() {
+    const { bsId, where, params } = this._lokaleFilter();
     const area = document.getElementById('neSchuelerArea');
     if (!area) return;
 
@@ -61,16 +87,8 @@ const NacherfassungHandler = {
       return;
     }
 
-    // Bewusst OHNE globale Filter: die Nacherfassung hat eigene Filter
-    // (Schule/Klasse/Jahrgang/Amt) – der globale Amt-Filter würde sonst genau
-    // die mitkontrollierten Azubis fremder Ämter ausblenden.
-    let where = 's.aktiv=1';
-    const params = [];
-    where += ' AND k.berufsschule_id=?'; params.push(bsId);
-    if (klId) { where += ' AND s.klasse_id=?'; params.push(klId); }
-    if (jgId) { where += ' AND s.jahrgang_id=?'; params.push(jgId); }
-    if (amt) { where += ' AND s.zustaendiges_amt=?'; params.push(amt); }
-
+    // Lokale Filter (Schule/Klasse/Jahrgang/Amt/Fachrichtung, siehe _lokaleFilter):
+    // der globale Amt-Filter gilt hier nicht, der Berufs-Filter als Vorbelegung
     const schueler = App.query(`SELECT s.*, k.klassenbezeichnung, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung,
       b.name as betrieb_name, b.ort as betrieb_ort
       FROM schueler s
@@ -360,7 +378,9 @@ const NacherfassungHandler = {
     const countEl = document.getElementById('neNichtErfasstCount');
     if (!body) return;
 
-    const gf = App.gf('schueler');
+    // Dieselben lokalen Filter wie die Liste (vorher galt hier der komplette
+    // globale Filter – also genau umgekehrt zur Liste darüber)
+    const { where, params } = this._lokaleFilter();
     const nichtErfasst = App.query(`SELECT s.*, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung,
       bs.name as schule, k.klassenbezeichnung
       FROM schueler s
@@ -368,9 +388,8 @@ const NacherfassungHandler = {
       LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id
-      WHERE s.aktiv=1 AND s.id NOT IN (SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke WHERE ke.ergebnis != '')
-      ${gf}
-      ORDER BY bs.name, j.bezeichnung, s.nachname`, []);
+      WHERE ${where} AND s.id NOT IN (SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke WHERE ke.ergebnis != '')
+      ORDER BY bs.name, j.bezeichnung, s.nachname`, params);
 
     if (countEl) countEl.textContent = nichtErfasst.length > 0 ? `(${nichtErfasst.length} Schüler)` : '(alle erfasst ✓)';
 
