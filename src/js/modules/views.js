@@ -2093,7 +2093,7 @@ const Views = {
       ${App.filterBadgeHtml()}
 
       <div style="padding:10px 14px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:12px">
-        <strong>Nacherfassung</strong> übernimmt vergangene Durchsichten (z.B. vom Papierbogen) mit denselben Datenregeln wie die Live-Kontrolle:
+        <strong>Nacherfassung</strong> übernimmt vergangene Durchsichten (z.B. vom Papierbogen) mit denselben Datenregeln wie die Live-Kontrolle. Der globale <strong>Berufs-Filter</strong> ist als Fachrichtung vorbelegt (unten umschaltbar auf „alle"), der globale <strong>Amt-Filter</strong> gilt hier bewusst nicht – mitkontrollierte Azubis fremder Ämter bleiben wählbar:
         Datum der Durchsicht und Schule wählen → je Azubi <strong>geprüft bis KW</strong>, <strong>Fehltage gesamt</strong>, <strong>Ergebnis</strong> (und ggf. Codes/Wiedervorlage) eintragen → „Alle speichern".
         Das Ergebnis erscheint danach im KW-Raster, in der Ampel, in den Statistiken und im Archiv – als eigener Nacherfassungs-Termin je Schule und Datum.
       </div>
@@ -2150,6 +2150,19 @@ const Views = {
                 return opts;
               })()}
             </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="font-size:11px">Fachrichtung</label>
+            ${(() => {
+              const globalIds = (App.filterFachrichtungen || []).map(Number).filter(n => n > 0);
+              const frs = App.query('SELECT id, bezeichnung, typ FROM fachrichtungen ORDER BY typ, bezeichnung');
+              const globalNamen = frs.filter(f => globalIds.includes(f.id)).map(f => f.bezeichnung);
+              return `<select class="form-control" id="neFachrichtung" style="width:auto" onchange="NacherfassungHandler.loadSchueler()" title="Vorbelegt aus dem globalen Berufs-Filter; „alle" nimmt auch andere Berufe der Schule auf">
+                ${globalIds.length ? `<option value="global" selected>wie globaler Filter (${esc(globalNamen.length <= 3 ? globalNamen.join(', ') : globalNamen.length + ' Berufe')})</option>` : ''}
+                <option value="">alle Fachrichtungen</option>
+                ${frs.map(f => `<option value="${f.id}">${f.typ === 'Fachwerker' ? 'FW: ' : ''}${esc(f.bezeichnung)}</option>`).join('')}
+              </select>`;
+            })()}
           </div>
           <div class="form-group" style="margin:0">
             <label style="font-size:11px">Amt</label>

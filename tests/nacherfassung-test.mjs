@@ -133,6 +133,19 @@ console.log('\n══ Termin-Wiederverwendung + Übernahme in Folge-Kontrolle �
   check(App.scalar('SELECT fehltage_gesamt FROM kontrollergebnisse WHERE id=?', [neu.id]) === 12, 'Pauschalwert in der Live-Kontrolle korrigierbar (10 + 2 = 12)');
 }
 
+console.log('\n══ Globaler Berufs-Filter gilt in der Nacherfassung (Amt-Filter bewusst nicht) ══');
+{
+  check(NE._fachrichtungWhere('global', [1, 2]).sql === ' AND s.fachrichtung_id IN (1,2)', 'Vorbelegung „wie globaler Filter" schränkt auf die gewählten Berufe ein');
+  check(NE._fachrichtungWhere('global', []).sql === '' && NE._fachrichtungWhere('global', [-1]).sql === '', 'Ohne globalen Berufs-Filter (oder „Keine") keine Einschränkung');
+  const e = NE._fachrichtungWhere('3', [1]);
+  check(e.sql === ' AND s.fachrichtung_id=?' && e.params[0] === 3, 'Einzelne Fachrichtung wählbar');
+  check(NE._fachrichtungWhere('', [1, 2]).sql === '', '„alle Fachrichtungen" hebt die Vorbelegung auf');
+  const VIEWS_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/id="neFachrichtung"/.test(VIEWS_SRC) && /<option value="global" selected>wie globaler Filter/.test(VIEWS_SRC), 'Filterzeile hat das Feld „Fachrichtung" mit Vorbelegung aus dem globalen Filter');
+  check(!/App\.gf\('schueler'\)/.test(NE_SRC) && /const \{ where, params \} = this\._lokaleFilter\(\);/.test(NE_SRC.split('_updateNichtErfasst() {')[1] || ''), 'Kasten „nicht erfasst" nutzt dieselben lokalen Filter wie die Liste');
+  check(/s\.zustaendiges_amt=\?/.test(NE_SRC) && !/filterAmt/.test(NE_SRC), 'Amt weiterhin nur über das lokale Feld, nicht über den globalen Amt-Filter');
+}
+
 console.log('\n══ Quelltext + Migrations-Parität ══');
 {
   check(!/Math\.min\(7,/.test(NE_SRC), 'Kein 7-Tage-Deckel mehr in der Nacherfassung');
