@@ -2726,6 +2726,8 @@ const App = {
           try { await this._sperreAufraeumen(); } catch(e) {}
           // Nachrichten der Kolleginnen und Kollegen abholen
           try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
+          // Neue Fehlermeldungen zählen (höchstens alle 5 Minuten)
+          try { if (typeof Melden !== 'undefined') await Melden.pruefeNeue(false); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);

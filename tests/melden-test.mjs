@@ -58,7 +58,7 @@ const sandbox = {
     createElement: (tag) => (tag === 'a' ? { set download(v) { downloads.push(v); }, get download() { return downloads.at(-1); }, href: '', click() {} } : el('tmp_' + tag)),
     addEventListener() {}, hidden: false, activeElement: null, body: { classList: { add() {}, remove() {}, contains: () => false }, appendChild() {} },
   },
-  navigator: { userAgent: 'TestBrowser/1.0', language: 'de-DE' }, localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  navigator: { userAgent: 'TestBrowser/1.0', language: 'de-DE' }, localStorage: { _s: {}, getItem(k) { return k in this._s ? this._s[k] : null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } },
   initSqlJs: async () => SQL, TableSort: { init() {}, initAll() {} }, UndoManager: { push() {}, clear() {} },
   confirm: () => false, esc: (x) => String(x ?? ''), todayStr: () => '2026-09-18', dateStr: (d) => d.toISOString().slice(0, 10),
   formatDate: (d) => d ? String(d).split('-').reverse().join('.') : '', svgIcon: () => '', Papa: {}, XLSX: {},
@@ -204,6 +204,33 @@ console.log('══ Ohne Netzlaufwerk ══');
   App.bhkDirHandle = merk;
 }
 
+console.log('══ Zustellweg: Zähler, Übersicht, E-Mail ══');
+{
+  el('mdBeschreibung').value = 'Zweite Meldung für den Zähler';
+  el('mdDiagnose').value = 'x';
+  M._bild = null;
+  App.bhkDirHandle = bhk;
+  M._gesehenSetzen('');
+  await M.senden();
+  await M.pruefeNeue(true);
+  check(M.neue().length >= 1 && /⚑/.test(el('meldungBadge').innerHTML) && el('meldungBadge').style.display === '', 'Neue Meldungen erscheinen als Zähler in der Kopfzeile');
+  await M.uebersicht();
+  check(/Fehlermeldungen/.test(modalHtml) && /Alle als Textdatei/.test(modalHtml) && /Selbst melden/.test(modalHtml), 'Klick öffnet die Übersicht mit Export und Melde-Knopf');
+  check(M.neue().length === 0 && el('meldungBadge').style.display === 'none', 'Nach dem Ansehen ist der Zähler zurückgesetzt');
+  M._letztePruefung = Date.now();
+  check(await M.pruefeNeue(false) === 0, 'Ohne Zwang wird höchstens alle 5 Minuten im Ordner nachgesehen');
+  // E-Mail-Weg
+  check(M.meldungsEmail() === '', 'Ohne hinterlegte Adresse kein E-Mail-Weg');
+  App.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('meldung_email','betreuung@example.de')");
+  check(M.meldungsEmail() === 'betreuung@example.de', 'Adresse aus den Einstellungen');
+  let ziel = '';
+  Object.defineProperty(sandbox, 'location', { value: { set href(v) { ziel = v; }, get href() { return ziel; } }, configurable: true });
+  M.perEmail({ id: 'x', version: '2.1', zeitpunkt: new Date().toISOString(), beschreibung: 'Kaputt', schritte: '', diagnose: 'd', bild: '' });
+  check(/^mailto:betreuung%40example\.de\?subject=/.test(ziel) && /Kaputt/.test(decodeURIComponent(ziel)), 'Per E-Mail öffnet den Mailversand an die hinterlegte Adresse');
+  M.oeffnen();
+  check(/Per E-Mail/.test(modalHtml), 'Melde-Fenster zeigt den E-Mail-Knopf, wenn eine Adresse hinterlegt ist');
+}
+
 console.log('══ Einbau ══');
 {
   check(/BhkLog\.installieren\(\);/.test(APP_SRC) && APP_SRC.indexOf('BhkLog') < APP_SRC.indexOf('const App = {'), 'Ringspeicher wird VOR der App eingerichtet');
@@ -213,6 +240,9 @@ console.log('══ Einbau ══');
   check(/geschwärzt/.test(read('src/js/modules/views.js')), 'Hilfetext nennt die Schwärzung');
   check(!/INSERT INTO|App\.run\(/.test(MELD_SRC), 'Meldungen landen NICHT in der Datenbank');
   check(/clipboardData/.test(MELD_SRC) && /ondrop/.test(MELD_SRC), 'Bildschirmfoto per Einfügen und Ziehen');
+  check(/Melden\.pruefeNeue\(false\)/.test(APP_SRC.split('this._schedulePoll = () => {')[1] || ''), 'Meldungs-Zähler hängt am Abgleich-Takt');
+  check(/id="meldungBadge"/.test(read('index.html')) && /Melden\.uebersicht\(\)/.test(read('index.html')), 'Zähler in der Kopfzeile öffnet die Übersicht');
+  check(/setMeldungEmail/.test(read('src/js/modules/views.js')) && /meldung_email/.test(read('src/js/modules/views.js')), 'E-Mail für Fehlermeldungen in den Einstellungen pflegbar');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

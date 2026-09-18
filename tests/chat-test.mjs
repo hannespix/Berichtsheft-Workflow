@@ -206,6 +206,23 @@ console.log('══ Sperren und Störfälle ══');
   check(C.aktiv() === true, 'Danach wieder aktiv');
 }
 
+console.log('══ Symbol immer sichtbar, Melde-Link ══');
+{
+  C._nachrichten = [];
+  App.offlineModus = true;
+  C._render();
+  const b = elemente.chatBadge;
+  check(b.style.display === '' && /Nachrichten/.test(b.innerHTML), 'Symbol bleibt sichtbar, auch offline und ohne Nachrichten');
+  check(b.style.opacity === '0.55' && /Offline/.test(b.title), 'Offline wird durch blasse Darstellung und Hinweis kenntlich');
+  App.offlineModus = false;
+  C._render();
+  check(elemente.chatBadge.style.opacity === '' && /Strg\+M/.test(elemente.chatBadge.title) && /F2/.test(elemente.chatBadge.title), 'Beschriftung nennt beide Tastenkürzel');
+  sandbox.Melden = { oeffnen() { sandbox.__meldenOffen = true; } };
+  C.oeffnen();
+  check(/Problem melden/.test(modalHtml) && /Melden\.oeffnen\(\)/.test(modalHtml), 'Melde-Link steht im Nachrichtenfenster');
+  check(/id="chatBadge"/.test(read('index.html')) && !/id="chatBadge" style="display:none/.test(read('index.html')), 'Kopfzeile blendet das Symbol nicht mehr aus');
+}
+
 console.log('══ Einbau ══');
 {
   check(/await Chat\.abholen\(\)/.test(APP_SRC.split('this._schedulePoll = () => {')[1] || ''), 'Abruf hängt am Abgleich-Takt (kein eigener Timer)');
