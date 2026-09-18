@@ -3501,8 +3501,13 @@ const App = {
   // Fährt dasselbe Schutzprotokoll wie mergeAndSave (Lock + Marker-Check) –
   // sonst vernichten sich Bulk-Import und paralleler Save eines anderen
   // Nutzers gegenseitig (Full-Write ersetzt die ganze Datei).
-  async fullSave() {
+  // opts: { versuche, pause, grund, label } – Datenbank-Tools warten länger
+  // (8 × 15 s) als der Import, weil auf langsamem Netz eine fremde oder die
+  // eigene Start-Kompaktierung minutenlang laufen kann.
+  async fullSave(opts) {
     if (!this.dbFileHandle || !this.db) return;
+    const o = Object.assign({ versuche: 3, pause: 3000, grund: 'import', label: 'Import' }, opts || {});
+    this._bulkLabel = o.label;
     // Sync-v3: Bulk-Import → Snapshot direkt kompaktieren (Logs werden vorher
     // vollständig eingezogen, danach decken die Offsets alles ab)
     if (this._v3Active()) {
@@ -3516,17 +3521,17 @@ const App = {
       // geworfen – der Import zeigt dann seine rote "NICHT gespeichert"-Warnung
       // statt fälschlich Erfolg zu melden.
       let ok = false;
-      for (let versuch = 1; versuch <= 3 && !ok; versuch++) {
-        ok = await this._compact('import');
-        if (!ok) await new Promise(r => setTimeout(r, 3000));
+      for (let versuch = 1; versuch <= o.versuche && !ok; versuch++) {
+        ok = await this._compact(o.grund);
+        if (!ok && versuch < o.versuche) await new Promise(r => setTimeout(r, o.pause));
       }
       if (!ok) {
         // Import bleibt im Speicher und wird nachgeholt (siehe _nachholenBulk);
         // bis dahin wird kein fremder Snapshot übernommen.
         this._bulkPending = true;
         this.unsavedChanges = true;
-        document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Import nicht gespeichert';
-        this.toast('Import konnte noch nicht gespeichert werden (Kompaktierung blockiert) – wird automatisch nachgeholt. Bitte das Fenster NICHT schließen.', 'error');
+        document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>${o.label} nicht gespeichert`;
+        this.toast(`${o.label} konnte noch nicht gespeichert werden (Kompaktierung blockiert) – wird automatisch nachgeholt. Bitte das Fenster NICHT schließen.`, 'error');
         throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)');
       }
       // _dirtyOps NICHT leeren: _saveV3 innerhalb von _compact hat den Puffer
@@ -3758,7 +3763,7 @@ const App = {
       // Kompaktierung fällig? (höchstens alle 5 Min prüfen)
       else if (Date.now() - this._lastCompactCheck > 300000) {
         this._lastCompactCheck = Date.now();
-        if (await this._compactionDue()) this._compact('groesse');
+        if (!this._dbToolsAktiv && await this._compactionDue()) this._compact('groesse');
       }
     } catch(e) {
       // Ops zurücklegen (an den Anfang – Reihenfolge erhalten), später erneut
@@ -4186,7 +4191,7 @@ const App = {
       // Zufällig 20–80 s verzögert: Starten zwei Kollegen morgens zur selben
       // Minute, kompaktierten sonst beide gleichzeitig um das Lock.
       setTimeout(async () => {
-        try { if (!this._bulkPending && await this._compactionDue()) this._compact('start'); } catch(e) {}
+        try { if (!this._bulkPending && !this._dbToolsAktiv && await this._compactionDue()) this._compact('start'); } catch(e) {}
       }, 20000 + Math.floor(Math.random() * 60000));
     } catch(e) {
       console.warn('[SyncV3] Bootstrap-Fehler:', e.message);
@@ -4309,7 +4314,7 @@ const App = {
       if (this._bulkPending) {
         this._bulkPending = false;
         this.unsavedChanges = this._dirtyOps.length > 0;
-        this.toast('Import ist jetzt gespeichert (Kompaktierung nachgeholt)', 'success');
+        this.toast(`${this._bulkLabel || 'Import'} ist jetzt gespeichert (Kompaktierung nachgeholt)`, 'success');
       }
       return true;
     } catch(e) {

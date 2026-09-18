@@ -538,7 +538,6 @@ const DbTools = {
     if (App.offlineModus) return 'Im Offline-Modus nicht möglich – erst wiederverbinden';
     if (App._netzWeg) return 'Netzlaufwerk nicht erreichbar';
     if (App._bulkPending) return 'Ein Import ist noch nicht gespeichert – bitte warten';
-    if (App._compactInProgress) return 'Kompaktierung läuft gerade – bitte kurz warten';
     if (App.dbFileHandle && App._v3Active && App._v3Active() && !App._v3Ready) return 'Synchronisation noch nicht bereit';
     return '';
   },
@@ -568,19 +567,33 @@ const DbTools = {
     if (andere.length) text += `\n\nACHTUNG: ${andere.length} andere Nutzer waren in den letzten ${this.ANDERE_AKTIV_MINUTEN} Minuten aktiv (${andere.map(a => a.art === 'pos' ? a.name : 'Rechner ' + a.name.replace(/^.*_([^_]+)_g\d+\.jsonl$/, '$1')).join(', ')}). Sie übernehmen den neuen Stand beim nächsten Abgleich; laufende Eingaben an gelöschten Daten gehen verloren.`;
     return App.confirm(text, { titel: titel || 'Datenbank-Tools', ok: titel || 'Ausführen', gefaehrlich: true });
   },
+  WARTE_SCHRITT_MS: 2000,
+  WARTE_MAX: 90,          // 90 × 2 s = 3 Minuten auf eine laufende Kompaktierung
+  SAVE_VERSUCHE: 8,
+  SAVE_PAUSE_MS: 15000,   // 8 × 15 s = 2 Minuten, falls das Lock belegt ist
+  _ausstehend: null,
   async _ausfuehren(art, arbeit, opts) {
     const grund = this._sperrgrund();
     if (grund) return App.toast(grund, 'error');
     if (this._laeuft) return App.toast('Es läuft bereits eine Bereinigung', 'warning');
+    if (this._ausstehend) return App.toast('Die letzte Bereinigung ist noch nicht gespeichert – bitte warten, bis sie nachgeholt wurde', 'warning');
     this._laeuft = true;
-    const vorher = App.db.export().length;
+    App._dbToolsAktiv = true; // automatische Start-/Größen-Kompaktierung solange aussetzen
     let meldung = '';
     try {
+      // Läuft gerade eine Kompaktierung (z.B. die eigene nach dem Start oder
+      // die eines Kollegen)? Dann warten – VOR jeder Änderung. Sonst gäbe es
+      // einen Löschstand nur im Speicher, der nicht sofort gesichert werden kann.
+      if (App._compactInProgress) {
+        App.showLoading('Warte auf laufende Kompaktierung…');
+        for (let i = 0; i < this.WARTE_MAX && App._compactInProgress; i++) await new Promise(r => setTimeout(r, this.WARTE_SCHRITT_MS));
+        if (App._compactInProgress) { App.toast('Eine Kompaktierung läuft noch (langsames Netz) – bitte in ein paar Minuten erneut versuchen. Es wurde nichts geändert.', 'warning'); return; }
+      }
+      const vorher = App.db.export().length;
       App.showLoading('Sicherung wird angelegt…');
       if (App.dbFileHandle) { try { await App.createBackup('vor-' + art); } catch(e) { console.warn('Backup:', e); } }
       App.showLoading('Bereinigung läuft…');
-      const savedTimer = App.autoSaveTimer;
-      if (savedTimer) clearTimeout(App.autoSaveTimer);
+      if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
       App._bulkImport = true;
       try { meldung = arbeit() || 'Fertig'; }
       finally { App._bulkImport = false; }
@@ -589,7 +602,19 @@ const DbTools = {
       this._letzterLauf = { art, meldung, vorher, nachher, zeit: new Date().toISOString() };
       if (App.dbFileHandle) {
         App.showLoading('Neuer Snapshot wird geschrieben…');
-        await App.fullSave();
+        try {
+          await App.fullSave({ versuche: this.SAVE_VERSUCHE, pause: this.SAVE_PAUSE_MS, grund: 'bereinigung', label: 'Bereinigung' });
+        } catch(e) {
+          // Stand ist im Speicher, fullSave hat _bulkPending gesetzt – der
+          // Abgleich holt die Kompaktierung automatisch nach. Nacharbeit
+          // (Dateien verschieben) erst nach erfolgreichem Speichern.
+          console.warn('[DbTools] Speichern verschoben:', e.message);
+          this._ausstehend = { art, meldung, vorher, nachher, nachherFn: opts && opts.nachher, seit: Date.now() };
+          this._letzterLauf.ausstehend = true;
+          this._ausstehendStarten();
+          App.toast(`${meldung} – Speichern noch nicht möglich (Kompaktierung belegt). Wird automatisch nachgeholt, bitte das Fenster NICHT schließen.`, 'error');
+          return;
+        }
       }
       if (opts && opts.nachher) { App.showLoading('Dateien werden verschoben…'); try { await opts.nachher(); } catch(e) { console.warn('[DbTools] Nacharbeit:', e); } }
       App.toast(`${meldung} · Datei ${this._bytes(vorher)} → ${this._bytes(nachher)}`, 'success');
@@ -598,11 +623,30 @@ const DbTools = {
       App.toast('Bereinigung: ' + e.message, 'error');
     } finally {
       this._laeuft = false;
+      App._dbToolsAktiv = false;
       App.hideLoading();
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       try { if (typeof UndoManager !== 'undefined' && UndoManager.clear) UndoManager.clear(); } catch(e) {}
-      this.renderCard();
+      try { this.renderCard(); } catch(e) { console.warn('[DbTools] Karte:', e); }
     }
+  },
+  // Nachholung beobachten: sobald der Abgleich die Kompaktierung geschafft hat
+  // (_bulkPending wieder false), Nacharbeit ausführen und melden.
+  _ausstehendStarten() {
+    if (this._ausstehendTimer) return;
+    this._ausstehendTimer = setInterval(() => { this._ausstehendPruefen(); }, 10000);
+  },
+  async _ausstehendPruefen() {
+    const a = this._ausstehend;
+    if (!a) { if (this._ausstehendTimer) { clearInterval(this._ausstehendTimer); this._ausstehendTimer = null; } return false; }
+    if (App._bulkPending) return false;
+    if (this._ausstehendTimer) { clearInterval(this._ausstehendTimer); this._ausstehendTimer = null; }
+    this._ausstehend = null;
+    if (a.nachherFn) { try { await a.nachherFn(); } catch(e) { console.warn('[DbTools] Nacharbeit:', e); } }
+    if (this._letzterLauf) delete this._letzterLauf.ausstehend;
+    App.toast(`${a.meldung} · jetzt gespeichert · Datei ${this._bytes(a.vorher)} → ${this._bytes(a.nachher)}`, 'success');
+    this.renderCard();
+    return true;
   },
 
   // ─────────────────────────────────────────────
@@ -621,7 +665,8 @@ const DbTools = {
     const b = this.bestand();
     const gross = b.tabellen.filter(t => t.zeilen > 0).sort((x, y) => y.zeilen - x.zeilen);
     const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
-    const lauf = this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
+    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong> (Kompaktierung belegt, wird automatisch nachgeholt). Bitte das Fenster nicht schließen.</div>`
+      : this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
     box.innerHTML = `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
         Die Datenbank wird beim Start komplett geladen und bei jeder Kompaktierung und jedem Backup komplett geschrieben – über VPN zählt jedes Megabyte.
