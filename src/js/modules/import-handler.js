@@ -402,6 +402,24 @@ const ImportHandler = {
   // geschrieben wird. „Jetzt importieren" führt dann den echten Lauf aus.
   doImportVorschau(data) { return this.doImport(data, { vorschau: true }); },
   _feldLabel: { nachname: 'Nachname', vorname: 'Vorname', ibykus_id: 'BAV-Ident', ausbildungsende: 'AV-Ende', ausbildungsbeginn: 'AV-Beginn', ausbildungsstaette: 'Betrieb', telefon: 'Telefon', email: 'E-Mail', betrieb_id: 'Betrieb (Stammdaten)', klasse_id: 'Klasse', jahrgang_id: 'Jahrgang', fachrichtung_id: 'Fachrichtung', zustaendiges_amt: 'Amt', geschlecht: 'Geschlecht', schulabschluss: 'Schulabschluss', pruefungserfolg: 'Prüfungserfolg', pruefungserfolg_wdh1: 'Prüfungserfolg Wdh. 1', pruefungserfolg_wdh2: 'Prüfungserfolg Wdh. 2', bav_status: 'BAV-Status', zwischenpruefung: 'ZP', aktiv: 'aktiv', status: 'Status', ap_bestanden: 'AP bestanden', inaktiv_datum: 'inaktiv seit', inaktiv_grund: 'Grund' },
+  // Import-Wächter: neue Schulen/Betriebe/Jahrgänge der Vorschau gegen vorhandene prüfen
+  _stammdatenWaechter(stats) {
+    const out = [];
+    const pruefen = (art, namen) => (namen ? [...namen] : []).forEach(name => {
+      const kandidaten = App.aehnlicheStammdaten(art, name);
+      if (kandidaten.length) out.push({ art, name, kandidaten });
+    });
+    pruefen('schule', stats.schulen); pruefen('jahrgang', stats.jahrgaenge); pruefen('betrieb', stats.betriebe);
+    return out;
+  },
+  _zuordnungAusVorschau() {
+    const z = {};
+    document.querySelectorAll('.imp-zuord').forEach(sel => {
+      const id = parseInt(sel.value);
+      if (id > 0) { const art = sel.dataset.art; (z[art] = z[art] || {})[sel.dataset.name] = id; }
+    });
+    return z;
+  },
   _zeigeVorschau(v) {
     const lbl = f => this._feldLabel[f] || f;
     const wert = (f, x) => {
@@ -427,9 +445,10 @@ const ImportHandler = {
       ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
       ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:10px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
       ${v.stats.phasenKonflikte?.length ? block(`⚠︎ Phasen-Konflikte (${v.stats.phasenKonflikte.length})`, 'var(--clr-amber)', liste(v.stats.phasenKonflikte, k => `<div>• ${esc(k.name)}: ${k.changes.map(([f, n, o]) => `${esc(lbl(f))} ${esc(o || '–')} → ${esc(n)}`).join(', ')} – Datumsfelder werden nicht überschrieben</div>`)) : ''}
+      ${(() => { const w = ImportHandler._stammdatenWaechter(v.stats); return w.length ? block(`⚠︎ Neue Stammdaten ähneln vorhandenen (${w.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Namensänderung in IBYKUS? Zuordnen statt neu anlegen – die alte Schreibweise wird als Alias gemerkt und künftig automatisch erkannt.</div>` + liste(w, x => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">• Neu: <strong>${esc(x.name)}</strong> <span style="color:var(--clr-text-light)">(${esc(App.ALIAS_ARTEN[x.art].label)})</span> → <select class="form-control imp-zuord" data-art="${x.art}" data-name="${esc(x.name)}" style="width:auto;font-size:11px;padding:2px 4px"><option value="">neu anlegen</option>${x.kandidaten.map((k, i) => `<option value="${k.id}" ${i === 0 && k.grund.startsWith('gleicher') ? 'selected' : ''}>${esc(k.name)} – ${esc(k.grund)}</option>`).join('')}</select></div>`)) : ''; })()}
       ${v.errorRows.length ? block(`⚠︎ Fehlerhafte Zeilen (${v.errorRows.length})`, 'var(--clr-red)', liste(v.errorRows, e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`, 20)) : ''}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data)">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
+        <button class="btn btn-primary" onclick="const z=ImportHandler._zuordnungAusVorschau();App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data, { zuordnung: z })">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
   },
 
   async doImport(data, opts = {}) {
@@ -463,7 +482,10 @@ const ImportHandler = {
     const today = new Date();
     let imported = 0, skipped = 0;
     const gesehen = new Set(), exportFr = new Set(), exportAemter = new Set(); // Audit 7 B3: Abgleich Bestand ↔ Export
-    let stats = { schulen: new Set(), jahrgaenge: new Set(), klassen: new Set(), frNotFound: new Set() };
+    let stats = { schulen: new Set(), jahrgaenge: new Set(), klassen: new Set(), betriebe: new Set(), frNotFound: new Set() };
+    const zuordnung = (opts && opts.zuordnung) || {};
+    // Wächter: vom Nutzer in der Vorschau gewählte Zuordnung → Alias merken, Ziel zurückgeben
+    const zugeordnet = (art, name) => { const id = parseInt((zuordnung[art] || {})[name]); if (id > 0) { App.aliasSetzen(art, name, id); return id; } return null; };
 
     // ── Match Fachrichtung by IBYKUS code (31-37, 171-177) ──
     function matchFR(codeStr) {
@@ -515,6 +537,8 @@ const ImportHandler = {
       const year = m ? parseInt(m[2]) : (parseInt(code.match(/\d{4}/)?.[0]) || 0);
       let jg = jahrgaenge.find(j => j.bezeichnung === bez);
       if (jg) return jg.id;
+      const jgAlias = App.aliasZiel('jahrgang', bez) || zugeordnet('jahrgang', bez);
+      if (jgAlias) return jgAlias;
       // Create new Jahrgang with original IBYKUS value as bezeichnung
       App.run('INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung,typ,jahr) VALUES (?,?,?)', [bez,typ,year]);
       const n = App.query('SELECT * FROM abschlussjahrgaenge WHERE bezeichnung=?', [bez]);
@@ -528,6 +552,7 @@ const ImportHandler = {
       name = name.trim();
       if (!name) return null;
       let s = schulen.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (!s) { const al = App.aliasZiel('schule', name) || zugeordnet('schule', name); if (al) return al; }
       if (!s) s = schulen.find(x => name.toLowerCase().includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(name.toLowerCase()));
       if (s) return s.id;
       App.run('INSERT INTO berufsschulen (name) VALUES (?)', [name]);
@@ -584,6 +609,7 @@ const ImportHandler = {
       // Find by Betriebsnummer first, then by name
       let b = bnr ? App.query('SELECT * FROM betriebe WHERE betriebsnummer=?', [bnr])[0] : null;
       if (!b) b = App.query('SELECT * FROM betriebe WHERE name=? AND ort=?', [name, ort])[0];
+      if (!b) { const al = App.aliasZiel('betrieb', name) || (bnr ? App.aliasZiel('betrieb', bnr) : null) || zugeordnet('betrieb', name); if (al) b = App.query('SELECT * FROM betriebe WHERE id=?', [al])[0]; }
       if (b) {
         // Always overwrite with newest import data (unless import field is empty)
         if (email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
@@ -600,6 +626,7 @@ const ImportHandler = {
       // Leere Betriebsnummer als NULL: betriebsnummer ist UNIQUE, und '' gilt in
       // SQLite als regulärer Wert – der zweite Betrieb ohne Nummer scheiterte,
       // wodurch der ganze Azubi-Datensatz verworfen wurde.
+      stats.betriebe.add(name);
       App.run(`INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(betriebsnummer) DO UPDATE SET name=excluded.name, strasse=excluded.strasse, plz=excluded.plz, ort=excluded.ort, telefon=excluded.telefon, email=excluded.email`,
         [bnr || null, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
@@ -858,6 +885,7 @@ const ImportHandler = {
     if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Schüler aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
     if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
+    if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
     if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${[...stats.jahrgaenge].join(', ')}`);
     if (stats.klassen.size) parts.push(`<strong>${stats.klassen.size}</strong> Klassen angelegt`);
     if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);

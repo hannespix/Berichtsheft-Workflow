@@ -2061,19 +2061,11 @@ const Views = {
   mergeBetriebe(keepId, removeId) {
     const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
     const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
-    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
-    // Move all schueler references
-    App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);
-    // Merge contact data (fill gaps in keeper from removed)
-    const keep = App.query('SELECT * FROM betriebe WHERE id=?', [keepId])[0];
-    const rem = App.query('SELECT * FROM betriebe WHERE id=?', [removeId])[0];
-    if (rem) {
-      ['email','telefon','strasse','plz','ort','ansprechpartner','firma'].forEach(f => {
-        if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
-      });
-    }
-    App.deleteBetriebKaskade(removeId);
-    App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
+    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`)) return;
+    // Eine Logik für alle Wege (Stammdaten, Datenqualität, Import-Wächter)
+    let r;
+    try { r = App.mergeBetriebe(keepId, [removeId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
+    App.toast(`Betriebe zusammengeführt → ${keepName} (${r.azubis} Azubis, ${r.ausbilder} Ausbilder)`, 'success');
     Views.einstellungen();
   },
 
@@ -2316,7 +2308,8 @@ const Views = {
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
             <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
-            <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern.</p>
+            <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern. Im Bearbeiten-Dialog lassen sich <em>weitere Schreibweisen (Aliase)</em> hinterlegen, die der Import automatisch dieser Schule zuordnet.</p>
+            <p><strong>Dubletten prüfen</strong> (Schulen, Betriebe, Jahrgänge) – findet Einträge, die sich nur in der Schreibweise unterscheiden (Groß/Klein, Umlaute, „Berufsschule“/„BS“, „GmbH“, Leerzeichen, Tippfehler) und führt sie per Klick zusammen: Azubis, Klassen, Termine und Blockpläne wandern zum Ziel, gleiche Klassen werden verschmolzen, der alte Name bleibt als Alias erhalten.</p>
             <p><strong>Ausbildungsbetriebe</strong> – Betriebe mit Anschrift, Kontaktdaten und zugeordneten Auszubildenden.</p>
             <p><strong>Fachrichtungen</strong> – Fachrichtungen im Gartenbau (z.B. GaLaBau, Baumschule, Zierpflanzenbau) sowie Fachwerkerberufe.</p>
             <p><strong>Klassen</strong> – Automatisch generierte Berufsschulklassen (Schule + Jahrgang + Fachrichtung + Ausbildungsjahr).</p>
@@ -2342,6 +2335,7 @@ const Views = {
             <p>• <strong>Verwaltungsdaten</strong> – Zuständiges Amt, Betriebsnummer, BAV-Identnummer</p>
             <p style="margin-top:8px"><strong>Automatische Verarbeitung:</strong></p>
             <p>• Berufsschulen, Klassen und Jahrgänge werden beim Import <strong>automatisch angelegt</strong>, sofern sie noch nicht existieren</p>
+            <p>• <strong>Import-Wächter:</strong> Würde eine neue Schule, ein neuer Betrieb oder Jahrgang angelegt, der einem vorhandenen ähnelt (Namensänderung in IBYKUS), zeigt die Vorschau eine Auswahl „zuordnen statt neu anlegen“. Die Zuordnung wird als Alias gemerkt und gilt für alle künftigen Importe; bekannte Aliase werden ohne Nachfrage angewendet</p>
             <p>• Bei erneutem Import (Re-Import) werden bestehende Datensätze anhand der BAV-Identnummer <strong>aktualisiert</strong>, nicht dupliziert</p>
             <p>• Die Fachrichtung wird aus dem IBYKUS-Berufscode abgeleitet (z.B. 010 = Garten- und Landschaftsbau, 036 = Baumschule)</p>
                       <p style="margin-top:8px">• <strong>Datumsformat:</strong> Der Import erkennt automatisch, ob die Datei deutsche (01.09.2024) oder US-Daten (9/1/07, häufig nach Excel-Bearbeitung) enthält, und zeigt die Erkennung im Dialog an. Bei mehrdeutigen Dateien bitte anhand der Beispielwerte prüfen – eine falsche Wahl vertauscht Tag und Monat.</p>

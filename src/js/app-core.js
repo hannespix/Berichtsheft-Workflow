@@ -1335,6 +1335,7 @@ const App = {
       geloescht_von TEXT DEFAULT '',
       geloescht_am TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm));
     CREATE TABLE IF NOT EXISTS wiedervorlagen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
@@ -4551,6 +4552,220 @@ const App = {
   },
 
   // ═══════════════════════════════════════════
+  //  STAMMDATEN HEILEN: Aliase, Dubletten, Zusammenführen
+  //  IBYKUS-Exporte ändern gelegentlich Schreibweisen (Schulname, Betrieb,
+  //  Jahrgang). Ohne Alias legt der Import dann eine Dublette an. Aliase
+  //  werden normalisiert gespeichert (Groß/Klein, Umlaute, Füllwörter) und
+  //  beim Import VOR dem Anlegen geprüft. Zusammenführen verschmilzt auch
+  //  Klassen mit gleichem Jahrgang/Fachrichtung (UNIQUE-Bedingung), statt
+  //  sie zu löschen und Azubis ohne Klasse zurückzulassen.
+  // ═══════════════════════════════════════════
+  ALIAS_ARTEN: { schule: { tab: 'berufsschulen', col: 'name', label: 'Berufsschule' }, betrieb: { tab: 'betriebe', col: 'name', label: 'Betrieb' }, jahrgang: { tab: 'abschlussjahrgaenge', col: 'bezeichnung', label: 'Jahrgang' } },
+  _FUELLWOERTER: {
+    schule: ['berufsschule', 'berufsschulzentrum', 'berufliche', 'berufliches', 'bs', 'bsz', 'gbs', 'schule', 'schulen', 'schulzentrum', 'bildungszentrum', 'gewerbliche', 'gewerblich', 'kaufmaennische', 'landwirtschaftliche', 'hauswirtschaftliche', 'fuer', 'und', 'der', 'die', 'das', 'in', 'am', 'an', 'zentrum'],
+    betrieb: ['gmbh', 'co', 'kg', 'gbr', 'ohg', 'ag', 'ek', 'ug', 'inh', 'inhaber', 'und', 'u', 'fa', 'firma', 'haftungsbeschraenkt'],
+    jahrgang: [],
+  },
+  normName(s, art) {
+    let x = String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+    x = x.replace(/[^a-z0-9]+/g, ' ').trim();
+    const fuell = this._FUELLWOERTER[art] || [];
+    if (fuell.length) {
+      const woerter = x.split(' ').filter(w => w && !fuell.includes(w));
+      if (woerter.length) x = woerter.join(' ');
+    }
+    return x.replace(/\s+/g, '');
+  },
+  _levenshtein(a, b, max) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let zeilenMin = i;
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < zeilenMin) zeilenMin = cur[j];
+      }
+      if (zeilenMin > max) return max + 1;
+      prev = cur;
+    }
+    return prev[b.length];
+  },
+  _aehnlichkeit(na, nb) {
+    if (!na || !nb) return '';
+    if (na === nb) return 'gleicher Name (nur Schreibweise)';
+    if (na.length >= 5 && nb.length >= 5 && (na.includes(nb) || nb.includes(na))) return 'Name enthalten';
+    const max = Math.max(1, Math.floor(Math.min(na.length, nb.length) / 8));
+    if (na.length >= 6 && nb.length >= 6 && this._levenshtein(na, nb, max) <= max) return 'Tippfehler-Nähe';
+    return '';
+  },
+  // Paare ähnlicher Stammdaten einer Art
+  dublettenKandidaten(art) {
+    const cfg = this.ALIAS_ARTEN[art];
+    if (!cfg) return [];
+    const rows = this.query(`SELECT * FROM ${cfg.tab} ORDER BY ${cfg.col}`);
+    const norm = rows.map(r => this.normName(r[cfg.col], art));
+    const out = [];
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      const grund = this._aehnlichkeit(norm[i], norm[j]);
+      if (grund) out.push({ art, a: rows[i], b: rows[j], grund });
+    }
+    return out;
+  },
+  // Vorhandene Einträge, die einem NEUEN Namen ähneln (Import-Wächter)
+  aehnlicheStammdaten(art, name) {
+    const cfg = this.ALIAS_ARTEN[art];
+    if (!cfg) return [];
+    const n = this.normName(name, art);
+    return this.query(`SELECT * FROM ${cfg.tab}`)
+      .map(r => ({ id: r.id, name: r[cfg.col], grund: this._aehnlichkeit(n, this.normName(r[cfg.col], art)) }))
+      .filter(x => x.grund)
+      .sort((x, y) => (x.grund.startsWith('gleicher') ? 0 : 1) - (y.grund.startsWith('gleicher') ? 0 : 1));
+  },
+  aliasZiel(art, name) {
+    const cfg = this.ALIAS_ARTEN[art];
+    const norm = this.normName(name, art);
+    if (!cfg || !norm) return null;
+    try {
+      const r = this.query('SELECT ziel_id FROM stammdaten_aliase WHERE art=? AND norm=?', [art, norm])[0];
+      if (!r) return null;
+      return this.scalar(`SELECT id FROM ${cfg.tab} WHERE id=?`, [r.ziel_id]) ? r.ziel_id : null;
+    } catch(e) { return null; }
+  },
+  aliasSetzen(art, alias, zielId) {
+    const cfg = this.ALIAS_ARTEN[art];
+    const norm = this.normName(alias, art);
+    if (!cfg || !norm || !zielId) return false;
+    // Kein Alias auf den (wörtlich) eigenen Namen des Ziels; abweichende
+    // Schreibweisen mit gleichem Normalschlüssel sind ausdrücklich erwünscht
+    const eigen = this.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [zielId]);
+    if (eigen === null || eigen === undefined) return false;
+    if (String(eigen).trim().toLowerCase() === String(alias).trim().toLowerCase()) return false;
+    this.run('INSERT INTO stammdaten_aliase (art, norm, alias, ziel_id) VALUES (?,?,?,?) ON CONFLICT(art, norm) DO UPDATE SET alias=excluded.alias, ziel_id=excluded.ziel_id', [art, norm, String(alias).trim(), zielId]);
+    return true;
+  },
+  aliasLoeschen(art, norm) { this.run('DELETE FROM stammdaten_aliase WHERE art=? AND norm=?', [art, norm]); },
+  aliasListe(art, zielId) {
+    try { return this.query('SELECT * FROM stammdaten_aliase WHERE art=?' + (zielId ? ' AND ziel_id=?' : '') + ' ORDER BY alias', zielId ? [art, zielId] : [art]); } catch(e) { return []; }
+  },
+  // Aliase eines Ziels komplett aus einer Liste setzen (Bearbeiten-Dialog)
+  aliaseSetzenAus(art, zielId, namen) {
+    this.run('DELETE FROM stammdaten_aliase WHERE art=? AND ziel_id=?', [art, zielId]);
+    (namen || []).map(x => String(x || '').trim()).filter(Boolean).forEach(a => this.aliasSetzen(art, a, zielId));
+    return this.aliasListe(art, zielId).length;
+  },
+  _leereFelderFuellen(tab, ziel, quelle, felder) {
+    felder.forEach(f => {
+      const zw = ziel[f], qw = quelle[f];
+      if ((zw === null || zw === undefined || zw === '' || zw === '[]') && qw !== null && qw !== undefined && qw !== '' && qw !== '[]') {
+        this.run(`UPDATE ${tab} SET ${f}=? WHERE id=?`, [qw, ziel.id]);
+        ziel[f] = qw;
+      }
+    });
+  },
+  // Quell-Klasse in Ziel-Klasse aufgehen lassen (Azubis, Termine, Termin-Klassen)
+  _klasseVerschmelzen(quellId, zielId) {
+    if (!quellId || !zielId || quellId === zielId) return 0;
+    const n = this.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [quellId]) || 0;
+    this.run('UPDATE schueler SET klasse_id=? WHERE klasse_id=?', [zielId, quellId]);
+    this.run('UPDATE kontrolltermine SET klasse_id=? WHERE klasse_id=?', [zielId, quellId]);
+    this.query('SELECT kontrolltermin_id FROM kontrolltermin_klassen WHERE klasse_id=?', [quellId])
+      .forEach(r => this.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [r.kontrolltermin_id, zielId]));
+    this.deleteKlasseKaskade(quellId);
+    return n;
+  },
+  // Klassen einer Quelle ins Ziel übernehmen: gleiche Klasse vorhanden → verschmelzen, sonst umhängen
+  _klassenUebernehmen(quellKlassen, zielFinden, umhaengenSql, zielId, r) {
+    quellKlassen.forEach(k => {
+      const z = zielFinden(k);
+      if (z && z !== k.id) { r.azubis += this._klasseVerschmelzen(k.id, z); r.klassenVerschmolzen++; }
+      else { r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [k.id]) || 0; this.run(umhaengenSql, [zielId, k.id]); r.klassenVerschoben++; }
+    });
+  },
+  mergeSchulen(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM berufsschulen WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Schule nicht gefunden');
+    const r = { klassenVerschmolzen: 0, klassenVerschoben: 0, azubis: 0, termine: 0, blockplan: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM berufsschulen WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      this._klassenUebernehmen(
+        this.query('SELECT * FROM klassen WHERE berufsschule_id=?', [qid]),
+        k => this.scalar('SELECT id FROM klassen WHERE berufsschule_id=? AND jahrgang_id IS ? AND fachrichtung_id IS ?', [zielId, k.jahrgang_id, k.fachrichtung_id]),
+        'UPDATE klassen SET berufsschule_id=? WHERE id=?', zielId, r);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE berufsschule_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET berufsschule_id=? WHERE berufsschule_id=?', [zielId, qid]);
+      this.query('SELECT schuljahr, lehrjahr, kalenderwoche FROM blockplan WHERE berufsschule_id=?', [qid]).forEach(b => {
+        this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id, schuljahr, lehrjahr, kalenderwoche) VALUES (?,?,?,?)', [zielId, b.schuljahr, b.lehrjahr, b.kalenderwoche]); r.blockplan++;
+      });
+      this.run('DELETE FROM blockplan WHERE berufsschule_id=?', [qid]);
+      this._leereFelderFuellen('berufsschulen', ziel, quelle, ['ort', 'ansprechpartner', 'telefon', 'email', 'email_cc', 'ansprechpartner_json']);
+      if (this.aliasSetzen('schule', quelle.name, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='schule' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      this.deleteSchuleKaskade(qid);
+      r.quellen.push(quelle.name);
+    });
+    return r;
+  },
+  mergeBetriebe(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM betriebe WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Betrieb nicht gefunden');
+    const r = { azubis: 0, termine: 0, ausbilder: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM betriebe WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      r.ausbilder += this.scalar('SELECT COUNT(*) FROM ausbilder WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE ausbilder SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      if (this.aliasSetzen('betrieb', quelle.name, zielId)) r.aliase++;
+      if (quelle.betriebsnummer && this.aliasSetzen('betrieb', quelle.betriebsnummer, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='betrieb' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      // Betriebsnummer ist UNIQUE: erst Quelle löschen, dann ggf. ans Ziel übernehmen
+      const bnr = quelle.betriebsnummer;
+      this.deleteBetriebKaskade(qid);
+      const felder = ['vorname', 'zusatzbezeichnung', 'firma', 'ansprechpartner', 'strasse', 'plz', 'ort', 'telefon', 'fax', 'email'];
+      this._leereFelderFuellen('betriebe', ziel, quelle, felder);
+      if (bnr && !ziel.betriebsnummer) { this.run('UPDATE betriebe SET betriebsnummer=? WHERE id=?', [bnr, zielId]); ziel.betriebsnummer = bnr; }
+      r.quellen.push(quelle.name);
+    });
+    return r;
+  },
+  mergeJahrgaenge(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Jahrgang nicht gefunden');
+    const r = { klassenVerschmolzen: 0, klassenVerschoben: 0, azubis: 0, termine: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      this._klassenUebernehmen(
+        this.query('SELECT * FROM klassen WHERE jahrgang_id=?', [qid]),
+        k => this.scalar('SELECT id FROM klassen WHERE jahrgang_id=? AND berufsschule_id IS ? AND fachrichtung_id IS ?', [zielId, k.berufsschule_id, k.fachrichtung_id]),
+        'UPDATE klassen SET jahrgang_id=? WHERE id=?', zielId, r);
+      // Azubis ohne Klasse, aber mit Jahrgang
+      r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND (klasse_id IS NULL OR klasse_id NOT IN (SELECT id FROM klassen))', [qid]) || 0;
+      this.run('UPDATE schueler SET jahrgang_id=? WHERE jahrgang_id=?', [zielId, qid]);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE jahrgang_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET jahrgang_id=? WHERE jahrgang_id=?', [zielId, qid]);
+      this._leereFelderFuellen('abschlussjahrgaenge', ziel, quelle, ['pruefungstermin', 'typ']);
+      if (this.aliasSetzen('jahrgang', quelle.bezeichnung, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='jahrgang' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      this.deleteJahrgangKaskade(qid);
+      r.quellen.push(quelle.bezeichnung);
+    });
+    return r;
+  },
+  mergeStammdaten(art, zielId, quellIds) {
+    if (art === 'schule') return this.mergeSchulen(zielId, quellIds);
+    if (art === 'betrieb') return this.mergeBetriebe(zielId, quellIds);
+    if (art === 'jahrgang') return this.mergeJahrgaenge(zielId, quellIds);
+    throw new Error('Unbekannte Stammdaten-Art: ' + art);
+  },
+
+  // ═══════════════════════════════════════════
   //  PAPIERKORB
   //  Gelöschte Azubis und Termine landen samt aller abhängigen Zeilen als
   //  JSON im Papierkorb (90 Tage) und lassen sich in den Einstellungen mit
@@ -5032,6 +5247,7 @@ const App = {
     // berufsschulen columns
     run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''");
     run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'");
+    run("CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm))");
     // betriebe columns
     run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''");
     run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
@@ -7685,6 +7901,8 @@ Anlagen: {anlagen}` },
       // berufsschulen: email_cc + ansprechpartner_json
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'"); } catch(e) {}
+      // Stammdaten-Aliase (alte Schreibweisen → Ziel, Import-Wächter)
+      try { this.db.run("CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm))"); } catch(e) {}
       // betriebe: vorname + zusatzbezeichnung
       try { this.db.run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''"); } catch(e) {}
