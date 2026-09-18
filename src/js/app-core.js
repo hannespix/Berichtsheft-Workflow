@@ -262,6 +262,7 @@ const App = {
 
   switchUser(name) {
     this.currentUser = name;
+    this._praesenzDirty = true;
     try { localStorage.setItem('bhk_current_user', name); } catch(e) {}
     this._restoreUserSettings();
     this._populateUserSelect();
@@ -2156,6 +2157,103 @@ const App = {
     }
   },
 
+  // ── Präsenz: Wer arbeitet gerade in dieser Datenbank? ──
+  //  Jeder Rechner schreibt im Abgleich-Takt (alle 30 s, im Feldmodus 60 s)
+  //  eine winzige Datei _bhk/praesenz_<db>_<client>.json (Prüfer, Ansicht,
+  //  Zeitstempel) und liest die der anderen. Online = Zeitstempel jünger als
+  //  3 Minuten. Dateien älter als 24 h werden beim Lesen entfernt. Läuft nie
+  //  bei Netzabriss oder im Offline-Modus und blockiert keine Bedienaktion.
+  PRAESENZ_TAKT_MS: 30000,
+  PRAESENZ_MIN_ABSTAND_MS: 5000,
+  PRAESENZ_ONLINE_MS: 3 * 60000,
+  PRAESENZ_ALT_MS: 24 * 3600000,
+  _praesenzLetzte: 0,
+  _praesenzDirty: false,
+  _praesenzSeit: 0,
+  _praesenzAndere: [],
+  VIEW_LABELS: { dashboard: 'Startseite', stammdaten: 'Stammdaten', import: 'Import', planung: 'Planung', kontrolle: 'Kontrolle', nacherfassung: 'Nacherfassung', wiedervorlagen: 'Wiedervorlagen', berichte: 'Berichte', einstellungen: 'Einstellungen', hilfe: 'Hilfe' },
+  _praesenzName() { return (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || this.currentUser || ''; },
+  _praesenzPrefix() { return 'praesenz_' + this._dbSlug() + '_'; },
+  _praesenzDatei() { return this._praesenzPrefix() + this._getClientId() + '.json'; },
+  _praesenzEintrag() {
+    if (!this._praesenzSeit) this._praesenzSeit = Date.now();
+    return { c: this._getClientId(), p: this._praesenzName(), v: this.currentView || '', ts: Date.now(), seit: this._praesenzSeit, fm: !!this.feldmodus };
+  },
+  // Wird vom Abgleich-Timer aufgerufen; drosselt sich selbst
+  async _praesenzTakt(erzwingen) {
+    if (!this.dirHandle || this._netzWeg || this.offlineModus || this._praesenzLaeuft) return false;
+    const takt = this.feldmodus ? this.PRAESENZ_TAKT_MS * 2 : this.PRAESENZ_TAKT_MS;
+    const seit = Date.now() - this._praesenzLetzte;
+    if (!erzwingen && seit < takt && !(this._praesenzDirty && seit >= this.PRAESENZ_MIN_ABSTAND_MS)) return false;
+    this._praesenzLaeuft = true;
+    try {
+      const dir = this._syncDirV3();
+      this._praesenzLetzte = Date.now();
+      this._praesenzDirty = false;
+      try {
+        const fh = await dir.getFileHandle(this._praesenzDatei(), { create: true });
+        const w = await fh.createWritable();
+        await w.write(JSON.stringify(this._praesenzEintrag()));
+        await w.close();
+      } catch(e) { this._verbindungsProblem(e, 'praesenz'); return false; }
+      await this._praesenzLesen(dir);
+      this._praesenzAnzeigen();
+      return true;
+    } finally { this._praesenzLaeuft = false; }
+  },
+  async _praesenzLesen(dir) {
+    dir = dir || this._syncDirV3();
+    if (!dir) return [];
+    const prefix = this._praesenzPrefix(), eigen = this._praesenzDatei();
+    const jetzt = Date.now();
+    const andere = [];
+    try {
+      for await (const [name, h] of dir.entries()) {
+        if (!name.startsWith(prefix) || !name.endsWith('.json') || name === eigen || h.kind !== 'file') continue;
+        try {
+          const f = await h.getFile();
+          if (jetzt - f.lastModified > this.PRAESENZ_ALT_MS) { try { await dir.removeEntry(name); } catch(_) {} continue; }
+          const d = JSON.parse(await f.text());
+          if (!d || !d.ts) continue;
+          andere.push({ client: String(d.c || name), name: d.p || '', view: d.v || '', ts: d.ts, seit: d.seit || d.ts, feldmodus: !!d.fm, online: jetzt - d.ts <= this.PRAESENZ_ONLINE_MS });
+        } catch(e) { /* unlesbar – überspringen */ }
+      }
+    } catch(e) { this._verbindungsProblem(e, 'praesenz'); }
+    this._praesenzAndere = andere.sort((a, b) => b.ts - a.ts);
+    return andere;
+  },
+  onlineNutzer() { return (this._praesenzAndere || []).filter(a => a.online); },
+  _praesenzLabel(a) { return a.name || ('Rechner ' + String(a.client).slice(-4)); },
+  _praesenzVor(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return `vor ${s} s`;
+    if (s < 3600) return `vor ${Math.round(s / 60)} min`;
+    return `vor ${Math.round(s / 3600)} h`;
+  },
+  onlineNutzerText() {
+    return this.onlineNutzer().map(a => `${this._praesenzLabel(a)}${this.VIEW_LABELS[a.view] ? ' (' + this.VIEW_LABELS[a.view] + ')' : ''}`).join(' · ');
+  },
+  _praesenzAnzeigen() {
+    const el = document.getElementById('onlineNutzer');
+    if (!el) return;
+    const on = this.onlineNutzer();
+    el.style.display = on.length ? '' : 'none';
+    if (!on.length) return;
+    const namen = on.slice(0, 3).map(a => this._praesenzLabel(a)).join(', ') + (on.length > 3 ? ` +${on.length - 3}` : '');
+    el.innerHTML = `<span class="dot dot-green"></span>${esc(namen)}`;
+    el.title = 'Gerade online: ' + on.map(a => `${this._praesenzLabel(a)} – ${this.VIEW_LABELS[a.view] || a.view || '?'} – ${this._praesenzVor(a.ts)}`).join('\n') + '\n(Klick für Details)';
+  },
+  onlineNutzerDialog() {
+    const alle = this._praesenzAndere || [];
+    const zeile = (a) => `<tr><td>${esc(this._praesenzLabel(a))}${a.feldmodus ? ' <span style="font-size:10px;color:var(--clr-text-light)" title="Feldmodus">⇅</span>' : ''}</td><td>${esc(this.VIEW_LABELS[a.view] || a.view || '–')}</td><td>${esc(new Date(a.seit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))}</td><td>${a.online ? '<span style="color:var(--clr-green)">● online</span>' : esc(this._praesenzVor(a.ts))}</td></tr>`;
+    this.openModal('Wer arbeitet gerade?', `
+      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Alle Rechner, die diese Datenbank in den letzten 24 Stunden geöffnet hatten. „Online“ = Lebenszeichen jünger als 3 Minuten (Takt 30 s, im Feldmodus 60 s). Wer im Offline-Modus arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht.</p>
+      ${alle.length ? `<table class="data-table"><thead><tr><th>Prüfer / Rechner</th><th>Ansicht</th><th>seit</th><th>Status</th></tr></thead><tbody>${alle.map(zeile).join('')}</tbody></table>` : '<div style="font-size:12px;color:var(--clr-text-light)">Niemand sonst – nur dieser Rechner.</div>'}
+      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ich: ${esc(this._praesenzName() || 'kein Prüfer gewählt')} · ${esc(this.VIEW_LABELS[this.currentView] || '')} · letztes Lebenszeichen ${this._praesenzLetzte ? esc(this._praesenzVor(this._praesenzLetzte)) : '–'}</div>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
+  },
+
   // ── Offline-Betrieb (Kontrollort ohne Netz) ──
   offlineModus: false,
   _offlineSeit: 0,      // Beginn der Offline-Phase (für die Konfliktanzeige beim Zusammenführen)
@@ -2487,6 +2585,8 @@ const App = {
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
           if (this._v3Active()) await this._pollOplogs();
           else await this._pollSyncMarker();
+          // Präsenz (drosselt sich selbst auf 30/60 s)
+          try { await this._praesenzTakt(false); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);
@@ -8251,6 +8351,7 @@ Anlagen: {anlagen}` },
   },
 
   navigate(view, skipHash) {
+    if (view !== this.currentView) this._praesenzDirty = true;
     this.currentView = view;
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery

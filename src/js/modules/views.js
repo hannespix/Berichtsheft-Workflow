@@ -1538,6 +1538,7 @@ const Views = {
           Feldmodus: Abgleich alle 30 s statt 3 s, Speichern gebündelt (10 s), Positionsanzeige seltener
         </label>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px;line-height:1.6">
+          <strong>Gerade online:</strong> ${(() => { const on = App.onlineNutzer(); return on.length ? esc(App.onlineNutzerText()) : 'niemand sonst'; })()} <a href="#" onclick="App.onlineNutzerDialog();return false" style="color:var(--clr-forest)">Details</a> – jeder Rechner hinterlässt alle 30 s (Feldmodus 60 s) ein Lebenszeichen in <code>_bhk/</code>; die Kopfzeile zeigt, wer gerade mitarbeitet.<br>
           Das Tool wartet nie auf das Netzlaufwerk – Abgleich und Speichern laufen im Hintergrund und drosseln sich selbst
           (aktuell: Netzqualität <strong>${esc(App._networkQuality)}</strong>, letzter Abgleich ${App._lastPollMs ? Math.round(App._lastPollMs) + ' ms' : '–'}, letztes Speichern ${App._lastSaveDurationMs ? Math.round(App._lastSaveDurationMs) + ' ms' : '–'}).
           Über Mobilfunk/VPN wird jede Dateioperation langsam; der Feldmodus nimmt den Takt heraus. Für längere Termine ohne Netz: <strong>Offline-Modus</strong> (Schaltfläche in der Kopfzeile).
@@ -2602,6 +2603,7 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
+            <p>• <strong>Wer ist online?</strong> Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>

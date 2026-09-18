@@ -2288,6 +2288,7 @@ const KontrolleHandler = {
   setActivePruefer(name) {
     const oldPruefer = this.activePruefer;
     this.activePruefer = name;
+    App._praesenzDirty = true;
 
     // Delete old prüfer's position file
     if (oldPruefer && oldPruefer !== name) {

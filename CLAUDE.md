@@ -145,6 +145,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `feldmodus-test.mjs` | Feldmodus/Lag-Budget: Abgleich-Takt aus Netzqualität, Messung der Abgleichdauer, Log-Rotation nach Größe, Bereinigung nur bei Snapshot-Abdeckung |
 | `dbtools-test.mjs` | Datenbank-Tools: Bestand/Jahrgangsübersicht, Verdichten-Kandidaten (offene WV, Frist), Jahrgang löschen (geteilte Termine bleiben), Archiv-DB + Rückholung, Aufräumen (Waisen, Log, Blockplan, Stempel, Betriebe), VACUUM, Sperrgründe |
 | `stammdaten-test.mjs` | Stammdaten heilen: Normalisierung, Dubletten-Kandidaten, Aliase, Zusammenführen (Schulen mit UNIQUE-Klassen, Betriebe, Jahrgänge), Import-Wächter (Alias-Zuordnung, Vorschau-Auswahl) |
+| `praesenz-test.mjs` | Präsenz „Wer arbeitet gerade?“: Lebenszeichen-Datei je Rechner, Online-Erkennung (3 min), Drosselung (30/60 s, Ansichtswechsel nach 5 s), Aufräumen (24 h), Sperren (Netzabriss/offline), Kopfzeile + Dialog |
 | `offline-test.mjs` | Offline-Betrieb: Prüferaufteilung in der DB, Zusammenführung nach Offline-Phase (LWW je Feld) mit Konfliktliste, eine WV je Ergebnis, Änderungsdatei als Notausgang |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
@@ -176,6 +177,8 @@ Snapshot und wird selten und mit Sperre kompaktiert; `snapmeta_<db>.json`
 hält Log-Offsets und Snapshot-Generation. Details: `TECHSTACK.md`.
 
 **Feldmodus und Offline-Betrieb:** Keine Bedienaktion wartet auf das Netzlaufwerk. Der Abgleich-Takt folgt der gemessenen Netzqualität (Speichern und Abgleichdauer): 3 s / 10 s / 30 s, der Feldmodus (`App.feldmodus`, Einstellungen) erzwingt 30 s und bündelt das Speichern. Das eigene Protokoll rotiert ab `LOG_ROTATE_BYTES` auf eine neue Generation (Chrome kopiert beim Anhängen die ganze Datei); alte Generationen werden nur gelöscht, wenn `snapmeta` sie vollständig abdeckt. Offline-Modus (`App.offlineModusEinschalten()` / `startOffline()` / `wiederverbinden()`): lokaler Snapshot in IndexedDB (`snapshot`-Store), Änderungen im Puffer (30 Tage), Zusammenführung über den Crash-Restore-Pfad mit Konfliktliste (`_konflikte`), genau eine Wiedervorlage je Ergebnis (`_entdoppleWiedervorlagen`), Prüferaufteilung in `kontrolltermine.aufteilung`.
+
+**Präsenz:** Jeder Rechner schreibt im Abgleich-Takt (30 s, Feldmodus 60 s, nach Ansichts-/Prüferwechsel frühestens nach 5 s) `_bhk/praesenz_<db>_<client>.json` und liest die der anderen (`App._praesenzTakt`, `App.onlineNutzer()`); online = Lebenszeichen jünger als 3 Minuten, Dateien älter als 24 h werden beim Lesen entfernt. Anzeige in der Kopfzeile (`#onlineNutzer`) und unter Einstellungen → Verbindung.
 
 **Beim Ändern von Schreibpfaden beachten:**
 - Schreibende IDs müssen global eindeutig sein → Tabelle in `App.ID_TABLES`
