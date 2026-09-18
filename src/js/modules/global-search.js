@@ -343,6 +343,7 @@ const GlobalSearch = {
     App.openModal('⌨︎ Tastenkürzel', `
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px 16px;font-size:13px">
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
+        <strong style="color:var(--clr-forest)">Ctrl+M</strong><span>Nachrichten an Kolleg/innen</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>
         <strong style="color:var(--clr-forest)">Ctrl+Z / Y</strong><span>Undo / Redo</span>
         <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Schüler</span>

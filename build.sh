@@ -77,6 +77,7 @@ APP_MODULES=(
   "src/js/modules/schueler-view.js"
   "src/js/modules/schueler-akte.js"
   "src/js/modules/db-tools.js"
+  "src/js/modules/chat.js"
 )
 
 # Prüfe ob alle Dateien existieren

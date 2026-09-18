@@ -1,5 +1,11 @@
 
 document.addEventListener('keydown', (e) => {
+  // Ctrl+M = Nachrichten an die Kolleginnen und Kollegen
+  if ((e.ctrlKey || e.metaKey) && e.key === 'm' && !e.shiftKey) {
+    e.preventDefault();
+    if (typeof Chat !== 'undefined') Chat.oeffnen();
+    return;
+  }
   // Ctrl+Z = Undo
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     // Don't intercept in text inputs/textareas (let browser handle native undo)
