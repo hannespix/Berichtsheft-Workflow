@@ -251,7 +251,7 @@ console.log('══ Speichern unter Last: Warten, längere Versuche, Nachholung 
   App.fullSave = async (o) => { saveOpts = o; };
   await T._ausfuehren('test', () => { ran++; return 'Testlauf'; }, { nachher: async () => { nachher++; } });
   check(ran === 1 && nachher === 1 && toasts.at(-1)[1] === 'success', 'Freie Kompaktierung: Arbeit, Speichern, Nacharbeit, Erfolgsmeldung');
-  check(saveOpts && saveOpts.versuche === 8 && saveOpts.pause === 15000 && saveOpts.grund === 'bereinigung' && saveOpts.label === 'Bereinigung', 'Speichern mit 8 Versuchen à 15 s statt 3 à 3 s');
+  check(saveOpts && saveOpts.versuche === T.SAVE_VERSUCHE && saveOpts.pause === T.SAVE_PAUSE_MS && saveOpts.grund === 'bereinigung' && saveOpts.label === 'Bereinigung', `Speichern mit den eigenen Vorgaben (${T.SAVE_VERSUCHE} Versuche à ${T.SAVE_PAUSE_MS / 1000} s)`);
   App.fullSave = async () => { App._bulkPending = true; throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)'); };
   await T._ausfuehren('jahrgang', () => { ran++; return 'Jahrgang gelöscht'; }, { nachher: async () => { nachher++; } });
   check(ran === 2 && nachher === 1 && T._ausstehend && T._ausstehend.meldung === 'Jahrgang gelöscht' && T._letzterLauf.ausstehend === true, 'Lock belegt: Stand bleibt im Speicher, Nacharbeit wartet, Lauf als ausstehend markiert');
@@ -330,7 +330,7 @@ console.log('══ Veralteter Datei-Zugriffspunkt (fremde Kompaktierung) ══
   check(!App._istZustandsFehler(new Error('Failed to perform Safe Browsing check.')) && !App._istZustandsFehler(null), 'Safe-Browsing-Fehler und null sind keine Zustandsfehler');
   // Neuholen aus dem Verzeichnis
   let geholt = { bhk: 0, db: 0 };
-  const datei = { name: 'test.sqlite', neu: true };
+  const datei = { name: 'test.sqlite', neu: true, async getFile() { return { size: 1, lastModified: Date.now() }; } };
   App.dirHandle = {
     async getDirectoryHandle(n) { if (n === '_bhk') { geholt.bhk++; return { async getDirectoryHandle() { return {}; } }; } return {}; },
     async getFileHandle(n) { if (n !== 'test.sqlite') throw new Error('nf'); geholt.db++; return datei; },
@@ -341,7 +341,7 @@ console.log('══ Veralteter Datei-Zugriffspunkt (fremde Kompaktierung) ══
   check(await App._handlesNeuHolen() === false, 'Ohne Ordner kein Neuholen');
   check(/_istZustandsFehler\(err\) && await this\._handlesNeuHolen\(\)/.test(APP_SRC), 'Snapshot-Write wiederholt nach Erneuerung genau einmal');
   check(/_istZustandsFehler\(e\) && !this\._lockHandleRetry/.test(APP_SRC), 'Sperre wird nach Erneuerung genau einmal erneut versucht');
-  check(/zwischenzeitlich von einem anderen Rechner ersetzt/.test(APP_SRC), 'Grund nennt die fremde Kompaktierung im Klartext');
+  check(/Zugriff auf die Datenbankdatei ist veraltet/.test(APP_SRC) && /Seite neu laden \(F5\)/.test(APP_SRC), 'Grund nennt den veralteten Zugriff und den Ausweg im Klartext');
 }
 
 console.log('══ Geschwindigkeit: Indizes und Übersicht ══');
@@ -371,6 +371,26 @@ console.log('══ Geschwindigkeit: Indizes und Übersicht ══');
   check(!/verdichtenVorschau\(monate\)/.test(DBT_SRC.split('renderCard()')[1] || DBT_SRC), 'Die Verdichten-Zahlen werden nicht mehr bei jedem Zeichnen berechnet');
   check(!/App\.dublettenKandidaten\(art\)\.length/.test(DBT_SRC), 'Die Dubletten-Suche läuft erst auf Klick, nicht beim Zeichnen');
   check(/verdichtenZeigen\(\)/.test(DBT_SRC), 'Die Zahlen sind über „Wie viele?" weiterhin abrufbar');
+}
+
+console.log('══ Nicht heilbarer Zugriffspunkt, Fortschritt, begrenzte Wartezeit ══');
+{
+  // Neuholen darf nur als Erfolg gelten, wenn die Datei danach lesbar ist
+  const datei = { name: 'test.sqlite', async getFile() { const e = new Error('state had changed since it was read from disk'); e.name = 'InvalidStateError'; throw e; } };
+  App.dirHandle = { async getDirectoryHandle() { return { async getDirectoryHandle() { return {}; } }; }, async getFileHandle() { return datei; } };
+  App.dbFileHandle = { name: 'test.sqlite' }; App.autoLoadedDbName = 'test.sqlite';
+  check(await App._handlesNeuHolen() === false, 'Neuholen meldet Misserfolg, wenn die Datei danach NICHT lesbar ist');
+  const gut = { name: 'test.sqlite', async getFile() { return { size: 1, lastModified: Date.now() }; } };
+  App.dirHandle = { async getDirectoryHandle() { return { async getDirectoryHandle() { return {}; } }; }, async getFileHandle() { return gut; } };
+  check(await App._handlesNeuHolen() === true && App.dbFileHandle === gut, 'Bei lesbarer Datei gilt das Neuholen als gelungen');
+  check(/await this\.dbFileHandle\.getFile\(\)/.test(APP_SRC.split('_handlesNeuHolen()')[1].split('\n  },')[0]), 'Die Prüfung steht im Quelltext');
+  check(/_neuladenNoetig = true/.test(APP_SRC) && /Seite neu laden \(F5\)/.test(APP_SRC), 'Ein nicht heilbarer Zustandsfehler sagt das Neuladen an');
+  check(/Jetzt neu laden/.test(DBT_SRC) && /App\._neuladenNoetig/.test(DBT_SRC), 'Die Karte bietet den Neustart an');
+  // Wartezeit begrenzt
+  check(T.SAVE_VERSUCHE <= 3 && T.SAVE_PAUSE_MS <= 10000, `Der Nutzer wartet höchstens ${T.SAVE_VERSUCHE} Versuche à ${T.SAVE_PAUSE_MS / 1000} s, danach übernimmt die Nachholung`);
+  // Fortschrittsanzeige
+  check(/ladeText\(text\)/.test(APP_SRC) && /this\._ladeTimer = setInterval/.test(APP_SRC), 'Die Ladeanzeige zählt die Sekunden mit');
+  check(/Datenbank schreiben \(\$\{Math\.round\(data\.length/.test(APP_SRC) && /Fremde Änderungen einlesen…/.test(APP_SRC), 'Die einzelnen Phasen der Kompaktierung werden angezeigt');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

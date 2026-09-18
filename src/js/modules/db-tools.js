@@ -580,8 +580,12 @@ const DbTools = {
   },
   WARTE_SCHRITT_MS: 2000,
   WARTE_MAX: 90,          // 90 × 2 s = 3 Minuten auf eine laufende Kompaktierung
-  SAVE_VERSUCHE: 8,
-  SAVE_PAUSE_MS: 15000,   // 8 × 15 s = 2 Minuten, falls das Lock belegt ist
+  // Kurz halten! Ein einzelner Versuch kann auf einem langsamen Netzlaufwerk
+  // selbst Minuten dauern (Schreib-Zeitgrenze 120 s). Acht Versuche ergaben so
+  // eine gefühlte Ewigkeit ohne Rückmeldung. Gelingt es nicht, übernimmt die
+  // Nachholung im Hintergrund – der Stand ist im Speicher sicher.
+  SAVE_VERSUCHE: 2,
+  SAVE_PAUSE_MS: 8000,
   _ausstehend: null,
   async _ausfuehren(art, arbeit, opts) {
     const grund = this._sperrgrund();
@@ -612,7 +616,7 @@ const DbTools = {
       const nachher = App.db.export().length;
       this._letzterLauf = { art, meldung, vorher, nachher, zeit: new Date().toISOString() };
       if (App.dbFileHandle) {
-        App.showLoading('Neuer Snapshot wird geschrieben…');
+        App.showLoading('Neuer Stand wird gespeichert…');
         try {
           await App.fullSave({ versuche: this.SAVE_VERSUCHE, pause: this.SAVE_PAUSE_MS, grund: 'bereinigung', label: 'Bereinigung' });
         } catch(e) {
@@ -623,7 +627,9 @@ const DbTools = {
           this._ausstehend = { art, meldung, vorher, nachher, nachherFn: opts && opts.nachher, seit: Date.now() };
           this._letzterLauf.ausstehend = true;
           this._ausstehendStarten();
-          App.toast(`${meldung} – Speichern noch nicht möglich (Kompaktierung belegt). Wird automatisch nachgeholt, bitte das Fenster NICHT schließen.`, 'error');
+          App.toast(App._neuladenNoetig
+            ? `${meldung} – gespeichert wird erst nach einem Neuladen der Seite (F5). Der Stand bleibt bis dahin erhalten, bitte das Fenster NICHT schließen.`
+            : `${meldung} – Speichern noch nicht möglich. Wird im Hintergrund automatisch nachgeholt, bitte das Fenster NICHT schließen.`, 'error');
           return;
         }
       }
@@ -725,7 +731,7 @@ const DbTools = {
     const b = this.bestand();
     const gross = b.tabellen.filter(t => t.zeilen > 0).sort((x, y) => y.zeilen - x.zeilen);
     const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
-    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong>, wird automatisch nachgeholt. Bitte das Fenster nicht schließen.${App._compactGrund ? `<br>Grund: ${esc(App._compactGrund)}` : ''} <button class="btn btn-sm btn-secondary" style="margin-left:6px" onclick="DbTools.sperreDialog()">Sperre prüfen</button></div>`
+    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong>${App._neuladenNoetig ? ', dafür muss die Seite neu geladen werden (F5)' : ', wird automatisch nachgeholt'}. Bitte das Fenster nicht schließen.${App._compactGrund ? `<br>Grund: ${esc(App._compactGrund)}` : ''} <button class="btn btn-sm btn-secondary" style="margin-left:6px" onclick="DbTools.sperreDialog()">Sperre prüfen</button>${App._neuladenNoetig ? ' <button class="btn btn-sm btn-primary" onclick="location.reload()">Jetzt neu laden</button>' : ''}</div>`
       : this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
     box.innerHTML = `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
