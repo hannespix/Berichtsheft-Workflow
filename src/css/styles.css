@@ -967,6 +967,7 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 .toast.toast-success { border-left: 4px solid var(--clr-green); }
 .toast.toast-error { border-left: 4px solid var(--clr-red); }
 .toast.toast-warning { border-left: 4px solid var(--clr-amber); }
+.toast.toast-chat { border-left: 4px solid var(--clr-forest); align-items: flex-start; max-width: 340px; }
 @keyframes slideIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
 
 /* ── Empty state ── */

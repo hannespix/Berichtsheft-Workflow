@@ -2589,6 +2589,8 @@ const App = {
           try { await this._praesenzTakt(false); } catch(e) {}
           // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
           try { await this._sperreAufraeumen(); } catch(e) {}
+          // Nachrichten der Kolleginnen und Kollegen abholen
+          try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);
