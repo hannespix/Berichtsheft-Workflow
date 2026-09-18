@@ -8794,6 +8794,67 @@ const App = {
       ibykus_relevant INTEGER DEFAULT 1,
       exportiert INTEGER DEFAULT 0
     );
+    -- ── Indizes ──
+    -- Ohne diese liest jede Abfrage „WHERE schueler_id=?" die ganze Tabelle.
+    -- Bei 300.000 Wochenzeilen kostete allein die Jahrgangsübersicht 10 Sekunden.
+    CREATE INDEX IF NOT EXISTS idx_kw_status_schueler ON kw_status(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_kw_maengel_ke ON kw_maengel(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_schueler ON kontrollergebnisse(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_termin ON kontrollergebnisse(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_schueler ON durchsicht_snapshots(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_ke ON durchsicht_snapshots(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_schueler ON wiedervorlagen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_ke ON wiedervorlagen(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wvn_wv ON wiedervorlage_notizen(wiedervorlage_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_jahrgang ON schueler(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_klasse ON schueler(klasse_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_betrieb ON schueler(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_fr ON schueler(fachrichtung_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_schule ON klassen(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_jahrgang ON klassen(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_jahrgang ON kontrolltermine(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_schule ON kontrolltermine(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_termin ON kontrolltermin_schueler(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_schueler ON kontrolltermin_schueler(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ktk_termin ON kontrolltermin_klassen(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_phasen_schueler ON ausbildungsphasen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_bem_schueler ON schueler_bemerkungen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_dateien_schueler ON schueler_dateien(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ausbilder_betrieb ON ausbilder(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_log_schueler ON aenderungslog(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_blockplan_schule ON blockplan(berufsschule_id);
+  `,
+
+  INDIZES: `
+    -- ── Indizes ──
+    -- Ohne diese liest jede Abfrage „WHERE schueler_id=?" die ganze Tabelle.
+    -- Bei 300.000 Wochenzeilen kostete allein die Jahrgangsübersicht 10 Sekunden.
+    CREATE INDEX IF NOT EXISTS idx_kw_status_schueler ON kw_status(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_kw_maengel_ke ON kw_maengel(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_schueler ON kontrollergebnisse(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_termin ON kontrollergebnisse(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_schueler ON durchsicht_snapshots(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_ke ON durchsicht_snapshots(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_schueler ON wiedervorlagen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_ke ON wiedervorlagen(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wvn_wv ON wiedervorlage_notizen(wiedervorlage_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_jahrgang ON schueler(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_klasse ON schueler(klasse_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_betrieb ON schueler(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_fr ON schueler(fachrichtung_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_schule ON klassen(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_jahrgang ON klassen(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_jahrgang ON kontrolltermine(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_schule ON kontrolltermine(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_termin ON kontrolltermin_schueler(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_schueler ON kontrolltermin_schueler(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ktk_termin ON kontrolltermin_klassen(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_phasen_schueler ON ausbildungsphasen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_bem_schueler ON schueler_bemerkungen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_dateien_schueler ON schueler_dateien(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ausbilder_betrieb ON ausbilder(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_log_schueler ON aenderungslog(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_blockplan_schule ON blockplan(berufsschule_id);
   `,
 
   SEED_DATA: `
@@ -13148,6 +13209,8 @@ const App = {
     )`);
     // Idempotenz-Ledger: verhindert Doppel-Anwendung von Ops nach Crash/Retry
     run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
+    // Indizes auch auf der Disk-DB – sonst sind Replays dort quälend langsam
+    try { diskDb.run(this.INDIZES); } catch(e) {}
     // UNIQUE-Index gegen doppelte Kontrollergebnisse bei gleichzeitiger Auto-Erstellung
     try {
       diskDb.run("DELETE FROM kontrollergebnisse WHERE id NOT IN (SELECT MIN(id) FROM kontrollergebnisse GROUP BY kontrolltermin_id, schueler_id)");
@@ -15919,6 +15982,9 @@ Anlagen: {anlagen}` },
         ibykus_relevant INTEGER DEFAULT 1, exportiert INTEGER DEFAULT 0
       )`);
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
+
+    // ── Indizes (auch auf Bestands-Datenbanken nachziehen) ──
+    try { this.db.run(this.INDIZES); } catch(e) { console.warn('Index-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──
     try {
@@ -34165,16 +34231,26 @@ const DbTools = {
     };
   },
   jahrgangsUebersicht() {
+    // EINE Gruppierung je Tabelle statt einer Unterabfrage je Jahrgang. Die alte
+    // Fassung las kw_status einmal PRO Jahrgang komplett – bei 21 Jahrgängen und
+    // 300.000 Wochenzeilen dauerte allein diese Übersicht rund 10 Sekunden.
     const rows = App.query(`SELECT j.id, j.bezeichnung, j.jahr, j.typ,
-        (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id AND s.aktiv=1) AS aktiv,
-        (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id AND s.aktiv=0) AS inaktiv,
-        (SELECT MAX(COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum)) FROM kontrolltermine kt WHERE kt.jahrgang_id=j.id
-           OR kt.id IN (SELECT ke.kontrolltermin_id FROM kontrollergebnisse ke JOIN schueler s ON s.id=ke.schueler_id WHERE s.jahrgang_id=j.id)) AS letzter_termin,
-        (SELECT COUNT(*) FROM kw_status k JOIN schueler s ON s.id=k.schueler_id WHERE s.jahrgang_id=j.id) AS kw_zeilen,
-        (SELECT COUNT(*) FROM durchsicht_snapshots d JOIN schueler s ON s.id=d.schueler_id WHERE s.jahrgang_id=j.id) AS snapshots,
-        (SELECT COUNT(*) FROM kontrollergebnisse ke JOIN schueler s ON s.id=ke.schueler_id WHERE s.jahrgang_id=j.id) AS ergebnisse,
-        (SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.jahrgang_id=j.id AND w.status!='erledigt') AS wv_offen
-      FROM abschlussjahrgaenge j ORDER BY j.jahr DESC, j.bezeichnung`);
+        COALESCE(s.aktiv, 0) AS aktiv, COALESCE(s.inaktiv, 0) AS inaktiv,
+        MAX(COALESCE(t1.d, ''), COALESCE(t2.d, '')) AS letzter_termin,
+        COALESCE(kw.n, 0) AS kw_zeilen, COALESCE(ds.n, 0) AS snapshots,
+        COALESCE(ke.n, 0) AS ergebnisse, COALESCE(wv.n, 0) AS wv_offen
+      FROM abschlussjahrgaenge j
+      LEFT JOIN (SELECT jahrgang_id, SUM(aktiv=1) AS aktiv, SUM(aktiv=0) AS inaktiv FROM schueler GROUP BY jahrgang_id) s ON s.jahrgang_id=j.id
+      LEFT JOIN (SELECT jahrgang_id, MAX(COALESCE(NULLIF(durchgefuehrt_datum,''), geplant_datum)) AS d FROM kontrolltermine WHERE jahrgang_id IS NOT NULL GROUP BY jahrgang_id) t2 ON t2.jahrgang_id=j.id
+      LEFT JOIN (SELECT s2.jahrgang_id, MAX(COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum)) AS d
+                 FROM kontrollergebnisse ke2 JOIN schueler s2 ON s2.id=ke2.schueler_id JOIN kontrolltermine kt ON kt.id=ke2.kontrolltermin_id
+                 GROUP BY s2.jahrgang_id) t1 ON t1.jahrgang_id=j.id
+      LEFT JOIN (SELECT s3.jahrgang_id, COUNT(*) AS n FROM kw_status k JOIN schueler s3 ON s3.id=k.schueler_id GROUP BY s3.jahrgang_id) kw ON kw.jahrgang_id=j.id
+      LEFT JOIN (SELECT s4.jahrgang_id, COUNT(*) AS n FROM durchsicht_snapshots d JOIN schueler s4 ON s4.id=d.schueler_id GROUP BY s4.jahrgang_id) ds ON ds.jahrgang_id=j.id
+      LEFT JOIN (SELECT s5.jahrgang_id, COUNT(*) AS n FROM kontrollergebnisse ke JOIN schueler s5 ON s5.id=ke.schueler_id GROUP BY s5.jahrgang_id) ke ON ke.jahrgang_id=j.id
+      LEFT JOIN (SELECT s6.jahrgang_id, COUNT(*) AS n FROM wiedervorlagen w JOIN schueler s6 ON s6.id=w.schueler_id WHERE w.status!='erledigt' GROUP BY s6.jahrgang_id) wv ON wv.jahrgang_id=j.id
+      ORDER BY j.jahr DESC, j.bezeichnung`);
+    rows.forEach(r => { if (!r.letzter_termin) r.letzter_termin = null; });
     const ohne = App.query(`SELECT COUNT(*) AS n, SUM(aktiv=1) AS aktiv, SUM(aktiv=0) AS inaktiv FROM schueler WHERE jahrgang_id IS NULL`)[0];
     rows.forEach(r => { r.abgeschlossen = r.aktiv === 0 && r.inaktiv > 0; });
     if (ohne && ohne.n) rows.push({ id: 0, bezeichnung: '(ohne Jahrgang)', jahr: 0, aktiv: ohne.aktiv || 0, inaktiv: ohne.inaktiv || 0, letzter_termin: null, kw_zeilen: 0, snapshots: 0, ergebnisse: 0, wv_offen: 0, abgeschlossen: false });
@@ -34856,7 +34932,8 @@ const DbTools = {
       </tbody></table></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <label style="font-size:12px">Verdichten: inaktiv seit mindestens <input type="number" id="dbtMonate" min="1" max="120" value="${monate}" style="width:56px" class="form-control" onchange="DbTools.renderCard()"> Monaten</label>
-        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichten(document.getElementById('dbtMonate').value, DbTools._ausgewaehlteJahrgaenge())" title="Wochendaten inaktiver Azubis entfernen (alle Jahrgänge, wenn keiner angehakt ist)">Verdichten${(() => { const v = this.verdichtenVorschau(monate); return v.azubis ? ` (${v.azubis} Azubis, ${v.kwZeilen} Zeilen)` : ''; })()}</button>
+        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichten(document.getElementById('dbtMonate').value, DbTools._ausgewaehlteJahrgaenge())" title="Wochendaten inaktiver Azubis entfernen (alle Jahrgänge, wenn keiner angehakt ist)">Verdichten</button>
+        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichtenZeigen()" title="Wie viele Azubis und Zeilen wären betroffen?">Wie viele?</button>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="DbTools.jahrgaengeLoeschen(DbTools._ausgewaehlteJahrgaenge())">Ausgewählte Jahrgänge mit Archiv löschen</button>
       </div>
 
@@ -34874,12 +34951,19 @@ const DbTools = {
       <h4 style="font-size:13px;margin:14px 0 6px">3 · Stammdaten heilen</h4>
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Abweichende Schreibweisen aus dem IBYKUS-Export (Schulname geändert, Betrieb doppelt, Jahrgang „S 2026“ statt „S2026“) zusammenführen. Der alte Name bleibt als Alias und wird beim nächsten Import automatisch zugeordnet; die Import-Vorschau warnt vor neuen Einträgen, die vorhandenen ähneln.</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${['schule', 'betrieb', 'jahrgang'].map(art => { const n = App.dublettenKandidaten(art).length; const al = App.aliasListe(art).length; return `<button class="btn btn-sm ${n ? 'btn-primary' : 'btn-secondary'}" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)}: ${n} Dubletten-Paar(e)${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
+        ${['schule', 'betrieb', 'jahrgang'].map(art => { const al = App.aliasListe(art).length; return `<button class="btn btn-sm btn-secondary" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)} prüfen${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
       </div>
 
       <h4 style="font-size:13px;margin:14px 0 6px">4 · Archive</h4>
       <div id="dbtArchive" style="font-size:12px;color:var(--clr-text-light)">Archive werden gelesen…</div>`;
     this._archiveRendern();
+  },
+  verdichtenZeigen() {
+    const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
+    const v = this.verdichtenVorschau(monate, this._ausgewaehlteJahrgaenge());
+    App.toast(v.azubis
+      ? `${v.azubis} Azubis mit ${v.kwZeilen} Wochenzeilen, ${v.maengel} KW-Mängeln und ${v.snapshots} Snapshots (letzte Aktivität vor ${v.stichtag})`
+      : 'Keine Kandidaten zum Verdichten', v.azubis ? 'info' : 'success');
   },
   _ausgewaehlteJahrgaenge() { return [...document.querySelectorAll('.chk-dbtjg:checked')].map(c => parseInt(c.value)).filter(n => n > 0); },
   async _archiveRendern() {
@@ -35380,18 +35464,24 @@ const Melden = {
   // Beides ist wichtig: Ohne Grenze wiederholte sich der Versuch endlos, und
   // eine bei jedem Versuch neu erzeugte Kennung legte jedes Mal einen neuen
   // Ordner an – aus einer Meldung wurden ein Dutzend.
-  async _ablegen(m, versuch = 0) {
+  async _ablegen(m, versuch = 0, bild = null) {
+    const t0 = Date.now();
+    const takt = [];
+    const messen = async (name, fn) => { const t = Date.now(); await fn(); takt.push(`${name} ${Date.now() - t} ms`); };
     try {
-      const dir = await this._ordner(true);
-      const eigen = await dir.getDirectoryHandle(m.id, { create: true });
-      await this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1));
-      await this._schreiben(eigen, 'meldung.txt', this.alsText(m));
-      if (this._bild) await this._schreiben(eigen, this._bild.name, this._bild.bytes);
+      let dir, eigen;
+      await messen('Ordner', async () => { dir = await this._ordner(true); eigen = await dir.getDirectoryHandle(m.id, { create: true }); });
+      await messen('meldung.json', () => this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1)));
+      await messen('meldung.txt', () => this._schreiben(eigen, 'meldung.txt', this.alsText(m)));
+      if (bild) await messen(bild.name, () => this._schreiben(eigen, bild.name, bild.bytes));
+      // Die Zeiten landen im Ringspeicher und damit in der NÄCHSTEN Meldung –
+      // so zeigt sich von selbst, welcher Schritt auf dem Laufwerk klemmt.
+      console.log(`[Melden] gespeichert in ${Date.now() - t0} ms (${takt.join(', ')})`);
       return true;
     } catch(e) {
       if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
         console.warn('[Melden] Zugriffspunkt erneuert, ein zweiter Versuch mit derselben Kennung');
-        return await this._ablegen(m, 1);
+        return await this._ablegen(m, 1, bild);
       }
       console.warn('[Melden]', e);
       // Angefangenen, leeren Ordner wieder entfernen – sonst bleibt bei jedem
@@ -35409,23 +35499,37 @@ const Melden = {
       App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
       return this.alsDateiSpeichern();
     }
+    // Jeder Dateizugriff auf dem Netzlaufwerk kostet Sekunden. Deshalb wird
+    // das Fenster SOFORT geschlossen und im Hintergrund geschrieben; der Nutzer
+    // wartet nicht mehr auf das Laufwerk.
     this._sendet = true;
-    const knopf = document.getElementById('mdSenden');
-    if (knopf) { knopf.disabled = true; knopf.textContent = 'Wird gespeichert…'; }
     const m = this.bauen(f);
-    let ok = false;
-    try { ok = await this._ablegen(m); }
-    finally {
-      this._sendet = false;
-      if (knopf) { knopf.disabled = false; knopf.textContent = 'Melden'; }
-    }
-    if (!ok) return false;
-    App.closeModal();
-    App.toast('Danke, die Meldung ist abgelegt', 'success');
-    this._letztePruefung = 0;
-    try { await this.pruefeNeue(true); } catch(e) {}
-    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) await Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
+    const bild = this._bild;
     this._bild = null;
+    App.closeModal();
+    App.toast('Meldung wird gespeichert…', 'info');
+    let ok = false;
+    try { ok = await this._ablegen(m, 0, bild); }
+    finally { this._sendet = false; }
+    if (!ok) {
+      // Nichts verloren geben: Text zum Herunterladen anbieten
+      this._letzteGescheiterte = { m, bild };
+      App.toast('Speichern fehlgeschlagen – „Problem melden" erneut öffnen oder den Text herunterladen', 'error');
+      return false;
+    }
+    App.toast('Danke, die Meldung ist abgelegt', 'success');
+    // Zähler aus dem gerade geschriebenen Objekt fortschreiben, statt ALLE
+    // Meldungen neu vom Laufwerk zu lesen (das war der größte Zeitfresser und
+    // wuchs mit jeder weiteren Meldung).
+    try {
+      m._ordner = m.id;
+      this._meldungen = [m, ...(this._meldungen || []).filter(x => x._ordner !== m.id)];
+      this._cache.set(m.id, m);
+      this._gesehenSetzen(String(m.zeitpunkt || ''));   // eigene Meldung gilt als gesehen
+      this._badge();
+    } catch(e) {}
+    // Ankündigung NICHT abwarten: sie kopiert beim Anhängen die ganze Chatdatei
+    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
     return true;
   },
   alsDateiSpeichern() {
@@ -35446,22 +35550,31 @@ const Melden = {
   },
 
   // ── Übersicht (Einstellungen) ──
+  _cache: new Map(),   // Ordnername → Meldung (Meldungen ändern sich nie)
   async liste() {
     const out = [];
     let dir;
     try { dir = await this._ordner(false); } catch(e) { return out; }
     const grenze = Date.now() - this.MELDUNG_TAGE * 86400000;
+    const gesehen = new Set();
     for await (const [name, h] of dir.entries()) {
       if (h.kind !== 'directory') continue;
+      gesehen.add(name);
+      // Eine einmal gelesene Meldung ändert sich nicht mehr – erneutes Lesen
+      // wäre auf dem Netzlaufwerk jedes Mal ein Zugriff je Meldung.
+      const bekannt = this._cache.get(name);
+      if (bekannt) { out.push(bekannt); continue; }
       try {
         const fh = await h.getFileHandle('meldung.json', { create: false });
         const f = await fh.getFile();
         if (f.lastModified < grenze) { try { await dir.removeEntry(name, { recursive: true }); } catch(_) {} continue; }
         const m = JSON.parse(await f.text());
         m._ordner = name;
+        this._cache.set(name, m);
         out.push(m);
       } catch(e) { /* unvollständiger Ordner */ }
     }
+    [...this._cache.keys()].forEach(k => { if (!gesehen.has(k)) this._cache.delete(k); });
     this._meldungen = out.sort((a, b) => String(b.zeitpunkt).localeCompare(String(a.zeitpunkt)));
     return this._meldungen;
   },
@@ -35517,6 +35630,8 @@ const Melden = {
   async loeschen(ordner) {
     if (!(await App.confirm('Diese Meldung endgültig löschen?', { titel: 'Meldung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     try { await (await this._ordner(false)).removeEntry(ordner, { recursive: true }); } catch(e) { return App.toast('Löschen fehlgeschlagen: ' + e.message, 'error'); }
+    this._cache.delete(ordner);
+    this._meldungen = (this._meldungen || []).filter(x => x._ordner !== ordner);
     App.closeModal();
     App.toast('Meldung gelöscht', 'success');
     this.renderCard();
@@ -35528,7 +35643,8 @@ const Melden = {
     let dir;
     try { dir = await this._ordner(false); } catch(e) { return; }
     let n = 0;
-    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); n++; } catch(e) {} }
+    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); this._cache.delete(m._ordner); n++; } catch(e) {} }
+    this._meldungen = [];
     App.closeModal();
     App.toast(`${n} Meldungen gelöscht`, 'success');
     this._letztePruefung = 0;

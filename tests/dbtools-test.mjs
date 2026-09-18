@@ -344,5 +344,34 @@ console.log('══ Veralteter Datei-Zugriffspunkt (fremde Kompaktierung) ══
   check(/zwischenzeitlich von einem anderen Rechner ersetzt/.test(APP_SRC), 'Grund nennt die fremde Kompaktierung im Klartext');
 }
 
+console.log('══ Geschwindigkeit: Indizes und Übersicht ══');
+{
+  const namen = App.query("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'").map(r => r.name);
+  for (const n of ['idx_kw_status_schueler', 'idx_ke_schueler', 'idx_ke_termin', 'idx_kw_maengel_ke', 'idx_wv_schueler', 'idx_ds_schueler', 'idx_schueler_jahrgang', 'idx_schueler_klasse'])
+    check(namen.includes(n), `Index ${n} vorhanden`);
+  check(namen.length >= 20, `Alle Indizes angelegt (${namen.length})`);
+  // Bestands-Datenbank ohne Indizes bekommt sie per Migration
+  const alt = new SQL.Database();
+  alt.run(APP_SRC.match(/SCHEMA: `([\s\S]*?)`,/)[1].replace(/CREATE INDEX[^;]+;/g, ''));
+  check(alt.exec("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'").length === 0, 'Ausgangslage ohne Indizes');
+  const App2 = Object.create(App); App2.db = alt; App2.run = (sql, p) => alt.run(sql, p || []); App2.query = (sql, p) => { const st = alt.prepare(sql); st.bind(p || []); const r = []; while (st.step()) r.push(st.getAsObject()); st.free(); return r; };
+  App2.migrateDB();
+  check((alt.exec("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'")[0] || { values: [] }).values.length >= 20, 'migrateDB() zieht die Indizes auf Bestands-Datenbanken nach');
+  alt.close();
+  const disk = APP_SRC.split('_migrateDiskDb(diskDb) {')[1].split('\n  },')[0];
+  check(/diskDb\.run\(this\.INDIZES\)/.test(disk), '_migrateDiskDb() legt sie auch auf der Disk-Datenbank an');
+  // Die Übersicht darf kw_status nicht je Jahrgang erneut lesen
+  const q = T.jahrgangsUebersicht.toString();
+  check(!/SELECT COUNT\(\*\) FROM kw_status k JOIN schueler s ON s\.id=k\.schueler_id WHERE s\.jahrgang_id=j\.id/.test(q), 'Keine Unterabfrage je Jahrgang mehr');
+  check(/GROUP BY s3\.jahrgang_id/.test(q) && /LEFT JOIN/.test(q), 'Eine Gruppierung je Tabelle statt einer Abfrage je Jahrgang');
+  const t0 = Date.now();
+  for (let i = 0; i < 5; i++) T.bestand();
+  const d = Date.now() - t0;
+  check(d < 2000, `Fünf Bestandsabfragen unter 2 s (${d} ms)`);
+  check(!/verdichtenVorschau\(monate\)/.test(DBT_SRC.split('renderCard()')[1] || DBT_SRC), 'Die Verdichten-Zahlen werden nicht mehr bei jedem Zeichnen berechnet');
+  check(!/App\.dublettenKandidaten\(art\)\.length/.test(DBT_SRC), 'Die Dubletten-Suche läuft erst auf Klick, nicht beim Zeichnen');
+  check(/verdichtenZeigen\(\)/.test(DBT_SRC), 'Die Zahlen sind über „Wie viele?" weiterhin abrufbar');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

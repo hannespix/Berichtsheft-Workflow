@@ -145,7 +145,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `status-test.mjs` | Azubi-Status: Import-Ableitung (BAV/Beendigung), Neuverträge, fehlende Azubis, `setSchuelerStatus`, Import-Vorschau (Savepoint) |
 | `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift, Prüferaufteilung, Ergebnis-Kürzel, Undo-Verlauf |
 | `feldmodus-test.mjs` | Feldmodus/Lag-Budget: Abgleich-Takt aus Netzqualität, Messung der Abgleichdauer, Log-Rotation nach Größe, Bereinigung nur bei Snapshot-Abdeckung |
-| `dbtools-test.mjs` | Datenbank-Tools: Bestand/Jahrgangsübersicht, Verdichten-Kandidaten (offene WV, Frist), Jahrgang löschen (geteilte Termine bleiben), Archiv-DB + Rückholung, Aufräumen (Waisen, Log, Blockplan, Stempel, Betriebe), VACUUM, Sperrgründe, Warten auf laufende Kompaktierung, längere Speicherversuche, Nachholung mit Nacharbeit, Zweit-Registerkarte gesperrt, Sperre lesen/freigeben, eigene verwaiste Sperre übernehmen/nachträglich freigeben, veraltete Zugriffspunkte erneuern |
+| `dbtools-test.mjs` | Datenbank-Tools: Bestand/Jahrgangsübersicht, Verdichten-Kandidaten (offene WV, Frist), Jahrgang löschen (geteilte Termine bleiben), Archiv-DB + Rückholung, Aufräumen (Waisen, Log, Blockplan, Stempel, Betriebe), VACUUM, Indizes (Schema + beide Migrationen), Gruppierung statt Unterabfragen, Sperrgründe, Warten auf laufende Kompaktierung, längere Speicherversuche, Nachholung mit Nacharbeit, Zweit-Registerkarte gesperrt, Sperre lesen/freigeben, eigene verwaiste Sperre übernehmen/nachträglich freigeben, veraltete Zugriffspunkte erneuern |
 | `stammdaten-test.mjs` | Stammdaten heilen: Normalisierung, Dubletten-Kandidaten, Aliase, Zusammenführen (Schulen mit UNIQUE-Klassen, Betriebe, Jahrgänge), Import-Wächter (Alias-Zuordnung, Vorschau-Auswahl) |
 | `melden-test.mjs` | Problem melden: Ringspeicher für Konsolenmeldungen, globale Fehlerabfänge, Diagnose, Schwärzung gegen die Namen der eigenen Datenbank, Ablage/Benachrichtigung, Übersicht, Export, Aufbewahrung (60 Tage), Fallback ohne Netzlaufwerk |
 | `chat-test.mjs` | Chat: Anhängen an die eigene Datei, Lesen ab Leseposition, Direktnachrichten, Toast/Verlauf, Ungelesen-Stand, Aufbewahrung (7 Tage) und Dateigröße, Sperren (offline/Netzabriss), Zugriffspunkt-Erneuerung, nichts in der Datenbank |
@@ -164,6 +164,8 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 
 ### Schema-Änderungen (WICHTIG!)
 Die App nutzt eine In-Memory-SQLite-DB und synchronisiert per `mergeAndSave()` mit der Disk-Datei. Schema-Migrationen (ALTER TABLE ADD COLUMN, CREATE TABLE) laufen beim Start nur auf der In-Memory-DB. Die Disk-DB kann ein älteres Schema haben.
+
+**Indizes:** Die Datenbank hatte lange KEINE Indizes – jede Abfrage `WHERE schueler_id=?` las die ganze Tabelle. Sie stehen jetzt als `INDIZES`-Konstante im `SCHEMA`, in `migrateDB()` und in `_migrateDiskDb()`. Neue Fremdschlüssel-Spalten immer dort ergänzen. Und: in Übersichten **eine Gruppierung je Tabelle** statt einer Unterabfrage je Zeile (die Jahrgangsübersicht brauchte so 10 s statt 25 ms).
 
 **Bei jeder Schema-Änderung müssen DREI Stellen gepflegt werden:**
 0. **`SCHEMA`-Konstante** – für neu angelegte Datenbanken (CREATE TABLE)

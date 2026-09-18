@@ -213,6 +213,8 @@ console.log('══ Zustellweg: Zähler, Übersicht, E-Mail ══');
   M._gesehenSetzen('');
   await M.senden();
   await M.pruefeNeue(true);
+  M._gesehenSetzen('');   // fremde Meldung simulieren (die eigene gilt sofort als gesehen)
+  M._badge();
   check(M.neue().length >= 1 && /⚑/.test(el('meldungBadge').innerHTML) && el('meldungBadge').style.display === '', 'Neue Meldungen erscheinen als Zähler in der Kopfzeile');
   await M.uebersicht();
   check(/Fehlermeldungen/.test(modalHtml) && /Alle als Textdatei/.test(modalHtml) && /Selbst melden/.test(modalHtml), 'Klick öffnet die Übersicht mit Export und Melde-Knopf');
@@ -248,10 +250,11 @@ console.log('══ Wiederholung begrenzt, keine Meldungsflut ══');
   const ok = await M.senden();
   check(ok === false, 'Dauerhafter Schreibfehler meldet Misserfolg statt endlos zu wiederholen');
   check(versuche === 2, `Genau ein Wiederholungsversuch (${versuche} Schreibversuche statt endlos)`);
-  check(toasts.at(-1)[1] === 'error' && /Als Datei speichern/.test(toasts.at(-1)[0]), 'Der Nutzer bekommt den Ausweg genannt');
+  check(toasts.some(t => t[1] === 'error' && /Als Datei speichern|herunterladen/.test(t[0])), 'Der Nutzer bekommt den Ausweg genannt');
   check(M._sendet === false, 'Die Sperre gegen Doppelklick wird auch im Fehlerfall gelöst');
   // Zweiter Versuch scheitert erst, gelingt dann: SELBE Kennung, EIN Ordner
   versuche = 0;
+  M._bild = { bytes: new Uint8Array([9]), typ: 'image/png', name: 'bild.png', groesse: 1 };
   M._schreiben = async (d, name, data) => { versuche++; if (versuche === 1) { const e = new Error('state had changed since it was read from disk'); e.name = 'InvalidStateError'; throw e; } return echtesSchreiben(d, name, data); };
   check(await M.senden() === true, 'Nach dem Erneuern gelingt der zweite Versuch');
   check(dir.ordner.size === 1, `Aus einer Meldung wird EIN Ordner (${dir.ordner.size}) – der leere Ordner des Fehlversuchs wird aufgeräumt`);
@@ -263,7 +266,7 @@ console.log('══ Wiederholung begrenzt, keine Meldungsflut ══');
   M._bild = null;
   const beide = await Promise.all([M.senden(), M.senden()]);
   check(beide.filter(x => x === true).length === 1 && beide.includes(false), 'Ein zweiter Klick während des Speicherns wird abgewiesen');
-  check(/_ablegen\(m, 1\)/.test(MELD_SRC) && /versuch === 0/.test(MELD_SRC), 'Die Begrenzung steht im Quelltext');
+  check(/_ablegen\(m, 1, bild\)/.test(MELD_SRC) && /versuch === 0/.test(MELD_SRC), 'Die Begrenzung steht im Quelltext');
   // Sammel-Löschen
   await M.pruefeNeue(true);
   const vorher = (M._meldungen || []).length;
@@ -302,6 +305,54 @@ console.log('══ Kopieren für die Weitergabe ══');
   sandbox.navigator.clipboard = merk;
   check(/Melden\.kopiereAlle\(\)/.test(MELD_SRC) && /Melden\.kopiereEine\(/.test(MELD_SRC), 'Kopier-Knöpfe in Übersicht, Einzelansicht und Karte');
   for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
+}
+
+console.log('══ Tempo: kein Neu-Einlesen, kein Warten ══');
+{
+  const dir = await bhk.getDirectoryHandle('meldungen');
+  for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
+  M._cache.clear(); M._meldungen = []; M._gesehenSetzen('');
+  // Zehn vorhandene Meldungen
+  for (let i = 0; i < 10; i++) {
+    const o = await dir.getDirectoryHandle('2026-09-18T10-00-' + String(i).padStart(2, '0') + '_aaaa_x' + i, { create: true });
+    const w = await (await o.getFileHandle('meldung.json', { create: true })).createWritable();
+    await w.write(enc.encode(JSON.stringify({ id: 'alt' + i, zeitpunkt: '2026-09-18T10:00:0' + i + 'Z', beschreibung: 'alt', von: 'Bernd', version: '2.1' })));
+    await w.close();
+  }
+  // Zugriffe zählen
+  let liest = 0;
+  const echtesEntries = dir.entries.bind(dir);
+  const zaehlend = async function* () { for await (const [n, h] of echtesEntries()) { const alt = h.getFileHandle; if (alt) h.getFileHandle = async (...a) => { liest++; return alt.call(h, ...a); }; yield [n, h]; } };
+  dir.entries = zaehlend;
+  await M.liste();
+  check(liest === 10, `Erster Durchgang liest jede Meldung einmal (${liest})`);
+  liest = 0;
+  await M.liste();
+  check(liest === 0, `Zweiter Durchgang liest KEINE Meldung erneut (${liest}) – Zwischenspeicher`);
+  dir.entries = echtesEntries;
+  // Speichern darf die Liste nicht neu einlesen und nicht auf den Chat warten
+  let neuEingelesen = false;
+  const echteListe = M.liste.bind(M);
+  M.liste = async () => { neuEingelesen = true; return echteListe(); };
+  let chatFertig = false, chatAufgerufen = false;
+  sandbox.Chat = { aktiv: () => true, senden: async () => { chatAufgerufen = true; await new Promise(r => sandbox.__chatAufloesen = r); chatFertig = true; return true; } };
+  el('mdBeschreibung').value = 'Schnelle Meldung';
+  el('mdDiagnose').value = 'x';
+  M._bild = null;
+  let geschlossen = false;
+  App.closeModal = () => { geschlossen = true; };
+  const ok = await M.senden();
+  check(ok === true && geschlossen === true, 'Fenster wird geschlossen, Meldung ist abgelegt');
+  check(neuEingelesen === false, 'Nach dem Speichern wird die Liste NICHT neu vom Laufwerk gelesen');
+  check(chatAufgerufen === true && chatFertig === false, 'Die Chat-Ankündigung läuft, wird aber nicht abgewartet');
+  check((M._meldungen || [])[0].beschreibung === 'Schnelle Meldung' && M._meldungen.length === 11, 'Die neue Meldung steht ohne Lesezugriff in der Liste');
+  check(M.neue().length === 0 && el('meldungBadge').style.display === 'none', 'Die eigene Meldung löst keinen Zähler aus');
+  if (sandbox.__chatAufloesen) sandbox.__chatAufloesen();
+  M.liste = echteListe;
+  check(/gespeichert in \$\{Date\.now\(\) - t0\} ms/.test(MELD_SRC), 'Die Dauer wird gemessen und ins Protokoll geschrieben');
+  check(/Meldung wird gespeichert…/.test(MELD_SRC), 'Der Nutzer bekommt sofort eine Rückmeldung');
+  for (const k of [...dir.ordner.keys()]) dir.ordner.delete(k);
+  M._cache.clear(); M._meldungen = [];
 }
 
 console.log('══ Einbau ══');

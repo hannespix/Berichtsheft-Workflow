@@ -1437,6 +1437,67 @@ const App = {
       ibykus_relevant INTEGER DEFAULT 1,
       exportiert INTEGER DEFAULT 0
     );
+    -- ── Indizes ──
+    -- Ohne diese liest jede Abfrage „WHERE schueler_id=?" die ganze Tabelle.
+    -- Bei 300.000 Wochenzeilen kostete allein die Jahrgangsübersicht 10 Sekunden.
+    CREATE INDEX IF NOT EXISTS idx_kw_status_schueler ON kw_status(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_kw_maengel_ke ON kw_maengel(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_schueler ON kontrollergebnisse(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_termin ON kontrollergebnisse(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_schueler ON durchsicht_snapshots(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_ke ON durchsicht_snapshots(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_schueler ON wiedervorlagen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_ke ON wiedervorlagen(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wvn_wv ON wiedervorlage_notizen(wiedervorlage_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_jahrgang ON schueler(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_klasse ON schueler(klasse_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_betrieb ON schueler(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_fr ON schueler(fachrichtung_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_schule ON klassen(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_jahrgang ON klassen(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_jahrgang ON kontrolltermine(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_schule ON kontrolltermine(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_termin ON kontrolltermin_schueler(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_schueler ON kontrolltermin_schueler(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ktk_termin ON kontrolltermin_klassen(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_phasen_schueler ON ausbildungsphasen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_bem_schueler ON schueler_bemerkungen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_dateien_schueler ON schueler_dateien(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ausbilder_betrieb ON ausbilder(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_log_schueler ON aenderungslog(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_blockplan_schule ON blockplan(berufsschule_id);
+  `,
+
+  INDIZES: `
+    -- ── Indizes ──
+    -- Ohne diese liest jede Abfrage „WHERE schueler_id=?" die ganze Tabelle.
+    -- Bei 300.000 Wochenzeilen kostete allein die Jahrgangsübersicht 10 Sekunden.
+    CREATE INDEX IF NOT EXISTS idx_kw_status_schueler ON kw_status(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_kw_maengel_ke ON kw_maengel(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_schueler ON kontrollergebnisse(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ke_termin ON kontrollergebnisse(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_schueler ON durchsicht_snapshots(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_ke ON durchsicht_snapshots(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_schueler ON wiedervorlagen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_wv_ke ON wiedervorlagen(kontrollergebnis_id);
+    CREATE INDEX IF NOT EXISTS idx_wvn_wv ON wiedervorlage_notizen(wiedervorlage_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_jahrgang ON schueler(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_klasse ON schueler(klasse_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_betrieb ON schueler(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_schueler_fr ON schueler(fachrichtung_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_schule ON klassen(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_klassen_jahrgang ON klassen(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_jahrgang ON kontrolltermine(jahrgang_id);
+    CREATE INDEX IF NOT EXISTS idx_kt_schule ON kontrolltermine(berufsschule_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_termin ON kontrolltermin_schueler(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_kts_schueler ON kontrolltermin_schueler(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ktk_termin ON kontrolltermin_klassen(kontrolltermin_id);
+    CREATE INDEX IF NOT EXISTS idx_phasen_schueler ON ausbildungsphasen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_bem_schueler ON schueler_bemerkungen(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_dateien_schueler ON schueler_dateien(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_ausbilder_betrieb ON ausbilder(betrieb_id);
+    CREATE INDEX IF NOT EXISTS idx_log_schueler ON aenderungslog(schueler_id);
+    CREATE INDEX IF NOT EXISTS idx_blockplan_schule ON blockplan(berufsschule_id);
   `,
 
   SEED_DATA: `
@@ -5791,6 +5852,8 @@ const App = {
     )`);
     // Idempotenz-Ledger: verhindert Doppel-Anwendung von Ops nach Crash/Retry
     run(`CREATE TABLE IF NOT EXISTS bhk_applied_ops (op_uid TEXT PRIMARY KEY, ts TEXT DEFAULT '')`);
+    // Indizes auch auf der Disk-DB – sonst sind Replays dort quälend langsam
+    try { diskDb.run(this.INDIZES); } catch(e) {}
     // UNIQUE-Index gegen doppelte Kontrollergebnisse bei gleichzeitiger Auto-Erstellung
     try {
       diskDb.run("DELETE FROM kontrollergebnisse WHERE id NOT IN (SELECT MIN(id) FROM kontrollergebnisse GROUP BY kontrolltermin_id, schueler_id)");
@@ -8562,6 +8625,9 @@ Anlagen: {anlagen}` },
         ibykus_relevant INTEGER DEFAULT 1, exportiert INTEGER DEFAULT 0
       )`);
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
+
+    // ── Indizes (auch auf Bestands-Datenbanken nachziehen) ──
+    try { this.db.run(this.INDIZES); } catch(e) { console.warn('Index-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──
     try {
