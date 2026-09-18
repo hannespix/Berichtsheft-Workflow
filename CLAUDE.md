@@ -91,7 +91,7 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 | azubi-rechner.js | `AzubiRechner` | Phasen-Mathematik, Tarife, Vergütungsperioden |
 | azubi-dashboard.js | `AzubiDashboard` | Per-Azubi-Dashboard, Phasen-Editor |
 | schueler-akte.js | `SchuelerAkte` | Bemerkungen, Dateianhänge, Aktenvermerk |
-| db-tools.js | `DbTools` | Datenbank-Tools: Bestand, Verdichten, Jahrgang mit Archiv löschen/zurückholen, Aufräumen, VACUUM-Neuaufbau |
+| db-tools.js | `DbTools` | Datenbank-Tools: Bestand, Verdichten, Jahrgang mit Archiv löschen/zurückholen, Aufräumen, VACUUM-Neuaufbau, Einstieg Stammdaten heilen |
 
 ## Wichtige Patterns
 
@@ -144,6 +144,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `kontrolltag-test.mjs` | Kontrolltag: Prüfer-Vorrang/Sperre, KW-Modal mit Undo, WV folgt dem Ergebnis, i.O. → geprüft bis Vorwoche, Nacherfassung schließt WV, Prüfer-Unterschrift, Prüferaufteilung, Ergebnis-Kürzel, Undo-Verlauf |
 | `feldmodus-test.mjs` | Feldmodus/Lag-Budget: Abgleich-Takt aus Netzqualität, Messung der Abgleichdauer, Log-Rotation nach Größe, Bereinigung nur bei Snapshot-Abdeckung |
 | `dbtools-test.mjs` | Datenbank-Tools: Bestand/Jahrgangsübersicht, Verdichten-Kandidaten (offene WV, Frist), Jahrgang löschen (geteilte Termine bleiben), Archiv-DB + Rückholung, Aufräumen (Waisen, Log, Blockplan, Stempel, Betriebe), VACUUM, Sperrgründe |
+| `stammdaten-test.mjs` | Stammdaten heilen: Normalisierung, Dubletten-Kandidaten, Aliase, Zusammenführen (Schulen mit UNIQUE-Klassen, Betriebe, Jahrgänge), Import-Wächter (Alias-Zuordnung, Vorschau-Auswahl) |
 | `offline-test.mjs` | Offline-Betrieb: Prüferaufteilung in der DB, Zusammenführung nach Offline-Phase (LWW je Feld) mit Konfliktliste, eine WV je Ergebnis, Änderungsdatei als Notausgang |
 | `smoke-test.mjs` | Startet die gebaute App im echten Chromium (überspringt sich ohne Browser) |
 
@@ -179,7 +180,7 @@ hält Log-Offsets und Snapshot-Generation. Details: `TECHSTACK.md`.
 **Beim Ändern von Schreibpfaden beachten:**
 - Schreibende IDs müssen global eindeutig sein → Tabelle in `App.ID_TABLES`
 - `INSERT` auf Tabellen mit UNIQUE-Bedingung immer mit `ON CONFLICT … DO UPDATE`
-- Löschen ausschließlich über `App.delete*Kaskade()`
+- Löschen ausschließlich über `App.delete*Kaskade()`, Zusammenführen über `App.mergeSchulen/mergeBetriebe/mergeJahrgaenge` (verschmilzt UNIQUE-Klassen, legt Aliase in `stammdaten_aliase` an)
 
 ## Einsatzumgebung
 - **Zielgruppe**: Ausbildungsberater im RP Freiburg (Verwaltung)

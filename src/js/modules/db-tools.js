@@ -665,7 +665,13 @@ const DbTools = {
       </div>
       <div id="dbtVorschau" style="margin-top:6px"></div>
 
-      <h4 style="font-size:13px;margin:14px 0 6px">3 · Archive</h4>
+      <h4 style="font-size:13px;margin:14px 0 6px">3 · Stammdaten heilen</h4>
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Abweichende Schreibweisen aus dem IBYKUS-Export (Schulname geändert, Betrieb doppelt, Jahrgang „S 2026“ statt „S2026“) zusammenführen. Der alte Name bleibt als Alias und wird beim nächsten Import automatisch zugeordnet; die Import-Vorschau warnt vor neuen Einträgen, die vorhandenen ähneln.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${['schule', 'betrieb', 'jahrgang'].map(art => { const n = App.dublettenKandidaten(art).length; const al = App.aliasListe(art).length; return `<button class="btn btn-sm ${n ? 'btn-primary' : 'btn-secondary'}" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)}: ${n} Dubletten-Paar(e)${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
+      </div>
+
+      <h4 style="font-size:13px;margin:14px 0 6px">4 · Archive</h4>
       <div id="dbtArchive" style="font-size:12px;color:var(--clr-text-light)">Archive werden gelesen…</div>`;
     this._archiveRendern();
   },

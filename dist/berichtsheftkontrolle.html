@@ -8688,6 +8688,7 @@ const App = {
       geloescht_von TEXT DEFAULT '',
       geloescht_am TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm));
     CREATE TABLE IF NOT EXISTS wiedervorlagen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
@@ -11904,6 +11905,220 @@ const App = {
   },
 
   // ═══════════════════════════════════════════
+  //  STAMMDATEN HEILEN: Aliase, Dubletten, Zusammenführen
+  //  IBYKUS-Exporte ändern gelegentlich Schreibweisen (Schulname, Betrieb,
+  //  Jahrgang). Ohne Alias legt der Import dann eine Dublette an. Aliase
+  //  werden normalisiert gespeichert (Groß/Klein, Umlaute, Füllwörter) und
+  //  beim Import VOR dem Anlegen geprüft. Zusammenführen verschmilzt auch
+  //  Klassen mit gleichem Jahrgang/Fachrichtung (UNIQUE-Bedingung), statt
+  //  sie zu löschen und Azubis ohne Klasse zurückzulassen.
+  // ═══════════════════════════════════════════
+  ALIAS_ARTEN: { schule: { tab: 'berufsschulen', col: 'name', label: 'Berufsschule' }, betrieb: { tab: 'betriebe', col: 'name', label: 'Betrieb' }, jahrgang: { tab: 'abschlussjahrgaenge', col: 'bezeichnung', label: 'Jahrgang' } },
+  _FUELLWOERTER: {
+    schule: ['berufsschule', 'berufsschulzentrum', 'berufliche', 'berufliches', 'bs', 'bsz', 'gbs', 'schule', 'schulen', 'schulzentrum', 'bildungszentrum', 'gewerbliche', 'gewerblich', 'kaufmaennische', 'landwirtschaftliche', 'hauswirtschaftliche', 'fuer', 'und', 'der', 'die', 'das', 'in', 'am', 'an', 'zentrum'],
+    betrieb: ['gmbh', 'co', 'kg', 'gbr', 'ohg', 'ag', 'ek', 'ug', 'inh', 'inhaber', 'und', 'u', 'fa', 'firma', 'haftungsbeschraenkt'],
+    jahrgang: [],
+  },
+  normName(s, art) {
+    let x = String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+    x = x.replace(/[^a-z0-9]+/g, ' ').trim();
+    const fuell = this._FUELLWOERTER[art] || [];
+    if (fuell.length) {
+      const woerter = x.split(' ').filter(w => w && !fuell.includes(w));
+      if (woerter.length) x = woerter.join(' ');
+    }
+    return x.replace(/\s+/g, '');
+  },
+  _levenshtein(a, b, max) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let zeilenMin = i;
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < zeilenMin) zeilenMin = cur[j];
+      }
+      if (zeilenMin > max) return max + 1;
+      prev = cur;
+    }
+    return prev[b.length];
+  },
+  _aehnlichkeit(na, nb) {
+    if (!na || !nb) return '';
+    if (na === nb) return 'gleicher Name (nur Schreibweise)';
+    if (na.length >= 5 && nb.length >= 5 && (na.includes(nb) || nb.includes(na))) return 'Name enthalten';
+    const max = Math.max(1, Math.floor(Math.min(na.length, nb.length) / 8));
+    if (na.length >= 6 && nb.length >= 6 && this._levenshtein(na, nb, max) <= max) return 'Tippfehler-Nähe';
+    return '';
+  },
+  // Paare ähnlicher Stammdaten einer Art
+  dublettenKandidaten(art) {
+    const cfg = this.ALIAS_ARTEN[art];
+    if (!cfg) return [];
+    const rows = this.query(`SELECT * FROM ${cfg.tab} ORDER BY ${cfg.col}`);
+    const norm = rows.map(r => this.normName(r[cfg.col], art));
+    const out = [];
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      const grund = this._aehnlichkeit(norm[i], norm[j]);
+      if (grund) out.push({ art, a: rows[i], b: rows[j], grund });
+    }
+    return out;
+  },
+  // Vorhandene Einträge, die einem NEUEN Namen ähneln (Import-Wächter)
+  aehnlicheStammdaten(art, name) {
+    const cfg = this.ALIAS_ARTEN[art];
+    if (!cfg) return [];
+    const n = this.normName(name, art);
+    return this.query(`SELECT * FROM ${cfg.tab}`)
+      .map(r => ({ id: r.id, name: r[cfg.col], grund: this._aehnlichkeit(n, this.normName(r[cfg.col], art)) }))
+      .filter(x => x.grund)
+      .sort((x, y) => (x.grund.startsWith('gleicher') ? 0 : 1) - (y.grund.startsWith('gleicher') ? 0 : 1));
+  },
+  aliasZiel(art, name) {
+    const cfg = this.ALIAS_ARTEN[art];
+    const norm = this.normName(name, art);
+    if (!cfg || !norm) return null;
+    try {
+      const r = this.query('SELECT ziel_id FROM stammdaten_aliase WHERE art=? AND norm=?', [art, norm])[0];
+      if (!r) return null;
+      return this.scalar(`SELECT id FROM ${cfg.tab} WHERE id=?`, [r.ziel_id]) ? r.ziel_id : null;
+    } catch(e) { return null; }
+  },
+  aliasSetzen(art, alias, zielId) {
+    const cfg = this.ALIAS_ARTEN[art];
+    const norm = this.normName(alias, art);
+    if (!cfg || !norm || !zielId) return false;
+    // Kein Alias auf den (wörtlich) eigenen Namen des Ziels; abweichende
+    // Schreibweisen mit gleichem Normalschlüssel sind ausdrücklich erwünscht
+    const eigen = this.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [zielId]);
+    if (eigen === null || eigen === undefined) return false;
+    if (String(eigen).trim().toLowerCase() === String(alias).trim().toLowerCase()) return false;
+    this.run('INSERT INTO stammdaten_aliase (art, norm, alias, ziel_id) VALUES (?,?,?,?) ON CONFLICT(art, norm) DO UPDATE SET alias=excluded.alias, ziel_id=excluded.ziel_id', [art, norm, String(alias).trim(), zielId]);
+    return true;
+  },
+  aliasLoeschen(art, norm) { this.run('DELETE FROM stammdaten_aliase WHERE art=? AND norm=?', [art, norm]); },
+  aliasListe(art, zielId) {
+    try { return this.query('SELECT * FROM stammdaten_aliase WHERE art=?' + (zielId ? ' AND ziel_id=?' : '') + ' ORDER BY alias', zielId ? [art, zielId] : [art]); } catch(e) { return []; }
+  },
+  // Aliase eines Ziels komplett aus einer Liste setzen (Bearbeiten-Dialog)
+  aliaseSetzenAus(art, zielId, namen) {
+    this.run('DELETE FROM stammdaten_aliase WHERE art=? AND ziel_id=?', [art, zielId]);
+    (namen || []).map(x => String(x || '').trim()).filter(Boolean).forEach(a => this.aliasSetzen(art, a, zielId));
+    return this.aliasListe(art, zielId).length;
+  },
+  _leereFelderFuellen(tab, ziel, quelle, felder) {
+    felder.forEach(f => {
+      const zw = ziel[f], qw = quelle[f];
+      if ((zw === null || zw === undefined || zw === '' || zw === '[]') && qw !== null && qw !== undefined && qw !== '' && qw !== '[]') {
+        this.run(`UPDATE ${tab} SET ${f}=? WHERE id=?`, [qw, ziel.id]);
+        ziel[f] = qw;
+      }
+    });
+  },
+  // Quell-Klasse in Ziel-Klasse aufgehen lassen (Azubis, Termine, Termin-Klassen)
+  _klasseVerschmelzen(quellId, zielId) {
+    if (!quellId || !zielId || quellId === zielId) return 0;
+    const n = this.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [quellId]) || 0;
+    this.run('UPDATE schueler SET klasse_id=? WHERE klasse_id=?', [zielId, quellId]);
+    this.run('UPDATE kontrolltermine SET klasse_id=? WHERE klasse_id=?', [zielId, quellId]);
+    this.query('SELECT kontrolltermin_id FROM kontrolltermin_klassen WHERE klasse_id=?', [quellId])
+      .forEach(r => this.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [r.kontrolltermin_id, zielId]));
+    this.deleteKlasseKaskade(quellId);
+    return n;
+  },
+  // Klassen einer Quelle ins Ziel übernehmen: gleiche Klasse vorhanden → verschmelzen, sonst umhängen
+  _klassenUebernehmen(quellKlassen, zielFinden, umhaengenSql, zielId, r) {
+    quellKlassen.forEach(k => {
+      const z = zielFinden(k);
+      if (z && z !== k.id) { r.azubis += this._klasseVerschmelzen(k.id, z); r.klassenVerschmolzen++; }
+      else { r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [k.id]) || 0; this.run(umhaengenSql, [zielId, k.id]); r.klassenVerschoben++; }
+    });
+  },
+  mergeSchulen(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM berufsschulen WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Schule nicht gefunden');
+    const r = { klassenVerschmolzen: 0, klassenVerschoben: 0, azubis: 0, termine: 0, blockplan: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM berufsschulen WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      this._klassenUebernehmen(
+        this.query('SELECT * FROM klassen WHERE berufsschule_id=?', [qid]),
+        k => this.scalar('SELECT id FROM klassen WHERE berufsschule_id=? AND jahrgang_id IS ? AND fachrichtung_id IS ?', [zielId, k.jahrgang_id, k.fachrichtung_id]),
+        'UPDATE klassen SET berufsschule_id=? WHERE id=?', zielId, r);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE berufsschule_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET berufsschule_id=? WHERE berufsschule_id=?', [zielId, qid]);
+      this.query('SELECT schuljahr, lehrjahr, kalenderwoche FROM blockplan WHERE berufsschule_id=?', [qid]).forEach(b => {
+        this.run('INSERT OR IGNORE INTO blockplan (berufsschule_id, schuljahr, lehrjahr, kalenderwoche) VALUES (?,?,?,?)', [zielId, b.schuljahr, b.lehrjahr, b.kalenderwoche]); r.blockplan++;
+      });
+      this.run('DELETE FROM blockplan WHERE berufsschule_id=?', [qid]);
+      this._leereFelderFuellen('berufsschulen', ziel, quelle, ['ort', 'ansprechpartner', 'telefon', 'email', 'email_cc', 'ansprechpartner_json']);
+      if (this.aliasSetzen('schule', quelle.name, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='schule' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      this.deleteSchuleKaskade(qid);
+      r.quellen.push(quelle.name);
+    });
+    return r;
+  },
+  mergeBetriebe(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM betriebe WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Betrieb nicht gefunden');
+    const r = { azubis: 0, termine: 0, ausbilder: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM betriebe WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      r.ausbilder += this.scalar('SELECT COUNT(*) FROM ausbilder WHERE betrieb_id=?', [qid]) || 0;
+      this.run('UPDATE ausbilder SET betrieb_id=? WHERE betrieb_id=?', [zielId, qid]);
+      if (this.aliasSetzen('betrieb', quelle.name, zielId)) r.aliase++;
+      if (quelle.betriebsnummer && this.aliasSetzen('betrieb', quelle.betriebsnummer, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='betrieb' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      // Betriebsnummer ist UNIQUE: erst Quelle löschen, dann ggf. ans Ziel übernehmen
+      const bnr = quelle.betriebsnummer;
+      this.deleteBetriebKaskade(qid);
+      const felder = ['vorname', 'zusatzbezeichnung', 'firma', 'ansprechpartner', 'strasse', 'plz', 'ort', 'telefon', 'fax', 'email'];
+      this._leereFelderFuellen('betriebe', ziel, quelle, felder);
+      if (bnr && !ziel.betriebsnummer) { this.run('UPDATE betriebe SET betriebsnummer=? WHERE id=?', [bnr, zielId]); ziel.betriebsnummer = bnr; }
+      r.quellen.push(quelle.name);
+    });
+    return r;
+  },
+  mergeJahrgaenge(zielId, quellIds) {
+    const ziel = this.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [zielId])[0];
+    if (!ziel) throw new Error('Ziel-Jahrgang nicht gefunden');
+    const r = { klassenVerschmolzen: 0, klassenVerschoben: 0, azubis: 0, termine: 0, aliase: 0, quellen: [] };
+    (quellIds || []).map(Number).filter(id => id && id !== zielId).forEach(qid => {
+      const quelle = this.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [qid])[0];
+      if (!quelle) return;
+      this._klassenUebernehmen(
+        this.query('SELECT * FROM klassen WHERE jahrgang_id=?', [qid]),
+        k => this.scalar('SELECT id FROM klassen WHERE jahrgang_id=? AND berufsschule_id IS ? AND fachrichtung_id IS ?', [zielId, k.berufsschule_id, k.fachrichtung_id]),
+        'UPDATE klassen SET jahrgang_id=? WHERE id=?', zielId, r);
+      // Azubis ohne Klasse, aber mit Jahrgang
+      r.azubis += this.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND (klasse_id IS NULL OR klasse_id NOT IN (SELECT id FROM klassen))', [qid]) || 0;
+      this.run('UPDATE schueler SET jahrgang_id=? WHERE jahrgang_id=?', [zielId, qid]);
+      r.termine += this.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE jahrgang_id=?', [qid]) || 0;
+      this.run('UPDATE kontrolltermine SET jahrgang_id=? WHERE jahrgang_id=?', [zielId, qid]);
+      this._leereFelderFuellen('abschlussjahrgaenge', ziel, quelle, ['pruefungstermin', 'typ']);
+      if (this.aliasSetzen('jahrgang', quelle.bezeichnung, zielId)) r.aliase++;
+      try { this.run("UPDATE stammdaten_aliase SET ziel_id=? WHERE art='jahrgang' AND ziel_id=?", [zielId, qid]); } catch(e) {}
+      this.deleteJahrgangKaskade(qid);
+      r.quellen.push(quelle.bezeichnung);
+    });
+    return r;
+  },
+  mergeStammdaten(art, zielId, quellIds) {
+    if (art === 'schule') return this.mergeSchulen(zielId, quellIds);
+    if (art === 'betrieb') return this.mergeBetriebe(zielId, quellIds);
+    if (art === 'jahrgang') return this.mergeJahrgaenge(zielId, quellIds);
+    throw new Error('Unbekannte Stammdaten-Art: ' + art);
+  },
+
+  // ═══════════════════════════════════════════
   //  PAPIERKORB
   //  Gelöschte Azubis und Termine landen samt aller abhängigen Zeilen als
   //  JSON im Papierkorb (90 Tage) und lassen sich in den Einstellungen mit
@@ -12385,6 +12600,7 @@ const App = {
     // berufsschulen columns
     run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''");
     run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'");
+    run("CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm))");
     // betriebe columns
     run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''");
     run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''");
@@ -15038,6 +15254,8 @@ Anlagen: {anlagen}` },
       // berufsschulen: email_cc + ansprechpartner_json
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN email_cc TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE berufsschulen ADD COLUMN ansprechpartner_json TEXT DEFAULT '[]'"); } catch(e) {}
+      // Stammdaten-Aliase (alte Schreibweisen → Ziel, Import-Wächter)
+      try { this.db.run("CREATE TABLE IF NOT EXISTS stammdaten_aliase (art TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT NOT NULL, ziel_id INTEGER NOT NULL, erstellt_am TEXT DEFAULT (datetime('now','localtime')), PRIMARY KEY (art, norm))"); } catch(e) {}
       // betriebe: vorname + zusatzbezeichnung
       try { this.db.run("ALTER TABLE betriebe ADD COLUMN vorname TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE betriebe ADD COLUMN zusatzbezeichnung TEXT DEFAULT ''"); } catch(e) {}
@@ -17846,19 +18064,11 @@ const Views = {
   mergeBetriebe(keepId, removeId) {
     const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
     const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
-    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAlle Schüler von #${removeId} werden auf #${keepId} umgehängt.`)) return;
-    // Move all schueler references
-    App.run('UPDATE schueler SET betrieb_id=? WHERE betrieb_id=?', [keepId, removeId]);
-    // Merge contact data (fill gaps in keeper from removed)
-    const keep = App.query('SELECT * FROM betriebe WHERE id=?', [keepId])[0];
-    const rem = App.query('SELECT * FROM betriebe WHERE id=?', [removeId])[0];
-    if (rem) {
-      ['email','telefon','strasse','plz','ort','ansprechpartner','firma'].forEach(f => {
-        if (!keep[f] && rem[f]) App.run(`UPDATE betriebe SET ${f}=? WHERE id=?`, [rem[f], keepId]);
-      });
-    }
-    App.deleteBetriebKaskade(removeId);
-    App.toast(`Betriebe zusammengeführt → ${keepName}`, 'success');
+    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`)) return;
+    // Eine Logik für alle Wege (Stammdaten, Datenqualität, Import-Wächter)
+    let r;
+    try { r = App.mergeBetriebe(keepId, [removeId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
+    App.toast(`Betriebe zusammengeführt → ${keepName} (${r.azubis} Azubis, ${r.ausbilder} Ausbilder)`, 'success');
     Views.einstellungen();
   },
 
@@ -18101,7 +18311,8 @@ const Views = {
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
             <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
-            <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern.</p>
+            <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern. Im Bearbeiten-Dialog lassen sich <em>weitere Schreibweisen (Aliase)</em> hinterlegen, die der Import automatisch dieser Schule zuordnet.</p>
+            <p><strong>Dubletten prüfen</strong> (Schulen, Betriebe, Jahrgänge) – findet Einträge, die sich nur in der Schreibweise unterscheiden (Groß/Klein, Umlaute, „Berufsschule“/„BS“, „GmbH“, Leerzeichen, Tippfehler) und führt sie per Klick zusammen: Azubis, Klassen, Termine und Blockpläne wandern zum Ziel, gleiche Klassen werden verschmolzen, der alte Name bleibt als Alias erhalten.</p>
             <p><strong>Ausbildungsbetriebe</strong> – Betriebe mit Anschrift, Kontaktdaten und zugeordneten Auszubildenden.</p>
             <p><strong>Fachrichtungen</strong> – Fachrichtungen im Gartenbau (z.B. GaLaBau, Baumschule, Zierpflanzenbau) sowie Fachwerkerberufe.</p>
             <p><strong>Klassen</strong> – Automatisch generierte Berufsschulklassen (Schule + Jahrgang + Fachrichtung + Ausbildungsjahr).</p>
@@ -18127,6 +18338,7 @@ const Views = {
             <p>• <strong>Verwaltungsdaten</strong> – Zuständiges Amt, Betriebsnummer, BAV-Identnummer</p>
             <p style="margin-top:8px"><strong>Automatische Verarbeitung:</strong></p>
             <p>• Berufsschulen, Klassen und Jahrgänge werden beim Import <strong>automatisch angelegt</strong>, sofern sie noch nicht existieren</p>
+            <p>• <strong>Import-Wächter:</strong> Würde eine neue Schule, ein neuer Betrieb oder Jahrgang angelegt, der einem vorhandenen ähnelt (Namensänderung in IBYKUS), zeigt die Vorschau eine Auswahl „zuordnen statt neu anlegen“. Die Zuordnung wird als Alias gemerkt und gilt für alle künftigen Importe; bekannte Aliase werden ohne Nachfrage angewendet</p>
             <p>• Bei erneutem Import (Re-Import) werden bestehende Datensätze anhand der BAV-Identnummer <strong>aktualisiert</strong>, nicht dupliziert</p>
             <p>• Die Fachrichtung wird aus dem IBYKUS-Berufscode abgeleitet (z.B. 010 = Garten- und Landschaftsbau, 036 = Baumschule)</p>
                       <p style="margin-top:8px">• <strong>Datumsformat:</strong> Der Import erkennt automatisch, ob die Datei deutsche (01.09.2024) oder US-Daten (9/1/07, häufig nach Excel-Bearbeitung) enthält, und zeigt die Erkennung im Dialog an. Bei mehrdeutigen Dateien bitte anhand der Beispielwerte prüfen – eine falsche Wahl vertauscht Tag und Monat.</p>
@@ -19526,6 +19738,7 @@ const StammdatenTab = {
     const rows = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ');
     c.innerHTML = `
       <div class="toolbar"><div class="toolbar-left"></div><div class="toolbar-right">
+        <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('jahrgang')" title="Ähnliche Jahrgangsbezeichnungen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addJahrgang()">+ Neuer Abschlussjahrgang</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Schüler</th><th>Aktionen</th></tr></thead><tbody>
@@ -19604,6 +19817,7 @@ const StammdatenTab = {
       <div class="toolbar"><div class="toolbar-left">
         <span style="font-size:13px;color:var(--clr-text-light)">${rows.length} Schulen</span>
       </div><div class="toolbar-right">
+        <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('schule')" title="Ähnliche Schulnamen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addSchule()">+ Neue Berufsschule</button>
       </div></div>
       <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
@@ -19668,13 +19882,47 @@ const StammdatenTab = {
     const others = ids.filter(id => id !== targetId);
     // Sicherheits-Backup vor Zusammenführung
     if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
-    others.forEach(id => {
-      App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
-      App.deleteSchuleKaskade(id);
-    });
+    // App.mergeSchulen verschmilzt Klassen mit gleichem Jahrgang/Fachrichtung
+    // (UNIQUE) statt sie zu löschen, nimmt Termine + Blockpläne mit und merkt
+    // die alten Namen als Aliase für künftige Importe.
+    let r;
+    try { r = App.mergeSchulen(targetId, others); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
     App.closeModal();
-    App.toast(`${others.length} Schulen in Ziel zusammengeführt`, 'success');
+    App.toast(`${others.length} Schulen zusammengeführt: ${r.azubis} Azubis, ${r.klassenVerschmolzen} Klassen verschmolzen, ${r.klassenVerschoben} verschoben, ${r.termine} Termine, ${r.aliase} Alias(e)`, 'success');
     StammdatenTab.show('schulen');
+  },
+  // ── Dubletten & Zusammenführen (Schulen, Betriebe, Jahrgänge) ──
+  dubletten(art) {
+    const cfg = App.ALIAS_ARTEN[art];
+    if (!cfg) return;
+    const paare = App.dublettenKandidaten(art);
+    const nm = (r) => r[cfg.col] + (art === 'betrieb' && r.ort ? ` (${r.ort})` : '') + (art === 'betrieb' && r.betriebsnummer ? ` · BNr ${r.betriebsnummer}` : '');
+    const zaehl = (r) => art === 'schule' ? (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id=?)', [r.id]) || 0)
+      : art === 'betrieb' ? (App.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [r.id]) || 0)
+      : (App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [r.id]) || 0);
+    App.openModal(`Dubletten: ${esc(cfg.label)}`, `
+      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Vorschläge nach Schreibweise (Groß/Klein, Umlaute, Füllwörter wie „Berufsschule“/„GmbH“). Beim Zusammenführen wandern Azubis, Klassen, Termine und Blockpläne zum Ziel; der andere Name bleibt als Alias erhalten und wird beim nächsten Import automatisch zugeordnet.</p>
+      ${paare.length ? `<table class="data-table"><thead><tr><th>Eintrag A</th><th>Eintrag B</th><th>Grund</th><th>Zusammenführen</th></tr></thead><tbody>
+        ${paare.map(p => `<tr><td><strong>${esc(nm(p.a))}</strong><br><span style="font-size:10px;color:var(--clr-text-light)">${zaehl(p.a)} Azubis</span></td><td><strong>${esc(nm(p.b))}</strong><br><span style="font-size:10px;color:var(--clr-text-light)">${zaehl(p.b)} Azubis</span></td><td style="font-size:11px">${esc(p.grund)}</td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="StammdatenTab.doMergeDubletten('${art}',${p.a.id},${p.b.id})" title="B in A aufgehen lassen">B → A</button> <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.doMergeDubletten('${art}',${p.b.id},${p.a.id})" title="A in B aufgehen lassen">A → B</button></td></tr>`).join('')}
+      </tbody></table>` : '<div style="font-size:12px;color:var(--clr-text-light)">Keine Dubletten-Kandidaten gefunden.</div>'}
+      ${(() => { const al = App.aliasListe(art); return al.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px">Bekannte Aliase (${al.length})</summary><div style="font-size:11px;margin-top:4px">${al.map(a => `<div>„${esc(a.alias)}“ → ${esc(App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [a.ziel_id]) || '?')} <a href="#" onclick="App.aliasLoeschen('${art}','${esc(a.norm)}');StammdatenTab.dubletten('${art}');return false" style="color:var(--clr-red)">✕</a></div>`).join('')}</div></details>` : ''; })()}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);
+    _makeModalWide();
+  },
+  async doMergeDubletten(art, zielId, quellId) {
+    const cfg = App.ALIAS_ARTEN[art];
+    const ziel = App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [zielId]);
+    const quelle = App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [quellId]);
+    if (!ziel || !quelle) return;
+    if (!(await App.confirm(`„${quelle}“ in „${ziel}“ aufgehen lassen?\n\nAlle Zuordnungen wandern zu „${ziel}“, „${quelle}“ wird gelöscht und als Alias gemerkt.`, { titel: `${cfg.label} zusammenführen`, ok: 'Zusammenführen', gefaehrlich: true }))) return;
+    if (App.createBackup) try { await App.createBackup('vor-merge'); } catch(e) { console.warn('Backup:', e); }
+    let r;
+    try { r = App.mergeStammdaten(art, zielId, [quellId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
+    App.toast(`Zusammengeführt: ${r.azubis} Azubis${r.klassenVerschmolzen !== undefined ? `, ${r.klassenVerschmolzen} Klassen verschmolzen, ${r.klassenVerschoben} verschoben` : ''}${r.termine ? `, ${r.termine} Termine` : ''}${r.aliase ? `, ${r.aliase} Alias(e)` : ''}`, 'success');
+    this.dubletten(art);
+    const tab = art === 'schule' ? 'schulen' : art === 'betrieb' ? 'betriebe' : 'jahrgaenge';
+    try { this.show(tab); } catch(e) {}
   },
   addSchule() {
     App.openModal('Neue Berufsschule', `
@@ -19734,6 +19982,8 @@ const StammdatenTab = {
     const apJsonStr = JSON.stringify(apJson);
     if (id) {
       App.run('UPDATE berufsschulen SET name=?,ort=?,ansprechpartner=?,email=?,telefon=?,email_cc=?,ansprechpartner_json=? WHERE id=?', [n,o,ap,em,tel,cc,apJsonStr,id]);
+      const alEl = document.getElementById('mSchAliase');
+      if (alEl) App.aliaseSetzenAus('schule', id, String(alEl.value || '').split('\n'));
     } else {
       App.run('INSERT INTO berufsschulen (name,ort,ansprechpartner,email,telefon,email_cc,ansprechpartner_json) VALUES (?,?,?,?,?,?,?)', [n,o,ap,em,tel,cc,apJsonStr]);
     }
@@ -19760,6 +20010,7 @@ const StammdatenTab = {
           <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" value="${esc(r.email_cc || '')}" placeholder="lehrer@schule.de, fachbereich@schule.de"></div>
         </div>
         <div class="form-group"><label>Hauptansprechpartner (Kurzform)</label><input class="form-control" id="mSchAP" value="${esc(r.ansprechpartner)}"></div>
+        <div class="form-group"><label>Weitere Schreibweisen (Aliase, eine je Zeile – werden beim IBYKUS-Import dieser Schule zugeordnet)</label><textarea class="form-control" id="mSchAliase" rows="2" style="font-size:12px" placeholder="z.B. alter Schulname aus dem Export">${esc(App.aliasListe('schule', id).map(a => a.alias).join('\n'))}</textarea></div>
       </div>
       <div id="mSchTab2" class="modal-tab-content">
         <p style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">Beliebig viele Ansprechpartner mit Kontaktdaten hinterlegen:</p>
@@ -20243,6 +20494,7 @@ const StammdatenTab = {
         <input class="form-control" placeholder="Betrieb suchen…" style="width:200px;padding:4px 8px;font-size:12px" oninput="StammdatenTab._filterBetriebe(this.value)">
       </div><div class="toolbar-right">
         <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._autoLinkBetriebe(true);StammdatenTab.show('betriebe')">Auto-Verknüpfen</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.dubletten('betrieb')" title="Ähnliche Betriebsnamen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr>
@@ -21120,6 +21372,24 @@ const ImportHandler = {
   // geschrieben wird. „Jetzt importieren" führt dann den echten Lauf aus.
   doImportVorschau(data) { return this.doImport(data, { vorschau: true }); },
   _feldLabel: { nachname: 'Nachname', vorname: 'Vorname', ibykus_id: 'BAV-Ident', ausbildungsende: 'AV-Ende', ausbildungsbeginn: 'AV-Beginn', ausbildungsstaette: 'Betrieb', telefon: 'Telefon', email: 'E-Mail', betrieb_id: 'Betrieb (Stammdaten)', klasse_id: 'Klasse', jahrgang_id: 'Jahrgang', fachrichtung_id: 'Fachrichtung', zustaendiges_amt: 'Amt', geschlecht: 'Geschlecht', schulabschluss: 'Schulabschluss', pruefungserfolg: 'Prüfungserfolg', pruefungserfolg_wdh1: 'Prüfungserfolg Wdh. 1', pruefungserfolg_wdh2: 'Prüfungserfolg Wdh. 2', bav_status: 'BAV-Status', zwischenpruefung: 'ZP', aktiv: 'aktiv', status: 'Status', ap_bestanden: 'AP bestanden', inaktiv_datum: 'inaktiv seit', inaktiv_grund: 'Grund' },
+  // Import-Wächter: neue Schulen/Betriebe/Jahrgänge der Vorschau gegen vorhandene prüfen
+  _stammdatenWaechter(stats) {
+    const out = [];
+    const pruefen = (art, namen) => (namen ? [...namen] : []).forEach(name => {
+      const kandidaten = App.aehnlicheStammdaten(art, name);
+      if (kandidaten.length) out.push({ art, name, kandidaten });
+    });
+    pruefen('schule', stats.schulen); pruefen('jahrgang', stats.jahrgaenge); pruefen('betrieb', stats.betriebe);
+    return out;
+  },
+  _zuordnungAusVorschau() {
+    const z = {};
+    document.querySelectorAll('.imp-zuord').forEach(sel => {
+      const id = parseInt(sel.value);
+      if (id > 0) { const art = sel.dataset.art; (z[art] = z[art] || {})[sel.dataset.name] = id; }
+    });
+    return z;
+  },
   _zeigeVorschau(v) {
     const lbl = f => this._feldLabel[f] || f;
     const wert = (f, x) => {
@@ -21145,9 +21415,10 @@ const ImportHandler = {
       ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
       ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:10px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
       ${v.stats.phasenKonflikte?.length ? block(`⚠︎ Phasen-Konflikte (${v.stats.phasenKonflikte.length})`, 'var(--clr-amber)', liste(v.stats.phasenKonflikte, k => `<div>• ${esc(k.name)}: ${k.changes.map(([f, n, o]) => `${esc(lbl(f))} ${esc(o || '–')} → ${esc(n)}`).join(', ')} – Datumsfelder werden nicht überschrieben</div>`)) : ''}
+      ${(() => { const w = ImportHandler._stammdatenWaechter(v.stats); return w.length ? block(`⚠︎ Neue Stammdaten ähneln vorhandenen (${w.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Namensänderung in IBYKUS? Zuordnen statt neu anlegen – die alte Schreibweise wird als Alias gemerkt und künftig automatisch erkannt.</div>` + liste(w, x => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">• Neu: <strong>${esc(x.name)}</strong> <span style="color:var(--clr-text-light)">(${esc(App.ALIAS_ARTEN[x.art].label)})</span> → <select class="form-control imp-zuord" data-art="${x.art}" data-name="${esc(x.name)}" style="width:auto;font-size:11px;padding:2px 4px"><option value="">neu anlegen</option>${x.kandidaten.map((k, i) => `<option value="${k.id}" ${i === 0 && k.grund.startsWith('gleicher') ? 'selected' : ''}>${esc(k.name)} – ${esc(k.grund)}</option>`).join('')}</select></div>`)) : ''; })()}
       ${v.errorRows.length ? block(`⚠︎ Fehlerhafte Zeilen (${v.errorRows.length})`, 'var(--clr-red)', liste(v.errorRows, e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`, 20)) : ''}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data)">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
+        <button class="btn btn-primary" onclick="const z=ImportHandler._zuordnungAusVorschau();App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data, { zuordnung: z })">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
   },
 
   async doImport(data, opts = {}) {
@@ -21181,7 +21452,10 @@ const ImportHandler = {
     const today = new Date();
     let imported = 0, skipped = 0;
     const gesehen = new Set(), exportFr = new Set(), exportAemter = new Set(); // Audit 7 B3: Abgleich Bestand ↔ Export
-    let stats = { schulen: new Set(), jahrgaenge: new Set(), klassen: new Set(), frNotFound: new Set() };
+    let stats = { schulen: new Set(), jahrgaenge: new Set(), klassen: new Set(), betriebe: new Set(), frNotFound: new Set() };
+    const zuordnung = (opts && opts.zuordnung) || {};
+    // Wächter: vom Nutzer in der Vorschau gewählte Zuordnung → Alias merken, Ziel zurückgeben
+    const zugeordnet = (art, name) => { const id = parseInt((zuordnung[art] || {})[name]); if (id > 0) { App.aliasSetzen(art, name, id); return id; } return null; };
 
     // ── Match Fachrichtung by IBYKUS code (31-37, 171-177) ──
     function matchFR(codeStr) {
@@ -21233,6 +21507,8 @@ const ImportHandler = {
       const year = m ? parseInt(m[2]) : (parseInt(code.match(/\d{4}/)?.[0]) || 0);
       let jg = jahrgaenge.find(j => j.bezeichnung === bez);
       if (jg) return jg.id;
+      const jgAlias = App.aliasZiel('jahrgang', bez) || zugeordnet('jahrgang', bez);
+      if (jgAlias) return jgAlias;
       // Create new Jahrgang with original IBYKUS value as bezeichnung
       App.run('INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung,typ,jahr) VALUES (?,?,?)', [bez,typ,year]);
       const n = App.query('SELECT * FROM abschlussjahrgaenge WHERE bezeichnung=?', [bez]);
@@ -21246,6 +21522,7 @@ const ImportHandler = {
       name = name.trim();
       if (!name) return null;
       let s = schulen.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (!s) { const al = App.aliasZiel('schule', name) || zugeordnet('schule', name); if (al) return al; }
       if (!s) s = schulen.find(x => name.toLowerCase().includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(name.toLowerCase()));
       if (s) return s.id;
       App.run('INSERT INTO berufsschulen (name) VALUES (?)', [name]);
@@ -21302,6 +21579,7 @@ const ImportHandler = {
       // Find by Betriebsnummer first, then by name
       let b = bnr ? App.query('SELECT * FROM betriebe WHERE betriebsnummer=?', [bnr])[0] : null;
       if (!b) b = App.query('SELECT * FROM betriebe WHERE name=? AND ort=?', [name, ort])[0];
+      if (!b) { const al = App.aliasZiel('betrieb', name) || (bnr ? App.aliasZiel('betrieb', bnr) : null) || zugeordnet('betrieb', name); if (al) b = App.query('SELECT * FROM betriebe WHERE id=?', [al])[0]; }
       if (b) {
         // Always overwrite with newest import data (unless import field is empty)
         if (email) App.run('UPDATE betriebe SET email=? WHERE id=?', [email, b.id]);
@@ -21318,6 +21596,7 @@ const ImportHandler = {
       // Leere Betriebsnummer als NULL: betriebsnummer ist UNIQUE, und '' gilt in
       // SQLite als regulärer Wert – der zweite Betrieb ohne Nummer scheiterte,
       // wodurch der ganze Azubi-Datensatz verworfen wurde.
+      stats.betriebe.add(name);
       App.run(`INSERT INTO betriebe (betriebsnummer,name,vorname,zusatzbezeichnung,firma,ansprechpartner,strasse,plz,ort,telefon,fax,email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(betriebsnummer) DO UPDATE SET name=excluded.name, strasse=excluded.strasse, plz=excluded.plz, ort=excluded.ort, telefon=excluded.telefon, email=excluded.email`,
         [bnr || null, name, bVorname, zusatz, zusatz, bVorname, strasse, plz, ort, tel, fax, email]);
@@ -21576,6 +21855,7 @@ const ImportHandler = {
     if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Schüler aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
     if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
+    if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
     if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${[...stats.jahrgaenge].join(', ')}`);
     if (stats.klassen.size) parts.push(`<strong>${stats.klassen.size}</strong> Klassen angelegt`);
     if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);
@@ -34095,7 +34375,13 @@ const DbTools = {
       </div>
       <div id="dbtVorschau" style="margin-top:6px"></div>
 
-      <h4 style="font-size:13px;margin:14px 0 6px">3 · Archive</h4>
+      <h4 style="font-size:13px;margin:14px 0 6px">3 · Stammdaten heilen</h4>
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Abweichende Schreibweisen aus dem IBYKUS-Export (Schulname geändert, Betrieb doppelt, Jahrgang „S 2026“ statt „S2026“) zusammenführen. Der alte Name bleibt als Alias und wird beim nächsten Import automatisch zugeordnet; die Import-Vorschau warnt vor neuen Einträgen, die vorhandenen ähneln.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${['schule', 'betrieb', 'jahrgang'].map(art => { const n = App.dublettenKandidaten(art).length; const al = App.aliasListe(art).length; return `<button class="btn btn-sm ${n ? 'btn-primary' : 'btn-secondary'}" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)}: ${n} Dubletten-Paar(e)${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
+      </div>
+
+      <h4 style="font-size:13px;margin:14px 0 6px">4 · Archive</h4>
       <div id="dbtArchive" style="font-size:12px;color:var(--clr-text-light)">Archive werden gelesen…</div>`;
     this._archiveRendern();
   },

@@ -491,6 +491,7 @@ const StammdatenTab = {
     const rows = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ');
     c.innerHTML = `
       <div class="toolbar"><div class="toolbar-left"></div><div class="toolbar-right">
+        <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('jahrgang')" title="Ähnliche Jahrgangsbezeichnungen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addJahrgang()">+ Neuer Abschlussjahrgang</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Schüler</th><th>Aktionen</th></tr></thead><tbody>
@@ -569,6 +570,7 @@ const StammdatenTab = {
       <div class="toolbar"><div class="toolbar-left">
         <span style="font-size:13px;color:var(--clr-text-light)">${rows.length} Schulen</span>
       </div><div class="toolbar-right">
+        <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('schule')" title="Ähnliche Schulnamen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addSchule()">+ Neue Berufsschule</button>
       </div></div>
       <div id="bulkBarSchulen" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;font-size:13px">
@@ -633,13 +635,47 @@ const StammdatenTab = {
     const others = ids.filter(id => id !== targetId);
     // Sicherheits-Backup vor Zusammenführung
     if (App.createBackup) try { await App.createBackup(); } catch(e) { console.warn('Backup:', e); }
-    others.forEach(id => {
-      App.run('UPDATE klassen SET berufsschule_id=? WHERE berufsschule_id=?', [targetId, id]);
-      App.deleteSchuleKaskade(id);
-    });
+    // App.mergeSchulen verschmilzt Klassen mit gleichem Jahrgang/Fachrichtung
+    // (UNIQUE) statt sie zu löschen, nimmt Termine + Blockpläne mit und merkt
+    // die alten Namen als Aliase für künftige Importe.
+    let r;
+    try { r = App.mergeSchulen(targetId, others); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
     App.closeModal();
-    App.toast(`${others.length} Schulen in Ziel zusammengeführt`, 'success');
+    App.toast(`${others.length} Schulen zusammengeführt: ${r.azubis} Azubis, ${r.klassenVerschmolzen} Klassen verschmolzen, ${r.klassenVerschoben} verschoben, ${r.termine} Termine, ${r.aliase} Alias(e)`, 'success');
     StammdatenTab.show('schulen');
+  },
+  // ── Dubletten & Zusammenführen (Schulen, Betriebe, Jahrgänge) ──
+  dubletten(art) {
+    const cfg = App.ALIAS_ARTEN[art];
+    if (!cfg) return;
+    const paare = App.dublettenKandidaten(art);
+    const nm = (r) => r[cfg.col] + (art === 'betrieb' && r.ort ? ` (${r.ort})` : '') + (art === 'betrieb' && r.betriebsnummer ? ` · BNr ${r.betriebsnummer}` : '');
+    const zaehl = (r) => art === 'schule' ? (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id IN (SELECT id FROM klassen WHERE berufsschule_id=?)', [r.id]) || 0)
+      : art === 'betrieb' ? (App.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [r.id]) || 0)
+      : (App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [r.id]) || 0);
+    App.openModal(`Dubletten: ${esc(cfg.label)}`, `
+      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Vorschläge nach Schreibweise (Groß/Klein, Umlaute, Füllwörter wie „Berufsschule“/„GmbH“). Beim Zusammenführen wandern Azubis, Klassen, Termine und Blockpläne zum Ziel; der andere Name bleibt als Alias erhalten und wird beim nächsten Import automatisch zugeordnet.</p>
+      ${paare.length ? `<table class="data-table"><thead><tr><th>Eintrag A</th><th>Eintrag B</th><th>Grund</th><th>Zusammenführen</th></tr></thead><tbody>
+        ${paare.map(p => `<tr><td><strong>${esc(nm(p.a))}</strong><br><span style="font-size:10px;color:var(--clr-text-light)">${zaehl(p.a)} Azubis</span></td><td><strong>${esc(nm(p.b))}</strong><br><span style="font-size:10px;color:var(--clr-text-light)">${zaehl(p.b)} Azubis</span></td><td style="font-size:11px">${esc(p.grund)}</td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="StammdatenTab.doMergeDubletten('${art}',${p.a.id},${p.b.id})" title="B in A aufgehen lassen">B → A</button> <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.doMergeDubletten('${art}',${p.b.id},${p.a.id})" title="A in B aufgehen lassen">A → B</button></td></tr>`).join('')}
+      </tbody></table>` : '<div style="font-size:12px;color:var(--clr-text-light)">Keine Dubletten-Kandidaten gefunden.</div>'}
+      ${(() => { const al = App.aliasListe(art); return al.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px">Bekannte Aliase (${al.length})</summary><div style="font-size:11px;margin-top:4px">${al.map(a => `<div>„${esc(a.alias)}“ → ${esc(App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [a.ziel_id]) || '?')} <a href="#" onclick="App.aliasLoeschen('${art}','${esc(a.norm)}');StammdatenTab.dubletten('${art}');return false" style="color:var(--clr-red)">✕</a></div>`).join('')}</div></details>` : ''; })()}
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);
+    _makeModalWide();
+  },
+  async doMergeDubletten(art, zielId, quellId) {
+    const cfg = App.ALIAS_ARTEN[art];
+    const ziel = App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [zielId]);
+    const quelle = App.scalar(`SELECT ${cfg.col} FROM ${cfg.tab} WHERE id=?`, [quellId]);
+    if (!ziel || !quelle) return;
+    if (!(await App.confirm(`„${quelle}“ in „${ziel}“ aufgehen lassen?\n\nAlle Zuordnungen wandern zu „${ziel}“, „${quelle}“ wird gelöscht und als Alias gemerkt.`, { titel: `${cfg.label} zusammenführen`, ok: 'Zusammenführen', gefaehrlich: true }))) return;
+    if (App.createBackup) try { await App.createBackup('vor-merge'); } catch(e) { console.warn('Backup:', e); }
+    let r;
+    try { r = App.mergeStammdaten(art, zielId, [quellId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
+    App.toast(`Zusammengeführt: ${r.azubis} Azubis${r.klassenVerschmolzen !== undefined ? `, ${r.klassenVerschmolzen} Klassen verschmolzen, ${r.klassenVerschoben} verschoben` : ''}${r.termine ? `, ${r.termine} Termine` : ''}${r.aliase ? `, ${r.aliase} Alias(e)` : ''}`, 'success');
+    this.dubletten(art);
+    const tab = art === 'schule' ? 'schulen' : art === 'betrieb' ? 'betriebe' : 'jahrgaenge';
+    try { this.show(tab); } catch(e) {}
   },
   addSchule() {
     App.openModal('Neue Berufsschule', `
@@ -699,6 +735,8 @@ const StammdatenTab = {
     const apJsonStr = JSON.stringify(apJson);
     if (id) {
       App.run('UPDATE berufsschulen SET name=?,ort=?,ansprechpartner=?,email=?,telefon=?,email_cc=?,ansprechpartner_json=? WHERE id=?', [n,o,ap,em,tel,cc,apJsonStr,id]);
+      const alEl = document.getElementById('mSchAliase');
+      if (alEl) App.aliaseSetzenAus('schule', id, String(alEl.value || '').split('\n'));
     } else {
       App.run('INSERT INTO berufsschulen (name,ort,ansprechpartner,email,telefon,email_cc,ansprechpartner_json) VALUES (?,?,?,?,?,?,?)', [n,o,ap,em,tel,cc,apJsonStr]);
     }
@@ -725,6 +763,7 @@ const StammdatenTab = {
           <div class="form-group"><label>CC-Adressen (kommagetrennt)</label><input class="form-control" id="mSchEmailCC" value="${esc(r.email_cc || '')}" placeholder="lehrer@schule.de, fachbereich@schule.de"></div>
         </div>
         <div class="form-group"><label>Hauptansprechpartner (Kurzform)</label><input class="form-control" id="mSchAP" value="${esc(r.ansprechpartner)}"></div>
+        <div class="form-group"><label>Weitere Schreibweisen (Aliase, eine je Zeile – werden beim IBYKUS-Import dieser Schule zugeordnet)</label><textarea class="form-control" id="mSchAliase" rows="2" style="font-size:12px" placeholder="z.B. alter Schulname aus dem Export">${esc(App.aliasListe('schule', id).map(a => a.alias).join('\n'))}</textarea></div>
       </div>
       <div id="mSchTab2" class="modal-tab-content">
         <p style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">Beliebig viele Ansprechpartner mit Kontaktdaten hinterlegen:</p>
@@ -1208,6 +1247,7 @@ const StammdatenTab = {
         <input class="form-control" placeholder="Betrieb suchen…" style="width:200px;padding:4px 8px;font-size:12px" oninput="StammdatenTab._filterBetriebe(this.value)">
       </div><div class="toolbar-right">
         <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._autoLinkBetriebe(true);StammdatenTab.show('betriebe')">Auto-Verknüpfen</button>
+        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.dubletten('betrieb')" title="Ähnliche Betriebsnamen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
       <div class="card"><table class="data-table"><thead><tr>
