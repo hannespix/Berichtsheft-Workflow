@@ -2712,6 +2712,32 @@ const App = {
   // ── Lock file: prevents concurrent writes on slow connections ──
   _lockFileName: null,
   _lockNonce: null,
+  // Windows/SMB: Chromium meldet InvalidStateError („state had changed since
+  // it was read from disk"), wenn sein Metadaten-Cache zu einem Zugriffspunkt
+  // nicht mehr zur Platte passt – typisch, nachdem ein Kollege die Datei durch
+  // seine Kompaktierung ersetzt hat. Derselbe Zugriffspunkt bleibt danach
+  // DAUERHAFT unbrauchbar; nur ein frisch aus dem Verzeichnis geholter heilt das.
+  _istZustandsFehler(e) {
+    if (!e) return false;
+    const m = String(e.message || '');
+    return e.name === 'InvalidStateError' || /state had changed since it was read from disk|state cached in an interface object/i.test(m);
+  },
+  async _handlesNeuHolen() {
+    if (!this.dirHandle) return false;
+    let ok = false;
+    try { this.bhkDirHandle = await this.dirHandle.getDirectoryHandle('_bhk', { create: true }); ok = true; } catch(e) {}
+    try { if (this.bhkDirHandle) this.backupsDirHandle = await this.bhkDirHandle.getDirectoryHandle('backups', { create: true }); } catch(e) {}
+    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true }); } catch(e) {}
+    const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
+    if (name) {
+      for (const d of [this.dirHandle, this.dbDirHandle]) {
+        if (!d) continue;
+        try { this.dbFileHandle = await d.getFileHandle(name, { create: false }); ok = true; break; } catch(e) {}
+      }
+    }
+    if (ok) console.warn('[SyncV3] Datei-Zugriffspunkte nach Cache-Fehler neu geholt');
+    return ok;
+  },
   _lockErrorCount: 0,
   // Nonce einer eigenen Sperre, deren Freigabe fehlgeschlagen ist
   _lockVerwaist: null,
@@ -2793,6 +2819,11 @@ const App = {
       if (this._lockErrorCount >= 3) {
         console.warn('[Lock] Mechanismus fehlgeschlagen (' + this._lockErrorCount + 'x) – fahre ohne Lock fort:', e.message);
         return true;
+      }
+      if (this._istZustandsFehler(e) && !this._lockHandleRetry) {
+        this._lockHandleRetry = true;
+        try { if (await this._handlesNeuHolen()) { this._lockErrorCount = Math.max(0, this._lockErrorCount - 1); return await this._acquireLock(); } }
+        finally { this._lockHandleRetry = false; }
       }
       console.warn('[Lock] Fehler beim Acquire – Save wird verschoben:', e.message);
       return false;
@@ -4321,7 +4352,20 @@ const App = {
         ]);
       } catch(err) {
         if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
-        throw err;
+        // Veralteter Zugriffspunkt (fremde Kompaktierung dazwischen): frisch
+        // holen und EINMAL wiederholen, sonst scheitert jeder weitere Versuch.
+        if (this._istZustandsFehler(err) && await this._handlesNeuHolen()) {
+          console.warn('[SyncV3] Snapshot-Write nach Cache-Fehler wiederholt');
+          try {
+            await Promise.race([
+              writeOp(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), 120000)),
+            ]);
+          } catch(err2) {
+            if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
+            throw err2;
+          }
+        } else throw err;
       }
       // 4) snapmeta schreiben (Lock nochmals auffrischen – der Write kann bis
       // zu 120s gedauert haben). Vorher prüfen, ob das Lock noch UNS gehört:
@@ -4365,10 +4409,12 @@ const App = {
       }
       return true;
     } catch(e) {
-      const sb = this._istVerbindungsFehler && /safe browsing/i.test(String(e.message || ''));
+      const sb = /safe browsing/i.test(String(e.message || ''));
       this._compactGrund = sb
         ? 'Chrome konnte die Datei nicht prüfen („Safe Browsing") – Schreiben auf das Netzlaufwerk abgelehnt. Hilfe → Netzabriss beschreibt, wie die IT das abstellt.'
-        : 'Schreibfehler: ' + e.message;
+        : this._istZustandsFehler(e)
+          ? 'Die Datenbankdatei wurde zwischenzeitlich von einem anderen Rechner ersetzt (Datei-Cache von Windows). Der Zugriffspunkt wurde erneuert – der nächste Versuch sollte gelingen.'
+          : 'Schreibfehler: ' + e.message;
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
       return false;
     } finally {
