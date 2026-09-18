@@ -2960,6 +2960,13 @@ const App = {
         try { this.dbFileHandle = await d.getFileHandle(name, { create: false }); ok = true; break; } catch(e) {}
       }
     }
+    // Erst glauben, wenn die Datei damit auch WIRKLICH lesbar ist. Ist der
+    // Ordner-Zugriffspunkt selbst veraltet, liefert er nur neue, ebenso tote
+    // Kinder – dann hilft nur noch ein Neuladen der Seite.
+    if (ok && this.dbFileHandle) {
+      try { await this.dbFileHandle.getFile(); }
+      catch(e) { console.warn('[SyncV3] Zugriffspunkt auch nach dem Neuholen unbrauchbar:', e.message); return false; }
+    }
     if (ok) console.warn('[SyncV3] Datei-Zugriffspunkte nach Cache-Fehler neu geholt');
     return ok;
   },
@@ -4535,7 +4542,9 @@ const App = {
       const gotLock = await this._acquireLock();
       if (!gotLock) return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); // ein anderer kompaktiert bereits
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
+      this.ladeText && this._ladeTimer && this.ladeText('Änderungen sichern…');
       await this._saveV3();
+      this.ladeText && this._ladeTimer && this.ladeText('Fremde Änderungen einlesen…');
       await this._pollOplogs();
       // 2) Offsets = eigener LESESTAND. Ein erneuter Verzeichnis-Scan würde
       // Änderungen, die gerade WÄHREND der Kompaktierung angehängt wurden, als
@@ -4564,6 +4573,7 @@ const App = {
       await this._refreshLock();
       this._stampsSpeichern();
       const data = this.db.export();
+      this.ladeText && this._ladeTimer && this.ladeText(`Datenbank schreiben (${Math.round(data.length / 1024 / 1024)} MB)…`);
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
@@ -4638,8 +4648,9 @@ const App = {
       this._compactGrund = sb
         ? 'Chrome konnte die Datei nicht prüfen („Safe Browsing") – Schreiben auf das Netzlaufwerk abgelehnt. Hilfe → Netzabriss beschreibt, wie die IT das abstellt.'
         : this._istZustandsFehler(e)
-          ? 'Die Datenbankdatei wurde zwischenzeitlich von einem anderen Rechner ersetzt (Datei-Cache von Windows). Der Zugriffspunkt wurde erneuert – der nächste Versuch sollte gelingen.'
+          ? 'Der Zugriff auf die Datenbankdatei ist veraltet (Windows-Dateicache) und ließ sich auch durch Erneuern nicht wiederherstellen. Bitte die Seite neu laden (F5) und den Vorgang wiederholen – die Änderungen bleiben bis dahin erhalten.'
           : 'Schreibfehler: ' + e.message;
+      if (this._istZustandsFehler(e)) this._neuladenNoetig = true;
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
       return false;
     } finally {
@@ -8748,8 +8759,26 @@ Anlagen: {anlagen}` },
     const el = document.getElementById('loadingOverlay');
     document.getElementById('loadingText').textContent = text || 'Wird geladen…';
     el.style.display = 'flex';
+    this._ladeStart = Date.now();
+    this._ladeBasis = text || 'Wird geladen…';
+    if (this._ladeTimer) clearInterval(this._ladeTimer);
+    // Mitlaufende Sekundenanzeige: Auf langsamen Netzlaufwerken dauert ein
+    // einzelner Schreibvorgang Minuten – ohne Lebenszeichen wirkt das eingefroren.
+    this._ladeTimer = setInterval(() => {
+      const t = document.getElementById('loadingText');
+      if (!t) return;
+      const s = Math.round((Date.now() - this._ladeStart) / 1000);
+      t.textContent = this._ladeBasis + (s >= 3 ? `  (${s} s)` : '');
+    }, 1000);
+  },
+  // Text der laufenden Anzeige ändern, ohne die Uhr zurückzusetzen
+  ladeText(text) {
+    this._ladeBasis = text || this._ladeBasis;
+    const t = document.getElementById('loadingText');
+    if (t) t.textContent = this._ladeBasis;
   },
   hideLoading() {
+    if (this._ladeTimer) { clearInterval(this._ladeTimer); this._ladeTimer = null; }
     document.getElementById('loadingOverlay').style.display = 'none';
   },
   _showOfflineBanner(critical) {
