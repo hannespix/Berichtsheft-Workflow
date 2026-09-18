@@ -226,7 +226,7 @@ console.log('══ Wächter ══');
   App.offlineModus = true; check(/Offline/.test(T._sperrgrund()), 'Offline-Modus sperrt'); App.offlineModus = false;
   App._netzWeg = true; check(/Netzlaufwerk/.test(T._sperrgrund()), 'Netzabriss sperrt'); App._netzWeg = false;
   App._bulkPending = true; check(/Import/.test(T._sperrgrund()), 'Ausstehender Import sperrt'); App._bulkPending = false;
-  check(/_bulkImport = true/.test(DBT_SRC) && /App\.fullSave\(\)/.test(DBT_SRC) && /createBackup\('vor-'/.test(DBT_SRC) && /run\('VACUUM'\)/.test(DBT_SRC), 'Ablauf: Backup → Bulk-Pfad → VACUUM → Snapshot (fullSave)');
+  check(/_bulkImport = true/.test(DBT_SRC) && /App\.fullSave\(/.test(DBT_SRC) && /createBackup\('vor-'/.test(DBT_SRC) && /run\('VACUUM'\)/.test(DBT_SRC), 'Ablauf: Backup → Bulk-Pfad → VACUUM → Snapshot (fullSave)');
   check(/eingabe !== 'LÖSCHEN'/.test(DBT_SRC) && /_archivSchreiben\(/.test(DBT_SRC) && /NICHTS gelöscht/.test(DBT_SRC), 'Jahrgang-Löschen: Tippbestätigung, Archiv vor dem Löschen, Abbruch bei Archivfehler');
   check(/n !== v\.azubis\) throw/.test(DBT_SRC), 'Archiv wird gegengelesen (Azubi-Zahl) – sonst kein Löschen');
   const APP = APP_SRC;
@@ -235,6 +235,35 @@ console.log('══ Wächter ══');
   check(/DbTools\.cardHtml\(\)/.test(VIEWS) && /DbTools\.renderCard\(\)/.test(VIEWS), 'Karte in den Einstellungen eingebunden');
   check(/db-tools\.js/.test(read('build.sh')) && /db-tools\.js/.test(read('index.html')), 'Modul in build.sh und index.html');
   check(/rolle'\) === 'assistenz'/.test(DBT_SRC), 'Rollenprofil Assistenz sieht die Werkzeuge nicht');
+}
+
+console.log('══ Speichern unter Last: Warten, längere Versuche, Nachholung ══');
+{
+  const toasts = [];
+  App.toast = (m, t) => toasts.push([String(m), t]);
+  App.dbFileHandle = {}; App.createBackup = async () => {}; App._bulkPending = false;
+  T._ausstehendStarten = () => {}; T.WARTE_MAX = 3; T.WARTE_SCHRITT_MS = 1;
+  let ran = 0, nachher = 0, saveOpts = null;
+  App._compactInProgress = true;
+  await T._ausfuehren('test', () => { ran++; return 'Testlauf'; });
+  check(ran === 0 && toasts.at(-1)[1] === 'warning' && /Kompaktierung läuft noch/.test(toasts.at(-1)[0]) && App._dbToolsAktiv === false, 'Laufende Kompaktierung: nach Wartezeit Abbruch OHNE Änderung');
+  App._compactInProgress = false;
+  App.fullSave = async (o) => { saveOpts = o; };
+  await T._ausfuehren('test', () => { ran++; return 'Testlauf'; }, { nachher: async () => { nachher++; } });
+  check(ran === 1 && nachher === 1 && toasts.at(-1)[1] === 'success', 'Freie Kompaktierung: Arbeit, Speichern, Nacharbeit, Erfolgsmeldung');
+  check(saveOpts && saveOpts.versuche === 8 && saveOpts.pause === 15000 && saveOpts.grund === 'bereinigung' && saveOpts.label === 'Bereinigung', 'Speichern mit 8 Versuchen à 15 s statt 3 à 3 s');
+  App.fullSave = async () => { App._bulkPending = true; throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)'); };
+  await T._ausfuehren('jahrgang', () => { ran++; return 'Jahrgang gelöscht'; }, { nachher: async () => { nachher++; } });
+  check(ran === 2 && nachher === 1 && T._ausstehend && T._ausstehend.meldung === 'Jahrgang gelöscht' && T._letzterLauf.ausstehend === true, 'Lock belegt: Stand bleibt im Speicher, Nacharbeit wartet, Lauf als ausstehend markiert');
+  check(toasts.at(-1)[1] === 'error' && /nachgeholt/.test(toasts.at(-1)[0]) && /NICHT schließen/.test(toasts.at(-1)[0]), 'Meldung nennt Nachholung und warnt vor dem Schließen');
+  await T._ausfuehren('test', () => { ran++; return 'x'; });
+  check(ran === 2 && /noch nicht gespeichert/.test(toasts.at(-1)[0]), 'Keine zweite Bereinigung, solange die erste aussteht');
+  check(await T._ausstehendPruefen() === false && T._ausstehend, 'Solange _bulkPending: Nachholung noch offen');
+  App._bulkPending = false;
+  check(await T._ausstehendPruefen() === true && !T._ausstehend && nachher === 2 && /jetzt gespeichert/.test(toasts.at(-1)[0]) && !T._letzterLauf.ausstehend, 'Nach der Kompaktierung: Nacharbeit läuft, Erfolgsmeldung, Karte frei');
+  check(/async fullSave\(opts\)/.test(APP_SRC) && /versuch <= o\.versuche/.test(APP_SRC) && /this\._compact\(o\.grund\)/.test(APP_SRC), 'App.fullSave nimmt Versuche/Pause/Grund/Label entgegen');
+  check((APP_SRC.match(/!this\._dbToolsAktiv && await this\._compactionDue\(\)/g) || []).length === 2, 'Automatische Start- und Größen-Kompaktierung pausieren während einer Bereinigung');
+  check(!/Kompaktierung läuft gerade – bitte kurz warten/.test(DBT_SRC) && /Warte auf laufende Kompaktierung/.test(DBT_SRC), 'Laufende Kompaktierung wird abgewartet statt abgelehnt');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
