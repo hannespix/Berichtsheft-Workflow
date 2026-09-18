@@ -1645,6 +1645,9 @@ const Views = {
         <div id="backupBox" style="margin-top:12px"><div style="font-size:12px;color:var(--clr-text-light)">Backups werden geladen…</div></div>
       </div>
 
+      <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
+      ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
+
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✎ Textbausteine für Bemerkungen</div>
@@ -1748,7 +1751,7 @@ const Views = {
         </div>`;
       })()}
     </div>`;
-    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); }, 50);
+    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } }, 50);
   },
 
   // ── Vorlagen-Editor ──
@@ -2683,6 +2686,7 @@ const Views = {
             <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
             <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
             <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
+            <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Nicht im Offline-Modus, nicht bei Netzabriss</p>
             <p>• <strong>Backups wiederherstellen</strong> – Gesamten Datenstand auf einen Sicherungszeitpunkt zurücksetzen (gilt für alle Nutzer, aktueller Stand wird vorher gesichert)</p>
             <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
