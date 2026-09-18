@@ -2587,6 +2587,8 @@ const App = {
           else await this._pollSyncMarker();
           // Präsenz (drosselt sich selbst auf 30/60 s)
           try { await this._praesenzTakt(false); } catch(e) {}
+          // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
+          try { await this._sperreAufraeumen(); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);
@@ -2711,6 +2713,12 @@ const App = {
   _lockFileName: null,
   _lockNonce: null,
   _lockErrorCount: 0,
+  // Nonce einer eigenen Sperre, deren Freigabe fehlgeschlagen ist
+  _lockVerwaist: null,
+  _sperrHalter() {
+    const p = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || this.currentUser || '';
+    return p ? `${p} (Rechner ${this._getClientId().slice(-4)})` : `Rechner ${this._getClientId().slice(-4)}`;
+  },
   _lockName() { return 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/, '') : ''); },
   // Grund der letzten verweigerten Kompaktierung (für Meldungen und Datenbank-Tools)
   _compactGrund: '',
@@ -2731,22 +2739,31 @@ const App = {
         const text = await file.text();
         if (!text.trim()) throw new Error('leer');
         const lock = JSON.parse(text);
-        // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
-        // sonst wird ein legitimer langsamer Save als "stale" übernommen.
-        // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
-        // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
-        const ageEmbedded = Date.now() - new Date(lock.t).getTime();
-        const ageMtime = Date.now() - file.lastModified;
-        if (Math.min(ageEmbedded, ageMtime) < 150000) {
-          this._lockErrorCount = 0;
-          this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
-          return false;
+        // EIGENE Sperre? Nach einem fehlgeschlagenen Schreibversuch (z.B. Safe
+        // Browsing) kann die Freigabe scheitern – die Datei bleibt liegen und
+        // blockierte uns 150 s lang selbst. Trägt sie unsere Kennung, gehört
+        // sie uns: sofort übernehmen statt auf die Staleness zu warten.
+        const eigene = lock.n && (lock.n === this._lockNonce || lock.n === this._lockVerwaist);
+        if (eigene) {
+          console.warn('[SyncV3] Eigene, nicht freigegebene Sperre übernommen');
+        } else {
+          // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
+          // sonst wird ein legitimer langsamer Save als "stale" übernommen.
+          // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
+          // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
+          const ageEmbedded = Date.now() - new Date(lock.t).getTime();
+          const ageMtime = Date.now() - file.lastModified;
+          if (Math.min(ageEmbedded, ageMtime) < 150000) {
+            this._lockErrorCount = 0;
+            this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
+            return false;
+          }
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
       const nonce = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const handle = await syncDir.getFileHandle(lockName, { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: nonce }));
+      await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: nonce }));
       await writable.close();
       // Verify: hat UNSER Write gewonnen? (check-then-create ist nicht atomar)
       // Doppel-Verify mit Zufalls-Wartezeit: Verify #1 fängt "anderer schrieb vor uns",
@@ -2765,6 +2782,7 @@ const App = {
       }
       this._lockFileName = lockName;
       this._lockNonce = nonce;
+      this._lockVerwaist = null;
       this._lockErrorCount = 0;
       return true;
     } catch(e) {
@@ -2789,7 +2807,7 @@ const App = {
       if (!syncDir) return;
       const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: this._lockNonce }));
+      await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: this._lockNonce }));
       await writable.close();
     } catch(e) { /* best effort */ }
   },
@@ -2804,16 +2822,38 @@ const App = {
           const lock = JSON.parse(await (await h.getFile()).text());
           if (!lock.n || lock.n === this._lockNonce) {
             await syncDir.removeEntry(this._lockFileName);
+            this._lockVerwaist = null;
           }
         } catch(e) {
-          // Ownership nicht verifizierbar → NICHT löschen. Ein evtl. verwaistes
-          // eigenes Lock heilt die 150s-Staleness; ein fremdes Lock zu löschen
-          // würde dessen laufenden Save ungeschützt lassen.
+          // Ownership nicht verifizierbar (z.B. Safe-Browsing-Fehler) → NICHT
+          // löschen, ein fremdes Lock bliebe sonst ungeschützt. Stattdessen die
+          // eigene Kennung merken: _acquireLock erkennt die Sperre dann als
+          // unsere und übernimmt sie sofort, und _sperreAufraeumen versucht die
+          // Freigabe im Abgleich-Takt erneut.
+          this._lockVerwaist = this._lockNonce;
+          this._lockVerwaistDatei = this._lockFileName;
         }
       }
     } catch(e) { /* ignore */ }
     this._lockFileName = null;
     this._lockNonce = null;
+  },
+
+  // Freigabe einer eigenen Sperre nachholen, deren Löschen fehlgeschlagen ist
+  async _sperreAufraeumen() {
+    if (!this._lockVerwaist || this._compactInProgress) return false;
+    const syncDir = this.bhkDirHandle || this.dirHandle;
+    if (!syncDir || this._netzWeg || this.offlineModus) return false;
+    try {
+      const name = this._lockVerwaistDatei || this._lockName();
+      const h = await syncDir.getFileHandle(name, { create: false });
+      const lock = JSON.parse(await (await h.getFile()).text());
+      if (lock.n && lock.n !== this._lockVerwaist) { this._lockVerwaist = null; return false; } // inzwischen fremd
+      await syncDir.removeEntry(name);
+      this._lockVerwaist = null;
+      console.log('[SyncV3] Verwaiste eigene Sperre nachträglich freigegeben');
+      return true;
+    } catch(e) { return false; }
   },
 
   // ── Pre-write version check (closes TOCTOU window) ──
@@ -4325,6 +4365,10 @@ const App = {
       }
       return true;
     } catch(e) {
+      const sb = this._istVerbindungsFehler && /safe browsing/i.test(String(e.message || ''));
+      this._compactGrund = sb
+        ? 'Chrome konnte die Datei nicht prüfen („Safe Browsing") – Schreiben auf das Netzlaufwerk abgelehnt. Hilfe → Netzabriss beschreibt, wie die IT das abstellt.'
+        : 'Schreibfehler: ' + e.message;
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
       return false;
     } finally {
