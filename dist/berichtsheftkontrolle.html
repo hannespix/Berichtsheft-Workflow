@@ -9981,7 +9981,8 @@ const App = {
               this._clientIdCache = this._getClientId() + 't' + Math.random().toString(36).slice(2, 6);
               this._logGen = 0;
             }
-            this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten', 'warning');
+            this.toast('Diese Datenbank ist bereits in einem anderen Tab geöffnet – bitte nur in EINEM Tab arbeiten. In dieser Zweit-Registerkarte sind Import und Datenbank-Tools gesperrt.', 'warning');
+            try { const ind = document.getElementById('dbStatusIndicator'); if (ind) { ind.innerHTML = '<span class="dot dot-green"></span>Verbunden (Zweit-Tab)'; ind.title = 'Diese Datenbank ist in einem anderen Tab/Fenster zuerst geöffnet worden. Diese Registerkarte kann keinen Snapshot schreiben: kein Import, keine Datenbank-Tools. Andere Tabs schließen und neu laden.'; } } catch(e) {}
           }
         }
       } catch(e) {}
@@ -10064,11 +10065,15 @@ const App = {
   _lockFileName: null,
   _lockNonce: null,
   _lockErrorCount: 0,
+  _lockName() { return 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/, '') : ''); },
+  // Grund der letzten verweigerten Kompaktierung (für Meldungen und Datenbank-Tools)
+  _compactGrund: '',
+  _compactAbgelehnt(grund) { this._compactGrund = grund; console.warn('[SyncV3] Kompaktierung nicht möglich: ' + grund); return false; },
   async _acquireLock() {
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
       if (!syncDir) return true;
-      const lockName = 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/,'') : '');
+      const lockName = this._lockName();
       try {
         // create:true statt create:false: Der Windows-Redirector cacht "Datei
         // nicht vorhanden" (FileNotFoundCacheLifetime, 5 s). Ein create:false-
@@ -10088,6 +10093,7 @@ const App = {
         const ageMtime = Date.now() - file.lastModified;
         if (Math.min(ageEmbedded, ageMtime) < 150000) {
           this._lockErrorCount = 0;
+          this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
           return false;
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
@@ -10108,7 +10114,7 @@ const App = {
         try {
           const verify = await syncDir.getFileHandle(lockName, { create: false });
           const vLock = JSON.parse(await (await verify.getFile()).text());
-          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; return false; } // anderer User war schneller
+          if (vLock.n && vLock.n !== nonce) { this._lockErrorCount = 0; this._lockInfo = { von: vLock.u || '?', alterS: 0, t: vLock.t || '' }; return false; } // anderer User war schneller
         } catch(e) {}
       }
       this._lockFileName = lockName;
@@ -10886,7 +10892,7 @@ const App = {
         this.unsavedChanges = true;
         document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>${o.label} nicht gespeichert`;
         this.toast(`${o.label} konnte noch nicht gespeichert werden (Kompaktierung blockiert) – wird automatisch nachgeholt. Bitte das Fenster NICHT schließen.`, 'error');
-        throw new Error('Kompaktierung nicht möglich (Lock belegt oder Schreibfehler)');
+        throw new Error('Kompaktierung nicht möglich' + (this._compactGrund ? ': ' + this._compactGrund : ' (Lock belegt oder Schreibfehler)'));
       }
       // _dirtyOps NICHT leeren: _saveV3 innerhalb von _compact hat den Puffer
       // bereits geclaimt und angehängt. Was JETZT noch drin steht, entstand
@@ -11578,13 +11584,14 @@ const App = {
     } catch(e) { return false; }
   },
   async _compact(reason) {
-    if (this._tabIsPrimary === false) return false; // Zweit-Tab kompaktiert nie
-    if (this._compactInProgress || !this.db || !this.dbFileHandle) return false;
+    if (this._tabIsPrimary === false) return this._compactAbgelehnt('Zweit-Registerkarte dieser Datenbank – nur die zuerst geöffnete Registerkarte schreibt den Snapshot'); // Zweit-Tab kompaktiert nie
+    if (this._compactInProgress) return this._compactAbgelehnt('läuft bereits');
+    if (!this.db || !this.dbFileHandle) return this._compactAbgelehnt('keine Datenbankdatei verbunden');
     this._compactInProgress = true;
     let writable = null;
     try {
       const gotLock = await this._acquireLock();
-      if (!gotLock) return false; // ein anderer kompaktiert bereits – egal
+      if (!gotLock) return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); // ein anderer kompaktiert bereits
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       await this._saveV3();
       await this._pollOplogs();
@@ -11606,8 +11613,7 @@ const App = {
       if (diskGen > (this._snapGen || 0)) {
         // Es gibt einen Snapshot, den wir noch nicht übernommen haben – NICHT
         // blind überschreiben, erst regulär nachladen (nächster Poll).
-        console.warn(`[SyncV3] Kompaktierung abgebrochen: fremder Snapshot gen ${diskGen} noch nicht übernommen`);
-        return false;
+        return this._compactAbgelehnt(`fremder Snapshot (Generation ${diskGen}) noch nicht übernommen – wird beim nächsten Abgleich geladen`);
       }
       // 3) Memory-Export → Snapshot-Datei (mit Timeout + Zombie-Abort).
       // Vorher Lock auffrischen: _saveV3 + _pollOplogs können auf langsamem
@@ -11663,6 +11669,7 @@ const App = {
           } catch(e) {}
         }
       } catch(e) {}
+      this._compactGrund = '';
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
       this._bulkOps = null;
       if (this._bulkPending) {
@@ -11700,7 +11707,7 @@ const App = {
     if (!this._bulkPending || this._compactInProgress) return false;
     this._lastBulkVersuch = Date.now();
     const ok = await this._compact('import-nachholung');
-    if (!ok) console.warn('[SyncV3] Import weiterhin nicht kompaktiert – nächster Versuch folgt');
+    if (!ok) console.warn(`[SyncV3] ${this._bulkLabel || 'Import'} weiterhin nicht kompaktiert (${this._compactGrund || 'Grund unbekannt'}) – nächster Versuch folgt`);
     return ok;
   },
 
@@ -18792,7 +18799,7 @@ const Views = {
             <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
             <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
             <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
-            <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen). Nicht im Offline-Modus, nicht bei Netzabriss</p>
+            <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen); der Grund steht in der Karte, „Sperre prüfen“ zeigt, wer die Kompaktierungs-Sperre hält, und gibt sie notfalls frei. Nicht im Offline-Modus, nicht bei Netzabriss und nicht in einer <strong>zweiten Registerkarte</strong> derselben Datenbank – die kann grundsätzlich keinen Snapshot schreiben (auch Import ist dort gesperrt)</p>
             <p>• <strong>Backups wiederherstellen</strong> – Gesamten Datenstand auf einen Sicherungszeitpunkt zurücksetzen (gilt für alle Nutzer, aktueller Stand wird vorher gesichert)</p>
             <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
@@ -21547,6 +21554,9 @@ const ImportHandler = {
       return App.toast(`Spalte "${nachCol}" oder "${vorCol}" existiert nicht in den Daten. Bitte Zuordnung prüfen.`, 'error');
     }
 
+    // Zweit-Registerkarte kann den Snapshot nie schreiben – der Import bliebe
+    // dauerhaft „nicht gespeichert“ und ginge beim Schließen verloren.
+    if (!vorschau && App._tabIsPrimary === false) return App.toast('Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann nicht speichern. Bitte den Import in der zuerst geöffneten Registerkarte ausführen (oder alle anderen Tabs schließen und neu laden).', 'error');
     App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
@@ -34355,6 +34365,7 @@ const DbTools = {
   // ─────────────────────────────────────────────
   _sperrgrund() {
     if (!App.db) return 'Keine Datenbank geladen';
+    if (App._tabIsPrimary === false) return 'Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann keinen Snapshot schreiben – bitte alle anderen Tabs/Fenster mit dieser Datenbank schließen und die Seite neu laden';
     if (App.offlineModus) return 'Im Offline-Modus nicht möglich – erst wiederverbinden';
     if (App._netzWeg) return 'Netzlaufwerk nicht erreichbar';
     if (App._bulkPending) return 'Ein Import ist noch nicht gespeichert – bitte warten';
@@ -34470,6 +34481,55 @@ const DbTools = {
   },
 
   // ─────────────────────────────────────────────
+  //  Sperre prüfen / freigeben (wenn die Nachholung hängt)
+  // ─────────────────────────────────────────────
+  async _sperreLesen(dir) {
+    dir = dir || App._syncDirV3();
+    if (!dir) return null;
+    try {
+      const fh = await dir.getFileHandle(App._lockName(), { create: false });
+      const f = await fh.getFile();
+      const text = (await f.text()).trim();
+      if (!text) return { frei: true, alterS: 0 };
+      const lock = JSON.parse(text);
+      const alterS = Math.round((Date.now() - Math.max(new Date(lock.t || 0).getTime() || 0, f.lastModified || 0)) / 1000);
+      return { frei: false, von: lock.u || '?', t: lock.t || '', alterS };
+    } catch(e) { return { frei: true, alterS: 0 }; }
+  },
+  async _sperreEntfernen(dir) {
+    dir = dir || App._syncDirV3();
+    const fh = await dir.getFileHandle(App._lockName(), { create: true });
+    const w = await fh.createWritable();
+    await w.write('');
+    await w.close();
+    return true;
+  },
+  async sperreDialog() {
+    if (App._tabIsPrimary === false) return App.toast(this._sperrgrund(), 'error');
+    const s = await this._sperreLesen();
+    const grund = App._compactGrund || '';
+    App.openModal('Kompaktierungs-Sperre', `
+      <div style="font-size:13px;line-height:1.7">
+        <div>Letzter Grund: <strong>${esc(grund || '–')}</strong></div>
+        <div>Sperrdatei <code>${esc(App._lockName())}</code>: ${!s ? 'nicht lesbar' : s.frei ? '<span style="color:var(--clr-green)">frei</span>' : `belegt von <strong>${esc(s.von)}</strong> seit ${s.alterS} s`}</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Eine Sperre älter als 150 s gilt automatisch als verwaist und wird beim nächsten Versuch übernommen. Nur wenn die Nachholung trotzdem minutenlang hängt und sicher kein Kollege gerade kompaktiert (Kopfzeile „online“), die Sperre von Hand freigeben.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Gerade online: ${esc(App.onlineNutzerText ? (App.onlineNutzerText() || 'niemand sonst') : '–')}</div>
+      </div>`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       <button class="btn btn-secondary" onclick="App._nachholenBulk().then(ok=>App.toast(ok?'Gespeichert':'Weiterhin nicht möglich: '+(App._compactGrund||'?'),ok?'success':'warning'))">Jetzt erneut versuchen</button>
+       ${s && !s.frei ? `<button class="btn btn-primary" style="background:var(--clr-red);border-color:var(--clr-red)" onclick="DbTools.sperreFreigeben()">Sperre freigeben</button>` : ''}`);
+  },
+  async sperreFreigeben() {
+    const ok = await App.confirm('Sperre wirklich freigeben?\n\nWenn ein Kollege gerade kompaktiert, können sich zwei Snapshots überschreiben. Nur ausführen, wenn niemand sonst online ist oder die Sperre offensichtlich verwaist ist.', { titel: 'Sperre freigeben', ok: 'Freigeben', gefaehrlich: true });
+    if (!ok) return;
+    try { await this._sperreEntfernen(); } catch(e) { return App.toast('Sperre konnte nicht freigegeben werden: ' + e.message, 'error'); }
+    App.closeModal();
+    App.toast('Sperre freigegeben – Speichern wird erneut versucht', 'success');
+    try { const r = await App._nachholenBulk(); if (r) App.toast('Gespeichert', 'success'); } catch(e) {}
+    this.renderCard();
+  },
+
+  // ─────────────────────────────────────────────
   //  Karte in den Einstellungen
   // ─────────────────────────────────────────────
   cardHtml() {
@@ -34485,7 +34545,7 @@ const DbTools = {
     const b = this.bestand();
     const gross = b.tabellen.filter(t => t.zeilen > 0).sort((x, y) => y.zeilen - x.zeilen);
     const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
-    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong> (Kompaktierung belegt, wird automatisch nachgeholt). Bitte das Fenster nicht schließen.</div>`
+    const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong>, wird automatisch nachgeholt. Bitte das Fenster nicht schließen.${App._compactGrund ? `<br>Grund: ${esc(App._compactGrund)}` : ''} <button class="btn btn-sm btn-secondary" style="margin-left:6px" onclick="DbTools.sperreDialog()">Sperre prüfen</button></div>`
       : this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
     box.innerHTML = `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
