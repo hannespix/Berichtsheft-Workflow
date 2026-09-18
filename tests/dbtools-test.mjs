@@ -289,5 +289,38 @@ console.log('══ Zweit-Registerkarte & Sperre ══');
   check(/sperreDialog\(\)/.test(DBT_SRC) && /Sperre prüfen/.test(DBT_SRC) && /gefaehrlich: true/.test(DBT_SRC.split('sperreFreigeben() {')[1] || ''), 'Karte bietet „Sperre prüfen“, Freigeben nur mit roter Bestätigung');
 }
 
+console.log('══ Eigene Sperre nach Schreibfehler (Safe Browsing) ══');
+{
+  const store = new Map();
+  const dir = { async getFileHandle(name, o) { if (!store.has(name)) { if (!(o && o.create)) { const e = new Error('nf'); e.name = 'NotFoundError'; throw e; } store.set(name, { data: '', mtime: Date.now() }); } return { async getFile() { const f = store.get(name); return { lastModified: f.mtime, async text() { return f.data; } }; }, async createWritable() { let b = ''; return { async write(d) { b = String(d); }, async close() { store.set(name, { data: b, mtime: Date.now() }); } }; } }; }, async removeEntry(name) { if (!store.has(name)) throw new Error('nf'); store.delete(name); } };
+  App.bhkDirHandle = dir; App.dirHandle = dir; App.autoLoadedDbName = 'test.sqlite'; App._netzWeg = false; App.offlineModus = false; App._compactInProgress = false;
+  App._clientIdCache = 'client-XYZW'; App.currentUser = 'Anna'; sandbox.KontrolleHandler.activePruefer = '';
+  check(App._sperrHalter() === 'Anna (Rechner XYZW)', `Sperrhalter nennt Person und Rechner statt „?" (${App._sperrHalter()})`);
+  App.currentUser = ''; check(App._sperrHalter() === 'Rechner XYZW', 'Ohne Prüfer immerhin das Rechner-Kürzel');
+  App.currentUser = 'Anna';
+  // Sperre holen, Freigabe scheitert (removeEntry wirft) → Nonce gemerkt
+  check(await App._acquireLock() === true, 'Sperre wird geholt');
+  const nonce = App._lockNonce;
+  const echtesRemove = dir.removeEntry;
+  dir.removeEntry = async () => { const e = new Error('Failed to perform Safe Browsing check.'); e.name = 'AbortError'; throw e; };
+  await App._releaseLock();
+  check(App._lockVerwaist === nonce && store.has('lock_test'), 'Gescheiterte Freigabe: Sperrdatei bleibt liegen, eigene Kennung wird gemerkt');
+  check(await App._acquireLock() === true, 'Eigene, nicht freigegebene Sperre wird sofort wieder übernommen (blockiert nicht 150 s)');
+  // Die Übernahme hat eine neue Kennung geschrieben – diese gilt jetzt als verwaist
+  App._lockVerwaist = App._lockNonce; App._lockVerwaistDatei = 'lock_test';
+  dir.removeEntry = echtesRemove;
+  check(await App._sperreAufraeumen() === true && !store.has('lock_test') && App._lockVerwaist === null, 'Aufräumen im Abgleich-Takt gibt die Sperre nachträglich frei');
+  // Fremde Sperre wird niemals angefasst
+  store.set('lock_test', { data: JSON.stringify({ u: 'Bernd (Rechner BBBB)', t: new Date().toISOString(), n: 'fremd' }), mtime: Date.now() });
+  App._lockVerwaist = 'meins'; App._lockVerwaistDatei = 'lock_test';
+  check(await App._sperreAufraeumen() === false && store.has('lock_test') && App._lockVerwaist === null, 'Fremde Sperre wird nicht freigegeben, eigener Merker verfällt');
+  App._lockNonce = null; App._lockVerwaist = null;
+  check(await App._acquireLock() === false && /Bernd/.test(App._lockInfo.von), 'Fremde frische Sperre blockiert weiterhin, Halter wird benannt');
+  check(/lock\.n === this\._lockNonce \|\| lock\.n === this\._lockVerwaist/.test(APP_SRC), 'Übernahme nur bei nachweislich eigener Kennung');
+  check(/safe browsing\/i\.test\(String\(e\.message/.test(APP_SRC) && /Safe Browsing/.test(APP_SRC.split('Kompaktierung fehlgeschlagen')[0].slice(-600)), 'Schreibfehler landet als Klartext-Grund in _compactGrund (inkl. Safe-Browsing-Hinweis)');
+  check(/await this\._sperreAufraeumen\(\)/.test(APP_SRC.split('this._schedulePoll = () => {')[1] || ''), 'Aufräumen hängt am Abgleich-Takt');
+  store.clear();
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

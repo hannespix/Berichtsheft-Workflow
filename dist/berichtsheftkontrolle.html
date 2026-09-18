@@ -9941,6 +9941,8 @@ const App = {
           else await this._pollSyncMarker();
           // Präsenz (drosselt sich selbst auf 30/60 s)
           try { await this._praesenzTakt(false); } catch(e) {}
+          // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
+          try { await this._sperreAufraeumen(); } catch(e) {}
         }
         this._schedulePoll();
       }, interval);
@@ -10065,6 +10067,12 @@ const App = {
   _lockFileName: null,
   _lockNonce: null,
   _lockErrorCount: 0,
+  // Nonce einer eigenen Sperre, deren Freigabe fehlgeschlagen ist
+  _lockVerwaist: null,
+  _sperrHalter() {
+    const p = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || this.currentUser || '';
+    return p ? `${p} (Rechner ${this._getClientId().slice(-4)})` : `Rechner ${this._getClientId().slice(-4)}`;
+  },
   _lockName() { return 'lock' + (this.autoLoadedDbName ? '_' + this.autoLoadedDbName.replace(/\.sqlite$|\.db$/, '') : ''); },
   // Grund der letzten verweigerten Kompaktierung (für Meldungen und Datenbank-Tools)
   _compactGrund: '',
@@ -10085,22 +10093,31 @@ const App = {
         const text = await file.text();
         if (!text.trim()) throw new Error('leer');
         const lock = JSON.parse(text);
-        // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
-        // sonst wird ein legitimer langsamer Save als "stale" übernommen.
-        // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
-        // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
-        const ageEmbedded = Date.now() - new Date(lock.t).getTime();
-        const ageMtime = Date.now() - file.lastModified;
-        if (Math.min(ageEmbedded, ageMtime) < 150000) {
-          this._lockErrorCount = 0;
-          this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
-          return false;
+        // EIGENE Sperre? Nach einem fehlgeschlagenen Schreibversuch (z.B. Safe
+        // Browsing) kann die Freigabe scheitern – die Datei bleibt liegen und
+        // blockierte uns 150 s lang selbst. Trägt sie unsere Kennung, gehört
+        // sie uns: sofort übernehmen statt auf die Staleness zu warten.
+        const eigene = lock.n && (lock.n === this._lockNonce || lock.n === this._lockVerwaist);
+        if (eigene) {
+          console.warn('[SyncV3] Eigene, nicht freigegebene Sperre übernommen');
+        } else {
+          // Staleness MUSS größer sein als der maximale Write-Timeout (120s),
+          // sonst wird ein legitimer langsamer Save als "stale" übernommen.
+          // Zwei Signale: eingebetteter Client-Timestamp UND Datei-mtime (Server-Uhr).
+          // Nur stehlen wenn BEIDE stale sind – schützt gegen Clock-Skew des Schreibers.
+          const ageEmbedded = Date.now() - new Date(lock.t).getTime();
+          const ageMtime = Date.now() - file.lastModified;
+          if (Math.min(ageEmbedded, ageMtime) < 150000) {
+            this._lockErrorCount = 0;
+            this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
+            return false;
+          }
         }
       } catch(e) { /* no lock file or unreadable → proceed */ }
       const nonce = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const handle = await syncDir.getFileHandle(lockName, { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: nonce }));
+      await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: nonce }));
       await writable.close();
       // Verify: hat UNSER Write gewonnen? (check-then-create ist nicht atomar)
       // Doppel-Verify mit Zufalls-Wartezeit: Verify #1 fängt "anderer schrieb vor uns",
@@ -10119,6 +10136,7 @@ const App = {
       }
       this._lockFileName = lockName;
       this._lockNonce = nonce;
+      this._lockVerwaist = null;
       this._lockErrorCount = 0;
       return true;
     } catch(e) {
@@ -10143,7 +10161,7 @@ const App = {
       if (!syncDir) return;
       const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
       const writable = await handle.createWritable();
-      await writable.write(JSON.stringify({ u: KontrolleHandler?.activePruefer || '?', t: new Date().toISOString(), n: this._lockNonce }));
+      await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: this._lockNonce }));
       await writable.close();
     } catch(e) { /* best effort */ }
   },
@@ -10158,16 +10176,38 @@ const App = {
           const lock = JSON.parse(await (await h.getFile()).text());
           if (!lock.n || lock.n === this._lockNonce) {
             await syncDir.removeEntry(this._lockFileName);
+            this._lockVerwaist = null;
           }
         } catch(e) {
-          // Ownership nicht verifizierbar → NICHT löschen. Ein evtl. verwaistes
-          // eigenes Lock heilt die 150s-Staleness; ein fremdes Lock zu löschen
-          // würde dessen laufenden Save ungeschützt lassen.
+          // Ownership nicht verifizierbar (z.B. Safe-Browsing-Fehler) → NICHT
+          // löschen, ein fremdes Lock bliebe sonst ungeschützt. Stattdessen die
+          // eigene Kennung merken: _acquireLock erkennt die Sperre dann als
+          // unsere und übernimmt sie sofort, und _sperreAufraeumen versucht die
+          // Freigabe im Abgleich-Takt erneut.
+          this._lockVerwaist = this._lockNonce;
+          this._lockVerwaistDatei = this._lockFileName;
         }
       }
     } catch(e) { /* ignore */ }
     this._lockFileName = null;
     this._lockNonce = null;
+  },
+
+  // Freigabe einer eigenen Sperre nachholen, deren Löschen fehlgeschlagen ist
+  async _sperreAufraeumen() {
+    if (!this._lockVerwaist || this._compactInProgress) return false;
+    const syncDir = this.bhkDirHandle || this.dirHandle;
+    if (!syncDir || this._netzWeg || this.offlineModus) return false;
+    try {
+      const name = this._lockVerwaistDatei || this._lockName();
+      const h = await syncDir.getFileHandle(name, { create: false });
+      const lock = JSON.parse(await (await h.getFile()).text());
+      if (lock.n && lock.n !== this._lockVerwaist) { this._lockVerwaist = null; return false; } // inzwischen fremd
+      await syncDir.removeEntry(name);
+      this._lockVerwaist = null;
+      console.log('[SyncV3] Verwaiste eigene Sperre nachträglich freigegeben');
+      return true;
+    } catch(e) { return false; }
   },
 
   // ── Pre-write version check (closes TOCTOU window) ──
@@ -11679,6 +11719,10 @@ const App = {
       }
       return true;
     } catch(e) {
+      const sb = this._istVerbindungsFehler && /safe browsing/i.test(String(e.message || ''));
+      this._compactGrund = sb
+        ? 'Chrome konnte die Datei nicht prüfen („Safe Browsing") – Schreiben auf das Netzlaufwerk abgelehnt. Hilfe → Netzabriss beschreibt, wie die IT das abstellt.'
+        : 'Schreibfehler: ' + e.message;
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
       return false;
     } finally {
@@ -18799,7 +18843,7 @@ const Views = {
             <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
             <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
             <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
-            <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen); der Grund steht in der Karte, „Sperre prüfen“ zeigt, wer die Kompaktierungs-Sperre hält, und gibt sie notfalls frei. Nicht im Offline-Modus, nicht bei Netzabriss und nicht in einer <strong>zweiten Registerkarte</strong> derselben Datenbank – die kann grundsätzlich keinen Snapshot schreiben (auch Import ist dort gesperrt)</p>
+            <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen); der Grund steht im Klartext in der Karte (auch „Safe Browsing“ als Schreibhindernis), „Sperre prüfen“ zeigt, wer die Kompaktierungs-Sperre hält, und gibt sie notfalls frei; eine eigene Sperre, deren Freigabe an einem Schreibfehler scheiterte, wird automatisch wieder übernommen und später freigegeben. Nicht im Offline-Modus, nicht bei Netzabriss und nicht in einer <strong>zweiten Registerkarte</strong> derselben Datenbank – die kann grundsätzlich keinen Snapshot schreiben (auch Import ist dort gesperrt)</p>
             <p>• <strong>Backups wiederherstellen</strong> – Gesamten Datenstand auf einen Sicherungszeitpunkt zurücksetzen (gilt für alle Nutzer, aktueller Stand wird vorher gesichert)</p>
             <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
