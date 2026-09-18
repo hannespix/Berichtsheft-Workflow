@@ -54,16 +54,26 @@ const DbTools = {
     };
   },
   jahrgangsUebersicht() {
+    // EINE Gruppierung je Tabelle statt einer Unterabfrage je Jahrgang. Die alte
+    // Fassung las kw_status einmal PRO Jahrgang komplett – bei 21 Jahrgängen und
+    // 300.000 Wochenzeilen dauerte allein diese Übersicht rund 10 Sekunden.
     const rows = App.query(`SELECT j.id, j.bezeichnung, j.jahr, j.typ,
-        (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id AND s.aktiv=1) AS aktiv,
-        (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id AND s.aktiv=0) AS inaktiv,
-        (SELECT MAX(COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum)) FROM kontrolltermine kt WHERE kt.jahrgang_id=j.id
-           OR kt.id IN (SELECT ke.kontrolltermin_id FROM kontrollergebnisse ke JOIN schueler s ON s.id=ke.schueler_id WHERE s.jahrgang_id=j.id)) AS letzter_termin,
-        (SELECT COUNT(*) FROM kw_status k JOIN schueler s ON s.id=k.schueler_id WHERE s.jahrgang_id=j.id) AS kw_zeilen,
-        (SELECT COUNT(*) FROM durchsicht_snapshots d JOIN schueler s ON s.id=d.schueler_id WHERE s.jahrgang_id=j.id) AS snapshots,
-        (SELECT COUNT(*) FROM kontrollergebnisse ke JOIN schueler s ON s.id=ke.schueler_id WHERE s.jahrgang_id=j.id) AS ergebnisse,
-        (SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.jahrgang_id=j.id AND w.status!='erledigt') AS wv_offen
-      FROM abschlussjahrgaenge j ORDER BY j.jahr DESC, j.bezeichnung`);
+        COALESCE(s.aktiv, 0) AS aktiv, COALESCE(s.inaktiv, 0) AS inaktiv,
+        MAX(COALESCE(t1.d, ''), COALESCE(t2.d, '')) AS letzter_termin,
+        COALESCE(kw.n, 0) AS kw_zeilen, COALESCE(ds.n, 0) AS snapshots,
+        COALESCE(ke.n, 0) AS ergebnisse, COALESCE(wv.n, 0) AS wv_offen
+      FROM abschlussjahrgaenge j
+      LEFT JOIN (SELECT jahrgang_id, SUM(aktiv=1) AS aktiv, SUM(aktiv=0) AS inaktiv FROM schueler GROUP BY jahrgang_id) s ON s.jahrgang_id=j.id
+      LEFT JOIN (SELECT jahrgang_id, MAX(COALESCE(NULLIF(durchgefuehrt_datum,''), geplant_datum)) AS d FROM kontrolltermine WHERE jahrgang_id IS NOT NULL GROUP BY jahrgang_id) t2 ON t2.jahrgang_id=j.id
+      LEFT JOIN (SELECT s2.jahrgang_id, MAX(COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum)) AS d
+                 FROM kontrollergebnisse ke2 JOIN schueler s2 ON s2.id=ke2.schueler_id JOIN kontrolltermine kt ON kt.id=ke2.kontrolltermin_id
+                 GROUP BY s2.jahrgang_id) t1 ON t1.jahrgang_id=j.id
+      LEFT JOIN (SELECT s3.jahrgang_id, COUNT(*) AS n FROM kw_status k JOIN schueler s3 ON s3.id=k.schueler_id GROUP BY s3.jahrgang_id) kw ON kw.jahrgang_id=j.id
+      LEFT JOIN (SELECT s4.jahrgang_id, COUNT(*) AS n FROM durchsicht_snapshots d JOIN schueler s4 ON s4.id=d.schueler_id GROUP BY s4.jahrgang_id) ds ON ds.jahrgang_id=j.id
+      LEFT JOIN (SELECT s5.jahrgang_id, COUNT(*) AS n FROM kontrollergebnisse ke JOIN schueler s5 ON s5.id=ke.schueler_id GROUP BY s5.jahrgang_id) ke ON ke.jahrgang_id=j.id
+      LEFT JOIN (SELECT s6.jahrgang_id, COUNT(*) AS n FROM wiedervorlagen w JOIN schueler s6 ON s6.id=w.schueler_id WHERE w.status!='erledigt' GROUP BY s6.jahrgang_id) wv ON wv.jahrgang_id=j.id
+      ORDER BY j.jahr DESC, j.bezeichnung`);
+    rows.forEach(r => { if (!r.letzter_termin) r.letzter_termin = null; });
     const ohne = App.query(`SELECT COUNT(*) AS n, SUM(aktiv=1) AS aktiv, SUM(aktiv=0) AS inaktiv FROM schueler WHERE jahrgang_id IS NULL`)[0];
     rows.forEach(r => { r.abgeschlossen = r.aktiv === 0 && r.inaktiv > 0; });
     if (ohne && ohne.n) rows.push({ id: 0, bezeichnung: '(ohne Jahrgang)', jahr: 0, aktiv: ohne.aktiv || 0, inaktiv: ohne.inaktiv || 0, letzter_termin: null, kw_zeilen: 0, snapshots: 0, ergebnisse: 0, wv_offen: 0, abgeschlossen: false });
@@ -745,7 +755,8 @@ const DbTools = {
       </tbody></table></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <label style="font-size:12px">Verdichten: inaktiv seit mindestens <input type="number" id="dbtMonate" min="1" max="120" value="${monate}" style="width:56px" class="form-control" onchange="DbTools.renderCard()"> Monaten</label>
-        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichten(document.getElementById('dbtMonate').value, DbTools._ausgewaehlteJahrgaenge())" title="Wochendaten inaktiver Azubis entfernen (alle Jahrgänge, wenn keiner angehakt ist)">Verdichten${(() => { const v = this.verdichtenVorschau(monate); return v.azubis ? ` (${v.azubis} Azubis, ${v.kwZeilen} Zeilen)` : ''; })()}</button>
+        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichten(document.getElementById('dbtMonate').value, DbTools._ausgewaehlteJahrgaenge())" title="Wochendaten inaktiver Azubis entfernen (alle Jahrgänge, wenn keiner angehakt ist)">Verdichten</button>
+        <button class="btn btn-secondary btn-sm" onclick="DbTools.verdichtenZeigen()" title="Wie viele Azubis und Zeilen wären betroffen?">Wie viele?</button>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="DbTools.jahrgaengeLoeschen(DbTools._ausgewaehlteJahrgaenge())">Ausgewählte Jahrgänge mit Archiv löschen</button>
       </div>
 
@@ -763,12 +774,19 @@ const DbTools = {
       <h4 style="font-size:13px;margin:14px 0 6px">3 · Stammdaten heilen</h4>
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Abweichende Schreibweisen aus dem IBYKUS-Export (Schulname geändert, Betrieb doppelt, Jahrgang „S 2026“ statt „S2026“) zusammenführen. Der alte Name bleibt als Alias und wird beim nächsten Import automatisch zugeordnet; die Import-Vorschau warnt vor neuen Einträgen, die vorhandenen ähneln.</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${['schule', 'betrieb', 'jahrgang'].map(art => { const n = App.dublettenKandidaten(art).length; const al = App.aliasListe(art).length; return `<button class="btn btn-sm ${n ? 'btn-primary' : 'btn-secondary'}" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)}: ${n} Dubletten-Paar(e)${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
+        ${['schule', 'betrieb', 'jahrgang'].map(art => { const al = App.aliasListe(art).length; return `<button class="btn btn-sm btn-secondary" onclick="StammdatenTab.dubletten('${art}')">${esc(App.ALIAS_ARTEN[art].label)} prüfen${al ? ` · ${al} Alias(e)` : ''}</button>`; }).join('')}
       </div>
 
       <h4 style="font-size:13px;margin:14px 0 6px">4 · Archive</h4>
       <div id="dbtArchive" style="font-size:12px;color:var(--clr-text-light)">Archive werden gelesen…</div>`;
     this._archiveRendern();
+  },
+  verdichtenZeigen() {
+    const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
+    const v = this.verdichtenVorschau(monate, this._ausgewaehlteJahrgaenge());
+    App.toast(v.azubis
+      ? `${v.azubis} Azubis mit ${v.kwZeilen} Wochenzeilen, ${v.maengel} KW-Mängeln und ${v.snapshots} Snapshots (letzte Aktivität vor ${v.stichtag})`
+      : 'Keine Kandidaten zum Verdichten', v.azubis ? 'info' : 'success');
   },
   _ausgewaehlteJahrgaenge() { return [...document.querySelectorAll('.chk-dbtjg:checked')].map(c => parseInt(c.value)).filter(n => n > 0); },
   async _archiveRendern() {

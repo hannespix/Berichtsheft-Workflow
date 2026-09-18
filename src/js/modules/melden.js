@@ -203,18 +203,24 @@ const Melden = {
   // Beides ist wichtig: Ohne Grenze wiederholte sich der Versuch endlos, und
   // eine bei jedem Versuch neu erzeugte Kennung legte jedes Mal einen neuen
   // Ordner an – aus einer Meldung wurden ein Dutzend.
-  async _ablegen(m, versuch = 0) {
+  async _ablegen(m, versuch = 0, bild = null) {
+    const t0 = Date.now();
+    const takt = [];
+    const messen = async (name, fn) => { const t = Date.now(); await fn(); takt.push(`${name} ${Date.now() - t} ms`); };
     try {
-      const dir = await this._ordner(true);
-      const eigen = await dir.getDirectoryHandle(m.id, { create: true });
-      await this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1));
-      await this._schreiben(eigen, 'meldung.txt', this.alsText(m));
-      if (this._bild) await this._schreiben(eigen, this._bild.name, this._bild.bytes);
+      let dir, eigen;
+      await messen('Ordner', async () => { dir = await this._ordner(true); eigen = await dir.getDirectoryHandle(m.id, { create: true }); });
+      await messen('meldung.json', () => this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1)));
+      await messen('meldung.txt', () => this._schreiben(eigen, 'meldung.txt', this.alsText(m)));
+      if (bild) await messen(bild.name, () => this._schreiben(eigen, bild.name, bild.bytes));
+      // Die Zeiten landen im Ringspeicher und damit in der NÄCHSTEN Meldung –
+      // so zeigt sich von selbst, welcher Schritt auf dem Laufwerk klemmt.
+      console.log(`[Melden] gespeichert in ${Date.now() - t0} ms (${takt.join(', ')})`);
       return true;
     } catch(e) {
       if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
         console.warn('[Melden] Zugriffspunkt erneuert, ein zweiter Versuch mit derselben Kennung');
-        return await this._ablegen(m, 1);
+        return await this._ablegen(m, 1, bild);
       }
       console.warn('[Melden]', e);
       // Angefangenen, leeren Ordner wieder entfernen – sonst bleibt bei jedem
@@ -232,23 +238,37 @@ const Melden = {
       App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
       return this.alsDateiSpeichern();
     }
+    // Jeder Dateizugriff auf dem Netzlaufwerk kostet Sekunden. Deshalb wird
+    // das Fenster SOFORT geschlossen und im Hintergrund geschrieben; der Nutzer
+    // wartet nicht mehr auf das Laufwerk.
     this._sendet = true;
-    const knopf = document.getElementById('mdSenden');
-    if (knopf) { knopf.disabled = true; knopf.textContent = 'Wird gespeichert…'; }
     const m = this.bauen(f);
-    let ok = false;
-    try { ok = await this._ablegen(m); }
-    finally {
-      this._sendet = false;
-      if (knopf) { knopf.disabled = false; knopf.textContent = 'Melden'; }
-    }
-    if (!ok) return false;
-    App.closeModal();
-    App.toast('Danke, die Meldung ist abgelegt', 'success');
-    this._letztePruefung = 0;
-    try { await this.pruefeNeue(true); } catch(e) {}
-    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) await Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
+    const bild = this._bild;
     this._bild = null;
+    App.closeModal();
+    App.toast('Meldung wird gespeichert…', 'info');
+    let ok = false;
+    try { ok = await this._ablegen(m, 0, bild); }
+    finally { this._sendet = false; }
+    if (!ok) {
+      // Nichts verloren geben: Text zum Herunterladen anbieten
+      this._letzteGescheiterte = { m, bild };
+      App.toast('Speichern fehlgeschlagen – „Problem melden" erneut öffnen oder den Text herunterladen', 'error');
+      return false;
+    }
+    App.toast('Danke, die Meldung ist abgelegt', 'success');
+    // Zähler aus dem gerade geschriebenen Objekt fortschreiben, statt ALLE
+    // Meldungen neu vom Laufwerk zu lesen (das war der größte Zeitfresser und
+    // wuchs mit jeder weiteren Meldung).
+    try {
+      m._ordner = m.id;
+      this._meldungen = [m, ...(this._meldungen || []).filter(x => x._ordner !== m.id)];
+      this._cache.set(m.id, m);
+      this._gesehenSetzen(String(m.zeitpunkt || ''));   // eigene Meldung gilt als gesehen
+      this._badge();
+    } catch(e) {}
+    // Ankündigung NICHT abwarten: sie kopiert beim Anhängen die ganze Chatdatei
+    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
     return true;
   },
   alsDateiSpeichern() {
@@ -269,22 +289,31 @@ const Melden = {
   },
 
   // ── Übersicht (Einstellungen) ──
+  _cache: new Map(),   // Ordnername → Meldung (Meldungen ändern sich nie)
   async liste() {
     const out = [];
     let dir;
     try { dir = await this._ordner(false); } catch(e) { return out; }
     const grenze = Date.now() - this.MELDUNG_TAGE * 86400000;
+    const gesehen = new Set();
     for await (const [name, h] of dir.entries()) {
       if (h.kind !== 'directory') continue;
+      gesehen.add(name);
+      // Eine einmal gelesene Meldung ändert sich nicht mehr – erneutes Lesen
+      // wäre auf dem Netzlaufwerk jedes Mal ein Zugriff je Meldung.
+      const bekannt = this._cache.get(name);
+      if (bekannt) { out.push(bekannt); continue; }
       try {
         const fh = await h.getFileHandle('meldung.json', { create: false });
         const f = await fh.getFile();
         if (f.lastModified < grenze) { try { await dir.removeEntry(name, { recursive: true }); } catch(_) {} continue; }
         const m = JSON.parse(await f.text());
         m._ordner = name;
+        this._cache.set(name, m);
         out.push(m);
       } catch(e) { /* unvollständiger Ordner */ }
     }
+    [...this._cache.keys()].forEach(k => { if (!gesehen.has(k)) this._cache.delete(k); });
     this._meldungen = out.sort((a, b) => String(b.zeitpunkt).localeCompare(String(a.zeitpunkt)));
     return this._meldungen;
   },
@@ -340,6 +369,8 @@ const Melden = {
   async loeschen(ordner) {
     if (!(await App.confirm('Diese Meldung endgültig löschen?', { titel: 'Meldung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     try { await (await this._ordner(false)).removeEntry(ordner, { recursive: true }); } catch(e) { return App.toast('Löschen fehlgeschlagen: ' + e.message, 'error'); }
+    this._cache.delete(ordner);
+    this._meldungen = (this._meldungen || []).filter(x => x._ordner !== ordner);
     App.closeModal();
     App.toast('Meldung gelöscht', 'success');
     this.renderCard();
@@ -351,7 +382,8 @@ const Melden = {
     let dir;
     try { dir = await this._ordner(false); } catch(e) { return; }
     let n = 0;
-    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); n++; } catch(e) {} }
+    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); this._cache.delete(m._ordner); n++; } catch(e) {} }
+    this._meldungen = [];
     App.closeModal();
     App.toast(`${n} Meldungen gelöscht`, 'success');
     this._letztePruefung = 0;
