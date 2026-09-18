@@ -204,6 +204,18 @@ console.log('══ Sperren und Störfälle ══');
   App._handlesNeuHolen = async () => true;
   check(await C.senden('nach Cache-Fehler') === true && zeilen(C._dateiName()).length === vorher + 1, 'Veralteter Zugriffspunkt: erneuern und einmal wiederholen');
   check(C.aktiv() === true, 'Danach wieder aktiv');
+  // Dauerhafter Cache-Fehler: höchstens ein zweiter Versuch, keine Endlosschleife
+  let n = 0;
+  const echtesCreate = fakeDir.getFileHandle.bind(fakeDir);
+  fakeDir.getFileHandle = async (name, o) => {
+    const h = await echtesCreate(name, o);
+    const orig = h.createWritable.bind(h);
+    h.createWritable = async () => { n++; const e = new Error('state had changed since it was read from disk'); e.name = 'InvalidStateError'; throw e; };
+    return h;
+  };
+  check(await C.senden('geht dauerhaft schief') === false && n === 2, `Genau ein Wiederholungsversuch beim Senden (${n} Versuche)`);
+  fakeDir.getFileHandle = echtesCreate;
+  check(/_anhaengen\(n, 1\)/.test(CHAT_SRC) && /versuch === 0/.test(CHAT_SRC), 'Die Begrenzung steht im Quelltext');
 }
 
 console.log('══ Symbol immer sichtbar, Melde-Link ══');

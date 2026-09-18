@@ -64,7 +64,7 @@ const Chat = {
     this._render();
     return true;
   },
-  async _anhaengen(n) {
+  async _anhaengen(n, versuch = 0) {
     const dir = App._syncDirV3();
     if (!dir) return false;
     const zeile = JSON.stringify(n) + '\n';
@@ -90,9 +90,11 @@ const Chat = {
       return true;
     } catch(e) {
       if (writable) { try { await writable.abort(); } catch(_) {} }
-      if (App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
-        console.warn('[Chat] Zugriffspunkt erneuert, Nachricht wird erneut gesendet');
-        return await this._anhaengen(n);
+      // HÖCHSTENS ein zweiter Versuch: ohne Grenze wiederholte sich das
+      // Anhängen bei dauerhaften Cache-Fehlern endlos.
+      if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
+        console.warn('[Chat] Zugriffspunkt erneuert, ein zweiter Sendeversuch');
+        return await this._anhaengen(n, 1);
       }
       App._verbindungsProblem && App._verbindungsProblem(e, 'chat');
       throw e;
