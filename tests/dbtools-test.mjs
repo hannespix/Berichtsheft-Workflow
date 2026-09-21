@@ -393,5 +393,31 @@ console.log('══ Nicht heilbarer Zugriffspunkt, Fortschritt, begrenzte Wartez
   check(/Datenbank schreiben \(\$\{Math\.round\(data\.length/.test(APP_SRC) && /Fremde Änderungen einlesen…/.test(APP_SRC), 'Die einzelnen Phasen der Kompaktierung werden angezeigt');
 }
 
+console.log('══ Zentrale Selbstheilung und Neulade-Hinweis ══');
+{
+  // Zähler und Drosselung
+  App._zustandFehler = 0; App._letzteHeilung = 0; App._neuladenNoetig = false;
+  let geholt = 0, gelingt = true;
+  App._handlesNeuHolen = async () => { geholt++; return gelingt; };
+  const angelegt = [];
+  // Der Hinweis wird nur angelegt, wenn es ihn noch nicht gibt
+  const echtesGetById = sandbox.document.getElementById;
+  sandbox.document.getElementById = (id) => (id === 'neuladenBanner' ? (angelegt[0] || null) : echtesGetById(id));
+  sandbox.document.createElement = (tag) => ({ tag, style: { cssText: '' }, className: '', textContent: '', onclick: null, setAttribute() {}, appendChild(k) { (this.kinder = this.kinder || []).push(k); } });
+  sandbox.document.body.appendChild = (el) => angelegt.push(el);
+  check(await App._zustandHeilen('Test') === true && geholt === 1 && App._zustandFehler === 0, 'Erster Fehler: Zugriffspunkte werden erneuert, Zähler zurückgesetzt');
+  check(await App._zustandHeilen('Test') === false && geholt === 1, 'Innerhalb einer Minute wird NICHT erneut geholt (Drosselung)');
+  gelingt = false;
+  App._letzteHeilung = 0; await App._zustandHeilen('Test');
+  App._letzteHeilung = 0; await App._zustandHeilen('Test');
+  check(App._neuladenNoetig === true && angelegt.length === 1, 'Nach drei vergeblichen Versuchen erscheint der Neulade-Hinweis genau einmal');
+  App._letzteHeilung = 0; await App._zustandHeilen('Test');
+  check(angelegt.length === 1, 'Der Hinweis wird nicht wiederholt angelegt');
+  check(/Seite neu laden/.test(JSON.stringify(angelegt[0].kinder ? angelegt[0].kinder.map(k => k.textContent) : [])), 'Der Hinweis enthält den Knopf zum Neuladen');
+  check(/_neuladenHinweis\('Kompaktierung'\)/.test(APP_SRC), 'Die Kompaktierung nutzt denselben Hinweis');
+  check(/_zustandHeilen\('Positionsdatei'\)/.test(APP_SRC) && /_writePositionFile\(pruefer, terminId, schuelerId, schuelerName, seit, bereich, 1\)/.test(APP_SRC), 'Positionsdateien heilen sich selbst und wiederholen genau einmal');
+  sandbox.document.getElementById = echtesGetById;
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
