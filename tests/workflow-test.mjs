@@ -65,6 +65,24 @@ db.run(`INSERT INTO einstellungen (schluessel,wert) VALUES ('rp_adresse_post','R
 
 console.log('══ Vorlagen / Textbausteine ══');
 {
+  // Fehltage-Warnung: in der Standardliste UND in bestehenden Datenbanken nachgetragen
+  check(/Achtung Fehltage/.test(App.TB_FEHLTAGE) && /10 %/.test(App.TB_FEHLTAGE), `Textbaustein zur Fehltage-Warnung: „${App.TB_FEHLTAGE}"`);
+  const src = read('src/js/app-core.js');
+  check(/'Ausbildungsnachweis nicht chronologisch geordnet',\n\s+this\.TB_FEHLTAGE/.test(src), 'Steht in der Standardliste für neue Datenbanken');
+  check(/tb_fehltage_ergaenzt/.test(src) && /tb\.push\(this\.TB_FEHLTAGE\)/.test(src), 'Wird in bestehenden Datenbanken einmalig nachgetragen');
+  // Nachtrag am echten Migrationspfad prüfen
+  App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung','[\"Alter Baustein\"]')");
+  App.run("DELETE FROM einstellungen WHERE schluessel='tb_fehltage_ergaenzt'");
+  App.migrateDB();
+  const tb = App.getTextbausteine();
+  check(tb.includes('Alter Baustein') && tb.includes(App.TB_FEHLTAGE), 'Bestehende Liste bleibt erhalten, die Warnung kommt hinzu');
+  const vorher = tb.length;
+  App.migrateDB();
+  check(App.getTextbausteine().length === vorher, 'Ein zweiter Start trägt ihn nicht erneut ein');
+  App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung','[\"Nur einer\"]')");
+  App.migrateDB();
+  check(App.getTextbausteine().length === 1, 'Eine bewusste Löschung kommt nicht zurück (Merker gesetzt)');
+
   check(Object.keys(App.VORLAGEN).length >= 10, `${Object.keys(App.VORLAGEN).length} Vorlagentypen vorhanden`);
   const v = App.getVorlage('schule_anfrage');
   check(v && !v.angepasst && v.body.includes('{schule}'), 'Standardtext wird geliefert, nicht als angepasst markiert');

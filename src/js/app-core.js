@@ -7769,6 +7769,10 @@ const App = {
     return prev.length ? prev[0] : null;
   },
 
+  // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
+  // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
+  TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
+
   // ── Bemerkung-Textbausteine (loaded from DB) ──
   getTextbausteine() {
     try { return JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]'); }
@@ -8522,10 +8526,25 @@ Anlagen: {anlagen}` },
               'Wochenberichte zu knapp / nicht aussagekräftig',
               'Zeichnungen/Skizzen fehlen',
               'Berichtsheft verschmutzt / unordentlich',
-              'Ausbildungsnachweis nicht chronologisch geordnet'
+              'Ausbildungsnachweis nicht chronologisch geordnet',
+              this.TB_FEHLTAGE
             ])]);
         }
       }
+      // Nachträglich ergänzter Standard-Baustein. Bestehende Datenbanken haben die
+      // Liste bereits, deshalb MUSS das außerhalb der Erst-Befüllung laufen.
+      // Einmalig (Merker), damit eine bewusste Löschung nicht bei jedem Start
+      // zurückkommt.
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='tb_fehltage_ergaenzt'")) {
+          const tb = JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+          if (Array.isArray(tb) && !tb.includes(this.TB_FEHLTAGE)) {
+            tb.push(this.TB_FEHLTAGE);
+            this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)", [JSON.stringify(tb)]);
+          }
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_ergaenzt','1')");
+        }
+      } catch(e) { console.warn('Textbaustein-Migration:', e); }
       // Blockplan table for school presence weeks
       try {
         this.db.run(`CREATE TABLE IF NOT EXISTS blockplan (
