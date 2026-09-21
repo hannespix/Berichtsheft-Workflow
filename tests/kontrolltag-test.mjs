@@ -106,7 +106,7 @@ console.log('══ C1: Zwei Prüfer öffnen denselben Termin – kein gegenseit
   check(KH._lockGiltFuerMich(lockFrueher) === null, 'Aufgehobene Sperre kommt beim nächsten Abgleich nicht zurück');
   KH._lockOverrides.clear();
   App._otherPositions = [];
-  check(/_writePositionFile\(pruefer, terminId, schuelerId, schuelerName, seit, bereich\)/.test(APP_SRC) && /data\.seit \|\| data\.ts/.test(APP_SRC), 'Positionsdatei trägt den Einstiegszeitpunkt getrennt vom Heartbeat');
+  check(/_writePositionFile\(pruefer, terminId, schuelerId, schuelerName, seit, bereich(, versuch = 0)?\)/.test(APP_SRC) && /data\.seit \|\| data\.ts/.test(APP_SRC), 'Positionsdatei trägt den Einstiegszeitpunkt getrennt vom Heartbeat');
   check((K_SRC.match(/App\._writePositionFile\([\s\S]*?\);/g) || []).every(c => /this\._bereich\)/.test(c)), 'Jeder Positions-Schreibvorgang übergibt Einstiegszeitpunkt und Bereich');
 }
 

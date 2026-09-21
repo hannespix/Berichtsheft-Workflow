@@ -10327,6 +10327,47 @@ const App = {
     if (ok) console.warn('[SyncV3] Datei-Zugriffspunkte nach Cache-Fehler neu geholt');
     return ok;
   },
+  // ── Zentrale Selbstheilung nach einem Windows-Dateicache-Fehler ──
+  //  Der Fehler trifft nicht nur die Kompaktierung, sondern JEDEN Schreibweg
+  //  (Positionsdateien, Chat, Meldungen). Deshalb an einer Stelle: höchstens
+  //  einmal je Minute die Zugriffspunkte erneuern. Hilft das dreimal in Folge
+  //  nicht, ist der Ordner-Zugriffspunkt selbst tot – dann EINMAL deutlich
+  //  sagen, dass nur Neuladen hilft, statt still weiter zu scheitern.
+  _zustandFehler: 0,
+  _letzteHeilung: 0,
+  async _zustandHeilen(quelle) {
+    this._zustandFehler++;
+    if (Date.now() - this._letzteHeilung < 60000) return false;
+    this._letzteHeilung = Date.now();
+    let ok = false;
+    try { ok = await this._handlesNeuHolen(); } catch(e) { ok = false; }
+    if (ok) { this._zustandFehler = 0; return true; }
+    if (this._zustandFehler >= 3) this._neuladenHinweis(quelle);
+    return false;
+  },
+  _neuladenHinweis(quelle) {
+    if (this._neuladenNoetig) return;
+    this._neuladenNoetig = true;
+    console.warn('[SyncV3] Zugriff auf das Netzlaufwerk veraltet (' + (quelle || '') + ') – nur Neuladen hilft');
+    try {
+      if (document.getElementById('neuladenBanner')) return;
+      const b = document.createElement('div');
+      b.id = 'neuladenBanner';
+      b.setAttribute('role', 'alert');
+      b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:9999;background:var(--clr-amber);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow-md);font-size:13px;display:flex;gap:10px;align-items:center;max-width:90vw';
+      const t = document.createElement('span');
+      t.textContent = 'Der Zugriff auf das Netzlaufwerk ist veraltet (Windows-Dateicache). Änderungen werden nicht mehr sicher gespeichert.';
+      b.appendChild(t);
+      const knopf = document.createElement('button');
+      knopf.className = 'btn btn-sm';
+      knopf.style.cssText = 'background:#fff;color:var(--clr-text);border:none;white-space:nowrap';
+      knopf.textContent = 'Seite neu laden';
+      knopf.onclick = () => location.reload();
+      b.appendChild(knopf);
+      document.body.appendChild(b);
+    } catch(e) {}
+  },
+
   _lockErrorCount: 0,
   // Nonce einer eigenen Sperre, deren Freigabe fehlgeschlagen ist
   _lockVerwaist: null,
@@ -10657,7 +10698,7 @@ const App = {
   // die Gegenseite, wer bei gleichzeitigem Einstieg Vorrang hat.
   // bereich = {von, bis} (1-basierte Nummern in der Terminliste): „Ich nehme
   // #1–20" – die Kollegen überspringen diesen Bereich beim Weiterschalten.
-  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich) {
+  async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich, versuch = 0) {
     if (!this.dirHandle || this._netzWeg || this.offlineModus) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
@@ -10667,6 +10708,10 @@ const App = {
       await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now(), b: bereich && bereich.von ? [bereich.von, bereich.bis] : null }));
       await writable.close();
     } catch(e) {
+      // Veralteter Zugriffspunkt: einmal erneuern und genau einmal wiederholen
+      if (!versuch && this._istZustandsFehler(e) && await this._zustandHeilen('Positionsdatei')) {
+        return this._writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich, 1);
+      }
       if (this._posWriteWarnCount < 3) {
         console.warn('[Pos] Write failed:', e.message);
         this._posWriteWarnCount++;
@@ -12007,7 +12052,7 @@ const App = {
         : this._istZustandsFehler(e)
           ? 'Der Zugriff auf die Datenbankdatei ist veraltet (Windows-Dateicache) und ließ sich auch durch Erneuern nicht wiederherstellen. Bitte die Seite neu laden (F5) und den Vorgang wiederholen – die Änderungen bleiben bis dahin erhalten.'
           : 'Schreibfehler: ' + e.message;
-      if (this._istZustandsFehler(e)) this._neuladenNoetig = true;
+      if (this._istZustandsFehler(e)) this._neuladenHinweis('Kompaktierung');
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
       return false;
     } finally {
