@@ -70,6 +70,7 @@ const Chat = {
     const zeile = JSON.stringify(n) + '\n';
     const bytes = new TextEncoder().encode(zeile);
     let writable = null;
+    const t0 = Date.now();
     try {
       let handle = await dir.getFileHandle(this._dateiName(), { create: true });
       let size = (await handle.getFile()).size;
@@ -87,9 +88,11 @@ const Chat = {
       writable = null;
       this._eigeneGroesse = size + bytes.length;
       this._offsets[this._dateiName()] = this._eigeneGroesse; // eigene Zeilen nicht zurücklesen
+      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachricht anhängen', { ok: true, ms: Date.now() - t0, info: `${bytes.length} B an ${Math.round(size / 1024)} KB${versuch ? ', 2. Versuch' : ''}` });
       return true;
     } catch(e) {
       if (writable) { try { await writable.abort(); } catch(_) {} }
+      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachricht anhängen', { ok: false, ms: Date.now() - t0, fehler: e, info: versuch ? 'auch im 2. Versuch' : '' });
       // HÖCHSTENS ein zweiter Versuch: ohne Grenze wiederholte sich das
       // Anhängen bei dauerhaften Cache-Fehlern endlos.
       if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
@@ -105,14 +108,17 @@ const Chat = {
   async abholen() {
     if (!this.aktiv() || this._laeuft) return 0;
     this._laeuft = true;
+    const t0 = Date.now();
     try {
       const dir = App._syncDirV3();
       if (!dir) return 0;
       const prefix = this._prefix(), eigen = this._dateiName();
       const grenze = Date.now() - this.AUFBEWAHRUNG_TAGE * 86400000;
       const neue = [];
+      let dateien = 0;
       for await (const [name, h] of dir.entries()) {
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl') || h.kind !== 'file') continue;
+        dateien++;
         try {
           const f = await h.getFile();
           if (f.lastModified < grenze) {
@@ -134,8 +140,10 @@ const Chat = {
         } catch(e) { /* einzelne Datei unlesbar – überspringen */ }
       }
       if (neue.length) this._melden(neue);
+      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachrichten abholen', { ok: true, ms: Date.now() - t0, info: `${dateien} Datei(en)${neue.length ? ', ' + neue.length + ' neu' : ''}`, nurStat: !neue.length });
       return neue.length;
     } catch(e) {
+      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachrichten abholen', { ok: false, ms: Date.now() - t0, fehler: e });
       App._verbindungsProblem && App._verbindungsProblem(e, 'chat');
       return 0;
     } finally { this._laeuft = false; }

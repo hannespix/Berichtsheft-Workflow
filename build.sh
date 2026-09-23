@@ -79,6 +79,7 @@ APP_MODULES=(
   "src/js/modules/db-tools.js"
   "src/js/modules/chat.js"
   "src/js/modules/melden.js"
+  "src/js/modules/konsole.js"
 )
 
 # Prüfe ob alle Dateien existieren
