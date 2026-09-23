@@ -49,6 +49,146 @@ const BhkLog = {
 };
 BhkLog.installieren();
 
+// ── Ereignisspur für Netz- und Dateivorgänge ──
+//  Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Chat, Anhängen, Abgleich,
+//  Kompaktierung, Sperre, Positionsdateien, Probe) hinterlässt hier Dauer,
+//  Ergebnis und Fehlerart. Übersprungene Takte werden mit Grund notiert, aber
+//  je Grund höchstens einmal je Minute (ein verdecktes Fenster füllte sonst
+//  den Speicher). Reine Speicherhaltung, kein Netzzugriff.
+//  Ausgabe: bhk.spur() / bhk.status() in der Konsole (konsole.js) und im
+//  Zustandsbild einer Fehlermeldung (App.diagnoseText).
+const BhkSpur = {
+  MAX: 500,
+  LANGSAM_MS: 3000,
+  eintraege: [],       // { t, kat, was, ok, ms, art, info, grund, n }
+  stat: {},            // kat → { n, fehler, langsam, gesamtMs, maxMs, letzteMs, letzteZeit, letzterFehler, letzteArt }
+  _uebersprungen: {},  // kat|grund → { t, n }
+  ART_TEXT: {
+    safebrowsing: 'Browser hat den Schreibvorgang abgelehnt (Safe Browsing / Richtlinie)',
+    zustand: 'Zugriffspunkt veraltet (Windows-Dateicache)',
+    timeout: 'Zeitlimit überschritten',
+    'nicht-gefunden': 'Datei oder Ordner nicht gefunden',
+    verweigert: 'Zugriff verweigert',
+    'nicht-lesbar': 'Datei wurde während des Lesens verändert',
+    gesperrt: 'Datei durch ein anderes Programm gesperrt',
+    voll: 'Kein Speicherplatz',
+    abgebrochen: 'Vorgang abgebrochen',
+    netz: 'Netzfehler',
+  },
+  get debug() { try { return localStorage.getItem('bhk_debug') === '1'; } catch(e) { return false; } },
+  setDebug(an) { try { if (an) localStorage.setItem('bhk_debug', '1'); else localStorage.removeItem('bhk_debug'); } catch(e) {} return !!an; },
+  // Fehler einordnen – eine Handvoll Klassen, die in der Praxis zählen
+  fehlerArt(e) {
+    if (!e) return '';
+    const n = e.name || '', m = String(e.message || e || '');
+    if (/safe browsing/i.test(m)) return 'safebrowsing';
+    if (n === 'InvalidStateError' || /state had changed|state cached in an interface/i.test(m)) return 'zustand';
+    if (/timeout/i.test(m)) return 'timeout';
+    if (n === 'NotFoundError') return 'nicht-gefunden';
+    if (n === 'NotAllowedError' || n === 'SecurityError') return 'verweigert';
+    if (n === 'NotReadableError') return 'nicht-lesbar';
+    if (n === 'NoModificationAllowedError') return 'gesperrt';
+    if (n === 'QuotaExceededError') return 'voll';
+    if (n === 'AbortError') return 'abgebrochen';
+    if (n === 'TypeError' && /network|fetch|Failed to/i.test(m)) return 'netz';
+    return n || 'fehler';
+  },
+  artText(art) { return this.ART_TEXT[art] || art || ''; },
+  _stat(kat) { return this.stat[kat] || (this.stat[kat] = { n: 0, fehler: 0, langsam: 0, gesamtMs: 0, maxMs: 0, letzteMs: 0, letzteZeit: 0, letzterFehler: '', letzteArt: '' }); },
+  // felder: { ok, ms, fehler (Error|string), info, nurStat }
+  notiere(kat, was, felder) {
+    try {
+      const f = felder || {};
+      const ok = f.ok !== false;
+      const ms = typeof f.ms === 'number' ? Math.round(f.ms) : undefined;
+      const art = ok ? '' : (f.art || this.fehlerArt(f.fehler));
+      const e = { t: Date.now(), kat, was, ok, ms, art, info: f.info == null ? '' : String(f.info).slice(0, 200) };
+      if (!ok) e.fehler = String(f.fehler && f.fehler.message || f.fehler || '').slice(0, 300);
+      if (f.grund) e.grund = f.grund;
+      if (f.n) e.n = f.n;
+      const s = this._stat(kat);
+      s.n++; s.letzteZeit = e.t;
+      if (ms != null) { s.gesamtMs += ms; s.letzteMs = ms; if (ms > s.maxMs) s.maxMs = ms; }
+      if (!ok) { s.fehler++; s.letzterFehler = e.fehler; s.letzteArt = art; }
+      const langsam = ms != null && ms >= this.LANGSAM_MS;
+      if (langsam) s.langsam++;
+      // Unauffällige Erfolge nur zählen, nicht aufheben (Abgleich alle 3 s)
+      if (f.nurStat && ok && !langsam) return e;
+      this.eintraege.push(e);
+      if (this.eintraege.length > this.MAX) this.eintraege.splice(0, this.eintraege.length - this.MAX);
+      if (langsam && ok && typeof console !== 'undefined') console.warn(`[Spur:${kat}] ${was} dauerte ${(ms / 1000).toFixed(1)} s${e.info ? ' (' + e.info + ')' : ''}`);
+      if (this.debug && typeof console !== 'undefined') console.log(`[Spur:${kat}] ${was}${ms != null ? ' ' + ms + ' ms' : ''}${ok ? '' : ' FEHLER ' + art + ': ' + e.fehler}${e.info ? ' – ' + e.info : ''}`);
+      return e;
+    } catch(err) { return null; }
+  },
+  // Einen Vorgang messen; wirft den Fehler weiter, notiert ihn aber vorher
+  // felder: Objekt oder Funktion(ergebnis) → Objekt (nur bei Erfolg aufgerufen)
+  async messen(kat, was, fn, felder) {
+    const t0 = Date.now();
+    const fest = typeof felder === 'function' ? {} : (felder || {});
+    let r;
+    try { r = await fn(); }
+    catch(e) { this.notiere(kat, was, Object.assign({ ok: false, ms: Date.now() - t0, fehler: e }, fest)); throw e; }
+    this.notiere(kat, was, Object.assign({ ok: true, ms: Date.now() - t0 }, fest, typeof felder === 'function' ? (felder(r) || {}) : {}));
+    return r;
+  },
+  // Übersprungener Takt: je Grund höchstens ein Eintrag je Minute, mit Zähler
+  uebersprungen(kat, grund) {
+    try {
+      const key = kat + '|' + grund;
+      const u = this._uebersprungen[key] || (this._uebersprungen[key] = { t: 0, n: 0 });
+      u.n++;
+      if (Date.now() - u.t < 60000) return null;
+      const n = u.n; u.t = Date.now(); u.n = 0;
+      return this.notiere(kat, 'übersprungen', { ok: true, grund, n, info: `${grund}${n > 1 ? ' (' + n + '×)' : ''}` });
+    } catch(e) { return null; }
+  },
+  liste(kat, n) {
+    const l = kat ? this.eintraege.filter(e => e.kat === kat) : this.eintraege;
+    return n ? l.slice(-n) : l.slice();
+  },
+  // Eine Zeile je Bereich – für console.table und das Zustandsbild
+  zusammenfassung() {
+    return Object.entries(this.stat).map(([kat, s]) => ({
+      bereich: kat, vorgaenge: s.n, fehler: s.fehler, langsam: s.langsam,
+      mittelMs: s.n ? Math.round(s.gesamtMs / s.n) : 0, maxMs: s.maxMs, letzteMs: s.letzteMs,
+      zuletzt: s.letzteZeit ? new Date(s.letzteZeit).toLocaleTimeString('de-DE') : '',
+      letzterFehler: s.letzteArt ? `${s.letzteArt}: ${s.letzterFehler}`.slice(0, 120) : '',
+    }));
+  },
+  zeile(e) {
+    return `[${new Date(e.t).toLocaleTimeString('de-DE')}] ${e.kat} · ${e.was}${e.ms != null ? ' · ' + e.ms + ' ms' : ''}${e.ok ? '' : ' · FEHLER ' + e.art + ': ' + (e.fehler || '')}${e.info ? ' · ' + e.info : ''}`;
+  },
+  text(n) {
+    const teile = [];
+    const z = this.zusammenfassung();
+    if (z.length) {
+      teile.push('Netz- und Dateivorgänge je Bereich:');
+      z.forEach(r => teile.push(`  ${r.bereich}: ${r.vorgaenge} Vorgänge, ${r.fehler} Fehler, ${r.langsam} langsam, Ø ${r.mittelMs} ms, max ${r.maxMs} ms${r.letzterFehler ? ', letzter Fehler ' + r.letzterFehler : ''}`));
+    }
+    const l = this.liste(null, n || 60);
+    if (l.length) {
+      teile.push('', `Ereignisspur (letzte ${l.length} von ${this.eintraege.length}):`);
+      l.forEach(e => teile.push('  ' + this.zeile(e)));
+    }
+    return teile.join('\n');
+  },
+  installieren() {
+    if (this._installiert || typeof document === 'undefined' || !document.addEventListener) return;
+    this._installiert = true;
+    // Sichtbarkeit protokollieren: Ein verdecktes Fenster (Chrome zählt unter
+    // Windows auch ein vollständig überdecktes Fenster als „hidden") setzt den
+    // Abgleich-Takt aus – ohne diese Spur sieht das im Protokoll wie ein
+    // Netzfehler aus.
+    try {
+      document.addEventListener('visibilitychange', () => {
+        this.notiere('fenster', document.hidden ? 'Fenster verdeckt oder Tab im Hintergrund' : 'Fenster wieder sichtbar', { ok: true });
+      });
+    } catch(e) {}
+  },
+};
+BhkSpur.installieren();
+
 const App = {
   // Versionsangabe für Handbuch/PDF-Fußzeilen – EINE Stelle statt fester Texte
   VERSION: '2.1',
@@ -2215,6 +2355,7 @@ const App = {
     this._verbFehler++;
     this._lastSaveDurationMs = Math.max(this._lastSaveDurationMs || 0, 30000);
     try { this._updateNetworkQuality(); } catch(_) {}
+    BhkSpur.notiere('netz', 'Verbindungsfehler gezählt', { ok: false, fehler: e, info: `${quelle}, ${this._verbFehler}. in Folge${this._verbFehler >= 2 && !this._netzWeg ? ' → Netzabriss angenommen' : ''}` });
     if (this._verbFehler >= 2 && !this._netzWeg) {
       this._netzWeg = true; this._netzWegSeit = Date.now();
       console.warn(`[Netz] Netzlaufwerk nicht erreichbar (${quelle}: ${e.name || ''} ${String(e.message || '').slice(0, 80)}) – Abgleich und Speichern pausiert, Probe alle 30 s`);
@@ -2244,11 +2385,13 @@ const App = {
   // Leichte Probe: nur die Datenbankdatei anfassen. Erfolg → alles wieder an.
   async _netzProbe(manuell) {
     if (!this.dirHandle) return false;
+    const t0 = Date.now();
     try {
       const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
       const h = await this.dirHandle.getFileHandle(name, { create: false });
       await h.getFile();
       this.dbFileHandle = h;
+      BhkSpur.notiere('netz', 'Leseprobe Datenbankdatei', { ok: true, ms: Date.now() - t0, info: this._netzWeg ? 'wieder erreichbar' : (manuell ? 'von Hand' : ''), nurStat: !this._netzWeg && !manuell });
       if (this._netzWeg) console.log('[Netz] Netzlaufwerk wieder erreichbar');
       this._netzWeg = false; this._verbFehler = 0; this._saveRetryCount = 0; this._saveCooldownUntil = null; this._reconnectAttempts = 0;
       this._lastSaveDurationMs = 0;
@@ -2262,6 +2405,7 @@ const App = {
       try { if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; if (this._schedulePoll) this._schedulePoll(); } } catch(_) {}
       return true;
     } catch(e) {
+      BhkSpur.notiere('netz', 'Leseprobe Datenbankdatei', { ok: false, ms: Date.now() - t0, fehler: e });
       if (manuell) this.toast('Netzlaufwerk weiterhin nicht erreichbar (' + (e.name || 'Fehler') + ')', 'warning');
       return false;
     }
@@ -2300,12 +2444,21 @@ const App = {
       const dir = this._syncDirV3();
       this._praesenzLetzte = Date.now();
       this._praesenzDirty = false;
+      const t0 = Date.now();
       try {
         const fh = await dir.getFileHandle(this._praesenzDatei(), { create: true });
         const w = await fh.createWritable();
         await w.write(JSON.stringify(this._praesenzEintrag()));
         await w.close();
-      } catch(e) { this._verbindungsProblem(e, 'praesenz'); return false; }
+        this._praesenzLetzteOk = Date.now();
+        this._praesenzFehler = 0;
+        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: true, ms: Date.now() - t0, nurStat: true });
+      } catch(e) {
+        this._praesenzFehler = (this._praesenzFehler || 0) + 1;
+        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: false, ms: Date.now() - t0, fehler: e, info: `${this._praesenzFehler}. Fehler in Folge` });
+        this._verbindungsProblem(e, 'praesenz');
+        return false;
+      }
       await this._praesenzLesen(dir);
       this._praesenzAnzeigen();
       return true;
@@ -2317,6 +2470,7 @@ const App = {
     const prefix = this._praesenzPrefix(), eigen = this._praesenzDatei();
     const jetzt = Date.now();
     const andere = [];
+    const t0 = Date.now();
     try {
       for await (const [name, h] of dir.entries()) {
         if (!name.startsWith(prefix) || !name.endsWith('.json') || name === eigen || h.kind !== 'file') continue;
@@ -2328,7 +2482,11 @@ const App = {
           andere.push({ client: String(d.c || name), name: d.p || '', view: d.v || '', ts: d.ts, seit: d.seit || d.ts, feldmodus: !!d.fm, online: jetzt - d.ts <= this.PRAESENZ_ONLINE_MS });
         } catch(e) { /* unlesbar – überspringen */ }
       }
-    } catch(e) { this._verbindungsProblem(e, 'praesenz'); }
+      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: true, ms: Date.now() - t0, info: `${andere.filter(a => a.online).length} online von ${andere.length}`, nurStat: true });
+    } catch(e) {
+      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: false, ms: Date.now() - t0, fehler: e });
+      this._verbindungsProblem(e, 'praesenz');
+    }
     this._praesenzAndere = andere.sort((a, b) => b.ts - a.ts);
     return andere;
   },
@@ -2437,11 +2595,14 @@ const App = {
         ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
         zweitRegisterkarte: this._tabIsPrimary === false,
         datenbank: this.autoLoadedDbName || '', rechner: this._getClientId ? this._getClientId().slice(-4) : '',
+        fensterVerdeckt: !!(typeof document !== 'undefined' && document.hidden),
       },
       verbindung: {
         netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
-        letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0),
-        abgleichTaktMs: this._pollIntervalMs || 0,
+        letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0), letztesAnhaengenMs: Math.round(this._lastAppendMs || 0),
+        abgleichTaktMs: this._pollIntervalMs || 0, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
+        lebenszeichenZuletztOk: this._praesenzLetzteOk ? new Date(this._praesenzLetzteOk).toLocaleTimeString('de-DE') : '', lebenszeichenFehlerInFolge: this._praesenzFehler || 0,
+        zugriffVeraltet: !!this._neuladenNoetig,
       },
       synchronisation: {
         kompaktierungGrund: this._compactGrund || '', sperre: this._lockInfo ? `${this._lockInfo.von} (seit ${this._lockInfo.alterS} s)` : '',
@@ -2468,6 +2629,9 @@ const App = {
     if (opts.fehler !== false && typeof BhkLog !== 'undefined' && BhkLog.fehler.length) {
       teile.push('', `abgefangene Fehler (${BhkLog.fehler.length}):`);
       BhkLog.fehler.slice(-10).forEach(f => teile.push(`  [${new Date(f.t).toLocaleTimeString('de-DE')}] ${f.art}: ${this.schwaerzen(f.nachricht)}${f.quelle ? ' (' + f.quelle + ')' : ''}${f.stack ? '\n' + this.schwaerzen(f.stack).split('\n').map(x => '      ' + x.trim()).join('\n') : ''}`));
+    }
+    if (opts.spur !== false && typeof BhkSpur !== 'undefined' && BhkSpur.eintraege.length) {
+      teile.push('', this.schwaerzen(BhkSpur.text(opts.spurZeilen || 60)));
     }
     if (opts.protokoll !== false && typeof BhkLog !== 'undefined' && BhkLog.zeilen.length) {
       const n = opts.zeilen || 150;
@@ -2803,6 +2967,7 @@ const App = {
         if (this._netzWeg && !this.offlineModus) {
           // Netzlaufwerk weg: nur eine leichte Probe, kein Abgleich
           if (!document.hidden && this.dirHandle) await this._netzProbe(false);
+          else BhkSpur.uebersprungen('takt', document.hidden ? 'Fenster verdeckt (Netzabriss-Probe ausgesetzt)' : 'kein Ordner');
         } else if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this.offlineModus) {
         // Nie parallel zu einem laufenden Anhängen: Chrome reiht Dateizugriffe
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
@@ -2816,6 +2981,10 @@ const App = {
           try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
           // Neue Fehlermeldungen zählen (höchstens alle 5 Minuten)
           try { if (typeof Melden !== 'undefined') await Melden.pruefeNeue(false); } catch(e) {}
+        } else if (!this.offlineModus) {
+          // Warum kein Abgleich? Der Grund gehört in die Spur – ein verdecktes
+          // Fenster oder ein langes Anhängen sah sonst aus wie ein Netzproblem
+          BhkSpur.uebersprungen('takt', document.hidden ? 'Fenster verdeckt' : !this.dirHandle ? 'kein Ordner' : this._mergeInProgress ? 'Speichern/Kompaktierung läuft' : 'Anhängen läuft');
         }
         this._schedulePoll();
       }, interval);
@@ -2970,6 +3139,7 @@ const App = {
       catch(e) { console.warn('[SyncV3] Zugriffspunkt auch nach dem Neuholen unbrauchbar:', e.message); return false; }
     }
     if (ok) console.warn('[SyncV3] Datei-Zugriffspunkte nach Cache-Fehler neu geholt');
+    BhkSpur.notiere('heilung', 'Zugriffspunkte neu geholt', { ok, fehler: ok ? null : 'Ordner-Zugriffspunkt selbst veraltet', art: ok ? '' : 'zustand' });
     return ok;
   },
   // ── Zentrale Selbstheilung nach einem Windows-Dateicache-Fehler ──
@@ -2982,7 +3152,7 @@ const App = {
   _letzteHeilung: 0,
   async _zustandHeilen(quelle) {
     this._zustandFehler++;
-    if (Date.now() - this._letzteHeilung < 60000) return false;
+    if (Date.now() - this._letzteHeilung < 60000) { BhkSpur.uebersprungen('heilung', `Heilung ausgesetzt (${quelle}, zuletzt vor unter 1 min)`); return false; }
     this._letzteHeilung = Date.now();
     let ok = false;
     try { ok = await this._handlesNeuHolen(); } catch(e) { ok = false; }
@@ -3057,6 +3227,7 @@ const App = {
           if (Math.min(ageEmbedded, ageMtime) < 150000) {
             this._lockErrorCount = 0;
             this._lockInfo = { von: lock.u || '?', alterS: Math.round(Math.min(ageEmbedded, ageMtime) / 1000), t: lock.t || '' };
+            BhkSpur.notiere('sperre', 'Sperre belegt', { ok: true, info: `von ${this._lockInfo.von}, seit ${this._lockInfo.alterS} s` });
             return false;
           }
         }
@@ -3085,12 +3256,14 @@ const App = {
       this._lockNonce = nonce;
       this._lockVerwaist = null;
       this._lockErrorCount = 0;
+      BhkSpur.notiere('sperre', 'Sperre gesetzt', { ok: true, nurStat: true });
       return true;
     } catch(e) {
       // Fail-CLOSED: bei Fehlern im Lock-Mechanismus NICHT einfach ohne Lock
       // schreiben (Datenverlust-Risiko). Erst nach 3 Fehlversuchen in Folge
       // notfalls ohne Lock weitermachen, damit Speichern nie dauerhaft blockiert.
       this._lockErrorCount++;
+      BhkSpur.notiere('sperre', 'Sperre setzen', { ok: false, fehler: e, info: `${this._lockErrorCount}. Fehler` });
       if (this._lockErrorCount >= 3) {
         console.warn('[Lock] Mechanismus fehlgeschlagen (' + this._lockErrorCount + 'x) – fahre ohne Lock fort:', e.message);
         return true;
@@ -3357,6 +3530,7 @@ const App = {
       if (!versuch && this._istZustandsFehler(e) && await this._zustandHeilen('Positionsdatei')) {
         return this._writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich, 1);
       }
+      BhkSpur.notiere('position', 'Positionsdatei schreiben', { ok: false, fehler: e, info: versuch ? 'auch nach Heilung' : '' });
       if (this._posWriteWarnCount < 3) {
         console.warn('[Pos] Write failed:', e.message);
         this._posWriteWarnCount++;
@@ -4087,6 +4261,8 @@ const App = {
         throw err;
       }
       this._myLogSize = size + bytes.length;
+      this._lastAppendMs = Date.now() - jetzt;
+      BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en), ${bytes.length} B an ${Math.round(size / 1024)} KB` });
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
       // Kleine Protokolle: Chrome kopiert beim Anhängen die ganze Datei in
       // eine Swap-Datei – ab LOG_ROTATE_BYTES neue Generation. Die alte bleibt
@@ -4127,6 +4303,7 @@ const App = {
       this._opsInFlight = null;
       this.unsavedChanges = true;
       this._persistDirtyOps(); // Crash-Puffer sofort aktualisieren
+      BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: false, fehler: e, info: `${claimed.length} Änderung(en) zurückgelegt` });
       console.error('[SyncV3] Append-Fehler:', e);
       // Netzabriss / Safe-Browsing-Abbruch: pausieren statt sofort wieder anzurennen
       const netzFehler = this._verbindungsProblem(e, 'anhaengen');
@@ -4224,8 +4401,10 @@ const App = {
         this._smartRefresh();
       }
       await this._rotateOwnLogIfCovered();
+      BhkSpur.notiere('abgleich', 'Fremde Protokolle lesen', { ok: !leseFehler, ms: Date.now() - pollStart, fehler: leseFehler ? `${leseFehler} Protokoll(e) nicht lesbar` : null, art: leseFehler ? 'nicht-lesbar' : '', info: applied ? `${applied} Änderung(en) übernommen` : '', nurStat: !applied });
     } catch(e) {
       this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+      BhkSpur.notiere('abgleich', 'Fremde Protokolle lesen', { ok: false, ms: Date.now() - pollStart, fehler: e });
       this._verbindungsProblem(e, 'abgleich');
       if (this._reconnectAttempts > 5) {
         document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Getrennt';
@@ -4585,9 +4764,10 @@ const App = {
     if (!this.db || !this.dbFileHandle) return this._compactAbgelehnt('keine Datenbankdatei verbunden');
     this._compactInProgress = true;
     let writable = null;
+    const tKompakt = Date.now();
     try {
       const gotLock = await this._acquireLock();
-      if (!gotLock) return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); // ein anderer kompaktiert bereits
+      if (!gotLock) { BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: 'Sperre belegt', art: 'sperre', info: reason }); return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); } // ein anderer kompaktiert bereits
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       this.ladeText && this._ladeTimer && this.ladeText('Änderungen sichern…');
       await this._saveV3();
@@ -4682,6 +4862,7 @@ const App = {
         }
       } catch(e) {}
       this._compactGrund = '';
+      BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: true, ms: Date.now() - tKompakt, info: `${reason}, ${Math.round(data.length / 1024 / 1024)} MB, Generation ${this._snapGen}` });
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
       this._bulkOps = null;
       if (this._bulkPending) {
@@ -4699,6 +4880,7 @@ const App = {
           : 'Schreibfehler: ' + e.message;
       if (this._istZustandsFehler(e)) this._neuladenHinweis('Kompaktierung');
       console.warn('[SyncV3] Kompaktierung fehlgeschlagen:', e.message);
+      BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: e, info: reason });
       return false;
     } finally {
       await this._releaseLock();
@@ -4745,8 +4927,10 @@ const App = {
       if (!gen || gen <= (this._snapGen || 0)) return;
       if (meta.by === this._getClientId()) { this._snapGen = gen; return; }
       console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
+      const tLade = Date.now();
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
+      BhkSpur.notiere('snapshot', 'Fremden Snapshot laden', { ok: true, ms: Date.now() - tLade, info: `Generation ${gen}, ${Math.round(buf.byteLength / 1024)} KB` });
       const SQL = await App._getSqlJs();
       const neu = new SQL.Database(new Uint8Array(buf));
       // Sanity: niemals gegen eine leer oder abgeschnitten gelesene Datei
@@ -4837,6 +5021,7 @@ const App = {
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       this._smartRefresh();
     } catch(e) {
+      if (BhkSpur.fehlerArt(e) !== 'nicht-gefunden') BhkSpur.notiere('snapshot', 'Snapshot prüfen', { ok: false, fehler: e });
       if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
       else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
     }
