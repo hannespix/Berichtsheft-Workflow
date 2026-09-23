@@ -302,5 +302,62 @@ console.log('\n══ Sticky-Kopf der Einzelansicht ══');
   check(/\.azubi-sticky \{[\s\S]*position: sticky;[\s\S]*z-index: 21;/.test(CSS) && /top: 33px; \/\* unter dem Azubi-Kopf \*\//.test(CSS), 'Legende klebt unter dem Azubi-Kopf');
 }
 
+console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in der Bemerkung ══');
+{
+  const H11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, H15 = App.HINWEISE_NICHT_GEFUEHRT.p_1_5_gefuehrt;
+  check(/1\.1/.test(H11) && /anzukreuzen/.test(H11) && /1\.5/.test(H15) && /Zusammenstellung/.test(H15), 'Beide Hinweistexte vorhanden und klar zugeordnet');
+  // Reine Textlogik
+  const b = App.bemerkungMitHinweis;
+  check(b.call(App, '', 'p_1_1_gefuehrt', 'nein') === H11, 'Leere Bemerkung: Hinweis wird eingesetzt');
+  check(b.call(App, 'Sauber geführt', 'p_1_1_gefuehrt', 'nein') === 'Sauber geführt\n' + H11, 'Vorhandener Text bleibt, Hinweis kommt auf eine eigene Zeile');
+  check(b.call(App, b.call(App, 'X', 'p_1_1_gefuehrt', 'nein'), 'p_1_1_gefuehrt', 'nein') === 'X\n' + H11, 'Zweimal „nicht geführt“ ergibt den Hinweis nur einmal');
+  check(b.call(App, 'X\n' + H11, 'p_1_1_gefuehrt', 'ja') === 'X', '„geführt“ entfernt den Hinweis, der Rest bleibt');
+  check(b.call(App, 'X\n' + H11, 'p_1_1_gefuehrt', '') === 'X', 'Zurück auf „–“ entfernt den Hinweis ebenfalls');
+  const handgeaendert = H11.replace('laufend', 'fortlaufend');
+  check(b.call(App, handgeaendert, 'p_1_1_gefuehrt', 'ja') === handgeaendert, 'Von Hand geänderte Fassung wird nicht angetastet');
+  check(b.call(App, 'A\n' + H11 + '\n' + H15, 'p_1_1_gefuehrt', 'ja') === 'A\n' + H15, 'Die Hinweise zu 1.1 und 1.5 sind unabhängig voneinander');
+
+  // Über die echte Eingabe (saveField) am Azubi 2
+  KH.currentIndex = 1;
+  KH._pruefeAbgeschlossen = () => true;
+  const ke = () => App.query('SELECT * FROM kontrollergebnisse WHERE id=200')[0];
+  App.run("UPDATE kontrollergebnisse SET bemerkung='Wochenberichte knapp', p_1_1_gefuehrt='', p_1_5_gefuehrt='' WHERE id=200");
+  elems.keBemerkung = { value: 'Wochenberichte knapp' };
+  KH.saveField('p_1_1_gefuehrt', 'nein');
+  check(ke().p_1_1_gefuehrt === 'nein', '1.1 „nicht geführt“ wird gespeichert');
+  check(ke().bemerkung === 'Wochenberichte knapp\n' + H11, 'Hinweis steht in der Bemerkung, eigener Text bleibt davor');
+  check(elems.keBemerkung.value === ke().bemerkung, 'Das Bemerkungsfeld auf dem Bildschirm zeigt den neuen Text sofort');
+  KH.saveField('p_1_5_gefuehrt', 'nein');
+  check(ke().bemerkung === 'Wochenberichte knapp\n' + H11 + '\n' + H15, '1.5 „nicht geführt“ ergänzt den zweiten Hinweis');
+  UndoManager.undo();
+  check(ke().p_1_5_gefuehrt === '' && ke().bemerkung === 'Wochenberichte knapp\n' + H11, 'Rückgängig nimmt Wert UND Hinweis zurück');
+  UndoManager.redo();
+  check(ke().p_1_5_gefuehrt === 'nein' && ke().bemerkung.endsWith(H15), 'Wiederholen setzt beides erneut');
+  KH.saveField('p_1_1_gefuehrt', 'ja');
+  check(ke().p_1_1_gefuehrt === 'ja' && !ke().bemerkung.includes(H11) && ke().bemerkung.includes(H15), '„geführt“ entfernt nur den Hinweis zu 1.1');
+  // „Alle OK“
+  KH.setAllPflichtOK();
+  check(ke().p_1_1_gefuehrt === 'ja' && ke().p_1_5_gefuehrt === 'ja', '„Alle OK“ setzt beide auf „geführt“');
+  check(ke().bemerkung === 'Wochenberichte knapp', '„Alle OK“ räumt die Hinweise aus der Bemerkung');
+  // „In Ordnung“ füllt nur leere Felder, überschreibt nie ein „nicht geführt“
+  App.run("UPDATE kontrollergebnisse SET ergebnis='', p_1_1_gefuehrt='', p_1_5_gefuehrt='nein' WHERE id=200");
+  KH.nextOffen = () => {};
+  KH.saveField('ergebnis', 'in_ordnung');
+  check(ke().p_1_1_gefuehrt === 'ja', '„In Ordnung“ setzt ein leeres Feld auf „geführt“');
+  check(ke().p_1_5_gefuehrt === 'nein', '„In Ordnung“ überschreibt ein bewusstes „nicht geführt“ NICHT');
+  App.run("UPDATE kontrollergebnisse SET ergebnis='' WHERE id=200");
+  // Schema an den drei Pflichtstellen
+  const schema = APP_SRC.match(/SCHEMA: `([\s\S]*?)`,/)[1];
+  check(/p_1_1_gefuehrt TEXT/.test(schema) && /p_1_5_gefuehrt TEXT/.test(schema), 'SCHEMA enthält beide Spalten');
+  check(/keCols\.includes\('p_1_1_gefuehrt'\)/.test(APP_SRC) && /keCols\.includes\('p_1_5_gefuehrt'\)/.test(APP_SRC), 'migrateDB() zieht beide nach');
+  const disk = APP_SRC.split('_migrateDiskDb(diskDb) {')[1].split('\n  },')[0];
+  check(/ADD COLUMN p_1_1_gefuehrt/.test(disk) && /ADD COLUMN p_1_5_gefuehrt/.test(disk), '_migrateDiskDb() zieht beide nach');
+  // Archiv und PDF
+  check(/g_1_1: ke\.p_1_1_gefuehrt/.test(K_SRC) && /g_1_1: ke\.p_1_1_gefuehrt/.test(NE_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest');
+  check(/nicht geführt/.test(read('src/js/modules/pdf-export.js')) && /p_1_1_gefuehrt/.test(read('src/js/modules/pdf-export.js')), 'Der Durchsichtsbogen (PDF) zeigt „geführt / nicht geführt“');
+  check(/data-field="\$\{name\}"/.test(K_SRC) && /gefuehrtOptHtml\('p_1_1_gefuehrt'/.test(K_SRC) && /gefuehrtOptHtml\('p_1_5_gefuehrt'/.test(K_SRC), 'Beide Auswahlfelder stehen in der Eingabemaske');
+  KH.currentIndex = 0;
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

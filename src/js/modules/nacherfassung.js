@@ -324,7 +324,8 @@ const NacherfassungHandler = {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE id=?', [keId])[0];
       const kwRows = App.query('SELECT * FROM kw_status WHERE schueler_id=?', [s.id]);
       const pflicht = { p_1_1: ke.p_1_1_ausbildungsplan, p_1_4: ke.p_1_4_auszubildende, p_1_5: ke.p_1_5_bescheinigungen,
-        besch_anz: ke.bescheinigungen_anzahl, f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb };
+        besch_anz: ke.bescheinigungen_anzahl, f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb,
+        g_1_1: ke.p_1_1_gefuehrt || '', g_1_5: ke.p_1_5_gefuehrt || '' };
       const snapDa = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [keId]);
       if (!snapDa) {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
