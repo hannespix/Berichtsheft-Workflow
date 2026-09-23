@@ -275,6 +275,14 @@ const PDFExport = {
         let valText = valLabel(displayVal);
         if (nr === '1.5' && reqUBA) valText += ` (${count||0}/${reqUBA})`;
         doc.text(valText, px + 5, y + 7.5);
+        // Zusatz „geführt / nicht geführt“ (1.1 Inhalte angekreuzt, 1.5 Zusammenstellung)
+        const gef = nr === '1.1' ? ke?.p_1_1_gefuehrt : nr === '1.5' ? ke?.p_1_5_gefuehrt : '';
+        if (gef === 'ja' || gef === 'nein') {
+          const breite = doc.getTextWidth(valText);
+          doc.setFont('helvetica', gef === 'nein' ? 'bold' : 'normal'); doc.setFontSize(6);
+          doc.setTextColor(...(gef === 'nein' ? [180, 40, 30] : [60, 120, 60]));
+          doc.text(gef === 'nein' ? '· nicht geführt' : '· geführt', px + 6 + breite, y + 7.5);
+        }
         px += 58;
       });
 

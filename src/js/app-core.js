@@ -1255,9 +1255,11 @@ const App = {
       geprueft_kws TEXT DEFAULT '{}',
       ergebnis TEXT DEFAULT '' CHECK (ergebnis IN ('','in_ordnung','nachholung_naechste_durchsicht','sachberichte_wetter_email','berichte_bis_termin_email','persoenliche_vorlage_rp','post_an_rp')),
       p_1_1_ausbildungsplan TEXT DEFAULT '' CHECK (p_1_1_ausbildungsplan IN ('','ja','nein','nicht_vorhanden')),
+      p_1_1_gefuehrt TEXT DEFAULT '',
       p_1_4_auszubildende TEXT DEFAULT '' CHECK (p_1_4_auszubildende IN ('','ja','nein','nicht_vorhanden')),
       p_1_5_bescheinigungen TEXT DEFAULT '' CHECK (p_1_5_bescheinigungen IN ('','ja','nein','nicht_vorhanden')),
       bescheinigungen_anzahl INTEGER DEFAULT 0,
+      p_1_5_gefuehrt TEXT DEFAULT '',
       f_1_2_vertragliche_regelungen TEXT DEFAULT '' CHECK (f_1_2_vertragliche_regelungen IN ('','ja','nein','nicht_vorhanden')),
       f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','nicht_vorhanden')),
       fehltage_gesamt INTEGER DEFAULT 0,
@@ -5705,6 +5707,8 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -6079,7 +6083,7 @@ const App = {
       while (stmtKe.step()) diskKE.push(stmtKe.getAsObject());
       stmtKe.free();
 
-      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
+      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
@@ -7769,6 +7773,25 @@ const App = {
     return prev.length ? prev[0] : null;
   },
 
+  // ── 1.1 / 1.5 „nicht geführt“: fester Hinweis in der Bemerkung ──
+  //  Steht auf einer EIGENEN Zeile, damit er sich beim Zurücksetzen sauber und
+  //  ohne Rätselraten wieder entfernen lässt. Von Hand geänderte Fassungen
+  //  bleiben unangetastet.
+  HINWEISE_NICHT_GEFUEHRT: {
+    p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
+    p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
+  },
+  // Bemerkung passend zum Wert: bei 'nein' Hinweis anhängen (genau einmal),
+  // sonst einen vorhandenen Hinweis entfernen
+  bemerkungMitHinweis(bemerkung, feld, wert) {
+    const hinweis = this.HINWEISE_NICHT_GEFUEHRT[feld];
+    const text = String(bemerkung || '');
+    if (!hinweis) return text;
+    const ohne = text.split('\n').filter(z => z.trim() !== hinweis).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (wert === 'nein') return ohne ? ohne + '\n' + hinweis : hinweis;
+    return ohne;
+  },
+
   // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
   // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
   TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
@@ -8319,6 +8342,14 @@ Anlagen: {anlagen}` },
       // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert
       if (!keCols.includes('fehltage_pauschal')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
+      }
+      // 1.1 / 1.5 vorhanden, aber nicht GEFÜHRT (Inhalte nicht laufend angekreuzt
+      // bzw. Zusammenstellung nicht ergänzt): '' | 'ja' | 'nein'
+      if (!keCols.includes('p_1_1_gefuehrt')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
+      }
+      if (!keCols.includes('p_1_5_gefuehrt')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");

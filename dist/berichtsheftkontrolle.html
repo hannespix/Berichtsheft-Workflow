@@ -8612,9 +8612,11 @@ const App = {
       geprueft_kws TEXT DEFAULT '{}',
       ergebnis TEXT DEFAULT '' CHECK (ergebnis IN ('','in_ordnung','nachholung_naechste_durchsicht','sachberichte_wetter_email','berichte_bis_termin_email','persoenliche_vorlage_rp','post_an_rp')),
       p_1_1_ausbildungsplan TEXT DEFAULT '' CHECK (p_1_1_ausbildungsplan IN ('','ja','nein','nicht_vorhanden')),
+      p_1_1_gefuehrt TEXT DEFAULT '',
       p_1_4_auszubildende TEXT DEFAULT '' CHECK (p_1_4_auszubildende IN ('','ja','nein','nicht_vorhanden')),
       p_1_5_bescheinigungen TEXT DEFAULT '' CHECK (p_1_5_bescheinigungen IN ('','ja','nein','nicht_vorhanden')),
       bescheinigungen_anzahl INTEGER DEFAULT 0,
+      p_1_5_gefuehrt TEXT DEFAULT '',
       f_1_2_vertragliche_regelungen TEXT DEFAULT '' CHECK (f_1_2_vertragliche_regelungen IN ('','ja','nein','nicht_vorhanden')),
       f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','nicht_vorhanden')),
       fehltage_gesamt INTEGER DEFAULT 0,
@@ -13062,6 +13064,8 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_manuell INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN pruefer TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -13436,7 +13440,7 @@ const App = {
       while (stmtKe.step()) diskKE.push(stmtKe.getAsObject());
       stmtKe.free();
 
-      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen',
+      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
@@ -15126,6 +15130,25 @@ const App = {
     return prev.length ? prev[0] : null;
   },
 
+  // ── 1.1 / 1.5 „nicht geführt“: fester Hinweis in der Bemerkung ──
+  //  Steht auf einer EIGENEN Zeile, damit er sich beim Zurücksetzen sauber und
+  //  ohne Rätselraten wieder entfernen lässt. Von Hand geänderte Fassungen
+  //  bleiben unangetastet.
+  HINWEISE_NICHT_GEFUEHRT: {
+    p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
+    p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
+  },
+  // Bemerkung passend zum Wert: bei 'nein' Hinweis anhängen (genau einmal),
+  // sonst einen vorhandenen Hinweis entfernen
+  bemerkungMitHinweis(bemerkung, feld, wert) {
+    const hinweis = this.HINWEISE_NICHT_GEFUEHRT[feld];
+    const text = String(bemerkung || '');
+    if (!hinweis) return text;
+    const ohne = text.split('\n').filter(z => z.trim() !== hinweis).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (wert === 'nein') return ohne ? ohne + '\n' + hinweis : hinweis;
+    return ohne;
+  },
+
   // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
   // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
   TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
@@ -15676,6 +15699,14 @@ Anlagen: {anlagen}` },
       // fehltage_gesamt = Summe der KW-Einträge + dieser Pauschalwert
       if (!keCols.includes('fehltage_pauschal')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
+      }
+      // 1.1 / 1.5 vorhanden, aber nicht GEFÜHRT (Inhalte nicht laufend angekreuzt
+      // bzw. Zusammenstellung nicht ergänzt): '' | 'ja' | 'nein'
+      if (!keCols.includes('p_1_1_gefuehrt')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
+      }
+      if (!keCols.includes('p_1_5_gefuehrt')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
@@ -18900,7 +18931,7 @@ const Views = {
             <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
-            <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften</p>
+            <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften. Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
             <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
             <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
@@ -24971,7 +25002,8 @@ const NacherfassungHandler = {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE id=?', [keId])[0];
       const kwRows = App.query('SELECT * FROM kw_status WHERE schueler_id=?', [s.id]);
       const pflicht = { p_1_1: ke.p_1_1_ausbildungsplan, p_1_4: ke.p_1_4_auszubildende, p_1_5: ke.p_1_5_bescheinigungen,
-        besch_anz: ke.bescheinigungen_anzahl, f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb };
+        besch_anz: ke.bescheinigungen_anzahl, f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb,
+        g_1_1: ke.p_1_1_gefuehrt || '', g_1_5: ke.p_1_5_gefuehrt || '' };
       const snapDa = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [keId]);
       if (!snapDa) {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -25343,6 +25375,14 @@ const PDFExport = {
         let valText = valLabel(displayVal);
         if (nr === '1.5' && reqUBA) valText += ` (${count||0}/${reqUBA})`;
         doc.text(valText, px + 5, y + 7.5);
+        // Zusatz „geführt / nicht geführt“ (1.1 Inhalte angekreuzt, 1.5 Zusammenstellung)
+        const gef = nr === '1.1' ? ke?.p_1_1_gefuehrt : nr === '1.5' ? ke?.p_1_5_gefuehrt : '';
+        if (gef === 'ja' || gef === 'nein') {
+          const breite = doc.getTextWidth(valText);
+          doc.setFont('helvetica', gef === 'nein' ? 'bold' : 'normal'); doc.setFontSize(6);
+          doc.setTextColor(...(gef === 'nein' ? [180, 40, 30] : [60, 120, 60]));
+          doc.text(gef === 'nein' ? '· nicht geführt' : '· geführt', px + 6 + breite, y + 7.5);
+        }
         px += 58;
       });
 
@@ -25800,7 +25840,7 @@ const KontrolleHandler = {
           ${wvOffen ? '<span style="color:var(--clr-red);font-size:10px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
         </td>
         <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage / ${arbeitstage} Arbeitstage (${Math.round(arbeitstage/5)} aktive KWs) = ${fehlProzent.toFixed(1)}%">${fehlGesamt}<span style="font-size:9px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
-        <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile: 1.1=${ke.p_1_1_ausbildungsplan||'-'}, 1.4=${ke.p_1_4_auszubildende||'-'}, 1.5=${ke.p_1_5_bescheinigungen||'-'} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA)">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
+        <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile: 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.4=${ke.p_1_4_auszubildende||'-'}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA)">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
         <td style="text-align:center">
           <input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-green)" title="Zulassung zur AP${autoZulassung ? ' (automatisch empfohlen)' : ''}">
         </td>
@@ -26617,6 +26657,13 @@ const KontrolleHandler = {
         <option value="nicht_vorhanden" ${val==='nicht_vorhanden'?'selected':''}>Nicht vorhanden</option>
       </select>`;
 
+    const gefuehrtOptHtml = (name, val) => `
+      <select class="form-control" style="width:auto;display:inline;padding:2px 6px;font-size:11px${val === 'nein' ? ';border-color:var(--clr-red);color:var(--clr-red)' : val === 'ja' ? ';border-color:var(--clr-green)' : ''}" data-field="${name}" onchange="KontrolleHandler.saveField('${name}',this.value)" title="Wird der Teil laufend geführt? „Nicht geführt“ fügt automatisch einen Hinweis in die Bemerkung ein.">
+        <option value="" ${!val?'selected':''}>–</option>
+        <option value="ja" ${val==='ja'?'selected':''}>geführt</option>
+        <option value="nein" ${val==='nein'?'selected':''}>nicht geführt</option>
+      </select>`;
+
     const renderKWGrid = (aj) => {
       const ajSessionKWs = sessionKWs[aj] || [];
       const bounds = ajBounds[aj] || { inactiveKWs: [], syStart: null };
@@ -26947,6 +26994,9 @@ const KontrolleHandler = {
           <span style="font-weight:600;color:var(--clr-sage)">1.1</span>
           <span>Ausbildungsplan <span style="font-size:11px;color:var(--clr-text-light)">(ausgef. + unterschr.)</span></span>
           <div>${pflichtOptHtml('p_1_1_ausbildungsplan', ke.p_1_1_ausbildungsplan)}</div>
+          <span></span>
+          <span style="font-size:11px;color:var(--clr-text-light);padding-left:10px">↳ Inhalte laufend angekreuzt?</span>
+          <div>${gefuehrtOptHtml('p_1_1_gefuehrt', ke.p_1_1_gefuehrt)}</div>
 
           <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
           <span>Der/die Auszubildende <span style="font-size:11px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
@@ -26965,6 +27015,9 @@ const KontrolleHandler = {
                 <span style="font-weight:600;color:${ubaColor};font-size:11px;white-space:nowrap">${curUBA}/${reqUBA} ${reqUBA === 6 ? '(GaLa)' : '(Prod.)'}${ubaOK ? ' ✓' : ''}</span>`;
             })()}
           </div>
+          <span></span>
+          <span style="font-size:11px;color:var(--clr-text-light);padding-left:10px">↳ Zusammenstellung geführt?</span>
+          <div>${gefuehrtOptHtml('p_1_5_gefuehrt', ke.p_1_5_gefuehrt)}</div>
         </div>
         <div style="border-top:1px solid var(--clr-sand);margin-top:8px;padding-top:6px">
           <div style="font-size:11px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px">Freiwillig / Vertragsbestandteil</div>
@@ -27072,7 +27125,7 @@ const KontrolleHandler = {
               ${App.getTextbausteine().map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
             </select>
           </label>
-          <textarea class="form-control" rows="3" onchange="KontrolleHandler.saveField('bemerkung',this.value)">${esc(ke.bemerkung)}</textarea>
+          <textarea class="form-control" rows="3" id="keBemerkung" onchange="KontrolleHandler.saveField('bemerkung',this.value)">${esc(ke.bemerkung)}</textarea>
         </div>
 
         <div class="form-row" id="wvSection" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
@@ -27148,7 +27201,7 @@ const KontrolleHandler = {
   },
 
   // Whitelist erlaubter Feldnamen für saveField() – schützt gegen SQL-Injection
-  _allowedFields: new Set(['ergebnis','bemerkung','p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb','sachberichte_anzahl','anwesend','bescheinigungen_anzahl','zulassung_ap','pruefungsausschuss']),
+  _allowedFields: new Set(['ergebnis','bemerkung','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb','sachberichte_anzahl','anwesend','bescheinigungen_anzahl','zulassung_ap','pruefungsausschuss']),
 
   saveField(field, value) {
     if (!this._allowedFields.has(field)) {
@@ -27165,16 +27218,20 @@ const KontrolleHandler = {
     const pruefer = this.activePruefer || '';
 
     // Push undo entry
-    const fieldLabels = {ergebnis:'Ergebnis',bemerkung:'Bemerkung',p_1_1_ausbildungsplan:'Ausbildungsplan',p_1_4_auszubildende:'Auszubildende',p_1_5_bescheinigungen:'Bescheinigungen',f_1_2_vertragliche_regelungen:'Vertragliches',f_1_6_ausbildungsbetrieb:'Betrieb/Skizze',sachberichte_anzahl:'Sachberichte',anwesend:'Anwesend'};
+    const fieldLabels = {ergebnis:'Ergebnis',bemerkung:'Bemerkung',p_1_1_ausbildungsplan:'Ausbildungsplan',p_1_1_gefuehrt:'Ausbildungsplan geführt',p_1_5_gefuehrt:'Zusammenstellung geführt',p_1_4_auszubildende:'Auszubildende',p_1_5_bescheinigungen:'Bescheinigungen',f_1_2_vertragliche_regelungen:'Vertragliches',f_1_6_ausbildungsbetrieb:'Betrieb/Skizze',sachberichte_anzahl:'Sachberichte',anwesend:'Anwesend'};
     // Nebenwirkungen von "In Ordnung" (Pflichtteile → ja, Wiedervorlagen →
     // erledigt) VOR der Änderung einfrieren, damit Undo sie mit zurücknimmt
     const pflichtVorher = {};
     let wvVorher = [];
     if (field === 'ergebnis' && value === 'in_ordnung') {
-      ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'].forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
+      ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'].forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
       wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
     }
-    const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '');
+    // „nicht geführt“ schreibt/entfernt den festen Hinweis in der Bemerkung
+    const bemVorher = ke.bemerkung || '';
+    const bemNeu = (field === 'p_1_1_gefuehrt' || field === 'p_1_5_gefuehrt') ? App.bemerkungMitHinweis(bemVorher, field, value) : bemVorher;
+    const bemGeaendert = bemNeu !== bemVorher;
+    const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '') + (bemGeaendert ? ' + Bemerkung' : '');
     const wvEigeneVorher = field === 'ergebnis' ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]) : null;
     const prueferVorher = ke.pruefer || '';
     UndoManager.push(
@@ -27185,21 +27242,34 @@ const KontrolleHandler = {
         Object.entries(pflichtVorher).forEach(([pf, v]) => App.run(`UPDATE kontrollergebnisse SET ${pf}=? WHERE id=?`, [v, keId]));
         wvVorher.forEach(w => App.run("UPDATE wiedervorlagen SET status=?, erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [w.status, w.id]));
         if (wvEigeneVorher) this._wvZuruecksetzen(keId, wvEigeneVorher);
+        if (bemGeaendert) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemVorher, keId]);
         this.renderSchueler();
       },
-      () => { App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]); this.renderSchueler(); }
+      () => {
+        App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]);
+        if (bemGeaendert) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
+        this.renderSchueler();
+      }
     );
 
     App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]);
     // Wer das Ergebnis festgestellt hat, unterschreibt den Bogen
     if (field === 'ergebnis' && value) App.run('UPDATE kontrollergebnisse SET pruefer=? WHERE id=?', [pruefer, keId]);
+    if (bemGeaendert) {
+      App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
+      const ta = document.getElementById('keBemerkung');
+      if (ta) ta.value = bemNeu;
+      const sel = document.querySelector(`[data-field="${field}"]`);
+      if (sel) { sel.style.borderColor = value === 'nein' ? 'var(--clr-red)' : value === 'ja' ? 'var(--clr-green)' : ''; sel.style.color = value === 'nein' ? 'var(--clr-red)' : ''; }
+      App.toast(value === 'nein' ? 'Hinweis in die Bemerkung übernommen' : 'Hinweis aus der Bemerkung entfernt', 'info');
+    }
 
     // When "In Ordnung" → auto-set all Pflichtteile to "ja"
     if (field === 'ergebnis' && value === 'in_ordnung') {
       // …und alle Wochen bis zur Vorwoche des Kontrolltags gelten als gesehen
       // (nur fehlende Wochen werden ergänzt, Codes bleiben)
       try { this._markiereGeprueftBisVorwoche(keId, s.id); } catch(e) {}
-      const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
+      const pflichtFields = ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
       pflichtFields.forEach(pf => {
         App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
         // Update UI dropdown
@@ -27248,7 +27318,7 @@ const KontrolleHandler = {
     if (!s) return;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
     if (!ke) return;
-    const fields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
+    const fields = ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
     let count = 0;
     fields.forEach(f => {
       if (ke[f] !== 'ja') {
@@ -27256,6 +27326,9 @@ const KontrolleHandler = {
         count++;
       }
     });
+    // „Alle OK“ heißt auch: die Hinweise „nicht geführt“ sind erledigt
+    const bemOhne = App.bemerkungMitHinweis(App.bemerkungMitHinweis(ke.bemerkung, 'p_1_1_gefuehrt', 'ja'), 'p_1_5_gefuehrt', 'ja');
+    if (bemOhne !== (ke.bemerkung || '')) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemOhne, ke.id]);
     this.renderSchueler();
     App.toast(count ? `${count} Pflichtteile auf "Ja" gesetzt` : 'Alle Pflichtteile waren bereits "Ja"', count ? 'success' : 'info');
   },
@@ -28127,6 +28200,7 @@ const KontrolleHandler = {
       const pflicht = {
         p_1_1: ke.p_1_1_ausbildungsplan, p_1_4: ke.p_1_4_auszubildende,
         p_1_5: ke.p_1_5_bescheinigungen, besch_anz: ke.bescheinigungen_anzahl,
+        g_1_1: ke.p_1_1_gefuehrt || '', g_1_5: ke.p_1_5_gefuehrt || '',
         f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb
       };
       // Erneutes Abschließen (nach "wieder öffnen") aktualisiert den vorhandenen
@@ -28339,7 +28413,7 @@ const KontrolleHandler = {
       </div>
       <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px">
         <strong>Pflichtteile:</strong>
-        1.1: ${pflicht.p_1_1||'–'} · 1.4: ${pflicht.p_1_4||'–'} · 1.5: ${pflicht.p_1_5||'–'} (${pflicht.besch_anz||0} Stk.)
+        1.1: ${pflicht.p_1_1||'–'}${pflicht.g_1_1 === 'nein' ? ' (nicht geführt)' : ''} · 1.4: ${pflicht.p_1_4||'–'} · 1.5: ${pflicht.p_1_5||'–'} (${pflicht.besch_anz||0} Stk.)${pflicht.g_1_5 === 'nein' ? ' (nicht geführt)' : ''}
         · 1.2: ${pflicht.f_1_2||'–'} · 1.6/7: ${pflicht.f_1_6||'–'}
       </div>
       ${maengelRows.length ? `<div style="max-height:200px;overflow-y:auto">
@@ -28438,8 +28512,8 @@ const KontrolleHandler = {
     doc.setTextColor(0); doc.setFont('helvetica','bold'); doc.setFontSize(8);
     doc.text('Pflichtteile', 14, y); y += 4;
     doc.setFont('helvetica','normal'); doc.setFontSize(7);
-    [['1.1','Indiv. Ausbildungsplan',pflicht.p_1_1],['1.4','Der/die Auszubildende',pflicht.p_1_4],
-     ['1.5','Zusammenst. Bescheinigungen',pflicht.p_1_5 ? `${pflicht.p_1_5} (${pflicht.besch_anz||0} Stk.)` : '–'],
+    [['1.1','Indiv. Ausbildungsplan',(pflicht.p_1_1 || '–') + (pflicht.g_1_1 === 'nein' ? ' – nicht geführt' : pflicht.g_1_1 === 'ja' ? ' – geführt' : '')],['1.4','Der/die Auszubildende',pflicht.p_1_4],
+     ['1.5','Zusammenst. Bescheinigungen',(pflicht.p_1_5 ? `${pflicht.p_1_5} (${pflicht.besch_anz||0} Stk.)` : '–') + (pflicht.g_1_5 === 'nein' ? ' – nicht geführt' : pflicht.g_1_5 === 'ja' ? ' – geführt' : '')],
      ['1.2','Vertragl. Regelungen',pflicht.f_1_2],['1.6/7','Ausbild.betrieb/Skizze',pflicht.f_1_6]
     ].forEach(([nr,lbl,val]) => { doc.text(`${nr} ${lbl}: ${val||'–'}`, 14, y); y += 3.5; });
 
