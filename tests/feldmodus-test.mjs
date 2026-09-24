@@ -30,7 +30,7 @@ console.log('══ Abgleich-Takt aus Netzqualität und Feldmodus ══');
   A.lsSet('bhk_feldmodus', '1');
   check(A.feldmodus === true && A._pollIntervallBerechnen() === 30000 && A._liveSyncIntervallBerechnen() === 30000, 'Feldmodus erzwingt 30 s unabhängig von der Messung');
   A.lsSet('bhk_feldmodus', '0');
-  check(/const minDelay = this\.feldmodus \? 10000 : this\.autoSaveDelay;/.test(APP_SRC), 'Feldmodus bündelt das Speichern (10 s)');
+  check(/const minDelay = this\.appendMindestabstandMs\(\);/.test(APP_SRC), 'Sammelpause aus der Verbindungsstufe (appendMindestabstandMs)');
 }
 
 console.log('\n══ Dauer des Abgleichs fließt in die Netzqualität ein ══');

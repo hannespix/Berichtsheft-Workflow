@@ -2094,6 +2094,8 @@ const KontrolleHandler = {
     if (App.demoMode || App.offlineModus) return; // no sync in demo / offline
     this._liveSyncTimer = setInterval(() => this.doLiveSync(), App._liveSyncIntervallBerechnen());
     this._liveSyncCycle = 0;
+    // Positionen der Kollegen kommen aus dem Rundgang des Abgleichs – beim Öffnen einmal anfordern
+    App._rundgangNoetig = 'Kontrolle geöffnet';
   },
   // Takt an Netzqualität/Feldmodus anpassen, ohne die Position freizugeben
   restartLiveSyncTimer() {
@@ -2148,10 +2150,8 @@ const KontrolleHandler = {
         }
       }
 
-      // Read other prüfer positions every cycle (lightweight: just reads 2-3 small files)
-      if (App.dirHandle && !App.demoMode) {
-        await App._readPositionFiles(pruefer);
-      }
+      // Positionen der Kollegen liest der Abgleich-Rundgang mit (App._readPositionFiles
+      // aus derselben Ordnerauflistung) – hier kein eigener Netzzugriff mehr
       const others = (App._otherPositions || []).filter(p => p.terminId === this.currentTerminId);
 
       const diskResults = {};

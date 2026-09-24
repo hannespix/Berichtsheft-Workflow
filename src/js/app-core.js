@@ -2384,7 +2384,7 @@ const App = {
   // Grundsatz: keine Bedienaktion wartet je auf das Netzlaufwerk. Abgleich und
   // Speichern laufen im Hintergrund und werden gedrosselt, sobald sie langsam
   // werden. Der Feldmodus erzwingt die gedrosselten Werte von Hand.
-  LOG_ROTATE_BYTES: 256 * 1024, // eigenes Protokoll ab 256 KB auf neue Generation drehen (Chrome kopiert beim Anhängen die ganze Datei)
+  LOG_ROTATE_BYTES: 64 * 1024, // eigenes Protokoll ab 64 KB auf neue Generation drehen (Chrome kopiert beim Anhängen die ganze Datei – kleine Dateien, kleine Kopien)
   _lastPollMs: 0,
   // ── Netzabriss (Netzlaufwerk plötzlich nicht erreichbar, z.B. VPN weg) ──
   // Erkennen, alles Netz-Schreibende pausieren, nur noch alle 30 s eine
@@ -2586,7 +2586,8 @@ const App = {
         fensterVerdeckt: !!(typeof document !== 'undefined' && document.hidden),
       },
       verbindung: {
-        netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
+        netzqualitaet: this._networkQuality || '', verbindung: this.verbindungsStufe, feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
+        rundgangTaktMs: this.rundgangIntervallMs(), letzterRundgangVor: this._letzterRundgang ? Math.round((Date.now() - this._letzterRundgang) / 1000) + ' s' : '', zeiger: this._zeigerGesehen ? this._zeigerGesehen.slice(0, 40) : '',
         letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0), letztesAnhaengenMs: Math.round(this._lastAppendMs || 0),
         abgleichTaktMs: this._pollIntervalMs || 0, netzLangsam: !!this._netzLangsam, anhaengenHaengt: !!this._appendHaengt, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
         zugriffVeraltet: !!this._neuladenNoetig,
@@ -2637,25 +2638,60 @@ const App = {
   offlineModus: false,
   _offlineSeit: 0,      // Beginn der Offline-Phase (für die Konfliktanzeige beim Zusammenführen)
   _konflikte: [],       // Feld-Konflikte beim Zusammenführen: [{table, key, cols, meinTs, fremdTs, fremdC, gewinner}]
-  get feldmodus() { return this.lsGet('bhk_feldmodus') === '1'; },
-  setFeldmodus(an) {
-    this.lsSet('bhk_feldmodus', an ? '1' : '0');
+  // ── Verbindungsstufe (je Rechner, localStorage bhk_verbindung) ──
+  //  auto     – Büro-LAN, Takt aus der gemessenen Netzqualität
+  //  langsam  – VPN/Homeoffice (früher „Feldmodus“): Abgleich 30 s, Anhängen gebündelt 10 s, keine Kompaktierung
+  //  getaktet – Mobilfunk/SIM: Abgleich und Anhängen 60 s, keine Sicherung, keine Kompaktierung, Positionsdatei höchstens je Minute
+  VERBINDUNG_STUFEN: ['auto', 'langsam', 'getaktet'],
+  get verbindungsStufe() {
+    const v = this.lsGet('bhk_verbindung');
+    if (v && this.VERBINDUNG_STUFEN.includes(v)) return v;
+    return this.lsGet('bhk_feldmodus') === '1' ? 'langsam' : 'auto';   // alte Einstellung weiterverwenden
+  },
+  get feldmodus() { return this.verbindungsStufe !== 'auto'; },
+  get getaktet() { return this.verbindungsStufe === 'getaktet'; },
+  verbindungsText(stufe) { return { auto: 'Automatisch', langsam: 'Langsame Leitung', getaktet: 'Getaktete Verbindung' }[stufe || this.verbindungsStufe] || stufe; },
+  setVerbindung(stufe) {
+    if (!this.VERBINDUNG_STUFEN.includes(stufe)) stufe = 'auto';
+    this.lsSet('bhk_verbindung', stufe);
+    this.lsSet('bhk_feldmodus', stufe === 'auto' ? '0' : '1');
     this._updateNetworkUI();
     try { if (this.pollInterval) { clearTimeout(this.pollInterval); this.pollInterval = null; if (this._schedulePoll && this.dirHandle) this._schedulePoll(); } } catch(e) {}
     try { if (typeof KontrolleHandler !== 'undefined') KontrolleHandler.restartLiveSyncTimer(); } catch(e) {}
-    this.toast(an ? 'Feldmodus an: Abgleich alle 30 s, Speichern gebündelt, Positionsanzeige seltener' : 'Feldmodus aus: normale Abgleich-Intervalle', 'info');
+    this.toast(stufe === 'getaktet' ? 'Getaktete Verbindung: Abgleich und Speichern alle 60 s, keine Sicherung und keine Kompaktierung von diesem Rechner'
+      : stufe === 'langsam' ? 'Langsame Leitung: Abgleich alle 30 s, Speichern gebündelt (10 s), keine Kompaktierung von diesem Rechner'
+      : 'Automatisch: Takt aus der gemessenen Netzqualität', 'info');
   },
-  // Abgleich-Takt: 3 s nur bei schneller Leitung; sonst 10 s / 30 s; Feldmodus immer 30 s
+  setFeldmodus(an) { this.setVerbindung(an ? 'langsam' : 'auto'); },
+  // Abgleich-Takt (Zeiger lesen): 3 s nur bei schneller Leitung; sonst 10 s / 30 s; langsam 30 s, getaktet 60 s
   _pollIntervallBerechnen() {
+    if (this.getaktet) return 60000;
     if (this.feldmodus) return 30000;
     const q = this._networkQuality;
     return q === 'good' ? 3000 : q === 'slow' ? 10000 : 30000;
   },
-  // Live-Abgleich in der Kontrolle (Positionsdateien): 8 s / 20 s / 30 s
+  // Live-Anzeige in der Kontrolle (nur noch lokal, Positionen kommen aus dem Rundgang): 8 s / 20 s / 30 s
   _liveSyncIntervallBerechnen() {
+    if (this.getaktet) return 60000;
     if (this.feldmodus) return 30000;
     return this._networkQuality === 'good' ? 8000 : this._networkQuality === 'slow' ? 20000 : 30000;
   },
+  // Vollständiger Rundgang (Auflistung, Stände, snapmeta, Positionen) auch ohne
+  // Zeiger-Änderung – Sicherheitsnetz gegen einen verpassten oder gescheiterten Tipp
+  rundgangIntervallMs() {
+    if (this.feldmodus) return 300000;
+    const q = this._networkQuality;
+    return q === 'good' ? 60000 : q === 'slow' ? 120000 : 300000;
+  },
+  // Mindestabstand zwischen zwei Anhänge-Vorgängen (Chrome kopiert je Anhängen die Datei)
+  appendMindestabstandMs() {
+    if (this.getaktet) return 60000;
+    if (this.feldmodus) return 10000;
+    const q = this._networkQuality;
+    return q === 'good' ? this.autoSaveDelay : q === 'slow' ? 10000 : 30000;
+  },
+  // Mindestabstand zwischen zwei Positionsdatei-Schreibvorgängen
+  posMindestabstandMs() { return this.getaktet ? 60000 : this.feldmodus ? 10000 : 0; },
   _idbHandle: null,
 
   async start() {
@@ -2783,9 +2819,14 @@ const App = {
     }
     document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-yellow"></span>Geändert…';
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
-    // Adaptive delay: on slow connections, debounce longer to batch changes and reduce traffic
-    const minDelay = this.feldmodus ? 10000 : this.autoSaveDelay;
-    const delay = Math.max(minDelay, Math.min(this._lastSaveDurationMs * 2, 30000));
+    // Sammelpause nach Leitung (1,5 s / 10 s / 30 s / 60 s): Chrome kopiert bei
+    // jedem Anhängen die ganze Protokolldatei – weniger Anhänge, weniger Verkehr.
+    // Verhungern ausgeschlossen: spätestens eine Sammelpause nach der ERSTEN
+    // wartenden Änderung wird angehängt, auch wenn laufend weiter getippt wird.
+    const minDelay = this.appendMindestabstandMs();
+    if (!this._wartetSeit) this._wartetSeit = Date.now();
+    let delay = Math.max(minDelay, Math.min(this._lastSaveDurationMs * 2, 30000));
+    delay = Math.min(delay, Math.max(300, this._wartetSeit + minDelay - Date.now()));
     this.autoSaveTimer = setTimeout(() => this.doAutoSave(), delay);
   },
 
@@ -2874,6 +2915,8 @@ const App = {
   _istBackupDatei(name) { return name.startsWith('backup_') && (name.endsWith('.sqlite') || name.endsWith('.sqlite.gz')); },
   async _backupFaellig() {
     if (!this.backupsDirHandle || this._netzWeg || this.offlineModus || this._tabIsPrimary === false) return false;
+    // Nie über getaktete oder sehr langsame Leitung (ganze Datenbank hochladen) – das erledigen die Kollegen im Büro
+    if (this.getaktet || this._networkQuality === 'very-slow') return false;
     const intervall = this.backupIntervallMs();
     const jetzt = Date.now();
     if (jetzt - this.lastBackupTime < intervall) return false;
@@ -3021,7 +3064,7 @@ const App = {
         } else if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this._snapshotSchreibt && !this._appendHaengt && !this.offlineModus) {
         // Nie parallel zu einem laufenden Anhängen: Chrome reiht Dateizugriffe
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
-          if (this._v3Active()) await this._pollOplogs();
+          if (this._v3Active()) await this._abgleichTakt();
           else await this._pollSyncMarker();
           // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
           try { await this._sperreAufraeumen(); } catch(e) {}
@@ -3033,6 +3076,13 @@ const App = {
         this._schedulePoll();
       }, interval);
     };
+    // Browser meldet Datensparmodus (getaktete Verbindung)? Einmal die Stufe vorschlagen
+    try {
+      if (navigator.connection && navigator.connection.saveData && this.verbindungsStufe === 'auto' && !this.lsGet('bhk_sparhinweis')) {
+        this.lsSet('bhk_sparhinweis', '1');
+        this.toast('Der Browser meldet eine getaktete Verbindung – Tipp: Einstellungen → Verbindung → „Getaktete Verbindung“', 'info');
+      }
+    } catch(e) {}
     // Sync-v3: erst Snapshot-Meta + Logs einziehen, dann Polling starten
     if (this._v3Active()) {
       this._bootstrapV3().then(() => {
@@ -3410,7 +3460,7 @@ const App = {
       console.log(`[Network] Quality: ${prev} → ${this._networkQuality} (${(dur/1000).toFixed(1)}s)`);
       if (this._networkQuality === 'very-slow' && !this.feldmodus && !this._feldmodusHinweis) {
         this._feldmodusHinweis = true;
-        this.toast('Sehr langsame Verbindung – Tipp: Feldmodus in den Einstellungen einschalten (oder offline weiterarbeiten)', 'warning');
+        this.toast('Sehr langsame Verbindung – Tipp: Einstellungen → Verbindung → „Langsame Leitung“ oder „Getaktete Verbindung“ (oder offline weiterarbeiten)', 'warning');
       }
     }
     this._updateNetworkUI();
@@ -3426,7 +3476,7 @@ const App = {
       el.innerHTML = `<span style="color:var(--clr-red)">Netzlaufwerk nicht erreichbar · ${this._dirtyOps.length + (this._opsInFlight || []).length} lokal</span>`;
     } else if (this.feldmodus) {
       el.style.display = '';
-      el.innerHTML = `<span style="color:var(--clr-blue)" title="Feldmodus: Abgleich alle ${(this._pollIntervalMs / 1000).toFixed(0)} s, Speichern gebündelt">Feldmodus</span>`;
+      el.innerHTML = `<span style="color:var(--clr-blue)" title="${this.verbindungsText()}: Abgleich alle ${(this._pollIntervalMs / 1000).toFixed(0)} s, Speichern gebündelt (${Math.round(this.appendMindestabstandMs() / 1000)} s)">${this.verbindungsText()}</span>`;
     } else if (this._networkQuality === 'good') {
       el.style.display = 'none';
     } else {
@@ -3562,6 +3612,17 @@ const App = {
   // #1–20" – die Kollegen überspringen diesen Bereich beim Weiterschalten.
   async _writePositionFile(pruefer, terminId, schuelerId, schuelerName, seit, bereich, versuch = 0) {
     if (!this.dirHandle || this._netzWeg || this.offlineModus) return;
+    // Mindestabstand (langsam 10 s, getaktet 60 s): nur der letzte Stand wird nachgeschrieben
+    const abstand = this.posMindestabstandMs();
+    if (!versuch && abstand > 0) {
+      const rest = (this._posZuletzt || 0) + abstand - Date.now();
+      if (rest > 0) {
+        this._posAusstehend = [pruefer, terminId, schuelerId, schuelerName, seit, bereich];
+        if (!this._posTimer) this._posTimer = setTimeout(() => { this._posTimer = null; const a = this._posAusstehend; this._posAusstehend = null; if (a) this._writePositionFile(...a); }, rest);
+        return;
+      }
+    }
+    this._posZuletzt = Date.now();
     const posDir = this.bhkDirHandle || this.dirHandle;
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
@@ -3569,6 +3630,7 @@ const App = {
       const writable = await handle.createWritable();
       await writable.write(JSON.stringify({ p: pruefer, t: terminId, s: schuelerId, n: schuelerName, ts: Date.now(), seit: seit || Date.now(), b: bereich && bereich.von ? [bereich.von, bereich.bis] : null }));
       await writable.close();
+      await this._zeigerAntippen('position');
     } catch(e) {
       // Veralteter Zugriffspunkt: einmal erneuern und genau einmal wiederholen
       if (!versuch && this._istZustandsFehler(e) && await this._zustandHeilen('Positionsdatei')) {
@@ -3582,13 +3644,14 @@ const App = {
     }
   },
 
-  async _readPositionFiles(myPruefer) {
+  async _readPositionFiles(myPruefer, handles) {
     if (!this.dirHandle) return;
     const posDir = this.bhkDirHandle || this.dirHandle;
     const positions = [];
     const now = Date.now();
     try {
-      for await (const [name, handle] of posDir) {
+      const quelle = handles ? handles.map(h => [h.name, h]) : posDir;
+      for await (const [name, handle] of quelle) {
         if (!name.startsWith('pos-') || !name.endsWith('.json')) continue;
         try {
           const file = await handle.getFile();
@@ -3609,6 +3672,7 @@ const App = {
     const safeName = pruefer.replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_');
     try {
       await posDir.removeEntry('pos-' + safeName + '.json');
+      await this._zeigerAntippen('position');
     } catch(e) { /* file may not exist */ }
   },
 
@@ -3867,7 +3931,7 @@ const App = {
     const zuletzt = document.getElementById('dbLastSaved') ? document.getElementById('dbLastSaved').textContent : '';
     this.openModal(offen.length ? `⏳ ${offen.length} Änderung(en) warten` : '✓ Alles auf dem Netzlaufwerk', `
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-        Jede Eingabe liegt sofort im Absturzpuffer dieses Rechners (übersteht Tab-Absturz und Neustart) und wird ${this.feldmodus ? 'im Feldmodus gebündelt nach 10 s' : 'nach 1,5 s'} an das Protokoll auf dem Netzlaufwerk angehängt. Beim Abschluss eines Berichtshefts, beim Azubi-Wechsel und beim Verlassen der Kontrolle sofort.
+        Jede Eingabe liegt sofort im Absturzpuffer dieses Rechners (übersteht Tab-Absturz und Neustart) und wird gebündelt nach ${Math.round(this.appendMindestabstandMs() / 1000) < 2 ? '1,5 s' : Math.round(this.appendMindestabstandMs() / 1000) + ' s'} (${this.verbindungsText()}) an das Protokoll auf dem Netzlaufwerk angehängt. Beim Abschluss eines Berichtshefts, beim Azubi-Wechsel und beim Verlassen der Kontrolle sofort.
       </div>
       <div style="font-size:13px"><strong>Zustand:</strong> ${esc(zustand)}${zuletzt ? ` · letztes Schreiben ${esc(zuletzt)}` : ''}</div>
       ${offen.length ? `
@@ -4361,6 +4425,7 @@ const App = {
     const el = document.getElementById('dbStatusIndicator');
     if (el) el.innerHTML = this._dirtyOps.length ? '<span class="dot dot-yellow"></span>Geändert…' : '<span class="dot dot-green"></span>Gespeichert';
     BhkSpur.notiere('anhaengen', 'Anhängen nachträglich gelungen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en) nach Zeitlimit doch geschrieben` });
+    this._zeigerAntippen('anhaengen').catch(() => {});
     console.log(`[SyncV3] Hängendes Anhängen nach ${Math.round(this._lastAppendMs / 1000)} s doch gelungen (${claimed.length} Änderungen)`);
   },
   async _saveV3() {
@@ -4397,6 +4462,7 @@ const App = {
     }
     this._appendInProgress = true;
     const claimed = this._dirtyOps.splice(0);
+    this._wartetSeit = 0;
     this._opsInFlight = claimed; // für _persistDirtyOps: Crash-Puffer behält sie
     let writable = null;
     try {
@@ -4486,6 +4552,7 @@ const App = {
       }
       this._broadcastChange();
       this._persistDirtyOps();
+      await this._zeigerAntippen('anhaengen');
       // Nicht gespeicherter Bulk-Import wartet auf seine Kompaktierung
       if (this._bulkPending) { this._nachholenBulk(); }
       // Kompaktierung fällig? (höchstens alle 5 Min prüfen)
@@ -4554,6 +4621,79 @@ const App = {
   },
 
   // ── Fremde Logs inkrementell lesen und anwenden ──
+  // ── Änderungszeiger: eine winzige Datei je Datenbank, die jeder Schreiber
+  //  nach dem Anhängen, nach einer Positionsdatei und nach dem Snapshot
+  //  antippt. Der Takt liest nur sie (ein Zugriff statt eines Dutzends);
+  //  der volle Rundgang läuft nur bei Änderung – und als Sicherheitsnetz
+  //  alle rundgangIntervallMs(). Scheitert das Antippen, kommen die Änderungen
+  //  eben mit dem Sicherheitsnetz: der Zeiger beschleunigt, er entscheidet nicht. ──
+  _zeigerName() { return 'zeiger_' + this._dbSlug() + '.txt'; },
+  _zeigerGesehen: '',        // zuletzt gelesener Inhalt
+  _zeigerEigen: '',          // zuletzt selbst geschriebener Inhalt
+  _zeigerEigenOffen: false,  // nach eigenem Antippen genau EIN Rundgang (ein Kollege könnte zwischen unserem Lesen und Schreiben angetippt haben)
+  _letzterRundgang: 0,
+  _rundgangNoetig: '',       // von außen angemeldeter Rundgang (Kontrolle geöffnet, Netz wieder da)
+  async _zeigerAntippen(grund) {
+    if (this.demoMode || this.offlineModus || this._netzWeg || !this._v3Active()) return false;
+    const dir = this._syncDirV3();
+    const inhalt = `${this._getClientId()} ${Date.now()} ${grund || ''}`;
+    const t0 = Date.now();
+    try {
+      const h = await dir.getFileHandle(this._zeigerName(), { create: true });
+      const w = await h.createWritable();
+      await w.write(inhalt);
+      await w.close();
+      this._zeigerEigen = inhalt; this._zeigerEigenOffen = true;
+      BhkSpur.notiere('zeiger', 'Änderungszeiger antippen', { ok: true, ms: Date.now() - t0, info: grund || '', nurStat: true });
+      return true;
+    } catch(e) {
+      BhkSpur.notiere('zeiger', 'Änderungszeiger antippen', { ok: false, ms: Date.now() - t0, fehler: e, info: grund || '' });
+      return false;
+    }
+  },
+  // Liefert { noetig, grund } – ob ein voller Rundgang ansteht
+  async _zeigerLesen() {
+    const dir = this._syncDirV3();
+    let inhalt = '';
+    try {
+      const h = await dir.getFileHandle(this._zeigerName(), { create: false });
+      inhalt = await (await h.getFile()).text();
+    } catch(e) {
+      if (e && e.name === 'NotFoundError') {
+        // Frische Datenbank oder erster Start mit dieser Version: Zeiger anlegen,
+        // damit ab dem nächsten Takt nur noch er gelesen wird – jetzt ein Rundgang
+        if (await this._zeigerAntippen('start')) { this._zeigerGesehen = this._zeigerEigen; this._zeigerEigenOffen = false; }
+        return { noetig: true, grund: 'kein Zeiger' };
+      }
+      throw e;
+    }
+    if (inhalt === this._zeigerGesehen) return { noetig: false };
+    this._zeigerGesehen = inhalt;
+    if (inhalt === this._zeigerEigen) {
+      if (this._zeigerEigenOffen) { this._zeigerEigenOffen = false; return { noetig: true, grund: 'eigenes Antippen' }; }
+      return { noetig: false };
+    }
+    return { noetig: true, grund: 'Zeiger geändert' };
+  },
+  async _abgleichTakt() {
+    if (!this._v3Ready) return false;
+    let grund = '';
+    const t0 = Date.now();
+    try { const z = await this._zeigerLesen(); if (z.noetig) grund = z.grund; }
+    catch(e) { grund = 'Zeiger nicht lesbar'; BhkSpur.notiere('zeiger', 'Änderungszeiger lesen', { ok: false, ms: Date.now() - t0, fehler: e }); }
+    if (!grund && Date.now() - (this._letzterRundgang || 0) >= this.rundgangIntervallMs()) grund = 'Sicherheitsnetz';
+    if (!grund && this._rundgangNoetig) grund = this._rundgangNoetig;
+    if (!grund) { BhkSpur.notiere('zeiger', 'Änderungszeiger lesen', { ok: true, ms: Date.now() - t0, nurStat: true }); return false; }
+    this._rundgangNoetig = '';
+    this._letzterRundgang = Date.now();
+    this._rundgangGrund = grund;
+    await this._pollOplogs();
+    return true;
+  },
+  // Positionsdateien der Kollegen werden im Rundgang mitgelesen, solange die Kontrolle offen ist
+  _positionenGewuenscht() {
+    try { return typeof KontrolleHandler !== 'undefined' && !!KontrolleHandler._liveSyncTimer && !!KontrolleHandler.currentTerminId; } catch(e) { return false; }
+  },
   async _pollOplogs() {
     if (!this._v3Ready) return;
     // Reentranz-Guard: Timer-Poll und BroadcastChannel-Zustellung können sich
@@ -4575,8 +4715,11 @@ const App = {
       const batch = [];
       const gelesen = [];   // [name, neuerOffset] – erst NACH dem Anwenden übernehmen
       let leseFehler = 0;
+      const posHandles = [];
+      const positionen = this._positionenGewuenscht();
       for await (const entry of dir.entries()) {
         const name = entry[0], h = entry[1];
+        if (positionen && name.startsWith('pos-') && name.endsWith('.json')) { posHandles.push(h); continue; }
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl') || name === mine) continue;
         // Jede Datei für sich: Ein Lesefehler (Chrome: NotReadableError, wenn
         // der Kollege die Datei zwischen getFile() und dem Lesen per Swap
@@ -4611,7 +4754,15 @@ const App = {
         this._smartRefresh();
       }
       await this._rotateOwnLogIfCovered();
-      BhkSpur.notiere('abgleich', 'Fremde Protokolle lesen', { ok: !leseFehler, ms: Date.now() - pollStart, fehler: leseFehler ? `${leseFehler} Protokoll(e) nicht lesbar` : null, art: leseFehler ? 'nicht-lesbar' : '', info: applied ? `${applied} Änderung(en) übernommen` : '', nurStat: !applied });
+      // Positionen der Kollegen aus derselben Auflistung (kein zweiter Rundgang der Kontrolle)
+      if (positionen) {
+        try {
+          await this._readPositionFiles(KontrolleHandler.activePruefer || '', posHandles);
+          if (KontrolleHandler.doLiveSync) KontrolleHandler.doLiveSync();
+        } catch(e) {}
+      }
+      BhkSpur.notiere('abgleich', 'Fremde Protokolle lesen', { ok: !leseFehler, ms: Date.now() - pollStart, fehler: leseFehler ? `${leseFehler} Protokoll(e) nicht lesbar` : null, art: leseFehler ? 'nicht-lesbar' : '', info: (applied ? `${applied} Änderung(en) übernommen` : '') + (this._rundgangGrund ? ` (${this._rundgangGrund})` : ''), nurStat: !applied });
+      this._rundgangGrund = '';
     } catch(e) {
       this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
       BhkSpur.notiere('abgleich', 'Fremde Protokolle lesen', { ok: false, ms: Date.now() - pollStart, fehler: e });
@@ -5044,7 +5195,8 @@ const App = {
   snapshotTimeoutMs(bytes) { return 120000 + Math.ceil((bytes || 0) / 1048576) * 10000; },
   _kompaktGebremst() {
     if (Date.now() - (this._letzteKompaktierung || 0) < this.KOMPAKT_MIN_ABSTAND_MS) return `letzte Kompaktierung vor ${Math.round((Date.now() - this._letzteKompaktierung) / 60000)} min`;
-    if (this.feldmodus) return 'Feldmodus';
+    if (this.getaktet) return 'getaktete Verbindung (Einstellung)';
+    if (this.feldmodus) return 'langsame Leitung (Einstellung)';
     if (this._networkQuality === 'very-slow') return 'sehr langsame Leitung';
     return '';
   },
@@ -5167,6 +5319,7 @@ const App = {
       await mw.close();
       try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
       await this._writeSyncMarker();
+      await this._zeigerAntippen('snapshot');
       // 5) Tote Logs aufräumen: Dateien verwaister Clients (PC-Tausch, neues
       // Browserprofil) rotieren nie selbst und ließen _compactionDue sonst
       // dauerhaft anschlagen. Löschen ist sicher, wenn ALLES im Snapshot steckt

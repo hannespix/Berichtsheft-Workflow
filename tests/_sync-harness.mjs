@@ -157,8 +157,9 @@ export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   vm.createContext(sandbox);
   vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
   const app = sandbox.__App;
+  app._sandbox = sandbox;   // für Tests, die Timer oder Globale des Kontexts umbiegen
   app.toast = () => {};
-  app.scheduleAutoSave = () => {};
+  if (!opts.keepAutoSave) app.scheduleAutoSave = () => {};
   app._broadcastChange = () => {};
   app._updateNetworkQuality = () => {};
   app._updateNetworkUI = () => {};
