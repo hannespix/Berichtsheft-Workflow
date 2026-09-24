@@ -23,10 +23,15 @@ const BulkSchueler = {
   toggleAll(checked) { document.querySelectorAll('.chk-s').forEach(c => c.checked = checked); this.updateBar(); },
   deselectAll() { document.querySelectorAll('.chk-s, .chk-azubi').forEach(c => c.checked = false); const a = document.getElementById('chkAllS'); if (a) a.checked = false; this.updateBar(); },
   updateBar() {
+    // Die Leiste der Azubi-Liste pflegt StammdatenTab; die alte Leiste der
+    // Import-Seite gibt es nicht mehr – ohne Elemente warf das hier und ließ
+    // die Liste nach Bulk-Aktionen veraltet stehen
+    if (typeof StammdatenTab !== 'undefined' && typeof StammdatenTab._bulkUpdateBar === 'function' && document.getElementById('bulkBarAzubi')) { try { StammdatenTab._bulkUpdateBar(); } catch(e) {} return; }
     const ids = this.getSelected();
     const bar = document.getElementById('bulkBarSchueler');
-    document.getElementById('bulkCountS').textContent = ids.length;
-    bar.style.display = ids.length > 0 ? 'flex' : 'none';
+    const cnt = document.getElementById('bulkCountS');
+    if (cnt) cnt.textContent = ids.length;
+    if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
   assignKlasse() {
     const ids = this.getSelected();

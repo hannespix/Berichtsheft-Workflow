@@ -119,7 +119,7 @@ const WiedervorlagenHandler = {
     const klassen = w.kontrolltermin_id ? App.getTerminKlassen(w.kontrolltermin_id) : [];
     const terminLabel = terminInfo ? `${formatDate(terminInfo.geplant_datum)} – ${klassen.map(k=>k.klassenbezeichnung).join(' + ')}` : '';
 
-    App.openModal(`Wiedervorlage: ${w.nachname}, ${w.vorname}`, `
+    App.openModal(`Wiedervorlage: ${esc(w.nachname)}, ${esc(w.vorname)}`, `
       <!-- ── Info-Grid ── -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
@@ -250,7 +250,7 @@ const WiedervorlagenHandler = {
     if (!w || w.status === 'erledigt') return;
     const remaining = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != ""', [w.schueler_id]);
     if (remaining === 0) {
-      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=datetime('now','localtime'), erledigt_bemerkung='Alle Mängel behoben' WHERE id=?", [wvId]);
+      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Alle Mängel behoben' WHERE id=?", [todayStr(), wvId]);
       App.toast('Alle Mängel behoben → Wiedervorlage automatisch erledigt!', 'success');
     }
   },

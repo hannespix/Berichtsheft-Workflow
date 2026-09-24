@@ -20,6 +20,7 @@ const BulkWV = {
   doErledigt() {
     const ids = this.getSelected();
     const datum = document.getElementById('mBulkWVDatum').value;
+    if (!datum) return App.toast('Bitte ein Erledigt-Datum angeben', 'warning');
     const bem = document.getElementById('mBulkWVBem').value.trim();
     ids.forEach(id => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?", [datum, bem, id]));
     App.closeModal();
@@ -38,6 +39,7 @@ const BulkWV = {
   doExtendFrist() {
     const ids = this.getSelected();
     const frist = document.getElementById('mBulkWVFrist').value;
+    if (!frist) return App.toast('Bitte eine neue Frist angeben', 'warning');
     ids.forEach(id => App.run("UPDATE wiedervorlagen SET frist_datum=?, status='offen', geaendert_am=datetime('now','localtime') WHERE id=?", [frist, id]));
     App.closeModal();
     App.toast(`Frist für ${ids.length} Wiedervorlagen gesetzt`, 'success');

@@ -491,7 +491,8 @@ const PDFExport = {
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const klassen = App.getTerminKlassen(terminId);
     termin.klassenbezeichnung = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
-    termin.schule = klassen.length ? klassen[0].schule : '?';
+    const ortBs = App.getTerminSchule ? App.getTerminSchule(terminId) : null;
+    termin.schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : 'Einsendung');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);

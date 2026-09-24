@@ -203,7 +203,8 @@ const SchuelerAkte = {
         checkPage(8);
         const statusLbl = { offen: 'Offen', erledigt: 'Erledigt', ueberfaellig: 'Überfällig' };
         doc.setFont(undefined, 'bold');
-        doc.text(`${w.typ || '–'} – ${statusLbl[w.status] || w.status} (Frist: ${w.frist ? new Date(w.frist).toLocaleDateString('de-DE') : '–'})`, LM + 2, y);
+        const artLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' };
+        doc.text(`${artLbl[w.art] || w.art || '–'} – ${statusLbl[w.status] || w.status} (Frist: ${w.frist_datum ? SchuelerAkte._formatDate(w.frist_datum) : '–'})`, LM + 2, y);
         doc.setFont(undefined, 'normal');
         y += 4;
         if (w.versand_datum) {
@@ -213,8 +214,8 @@ const SchuelerAkte = {
           doc.setTextColor(0);
           y += 4;
         }
-        if (w.beschreibung) {
-          const lines = doc.splitTextToSize(w.beschreibung, RM - LM - 4);
+        if (w.erledigt_bemerkung) {
+          const lines = doc.splitTextToSize(w.erledigt_bemerkung, RM - LM - 4);
           lines.forEach(line => { checkPage(4); doc.text(line, LM + 4, y); y += 3.5; });
         }
         w.notizen.forEach(n => {

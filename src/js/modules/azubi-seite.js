@@ -155,7 +155,7 @@ const AzubiSeite = {
             ${zeile('E-Mail', link('mailto', betrieb.email), { roh: true })}
             ${zeile('Ansprechpartner', betrieb.ansprechpartner)}
             ${zeile('Betriebsnummer', betrieb.betriebsnummer)}
-            ${ausbilder.map(a => zeile(a.funktion || 'Ausbilder', [a.vorname, a.nachname].filter(Boolean).join(' ') + [a.telefon, a.mobil, a.email].filter(Boolean).map(x => ' · ' + x).join(''))).join('')}
+            ${ausbilder.map(a => zeile(esc(a.funktion) || 'Ausbilder', [a.vorname, a.nachname].filter(Boolean).join(' ') + [a.telefon, a.mobil, a.email].filter(Boolean).map(x => ' · ' + x).join(''))).join('')}
           ` : zeile('Ausbildungsstätte', s.ausbildungsstaette) || '<p class="az-leer">Kein Betrieb zugeordnet.</p>'}
         </div>
         <div class="az-spalte">

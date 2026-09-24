@@ -1273,7 +1273,8 @@ const Views = {
     const today = todayStr();
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
-    try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Nur schreiben, wenn es etwas zu ändern gibt – sonst hängt jedes Anzeigen der Liste eine Op ans Protokoll
+    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,
@@ -1872,7 +1873,9 @@ const Views = {
   papierkorbRestore(pkId) {
     const r = App.papierkorbWiederherstellen(pkId);
     if (r.ok) App.toast(`Wiederhergestellt (${r.zeilen} Zeilen)`, 'success');
-    else { App.toast(r.grund, r.vorhanden ? 'warning' : 'error'); if (r.vorhanden) App.papierkorbEintragLoeschen(pkId); }
+    // Existiert der Datensatz wieder, nur den Papierkorb-Eintrag entfernen – NICHT
+    // die Akten-Dateien des lebenden Azubis (papierkorbEintragLoeschen löscht sie mit)
+    else { App.toast(r.grund, r.vorhanden ? 'warning' : 'error'); if (r.vorhanden) { try { App.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]); } catch(e) {} } }
     this._papierkorbRefresh();
   },
   async _backupsLaden() {

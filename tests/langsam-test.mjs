@@ -153,7 +153,7 @@ console.log('══ Snapshot-Write: Anhängen und Abgleich warten ══');
   const takt = APP_SRC.split('this._schedulePoll = () => {')[1];
   check(/!this\._snapshotSchreibt/.test(takt) && /Snapshot wird geschrieben/.test(takt), 'Abgleich-Takt setzt während des Snapshot-Writes aus');
   const kompakt = APP_SRC.split('  async _compact(reason) {')[1].split('  async _lockNochMeins() {')[0];
-  check(/this\._snapshotSchreibt = true;/.test(kompakt) && /finally \{\n      this\._snapshotSchreibt = false;/.test(kompakt), 'Kompaktierung setzt und löscht die Markierung (auch im Fehlerfall)');
+  check(/this\._snapshotSchreibt = true;/.test(kompakt) && /finally \{\n      if \(herzschlag\) clearInterval\(herzschlag\);\n      this\._snapshotSchreibt = false;/.test(kompakt), 'Kompaktierung setzt und löscht die Markierung (auch im Fehlerfall)');
   App._snapshotSchreibt = false;
   await App._saveV3(); await ruhe();
   check(App._dirtyOps.length === 0, 'Danach wird angehängt');

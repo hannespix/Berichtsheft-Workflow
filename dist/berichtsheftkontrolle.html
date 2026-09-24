@@ -9449,6 +9449,7 @@ const App = {
     this._ownLogUids = null;
     this._appliedForeignUids = null;
     this._colStamps = null; this._rowStamps = null; this._betroffeneAzubis = null; this._bulkPending = false;
+    this._appendHaengt = null; this._appendHaengtSeit = 0; this._snapWechsel = false;
     this._snapGen = 0;
     this._logGen = 0;
     this._myLogSize = 0;
@@ -10766,15 +10767,22 @@ const App = {
   // Heartbeat: Lock-Timestamp auffrischen (vor langer Schreibphase), damit
   // ein legitimer langsamer Save nicht durch die 150s-Staleness gestohlen wird.
   async _refreshLock() {
-    if (!this._lockFileName || !this._lockNonce) return;
+    if (!this._lockFileName || !this._lockNonce) return false;
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
-      if (!syncDir) return;
+      if (!syncDir) return false;
       const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
+      // Fremde Sperre nie überschreiben: hat ein Kollege unsere als veraltet
+      // übernommen, ist sie weg – der Aufrufer prüft vor dem Schreiben mit _lockNochMeins
+      try {
+        const text = await (await handle.getFile()).text();
+        if (text.trim()) { const l = JSON.parse(text); if (l.n && l.n !== this._lockNonce) { BhkSpur.notiere('sperre', 'Herzschlag: Sperre inzwischen fremd', { ok: false, info: l.u || '?' }); return false; } }
+      } catch(e) {}
       const writable = await handle.createWritable();
       await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: this._lockNonce }));
       await writable.close();
-    } catch(e) { /* best effort */ }
+      return true;
+    } catch(e) { return false; /* best effort */ }
   },
   async _releaseLock() {
     if (!this._lockFileName) return;
@@ -10961,6 +10969,8 @@ const App = {
     let n = 0;
     const cid = this._getClientId();
     const seit = this._offlineSeit || 0;
+    // Ein Schub in einer Transaktion (ein wiederhergestellter Import hat Tausende Ops)
+    let sp = false; try { this.db.run('SAVEPOINT bhk_restore'); sp = true; } catch(e) {}
     for (const o of ops) {
       const op = { sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq };
       // Konflikt: dieselbe Zeile/Spalte wurde von einem Kollegen geändert,
@@ -10983,6 +10993,7 @@ const App = {
       try { this.db.run(o.sql, o.params || []); n++; this._notiereStamp(o.sql, o.params, o.ts, cid, o.seq); }
       catch(e) { console.warn('[Restore] Op nicht anwendbar:', e.message, (o.sql || '').slice(0, 60)); }
     }
+    if (sp) { try { this.db.run('RELEASE bhk_restore'); } catch(e) {} }
     if (n) {
       try { this._entdoppleWiedervorlagen(); } catch(e) {}
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
@@ -11453,9 +11464,12 @@ const App = {
       if (ci >= tokens.length || tokens[ci] !== '?') return -1;
       return tokens.slice(0, ci).filter(t => t === '?').length;
     }
-    const re = new RegExp(col + '\\s*=\\s*\\?', 'i');
-    const idx = sql.search(re);
-    if (idx < 0) return -1;
+    // Wortgrenze: „id=?“ darf nicht „klasse_id=?“ treffen (sonst zeigte der
+    // Speicherstatus den falschen Azubi als „wird geschrieben“)
+    const re = new RegExp('(^|[^A-Za-z0-9_])' + col + '\\s*=\\s*\\?', 'i');
+    const m = sql.match(re);
+    if (!m) return -1;
+    const idx = m.index + m[1].length;
     return (sql.slice(0, idx).match(/\?/g) || []).length;
   },
   /**
@@ -11816,6 +11830,8 @@ const App = {
     this._clientIdCache = id;
     return id;
   },
+  // Heutiges Datum in Ortszeit (toISOString wäre UTC: zwischen 0 und 2 Uhr der Vortag)
+  _heuteIso() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
   _dbSlug() { return (this.autoLoadedDbName || 'db').replace(/\.sqlite$|\.db$/i, '').replace(/[^A-Za-z0-9_-]/g, '_'); },
   _oplogPrefix() { return 'oplog_' + this._dbSlug() + '_'; },
   // Generation im Dateinamen: Beim Rotieren wird eine NEUE Datei begonnen statt
@@ -11839,6 +11855,7 @@ const App = {
   APPEND_TIMEOUT_MIN_MS: 30000,
   APPEND_TIMEOUT_MAX_MS: 180000,
   APPEND_MAX_BYTES: 256 * 1024,   // je Anhängen höchstens so viele Bytes (Import in Häppchen)
+  APPEND_HAENGT_MAX_MS: 10 * 60000, // nach so langem Hängen wird der Versuch aufgegeben (neue Generation)
   _appendHaengt: null,
   _netzLangsam: false,
   _langsamStufe: 0,
@@ -11873,6 +11890,17 @@ const App = {
       setTimeout(() => this.scheduleAutoSave(), 1500);
       return;
     }
+    if (this._appendHaengt && Date.now() - (this._appendHaengtSeit || 0) > this.APPEND_HAENGT_MAX_MS) {
+      // Chromes Schreibzusage hat sich nie gemeldet: nicht ewig warten. Die Ops
+      // liegen im Puffer; auf eine neue Generation drehen, damit ein doch noch
+      // durchkommender Zombie-Write nur die alte Datei trifft (höchstens ein
+      // Duplikat, das UNIQUE abfängt)
+      BhkSpur.notiere('anhaengen', 'Hängendes Anhängen aufgegeben', { ok: false, fehler: `keine Antwort seit ${Math.round((Date.now() - this._appendHaengtSeit) / 60000)} min`, info: `Generation ${this._logGen + 1}` });
+      this._appendHaengt = null;
+      this._logOffsets[this._myOplogName()] = this._myLogSize;
+      this._logGen++;
+      this._myLogSize = 0;
+    }
     if (this._appendHaengt) {
       // Voriger Versuch hängt noch im Browser: nicht dahinter einreihen
       BhkSpur.uebersprungen('anhaengen', 'voriger Versuch hängt noch (Freigabe sehr langsam)');
@@ -11884,6 +11912,12 @@ const App = {
       // Der eigene Snapshot wird gerade geschrieben – ein Anhängen reihte sich
       // nur dahinter ein und liefe ins Zeitlimit
       setTimeout(() => this.scheduleAutoSave(), 5000);
+      return;
+    }
+    if (this._snapWechsel) {
+      // Fremder Snapshot wird gerade übernommen: erst danach anhängen, sonst
+      // fehlen diese Ops im neuen Speicherbild
+      setTimeout(() => this.scheduleAutoSave(), 1000);
       return;
     }
     if (!this._dirtyOps.length) {
@@ -11936,7 +11970,9 @@ const App = {
       // Datei einen Lesestand hinter dem neuen Dateiende. Stattdessen eine
       // neue Generation beginnen; die erkennen alle Leser ab Byte 0.
       if (size === 0 && this._myLogSize > 0) {
-        try { await dir.removeEntry(this._myOplogName()); } catch(e) {}
+        // Nur rotieren, NICHT löschen: meldet die Freigabe eine veraltete 0 für
+        // eine gefüllte Datei, blieben die Ops sonst nur noch im eigenen Speicher
+        this._logOffsets[this._myOplogName()] = this._myLogSize;
         this._logGen++;
         this._myLogSize = 0;
         console.warn(`[SyncV3] Eigenes Log verschwunden → neue Generation ${this._logGen}`);
@@ -12489,7 +12525,7 @@ const App = {
         const v = this._stampAusText(r.v);
         if (!v) return;
         const eintrag = this._rowStamps.get(r.k) || {};
-        Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; });
+        Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; if (v[col].ts > (this._maxSeenTs || 0)) this._maxSeenTs = v[col].ts; });
         this._rowStamps.set(r.k, eintrag); n++;
       });
       return n;
@@ -12721,12 +12757,22 @@ const App = {
     if (this._tabIsPrimary === false) return this._compactAbgelehnt('Zweit-Registerkarte dieser Datenbank – nur die zuerst geöffnete Registerkarte schreibt den Snapshot'); // Zweit-Tab kompaktiert nie
     if (this._compactInProgress) return this._compactAbgelehnt('läuft bereits');
     if (!this.db || !this.dbFileHandle) return this._compactAbgelehnt('keine Datenbankdatei verbunden');
+    // Während eines Imports (Bulk-Modus) nie: der Snapshot enthielte den halben
+    // Import, und _bulkOps würde geleert – bulkAlsOps fände danach nichts mehr
+    if (this._bulkImport) return this._compactAbgelehnt('Import läuft gerade – Kompaktierung wartet');
     this._compactInProgress = true;
     let writable = null;
+    let herzschlag = null;
     const tKompakt = Date.now();
     try {
       const gotLock = await this._acquireLock();
       if (!gotLock) { BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: 'Sperre belegt', art: 'sperre', info: reason }); return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); } // ein anderer kompaktiert bereits
+      // Fail-open der Sperre (nach drei Fehlern) reicht für einen Snapshot nicht:
+      // zwei Clients ohne Sperre schrieben dieselbe Generation
+      if (!this._lockNonce) return this._compactAbgelehnt('Sperre konnte nicht gesetzt werden (Sperrmechanismus gestört) – Kompaktierung wartet');
+      // Herzschlag ab JETZT: Anhängen und Einlesen vor dem Schreiben können auf
+      // langsamer Leitung länger als die Staleness (150 s) dauern
+      herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       this.ladeText && this._ladeTimer && this.ladeText('Änderungen sichern…');
       await this._saveV3();
@@ -12774,8 +12820,11 @@ const App = {
       // großer Snapshot über VPN dauert länger – ohne Herzschlag übernähme ein
       // Kollege die Sperre mitten im Schreibvorgang.
       const timeoutMs = this.snapshotTimeoutMs(data.length);
+      // Unmittelbar vor dem Schreiben: gehört die Sperre noch uns? Ein Kollege
+      // kann sie in der Zwischenzeit als veraltet übernommen und selbst
+      // geschrieben haben – unser Export überschriebe dann seinen Stand
+      if (!(await this._lockNochMeins())) throw new Error('Sperre inzwischen von einem Kollegen übernommen – Kompaktierung abgebrochen');
       this._snapshotSchreibt = true; // Abgleich und Anhängen warten so lange (reihten sich sonst dahinter ein)
-      const herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
@@ -12843,7 +12892,10 @@ const App = {
       this._letzteKompaktierung = Date.now();
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: true, ms: Date.now() - tKompakt, info: `${reason}, ${Math.round(data.length / 1024 / 1024)} MB, Generation ${this._snapGen}` });
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
-      this._bulkOps = null;
+      // Bulk-Ops nur verwerfen, wenn dieser Snapshot sie trägt (Import-Nachholung,
+      // Bereinigung) – eine Größen-/Start-Kompaktierung darf einen laufenden
+      // Import nicht um seine Anweisungen bringen
+      if (this._bulkPending || /import|bereinigung/.test(String(reason))) this._bulkOps = null;
       if (this._bulkPending) {
         this._bulkPending = false;
         this.unsavedChanges = this._dirtyOps.length > 0;
@@ -12862,6 +12914,7 @@ const App = {
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: e, info: reason });
       return false;
     } finally {
+      if (herzschlag) clearInterval(herzschlag);
       this._snapshotSchreibt = false;
       await this._releaseLock();
       this._compactInProgress = false;
@@ -12897,8 +12950,12 @@ const App = {
   // IBYKUS-Import)? Dann muss dieser Client ihn neu laden – sonst überschreibt
   // seine nächste eigene Kompaktierung den fremden Stand mit seinem älteren
   // Speicherabbild (der komplette Import wäre weg).
+  _snapWechsel: false,   // Snapshot-Tausch läuft (Datei lesen, DB tauschen, nachspielen) – Anhängen wartet so lange
   async _pruefeFremdenSnapshot() {
-    if (this._compactInProgress || this._appendInProgress) return;
+    if (this._compactInProgress || this._appendInProgress || this._snapWechsel) return;
+    // Während eines Imports laufen die Anweisungen nur auf der Arbeitskopie
+    // (_bulkOps): ein Tausch jetzt verlöre sie lokal – erst nach bulkAlsOps
+    if (this._bulkImport) return;
     try {
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -12920,6 +12977,11 @@ const App = {
         return;
       }
       console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
+      // Ab hier kein Anhängen: Ops, die während des Lesens angehängt würden,
+      // fehlten sonst im neuen Speicherbild (der Tausch liest das eigene Log
+      // vor dem Anhängen) – die nächste eigene Kompaktierung erklärte sie für
+      // enthalten, und sie wären überall weg
+      this._snapWechsel = true;
       const tLade = Date.now();
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
@@ -12994,12 +13056,19 @@ const App = {
       // sie waren nur auf der alten Arbeitskopie sichtbar. Aber LWW-geprüft:
       // eine noch nicht gespeicherte eigene Op kann ÄLTER sein als eine
       // soeben nachgespielte fremde Op auf dieselbe Zeile.
-      if (this._dirtyOps.length) {
+      // Auch Ops, die gerade in einem (evtl. hängenden) Anhängen stecken – sie
+      // sind weder im Snapshot noch im gelesenen Log-Stand
+      const offen = [...(this._opsInFlight || []), ...this._dirtyOps];
+      if (offen.length) {
         const cid = this._getClientId();
-        for (const o of this._dirtyOps) {
+        // In EINER Transaktion: nach einem Import warten Tausende Ops im Puffer,
+        // einzeln mit Autocommit dauerte das Sekunden
+        let sp = false; try { this.db.run('SAVEPOINT bhk_puffer'); sp = true; } catch(e) {}
+        for (const o of offen) {
           if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq })) continue;
           try { this.db.run(o.sql, o.params || []); } catch(e) {}
         }
+        if (sp) { try { this.db.run('RELEASE bhk_puffer'); } catch(e) {} }
       }
       // Nicht kompaktierter Bulk-Import (steht in keinem Log): auf der frischen
       // DB wiederholen, damit der Tausch ihn nicht auslöscht. Die Nachholung
@@ -13021,6 +13090,8 @@ const App = {
       BhkSpur.notiere('snapshot', 'Snapshot prüfen', { ok: false, fehler: e });
       if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
       else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
+    } finally {
+      if (this._snapWechsel) { this._snapWechsel = false; if (this._dirtyOps.length && !this._netzWeg) setTimeout(() => this.scheduleAutoSave(), 200); }
     }
   },
   // Deckt der eigene Lesestand jedes Protokoll mindestens bis zu dem Offset
@@ -13192,6 +13263,7 @@ const App = {
     }
     ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?))',
      'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
      'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
@@ -13214,12 +13286,14 @@ const App = {
       this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
     } catch(e) {}
     ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'UPDATE kontrolltermine SET berufsschule_id=NULL WHERE berufsschule_id=?',
      'DELETE FROM berufsschulen WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
   },
   deleteBetriebKaskade(id) {
     if (!id) return;
     ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'UPDATE kontrolltermine SET betrieb_id=NULL WHERE betrieb_id=?',
      'DELETE FROM ausbilder WHERE betrieb_id=?',
      'DELETE FROM betriebe WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
@@ -14823,7 +14897,7 @@ const App = {
   // ohne Klassen – die zeigten vorher „–" bzw. „– – –" im Betreff).
   // Liefert [{fr, aj, jgBez, count}], sortiert nach Fachrichtung und AJ.
   terminGruppen(terminId, refDate) {
-    const datum = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum || new Date().toISOString().slice(0, 10);
+    const datum = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum || this._heuteIso();
     const klassen = this.getTerminKlassen(terminId);
     const schueler = this.getTerminSchueler(terminId);
     const groups = {};
@@ -15052,7 +15126,9 @@ const App = {
     const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
     const order = [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35];
     let aj = this.getAJAtDate(s.ausbildungsbeginn, ref, schuelerId) || ajs[0];
-    const kwStichtag = this._isoKW(ref);
+    // KW 53 liegt nicht in `order`: indexOf(-1) machte JEDE Woche zur „späteren“
+    // und schob das Ausbildungsjahr um eins zurück (Stichtag 28.12.–03.01.)
+    const kwStichtag = Math.min(52, this._isoKW(ref));
     if (order.indexOf(kw) > order.indexOf(kwStichtag)) aj = aj - 1;
     if (aj < ajs[0]) aj = ajs[0];
     if (aj > ajs[ajs.length - 1]) aj = ajs[ajs.length - 1];
@@ -15310,7 +15386,7 @@ const App = {
   // Betrieb: Wiederholungsbetrieb (≥ 2 Azubis mit Mängeln bzw. ≥ 3 Mangel-
   // Ergebnisse in 24 Monaten), offene/überfällige WV, Ø Tage bis zum Nachweis
   betriebKennzahlen(betriebId) {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     const seit = new Date(); seit.setMonth(seit.getMonth() - 24);
     const seitIso = seit.toISOString().slice(0, 10);
     const k = { betriebId };
@@ -15455,7 +15531,7 @@ const App = {
 
   // ── Jahresablauf: „Wo stehen wir?" und der nächste sinnvolle Schritt ──
   jahresstand() {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     const st = { heute };
     st.azubis = this.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
     st.pruefer = this.scalar('SELECT COUNT(*) FROM pruefer WHERE aktiv=1') || 0;
@@ -15763,7 +15839,7 @@ const App = {
   TERMIN_KUERZLICH_TAGE: 90,
   terminAktuell(t, heute) {
     if (!t) return 'alt';
-    heute = heute || new Date().toISOString().slice(0, 10);
+    heute = heute || this._heuteIso();
     if (t.status === 'geplant') return 'anstehend';
     const grenze = new Date(heute + 'T00:00:00'); grenze.setDate(grenze.getDate() - this.TERMIN_KUERZLICH_TAGE);
     const g = `${grenze.getFullYear()}-${String(grenze.getMonth() + 1).padStart(2, '0')}-${String(grenze.getDate()).padStart(2, '0')}`;
@@ -15776,7 +15852,7 @@ const App = {
   // Jeder Schritt mit Datum; „angefragt" merkt sich auch, wer angefragt hat –
   // zwei Kollegen fragten sonst doppelt an.
   terminSchritt(terminId, schritt) {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     if (schritt === 'angefragt') this.run('UPDATE kontrolltermine SET angefragt_am=?, angefragt_von=? WHERE id=?', [heute, this.currentUser || '', terminId]);
     else if (schritt === 'bestaetigt') this.run('UPDATE kontrolltermine SET bestaetigt_am=? WHERE id=?', [heute, terminId]);
     else if (schritt === 'nachbereitet') this.run("UPDATE kontrolltermine SET nachbereitet_am=? WHERE id=? AND COALESCE(nachbereitet_am,'')=''", [heute, terminId]);
@@ -15870,8 +15946,10 @@ const App = {
 
     const d1 = this._parseDate(s.ausbildungsbeginn);
     const d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
-    const startKW = d1 ? this._isoKW(d1) : 36;
-    const endKW = d2 ? this._isoKW(d2) : 35;
+    // KW 53 (Beginn/Ende zwischen 28.12. und 03.01.) auf 52 abbilden – sonst
+    // fand indexOf sie nicht und die Wochen vor dem Beginn/nach dem Ende blieben aktiv
+    const startKW = d1 ? Math.min(52, this._isoKW(d1)) : 36;
+    const endKW = d2 ? Math.min(52, this._isoKW(d2)) : 35;
 
     // School year of first AJ: month >= Sep → year, else year-1
     const firstSY = d1 ? (d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1) : null;
@@ -16861,17 +16939,21 @@ Anlagen: {anlagen}` },
       // Ensure kw_status and durchsicht_snapshots tables exist
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_status (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        schueler_id INTEGER NOT NULL,
-        ausbildungsjahr INTEGER,
-        kalenderwoche INTEGER,
+        schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
         maengel_codes TEXT DEFAULT '',
         behobene_codes TEXT DEFAULT '',
         fehltage INTEGER DEFAULT 0,
         geprueft INTEGER DEFAULT 0,
+        bemerkung TEXT DEFAULT '',
         erstellt_bei INTEGER DEFAULT NULL,
         behoben_bei INTEGER DEFAULT NULL,
         UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche)
       )`);
+      // Parität mit _migrateDiskDb: ältere Fassungen der Snapshot-Tabelle
+      try { this.db.run('ALTER TABLE durchsicht_snapshots ADD COLUMN kontrollergebnis_id INTEGER'); } catch(e) {}
+      try { this.db.run("ALTER TABLE durchsicht_snapshots ADD COLUMN erstellt_am TEXT DEFAULT ''"); } catch(e) {}
       this.db.run(`CREATE TABLE IF NOT EXISTS durchsicht_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kontrollergebnis_id INTEGER NOT NULL,
@@ -18842,7 +18924,8 @@ const Views = {
     const today = todayStr();
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
-    try { App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Nur schreiben, wenn es etwas zu ändern gibt – sonst hängt jedes Anzeigen der Liste eine Op ans Protokoll
+    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,
@@ -19441,7 +19524,9 @@ const Views = {
   papierkorbRestore(pkId) {
     const r = App.papierkorbWiederherstellen(pkId);
     if (r.ok) App.toast(`Wiederhergestellt (${r.zeilen} Zeilen)`, 'success');
-    else { App.toast(r.grund, r.vorhanden ? 'warning' : 'error'); if (r.vorhanden) App.papierkorbEintragLoeschen(pkId); }
+    // Existiert der Datensatz wieder, nur den Papierkorb-Eintrag entfernen – NICHT
+    // die Akten-Dateien des lebenden Azubis (papierkorbEintragLoeschen löscht sie mit)
+    else { App.toast(r.grund, r.vorhanden ? 'warning' : 'error'); if (r.vorhanden) { try { App.run('DELETE FROM bhk_papierkorb WHERE id=?', [pkId]); } catch(e) {} } }
     this._papierkorbRefresh();
   },
   async _backupsLaden() {
@@ -21664,11 +21749,23 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.doBulkMoveKlassen([${ids}])">Zuordnen</button>`);
   },
+  // Klassen sind je (Schule, Jahrgang, Fachrichtung) eindeutig: eine Verschiebung
+  // auf eine schon vorhandene Kombination scheiterte an UNIQUE mitten in der
+  // Schleife (Dialog blieb offen, Rest nicht verschoben) – jetzt je Klasse
+  // prüfen und die Kollisionen melden
+  _klasseKollidiert(id, bs, jg, fr) {
+    return !!App.scalar('SELECT id FROM klassen WHERE berufsschule_id=? AND jahrgang_id IS ? AND fachrichtung_id IS ? AND id!=?', [bs, jg == null || jg === '' ? null : jg, fr == null || fr === '' ? null : fr, id]);
+  },
   doBulkMoveKlassen(ids) {
     const sid = document.getElementById('mBulkKlSchule').value;
-    ids.forEach(id => App.run('UPDATE klassen SET berufsschule_id=? WHERE id=?', [sid, id]));
+    let ok = 0, koll = 0;
+    ids.forEach(id => {
+      const k = App.query('SELECT jahrgang_id, fachrichtung_id FROM klassen WHERE id=?', [id])[0];
+      if (!k || this._klasseKollidiert(id, sid, k.jahrgang_id, k.fachrichtung_id)) { koll++; return; }
+      App.run('UPDATE klassen SET berufsschule_id=? WHERE id=?', [sid, id]); ok++;
+    });
     App.closeModal();
-    App.toast(`${ids.length} Klassen verschoben`, 'success');
+    App.toast(`${ok} Klassen verschoben${koll ? `, ${koll} nicht (an der Schule gibt es diese Klasse schon – bitte zusammenführen)` : ''}`, koll ? 'warning' : 'success');
     StammdatenTab.show('klassen');
   },
   bulkSetJahrgangKlassen() {
@@ -21684,9 +21781,14 @@ const StammdatenTab = {
   },
   doBulkJGKlassen(ids) {
     const jgId = document.getElementById('mBulkKlJG').value;
-    ids.forEach(id => App.run('UPDATE klassen SET jahrgang_id=? WHERE id=?', [jgId, id]));
+    let ok = 0, koll = 0;
+    ids.forEach(id => {
+      const k = App.query('SELECT berufsschule_id, fachrichtung_id FROM klassen WHERE id=?', [id])[0];
+      if (!k || this._klasseKollidiert(id, k.berufsschule_id, jgId, k.fachrichtung_id)) { koll++; return; }
+      App.run('UPDATE klassen SET jahrgang_id=? WHERE id=?', [jgId, id]); ok++;
+    });
     App.closeModal();
-    App.toast(`${ids.length} Klassen aktualisiert`, 'success');
+    App.toast(`${ok} Klassen aktualisiert${koll ? `, ${koll} nicht (Klasse für diesen Jahrgang gibt es dort schon)` : ''}`, koll ? 'warning' : 'success');
     StammdatenTab.show('klassen');
   },
   addKlasse() {
@@ -21726,6 +21828,7 @@ const StammdatenTab = {
     const jg = document.getElementById('mKlJG')?.value || null;
     if (!bs) return App.toast('Bitte Schule wählen', 'error');
     if (id) {
+      if (this._klasseKollidiert(id, bs, jg, fr)) return App.toast('Für diese Schule, diesen Jahrgang und diese Fachrichtung gibt es schon eine Klasse – bitte zusammenführen statt umbenennen', 'error');
       App.run('UPDATE klassen SET berufsschule_id=?,jahrgang_id=?,lehrjahr=?,fachrichtung_id=?,klassenbezeichnung=? WHERE id=?', [bs,jg,lj,fr,bez,id]);
     } else {
       // ON CONFLICT: legt ein Kollege dieselbe Klasse parallel an (oder der
@@ -22045,7 +22148,7 @@ const StammdatenTab = {
       <div class="card"><table class="data-table"><thead><tr>
         <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th title="Betriebs-Ampel: rot = Wiederholungsbetrieb oder überfällige WV, gelb = offene WV/Mängel, grün = unauffällig · Ø Tage bis zum Nachweis">Ampel</th><th>Aktionen</th>
       </tr></thead><tbody id="betriebeTableBody">
-        ${rows.map(b => `<tr data-search="${(b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase()}">
+        ${rows.map(b => `<tr data-search="${esc((b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase())}">
           <td>
             ${b.zusatzbezeichnung ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(b.zusatzbezeichnung)}</div>` : ''}
             <strong>${esc((b.vorname ? b.vorname + ' ' : '') + b.name)}</strong>
@@ -22720,7 +22823,7 @@ const ImportHandler = {
               <label>${label} ${matched ? '✓' : ''}</label>
               <select class="form-control" id="map_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
                 <option value="">– nicht zuordnen –</option>
-                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+                ${fields.map(col => `<option value="${esc(col)}" ${col === matched ? 'selected' : ''}>${esc(col)}</option>`).join('')}
               </select>
             </div>`;
           }).join('')}
@@ -22766,13 +22869,14 @@ const ImportHandler = {
       data.slice(0,3).forEach(r => {
         const bavRaw = (r[gm('bav_status')]||'').trim().toUpperCase();
         const bavColor = bavRaw === 'ENDE' ? 'var(--clr-red)' : 'var(--clr-green)';
-        h += '<tr><td><strong>'+(r[gm('nachname')]||'?')+'</strong>, '+(r[gm('vorname')]||'?')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsstaette')]||'–')+'</td>';
-        h += '<td>'+(r[gm('beruf_code')]||'–')+'</td>';
-        h += '<td>'+(r[gm('berufsschule')]||'–')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsbeginn')]||'–')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsende')]||'–')+'</td>';
-        h += '<td style="color:'+bavColor+';font-weight:600">'+(bavRaw||'–')+'</td></tr>';
+        const z = (k) => esc(r[gm(k)] || '–');
+        h += '<tr><td><strong>'+esc(r[gm('nachname')]||'?')+'</strong>, '+esc(r[gm('vorname')]||'?')+'</td>';
+        h += '<td>'+z('ausbildungsstaette')+'</td>';
+        h += '<td>'+z('beruf_code')+'</td>';
+        h += '<td>'+z('berufsschule')+'</td>';
+        h += '<td>'+z('ausbildungsbeginn')+'</td>';
+        h += '<td>'+z('ausbildungsende')+'</td>';
+        h += '<td style="color:'+bavColor+';font-weight:600">'+esc(bavRaw||'–')+'</td></tr>';
       });
       h += '</tbody></table>';
       document.getElementById('mappedPreview').innerHTML = h;
@@ -23402,11 +23506,11 @@ const ImportHandler = {
     let parts = [`<strong>${imported}</strong> Azubi importiert`];
     if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Azubis aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
-    if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
+    if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${esc([...stats.schulen].join(', '))}`);
     if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
-    if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${[...stats.jahrgaenge].join(', ')}`);
+    if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${esc([...stats.jahrgaenge].join(', '))}`);
     if (stats.klassen.size) parts.push(`<strong>${stats.klassen.size}</strong> Klassen angelegt`);
-    if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);
+    if (stats.switchedTo) parts.push(`Jahrgang <strong>${esc(stats.switchedTo)}</strong> aktiviert`);
     // H/F codes now stored as Frühjahr/Herbst directly
     if (stats.frNotFound.size) parts.push(`⚠︎ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
     if (stats.bavEnde) parts.push(`⚠︎ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
@@ -23460,7 +23564,7 @@ const ImportHandler = {
         Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
-        <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+        <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${esc(k)}`).join('<br>')}</div>` : ''}
       ${stats.fehlende && stats.fehlende.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Nicht im Export enthalten (${stats.fehlende.length}):</strong> Diese aktiven Azubis kamen in der Datei nicht vor. Entweder ist ihr Vertrag in IBYKUS beendet (Status ENDE nicht mit exportiert) oder sie fielen aus dem Export-Filter.
         <div style="max-height:130px;overflow-y:auto;margin-top:6px">${stats.fehlende.slice(0, 40).map(k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`).join('')}${stats.fehlende.length > 40 ? `<div>… und ${stats.fehlende.length - 40} weitere</div>` : ''}</div>
@@ -23497,6 +23601,11 @@ const ImportHandler = {
     App.toast('Import-Fehler: ' + importErr.message, 'error');
    } finally {
     App._bulkImport = false;
+    // Vorschau-Savepoint auch nach einem Fehler schließen – sonst bliebe die
+    // Transaktion offen und der nächste Import liefe hinein
+    if (vorschau) { try { App.db.run('ROLLBACK TO bhk_vorschau'); App.db.run('RELEASE bhk_vorschau'); } catch(e) {} }
+    // Der Import hat den Auto-Save-Timer gelöscht: wartende Änderungen wieder anstoßen
+    try { if (App._dirtyOps && App._dirtyOps.length) App.scheduleAutoSave(); } catch(e) {}
     App.hideLoading();
    }
   },
@@ -23589,6 +23698,7 @@ const ImportHandler = {
   },
   editSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
+    if (!s) return App.toast('Azubi nicht mehr vorhanden (gelöscht oder im Papierkorb)', 'warning');
     const frs = App.query('SELECT * FROM fachrichtungen ORDER BY typ, bezeichnung');
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name`);
     const betriebe = App.query('SELECT * FROM betriebe ORDER BY name');
@@ -23661,7 +23771,7 @@ const ImportHandler = {
           <strong style="font-size:13px;color:var(--clr-forest-dark)">Aus IBYKUS</strong>
           <span style="font-size:12px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
           <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
-            <input type="checkbox" id="mSIbykusAendern" onchange="document.querySelectorAll('#modalOverlay .ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
+            <input type="checkbox" id="mSIbykusAendern" onchange="this.closest('.ibykus-block').querySelectorAll('.ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
           </label>
         </div>
         <div class="form-row">
@@ -23819,6 +23929,7 @@ const ImportHandler = {
     ids.forEach(id => { const r = App.setSchuelerStatus(id, status, { datum, grund, wvSchliessen: wv, aktion: 'ausbildung_beendet' }); if (r) wvN += r.wvGeschlossen; });
     App.closeModal();
     const nachher = this._beendenNachher; this._beendenNachher = null;
+    try { if (typeof AzubiSeite !== 'undefined' && ids.some(i => AzubiSeite.istOffen(i))) AzubiSeite.render(); } catch(e) {}
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
@@ -23828,6 +23939,7 @@ const ImportHandler = {
   setAktiv(id) {
     App.setSchuelerStatus(id, 'aktiv', { aktion: 'reaktiviert' });
     App.closeModal();
+    try { if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) AzubiSeite.render(); } catch(e) {}
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
@@ -23930,7 +24042,7 @@ const ImportHandler = {
               <label>${label} ${matched ? '✓' : ''}</label>
               <select class="form-control" id="lfkmap_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
                 <option value="">– nicht zuordnen –</option>
-                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+                ${fields.map(col => `<option value="${esc(col)}" ${col === matched ? 'selected' : ''}>${esc(col)}</option>`).join('')}
               </select>
             </div>`;
           }).join('')}
@@ -23984,9 +24096,11 @@ const ImportHandler = {
 
       // Finde Azubi: erst per ibykus_id, dann per Nr als allg. Match
       let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
-      if (!schuelerId) {
-        // Versuche numerischen Teil als BAV-Ident zu matchen
-        schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1', ['%' + nr + '%']);
+      if (!schuelerId && String(nr).length >= 5) {
+        // Teilstring nur als Nachsatz und nur bei GENAU einem Treffer – „1234“
+        // traf sonst jede Ident, die 1234 enthält, und hängte die LFK an den falschen Azubi
+        const treffer = App.query('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1 LIMIT 2', ['%' + nr]);
+        if (treffer.length === 1) schuelerId = treffer[0].id;
       }
 
       if (!schuelerId) { notFound++; return; }
@@ -24096,7 +24210,8 @@ const ImportHandler = {
       reader.onload = e => {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        // raw:false – Zahlen (Betriebsnummer, Telefon, PLZ) als Text, sonst wirft .trim()
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
         const fields = data.length ? Object.keys(data[0]) : [];
         process(data, fields);
       };
@@ -24125,14 +24240,14 @@ const ImportHandler = {
     let imported = 0, updated = 0, skipped = 0, noMatch = 0;
 
     data.forEach(row => {
-      const nachname = (row[nachCol] || '').trim();
-      const vorname = (row[vorCol] || '').trim();
+      const nachname = String(row[nachCol] ?? '').trim();
+      const vorname = String(row[vorCol] ?? '').trim();
       if (!nachname && !vorname) { skipped++; return; }
 
       // Find Betrieb
-      const bnr = (row[bnrCol] || '').toString().trim();
-      const bname = (row[bnameCol] || '').trim();
-      const bort = (row[bortCol] || '').trim();
+      const bnr = String(row[bnrCol] ?? '').trim();
+      const bname = String(row[bnameCol] ?? '').trim();
+      const bort = String(row[bortCol] ?? '').trim();
 
       let betriebId = null;
       if (bnr) betriebId = App.scalar('SELECT id FROM betriebe WHERE betriebsnummer=?', [bnr]);
@@ -24142,10 +24257,10 @@ const ImportHandler = {
       }
       if (!betriebId) { noMatch++; return; }
 
-      const telefon = (row[telCol] || '').trim();
-      const email = (row[emailCol] || '').trim();
-      const mobil = (row[mobilCol] || '').trim();
-      const funktion = (row[funkCol] || '').trim();
+      const telefon = String(row[telCol] ?? '').trim();
+      const email = String(row[emailCol] ?? '').trim();
+      const mobil = String(row[mobilCol] ?? '').trim();
+      const funktion = String(row[funkCol] ?? '').trim();
 
       // Duplikat-Prüfung
       const existing = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? AND nachname=? AND vorname=?', [betriebId, nachname, vorname])[0];
@@ -24729,7 +24844,7 @@ const PlanungHandler = {
         onmouseenter="this.style.borderColor='var(--clr-purple)';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
         onmouseleave="this.style.borderColor='var(--clr-purple-line)';this.style.boxShadow='none'"
         onclick="PlanungHandler._selectStandort(${gi})"
-        title="${schuelerNames}${moreHint}">
+        title="${esc(schuelerNames + moreHint)}">
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
           <div style="font-size:12px;color:var(--clr-text-light)">
@@ -25917,7 +26032,7 @@ const NacherfassungHandler = {
     const alteWV = App.query(`SELECT w.id FROM wiedervorlagen w
       LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
       LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
-      WHERE w.schueler_id=? AND COALESCE(w.kontrollergebnis_id,0) != ? AND w.status IN ('offen','ueberfaellig')
+      WHERE w.schueler_id=? AND w.kontrollergebnis_id IS NOT NULL AND w.kontrollergebnis_id != ? AND w.status IN ('offen','ueberfaellig')
         AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') <= ?`, [s.id, keId, datum]);
     const grund = row.ergebnis === 'in_ordnung'
       ? 'Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung'
@@ -26561,7 +26676,8 @@ const PDFExport = {
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const klassen = App.getTerminKlassen(terminId);
     termin.klassenbezeichnung = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
-    termin.schule = klassen.length ? klassen[0].schule : '?';
+    const ortBs = App.getTerminSchule ? App.getTerminSchule(terminId) : null;
+    termin.schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : 'Einsendung');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);
@@ -26793,6 +26909,15 @@ const KontrolleHandler = {
     const alleKE = {};
     App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(ke => { alleKE[ke.schueler_id] = ke; });
 
+    if (!termin) {
+      // Ein Kollege hat den Termin gelöscht: nichts neu anlegen (die Zeilen
+      // hoben sonst die Löschmarken auf), keinen Fehler in den Abgleich werfen
+      const c0 = document.getElementById('kontrolleContent');
+      if (c0) c0.innerHTML = '<div class="card" style="border-left:4px solid var(--clr-red)"><strong>Dieser Termin wurde inzwischen gelöscht.</strong><div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Bitte oben einen anderen Termin wählen.</div></div>';
+      this.stopLiveSync();
+      this.currentTerminId = null;
+      return;
+    }
     // Count stats
     const linkedKlassenIds = new Set(App.getTerminKlassenIds(terminId));
     let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0;
@@ -27185,6 +27310,7 @@ const KontrolleHandler = {
   ],
   setzeErgebnisKurz(n) {
     if (this._viewMode !== 'einzeln' || !this.currentTerminId) return;
+    if (this.currentLock) return; // Kollege bearbeitet diesen Azubi – Tastatur darf die Sperre nicht umgehen
     const opt = n === 0 ? { val: '', label: 'zurückgesetzt' } : this.ERGEBNIS_OPTIONEN[n - 1];
     if (!opt) return;
     const radio = document.querySelector(`input[name="ergebnis"][value="${opt.val}"]`);
@@ -27583,7 +27709,9 @@ const KontrolleHandler = {
     App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [this.currentTerminId, schuelerId]);
     // Reload student list (now includes the extra student via KE)
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
-    this.currentSchuelerList.push(s);
+    // Gleiche Reihenfolge wie bei den Kollegen (Prüferaufteilung „#von–bis“ meint sonst je Rechner andere Personen)
+    try { this.currentSchuelerList = App.getTerminSchueler(this.currentTerminId); } catch(e) { this.currentSchuelerList.push(s); }
+    if (!this.currentSchuelerList.some(x => x.id === schuelerId)) this.currentSchuelerList.push(s);
     App.closeModal();
     this.renderUebersicht();
     App.toast(`${s.nachname}, ${s.vorname} zur Kontrolle hinzugefügt`, 'success');
@@ -27596,10 +27724,20 @@ const KontrolleHandler = {
     const name = `${s.nachname}, ${s.vorname}`;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     const hasDaten = ke && ke.ergebnis && ke.ergebnis !== '';
-    const msg = hasDaten
+    const ausKlasse = App.getTerminKlassenIds(this.currentTerminId).includes(s.klasse_id);
+    const msg = (hasDaten
       ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
-      : `${name} aus dieser Kontrolle entfernen?`;
+      : `${name} aus dieser Kontrolle entfernen?`)
+      + (ausKlasse ? '\n\nHinweis: Der Azubi gehört zu einer Klasse dieses Termins und erscheint beim nächsten Laden wieder (ohne Ergebnis).' : '');
     if (!(await App.confirm(msg, { titel: 'Azubi entfernen', ok: 'Entfernen', gefaehrlich: true }))) return;
+    // Alles, was am Kontrollergebnis hängt, mit entfernen – eine verwaiste offene
+    // Wiedervorlage führte beim erneuten Hinzufügen zu einer zweiten
+    if (ke) {
+      ['DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=?)',
+       'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=?',
+       'DELETE FROM kw_maengel WHERE kontrollergebnis_id=?',
+       'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id=?'].forEach(q => { try { App.run(q, [ke.id]); } catch(e) {} });
+    }
     // Delete kontrollergebnis for this termin+student
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
@@ -27811,6 +27949,8 @@ const KontrolleHandler = {
     const prueferList = App.query('SELECT name FROM pruefer WHERE aktiv=1');
     const isAnwesend = ke.anwesend !== 0;
     const isLocked = this.currentLock;
+    const aktiv = document.activeElement;
+    const fokusVorher = aktiv && aktiv.classList && aktiv.classList.contains('kw-cell') && aktiv.dataset.kw ? { aj: aktiv.dataset.aj, kw: aktiv.dataset.kw } : null;
 
     // Sticky-Kopf: aktueller Azubi immer sichtbar (kein Hochscrollen nötig)
     const klasseStk = s.klasse_id ? (App.query('SELECT k.klassenbezeichnung, bs.name AS schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {}) : {};
@@ -28207,9 +28347,14 @@ const KontrolleHandler = {
         </div>
       </div>
     </div>`;
-    // Tastaturbedienung sofort möglich: erste ungeprüfte aktive KW fokussieren
+    // Tastaturbedienung sofort möglich: die zuvor fokussierte Zelle wieder
+    // fokussieren (ein Neuzeichnen durch den Abgleich darf den Cursor nicht
+    // versetzen – der nächste Buchstabe träfe sonst die falsche Woche), sonst
+    // die erste ungeprüfte aktive KW. Bei Kollegen-Sperre gar nicht.
     setTimeout(() => {
-      const c = document.querySelector('.kw-cell:not(.kw-inactive):not(.kw-ok):not(.kw-session)') || document.querySelector('.kw-cell:not(.kw-inactive)');
+      if (this.currentLock) return;
+      const c = (fokusVorher && document.querySelector(`.kw-cell[data-aj="${fokusVorher.aj}"][data-kw="${fokusVorher.kw}"]`))
+        || document.querySelector('.kw-cell:not(.kw-inactive):not(.kw-ok):not(.kw-session)') || document.querySelector('.kw-cell:not(.kw-inactive)');
       if (c && c.focus) { try { c.focus({ preventScroll: true }); } catch(e) { c.focus(); } }
     }, 40);
   },
@@ -28235,7 +28380,14 @@ const KontrolleHandler = {
     }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
-    if (!this._pruefeAbgeschlossen(() => this.saveField(field, value))) return;
+    // Fortsetzung nach „Trotzdem ändern“ nur, wenn noch derselbe Azubi offen ist –
+    // ein „Weiter ›“ zwischen Rückfrage und Antwort schrieb sonst A's Eingabe auf B
+    const sidFest = s.id;
+    if (!this._pruefeAbgeschlossen(() => {
+      const jetzt = this.currentSchuelerList[this.currentIndex];
+      if (!jetzt || jetzt.id !== sidFest) { App.toast(`Änderung für ${s.nachname}, ${s.vorname} nicht übernommen – inzwischen ist ein anderer Azubi geöffnet. Bitte dort erneut eingeben.`, 'warning'); return; }
+      this.saveField(field, value);
+    })) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -28320,7 +28472,8 @@ const KontrolleHandler = {
       // Nach "In Ordnung" automatisch zum nächsten offenen Azubi (abschaltbar)
       if (value === 'in_ordnung' && App.uGet('auto_next', '1') !== '0') {
         App.toast('✓ In Ordnung – weiter zum nächsten offenen Azubi', 'success');
-        setTimeout(() => this.nextOffen(), 700);
+        const tidAuto = this.currentTerminId;
+        setTimeout(() => { if (App.currentView === 'kontrolle' && this._viewMode === 'einzeln' && this.currentTerminId === tidAuto) this.nextOffen(); }, 700);
       }
 
       // Auto-erledige offene Wiedervorlagen wenn "in Ordnung"
@@ -28646,6 +28799,9 @@ const KontrolleHandler = {
   enterSchüler() {
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
+    // Außerhalb der Kontrolle (Tastenkürzel, später Auto-Weiter) nichts tun – sonst
+    // liefe der Live-Sync mit Positionsdatei in einer fremden Ansicht weiter
+    if (!document.getElementById('kontrolleContent')) return;
     const pruefer = this.activePruefer || '';
 
     // ── Persist position for reload recovery ──
@@ -28662,7 +28818,7 @@ const KontrolleHandler = {
     // ── Write position file (tiny JSON, no DB lock needed) ──
     if (pruefer && App.dirHandle && !App.demoMode) {
       const posKey = this.currentTerminId + ':' + s.id;
-      if (this._lastWrittenPos !== posKey || !this._posSeit, this._bereich) this._posSeit = Date.now();
+      if (this._lastWrittenPos !== posKey || !this._posSeit) this._posSeit = Date.now();
       this._lastWrittenPos = posKey;
       App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit, this._bereich);
     }
@@ -28931,7 +29087,7 @@ const KontrolleHandler = {
         const idx = this.currentSchuelerList.findIndex(sc => sc.id === o.schuelerId);
         const name = o.schuelerName || (idx >= 0 ? this.currentSchuelerList[idx].nachname : '?');
         const ber = o.bereich ? ` (Bereich #${o.bereich.von}–${o.bereich.bis})` : '';
-        return o.schuelerId ? `⊘ ${o.pruefer} → #${idx+1} ${name}${ber}` : `${o.pruefer}${ber || ' (Übersicht)'}`;
+        return o.schuelerId ? `⊘ ${esc(o.pruefer)} → #${idx+1} ${esc(name)}${ber}` : `${esc(o.pruefer)}${ber || ' (Übersicht)'}`;
       });
       bar.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
       bar.style.display = '';
@@ -29346,7 +29502,7 @@ const KontrolleHandler = {
     if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
-    this.renderSchueler();
+    this.renderKontrolleView();
   },
 
   // ── Mark KW range as checked (geprüft) ──
@@ -29427,7 +29583,7 @@ const KontrolleHandler = {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
       if (existing.length) {
         const row = existing[0];
-        if (!row.maengel_codes && !row.behobene_codes && !row.fehltage) {
+        if (!row.maengel_codes && !row.behobene_codes && !row.fehltage && !row.bemerkung) {
           App.run('DELETE FROM kw_status WHERE id=?', [row.id]);
         } else {
           App.run('UPDATE kw_status SET geprueft=0 WHERE id=?', [row.id]);
@@ -30295,6 +30451,7 @@ const KWNav = {
   handleKeyDown(e) {
     const cell = document.activeElement;
     if (!cell || !cell.classList.contains('kw-cell') || !cell.dataset.ke) return;
+    if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.currentLock) return; // Kollegen-Sperre gilt auch für die Tastatur
     // Don't capture if popover input is focused
     if (this.activePopover && document.activeElement.tagName === 'INPUT') return;
 
@@ -30855,13 +31012,17 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Ctrl+→ = Next student (in Kontrolle)
-  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight' && KontrolleHandler.currentTerminId) {
+  // Nur in der Einzelansicht der Kontrolle und nicht in Eingabefeldern (Ctrl+← im
+  // Bemerkungsfeld ist Wortsprung – vorher wechselte es den Azubi und der Text war weg)
+  const imFeld = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target && e.target.tagName);
+  const inEinzelansicht = App.currentView === 'kontrolle' && KontrolleHandler.currentTerminId && KontrolleHandler._viewMode === 'einzeln';
+  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight' && inEinzelansicht && !imFeld) {
     e.preventDefault();
     KontrolleHandler.next();
     return;
   }
   // Ctrl+← = Previous student (in Kontrolle)
-  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft' && KontrolleHandler.currentTerminId) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft' && inEinzelansicht && !imFeld) {
     e.preventDefault();
     KontrolleHandler.prev();
     return;
@@ -31047,10 +31208,15 @@ const BulkSchueler = {
   toggleAll(checked) { document.querySelectorAll('.chk-s').forEach(c => c.checked = checked); this.updateBar(); },
   deselectAll() { document.querySelectorAll('.chk-s, .chk-azubi').forEach(c => c.checked = false); const a = document.getElementById('chkAllS'); if (a) a.checked = false; this.updateBar(); },
   updateBar() {
+    // Die Leiste der Azubi-Liste pflegt StammdatenTab; die alte Leiste der
+    // Import-Seite gibt es nicht mehr – ohne Elemente warf das hier und ließ
+    // die Liste nach Bulk-Aktionen veraltet stehen
+    if (typeof StammdatenTab !== 'undefined' && typeof StammdatenTab._bulkUpdateBar === 'function' && document.getElementById('bulkBarAzubi')) { try { StammdatenTab._bulkUpdateBar(); } catch(e) {} return; }
     const ids = this.getSelected();
     const bar = document.getElementById('bulkBarSchueler');
-    document.getElementById('bulkCountS').textContent = ids.length;
-    bar.style.display = ids.length > 0 ? 'flex' : 'none';
+    const cnt = document.getElementById('bulkCountS');
+    if (cnt) cnt.textContent = ids.length;
+    if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
   assignKlasse() {
     const ids = this.getSelected();
@@ -31139,6 +31305,7 @@ const BulkWV = {
   doErledigt() {
     const ids = this.getSelected();
     const datum = document.getElementById('mBulkWVDatum').value;
+    if (!datum) return App.toast('Bitte ein Erledigt-Datum angeben', 'warning');
     const bem = document.getElementById('mBulkWVBem').value.trim();
     ids.forEach(id => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?", [datum, bem, id]));
     App.closeModal();
@@ -31157,6 +31324,7 @@ const BulkWV = {
   doExtendFrist() {
     const ids = this.getSelected();
     const frist = document.getElementById('mBulkWVFrist').value;
+    if (!frist) return App.toast('Bitte eine neue Frist angeben', 'warning');
     ids.forEach(id => App.run("UPDATE wiedervorlagen SET frist_datum=?, status='offen', geaendert_am=datetime('now','localtime') WHERE id=?", [frist, id]));
     App.closeModal();
     App.toast(`Frist für ${ids.length} Wiedervorlagen gesetzt`, 'success');
@@ -31376,7 +31544,11 @@ const Workflows = {
   versandVermerken(wvId, art, typ, zusatz) {
     if (!wvId) return;
     const erinnerung = typ === 'wv_erinnerung';
-    App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${erinnerung ? 'COALESCE(mahnstufe,0)+1' : 'MAX(COALESCE(mahnstufe,0),1)'}, geaendert_am=datetime('now','localtime') WHERE id=?`,
+    // Absolut schreiben statt „+1“: eine geloggte Op kann doppelt eingespielt
+    // werden (Nachladen, Absturzpuffer) – relativ hieße Mahnstufe +2
+    const stufeAlt = App.scalar('SELECT COALESCE(mahnstufe,0) FROM wiedervorlagen WHERE id=?', [wvId]) || 0;
+    const stufeNeu = erinnerung ? stufeAlt + 1 : Math.max(stufeAlt, 1);
+    App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${stufeNeu}, geaendert_am=datetime('now','localtime') WHERE id=?`,
       [todayStr(), art || 'email', wvId]);
     const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung';
     App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)",
@@ -31491,7 +31663,7 @@ const Workflows = {
           <span style="display:flex;gap:4px">
             ${g.email
               ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-forest);color:var(--clr-white);border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
-              : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')" title="Brief nur für diesen Betrieb">▤ Brief</button>
+              : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._individualData.betriebe[${idx}].key)" title="Brief nur für diesen Betrieb">▤ Brief</button>
                  ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
           </span>
         </div>
@@ -31592,7 +31764,7 @@ const Workflows = {
             a.maengel.forEach(m => { maengelListe += `  AJ ${m.ausbildungsjahr}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
           }
         });
-        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status='offen' ORDER BY w.frist_datum LIMIT 1`);
+        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') ORDER BY w.frist_datum LIMIT 1`);
         try {
           const zip = new PizZip(bytes.buffer);
           const DocxTemplater = window.docxtemplater || window.Docxtemplater;
@@ -31652,7 +31824,12 @@ const Workflows = {
         frist: formatDate(addDaysStr(21)) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      doc.text(doc.splitTextToSize(body, 160), 25, 98);
+      // Zeilenweise mit Seitenumbruch – ein langer Azubi-Block lief sonst in die Fußzeile
+      let yz = 98;
+      doc.splitTextToSize(body, 160).forEach(zeile => {
+        if (yz > 270) { PDFExport.footer && PDFExport.footer(doc, idx + 1, betriebe.length); doc.addPage(); yz = 25; }
+        doc.text(zeile, 25, yz); yz += 4.5;
+      });
       PDFExport.footer && PDFExport.footer(doc, idx + 1, betriebe.length);
     });
     doc.save(App.safeFilename(['Anschreiben_Betriebe', t.ctx.schule, t.termin.geplant_datum], 'pdf'));
@@ -31761,7 +31938,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._nachholung.betroffen[${idx}].key)">▤ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };
@@ -32024,7 +32201,7 @@ const WiedervorlagenHandler = {
     const klassen = w.kontrolltermin_id ? App.getTerminKlassen(w.kontrolltermin_id) : [];
     const terminLabel = terminInfo ? `${formatDate(terminInfo.geplant_datum)} – ${klassen.map(k=>k.klassenbezeichnung).join(' + ')}` : '';
 
-    App.openModal(`Wiedervorlage: ${w.nachname}, ${w.vorname}`, `
+    App.openModal(`Wiedervorlage: ${esc(w.nachname)}, ${esc(w.vorname)}`, `
       <!-- ── Info-Grid ── -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
@@ -32155,7 +32332,7 @@ const WiedervorlagenHandler = {
     if (!w || w.status === 'erledigt') return;
     const remaining = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != ""', [w.schueler_id]);
     if (remaining === 0) {
-      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=datetime('now','localtime'), erledigt_bemerkung='Alle Mängel behoben' WHERE id=?", [wvId]);
+      App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Alle Mängel behoben' WHERE id=?", [todayStr(), wvId]);
       App.toast('Alle Mängel behoben → Wiedervorlage automatisch erledigt!', 'success');
     }
   },
@@ -32198,6 +32375,7 @@ const BerichteHandler = {
   doExportKlasse() {
     const klasseId = document.getElementById('mExpKlasse').value;
     const klasse = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?`, [klasseId])[0];
+    if (!klasse) return App.toast('Bitte eine Klasse wählen', 'warning');
     // Eine Zeile PRO AZUBI mit dem jeweils letzten Ergebnis. Der frühere JOIN
     // erzeugte eine Zeile je Kontrolle – wer dreimal kontrolliert wurde, stand
     // dreimal im PDF, und die Anzahl im Dateinamen war entsprechend falsch.
@@ -32429,7 +32607,7 @@ const BerichteHandler = {
       return ke?.ergebnis && ke.ergebnis !== 'in_ordnung';
     }).length;
 
-    App.openModal('Gesamtpaket – ' + klassenStr, `
+    App.openModal('Gesamtpaket – ' + esc(klassenStr), `
       <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Azubis · ${mangelCount} beanstandet</p>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -32570,9 +32748,9 @@ const BerichteHandler = {
          <button class="btn btn-primary" onclick="const v=parseInt(document.getElementById('jbSchuljahr').value);App.closeModal();BerichteHandler.jahresbericht(v)">Bericht erstellen</button>`);
       return;
     }
-    try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
+    try {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     const LM = 18; const RM = 192; const PW = RM - LM;
@@ -32732,7 +32910,7 @@ const BerichteHandler = {
 
     // Auffällige Betriebe
     if (betriebRank.length) {
-      if (y > 230) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+      if (y > 230) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
       y = drawSectionTitle(doc, y, 'Betriebe mit häufigsten Beanstandungen');
       const bCols = [{label:'#',x:LM+2},{label:'Betrieb',x:LM+10},{label:'Azubis',x:LM+115,align:'center'},{label:'Mängel',x:LM+135,align:'center'},{label:'Off. WV',x:RM-2,align:'right'}];
       y = drawTableHeader(doc, y, bCols);
@@ -32885,15 +33063,15 @@ const BerichteHandler = {
     drawFooter(doc, pageNum);
 
     doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${todayStr()}.pdf`);
-    App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
-    }, 50); // end setTimeout
     } catch(e) {
+      // try/catch gehört IN den Timer – außerhalb lief finally sofort, ein Fehler beim Rendern blieb stumm
       console.error('Jahresbericht:', e);
       App.toast('Jahresbericht konnte nicht erstellt werden: ' + (e.message || e), 'error');
     } finally {
       App.hideLoading();
     }
+    }, 50); // end setTimeout
   },
 
   // ═══════════════════════════════════════════
@@ -33785,12 +33963,26 @@ const Phasen = {
     const konflikt = Phasen.phasenKonflikt(allePhasen, { ...phase, id: phaseId });
     if (konflikt) {
       const empf = konflikt.optionen.find(o => o.empfohlen);
+      const kannSplitten = konflikt.optionen.some(o => o.id === 'splitten');
       if (empf && empf.id === 'kuerzen') {
+        const alt = konflikt.konflikt;
         const vorTag = Phasen.parseISO(von);
         vorTag.setDate(vorTag.getDate() - 1);
-        Phasen.updatePhase(konflikt.konflikt.id, { ...konflikt.konflikt, bis: Phasen.fmtISO(vorTag) });
-        // User informieren — die bestehende Phase wurde automatisch angepasst!
-        App.toast(`Bestehende Phase (${Phasen.beschreibPhase(konflikt.konflikt)}) automatisch am ${Phasen.fmtDE(vorTag)} beendet`, 'warning');
+        Phasen.updatePhase(alt.id, { ...alt, bis: Phasen.fmtISO(vorTag) });
+        if (kannSplitten && bis) {
+          // Die neue Phase liegt INNERHALB der bestehenden (z.B. Unterbrechung
+          // mitten in der Ausbildung): nur kürzen verschluckte den Rest hinter
+          // der neuen Phase – das Vertragsende sprang auf den Tag vor der
+          // Unterbrechung. Deshalb den Rest als eigene Phase weiterführen
+          // (pauschale Fehltage bleiben beim ersten Teil).
+          const nachTag = Phasen.parseISO(bis);
+          nachTag.setDate(nachTag.getDate() + 1);
+          Phasen.addPhase(schuelerId, { ...alt, von: Phasen.fmtISO(nachTag), bis: alt.bis, pauschal_fehltage_e: 0, pauschal_fehltage_u: 0, anmerkung: alt.anmerkung || '' });
+          App.toast(`Bestehende Phase (${Phasen.beschreibPhase(alt)}) geteilt: bis ${Phasen.fmtDE(vorTag)} und ab ${Phasen.fmtDE(nachTag)}`, 'warning');
+        } else {
+          // User informieren — die bestehende Phase wurde automatisch angepasst!
+          App.toast(`Bestehende Phase (${Phasen.beschreibPhase(alt)}) automatisch am ${Phasen.fmtDE(vorTag)} beendet`, 'warning');
+        }
       } else {
         App.toast('Achtung: Phasen überlappen sich — bitte im Editor prüfen', 'warning');
       }
@@ -34083,7 +34275,8 @@ const SchuelerAkte = {
         checkPage(8);
         const statusLbl = { offen: 'Offen', erledigt: 'Erledigt', ueberfaellig: 'Überfällig' };
         doc.setFont(undefined, 'bold');
-        doc.text(`${w.typ || '–'} – ${statusLbl[w.status] || w.status} (Frist: ${w.frist ? new Date(w.frist).toLocaleDateString('de-DE') : '–'})`, LM + 2, y);
+        const artLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' };
+        doc.text(`${artLbl[w.art] || w.art || '–'} – ${statusLbl[w.status] || w.status} (Frist: ${w.frist_datum ? SchuelerAkte._formatDate(w.frist_datum) : '–'})`, LM + 2, y);
         doc.setFont(undefined, 'normal');
         y += 4;
         if (w.versand_datum) {
@@ -34093,8 +34286,8 @@ const SchuelerAkte = {
           doc.setTextColor(0);
           y += 4;
         }
-        if (w.beschreibung) {
-          const lines = doc.splitTextToSize(w.beschreibung, RM - LM - 4);
+        if (w.erledigt_bemerkung) {
+          const lines = doc.splitTextToSize(w.erledigt_bemerkung, RM - LM - 4);
           lines.forEach(line => { checkPage(4); doc.text(line, LM + 4, y); y += 3.5; });
         }
         w.notizen.forEach(n => {
@@ -34287,7 +34480,7 @@ const AzubiSeite = {
             ${zeile('E-Mail', link('mailto', betrieb.email), { roh: true })}
             ${zeile('Ansprechpartner', betrieb.ansprechpartner)}
             ${zeile('Betriebsnummer', betrieb.betriebsnummer)}
-            ${ausbilder.map(a => zeile(a.funktion || 'Ausbilder', [a.vorname, a.nachname].filter(Boolean).join(' ') + [a.telefon, a.mobil, a.email].filter(Boolean).map(x => ' · ' + x).join(''))).join('')}
+            ${ausbilder.map(a => zeile(esc(a.funktion) || 'Ausbilder', [a.vorname, a.nachname].filter(Boolean).join(' ') + [a.telefon, a.mobil, a.email].filter(Boolean).map(x => ' · ' + x).join(''))).join('')}
           ` : zeile('Ausbildungsstätte', s.ausbildungsstaette) || '<p class="az-leer">Kein Betrieb zugeordnet.</p>'}
         </div>
         <div class="az-spalte">
@@ -34501,7 +34694,7 @@ const DbTools = {
   // ─────────────────────────────────────────────
   _stichtag(monate) {
     const d = new Date(); d.setMonth(d.getMonth() - (parseInt(monate) || this.VERDICHTEN_MONATE_STANDARD));
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; // Ortszeit, nicht UTC
   },
   verdichtenKandidaten(monate, jahrgangIds) {
     const stich = this._stichtag(monate);
@@ -34634,7 +34827,7 @@ const DbTools = {
   // ── Archiv: eigene SQLite mit exakt den betroffenen Zeilen + Excel-Übersicht ──
   _archivName(jgs) {
     const bez = jgs.map(j => j.bezeichnung).join('+').replace(/[^A-Za-z0-9+_-]/g, '_').slice(0, 40) || 'jahrgang';
-    return `archiv_${bez}_${new Date().toISOString().slice(0, 10)}`;
+    return `archiv_${bez}_${todayStr()}`;
   },
   // Baut die Archiv-DB im Speicher (auch aus Tests nutzbar). Gibt die sql.js-DB zurück.
   _archivDbBauen(jahrgangIds, SQLlib) {

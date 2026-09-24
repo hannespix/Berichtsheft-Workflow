@@ -346,12 +346,26 @@ const Phasen = {
     const konflikt = Phasen.phasenKonflikt(allePhasen, { ...phase, id: phaseId });
     if (konflikt) {
       const empf = konflikt.optionen.find(o => o.empfohlen);
+      const kannSplitten = konflikt.optionen.some(o => o.id === 'splitten');
       if (empf && empf.id === 'kuerzen') {
+        const alt = konflikt.konflikt;
         const vorTag = Phasen.parseISO(von);
         vorTag.setDate(vorTag.getDate() - 1);
-        Phasen.updatePhase(konflikt.konflikt.id, { ...konflikt.konflikt, bis: Phasen.fmtISO(vorTag) });
-        // User informieren — die bestehende Phase wurde automatisch angepasst!
-        App.toast(`Bestehende Phase (${Phasen.beschreibPhase(konflikt.konflikt)}) automatisch am ${Phasen.fmtDE(vorTag)} beendet`, 'warning');
+        Phasen.updatePhase(alt.id, { ...alt, bis: Phasen.fmtISO(vorTag) });
+        if (kannSplitten && bis) {
+          // Die neue Phase liegt INNERHALB der bestehenden (z.B. Unterbrechung
+          // mitten in der Ausbildung): nur kürzen verschluckte den Rest hinter
+          // der neuen Phase – das Vertragsende sprang auf den Tag vor der
+          // Unterbrechung. Deshalb den Rest als eigene Phase weiterführen
+          // (pauschale Fehltage bleiben beim ersten Teil).
+          const nachTag = Phasen.parseISO(bis);
+          nachTag.setDate(nachTag.getDate() + 1);
+          Phasen.addPhase(schuelerId, { ...alt, von: Phasen.fmtISO(nachTag), bis: alt.bis, pauschal_fehltage_e: 0, pauschal_fehltage_u: 0, anmerkung: alt.anmerkung || '' });
+          App.toast(`Bestehende Phase (${Phasen.beschreibPhase(alt)}) geteilt: bis ${Phasen.fmtDE(vorTag)} und ab ${Phasen.fmtDE(nachTag)}`, 'warning');
+        } else {
+          // User informieren — die bestehende Phase wurde automatisch angepasst!
+          App.toast(`Bestehende Phase (${Phasen.beschreibPhase(alt)}) automatisch am ${Phasen.fmtDE(vorTag)} beendet`, 'warning');
+        }
       } else {
         App.toast('Achtung: Phasen überlappen sich — bitte im Editor prüfen', 'warning');
       }

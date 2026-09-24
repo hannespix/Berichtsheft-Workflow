@@ -124,7 +124,7 @@ console.log('\n══ Rückfragen: eigene Dialoge statt window.confirm/prompt �
   // Abgeschlossene Kontrolle: Rückfrage nur einmal, Weiterlauf nach Ja
   const K2 = read('src/js/modules/kontrolle.js');
   check(/_pruefeAbgeschlossen\(weiter\)/.test(K2) && /if \(ok\) \{ this\._abgeschlossenBestaetigt = tid; if \(weiter\) weiter\(\); \}/.test(K2), 'Abgeschlossene Kontrolle: nach „Trotzdem ändern“ läuft die abgebrochene Aktion erneut');
-  check(/_pruefeAbgeschlossen\(\(\) => this\.saveField\(field, value\)\)/.test(K2) && /_pruefeAbgeschlossen\(\(\) => this\.quickMarkOK\(schuelerId\)\)/.test(K2), 'saveField und Schnell-i.O. übergeben ihre Fortsetzung');
+  check(/_pruefeAbgeschlossen\(\(\) => \{[\s\S]*?this\.saveField\(field, value\);\n    \}\)\)/.test(K2) && /_pruefeAbgeschlossen\(\(\) => this\.quickMarkOK\(schuelerId\)\)/.test(K2), 'saveField und Schnell-i.O. übergeben ihre Fortsetzung');
   check((K2.match(/\n  async (removeSchueler|doAddNewSchueler|reopenKontrolle|markOffeneOK|bulkMarkOK)\(/g) || []).length === 5, 'Betroffene Kontroll-Aktionen sind async');
   check(/async saveTermin\(/.test(read('src/js/modules/planung.js')) && /async _kampAnlegen\(/.test(read('src/js/modules/planung.js')) && /async confirmDeletePhase\(/.test(read('src/js/modules/phasen.js')) && /async deleteBemerkung\(/.test(read('src/js/modules/schueler-akte.js')), 'Rückfragen aus offenen Dialogen (Termin, Kampagne, Phase, Bemerkung) sind async und lassen den Dialog stehen');
 }

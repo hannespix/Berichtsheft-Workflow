@@ -904,11 +904,23 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.doBulkMoveKlassen([${ids}])">Zuordnen</button>`);
   },
+  // Klassen sind je (Schule, Jahrgang, Fachrichtung) eindeutig: eine Verschiebung
+  // auf eine schon vorhandene Kombination scheiterte an UNIQUE mitten in der
+  // Schleife (Dialog blieb offen, Rest nicht verschoben) – jetzt je Klasse
+  // prüfen und die Kollisionen melden
+  _klasseKollidiert(id, bs, jg, fr) {
+    return !!App.scalar('SELECT id FROM klassen WHERE berufsschule_id=? AND jahrgang_id IS ? AND fachrichtung_id IS ? AND id!=?', [bs, jg == null || jg === '' ? null : jg, fr == null || fr === '' ? null : fr, id]);
+  },
   doBulkMoveKlassen(ids) {
     const sid = document.getElementById('mBulkKlSchule').value;
-    ids.forEach(id => App.run('UPDATE klassen SET berufsschule_id=? WHERE id=?', [sid, id]));
+    let ok = 0, koll = 0;
+    ids.forEach(id => {
+      const k = App.query('SELECT jahrgang_id, fachrichtung_id FROM klassen WHERE id=?', [id])[0];
+      if (!k || this._klasseKollidiert(id, sid, k.jahrgang_id, k.fachrichtung_id)) { koll++; return; }
+      App.run('UPDATE klassen SET berufsschule_id=? WHERE id=?', [sid, id]); ok++;
+    });
     App.closeModal();
-    App.toast(`${ids.length} Klassen verschoben`, 'success');
+    App.toast(`${ok} Klassen verschoben${koll ? `, ${koll} nicht (an der Schule gibt es diese Klasse schon – bitte zusammenführen)` : ''}`, koll ? 'warning' : 'success');
     StammdatenTab.show('klassen');
   },
   bulkSetJahrgangKlassen() {
@@ -924,9 +936,14 @@ const StammdatenTab = {
   },
   doBulkJGKlassen(ids) {
     const jgId = document.getElementById('mBulkKlJG').value;
-    ids.forEach(id => App.run('UPDATE klassen SET jahrgang_id=? WHERE id=?', [jgId, id]));
+    let ok = 0, koll = 0;
+    ids.forEach(id => {
+      const k = App.query('SELECT berufsschule_id, fachrichtung_id FROM klassen WHERE id=?', [id])[0];
+      if (!k || this._klasseKollidiert(id, k.berufsschule_id, jgId, k.fachrichtung_id)) { koll++; return; }
+      App.run('UPDATE klassen SET jahrgang_id=? WHERE id=?', [jgId, id]); ok++;
+    });
     App.closeModal();
-    App.toast(`${ids.length} Klassen aktualisiert`, 'success');
+    App.toast(`${ok} Klassen aktualisiert${koll ? `, ${koll} nicht (Klasse für diesen Jahrgang gibt es dort schon)` : ''}`, koll ? 'warning' : 'success');
     StammdatenTab.show('klassen');
   },
   addKlasse() {
@@ -966,6 +983,7 @@ const StammdatenTab = {
     const jg = document.getElementById('mKlJG')?.value || null;
     if (!bs) return App.toast('Bitte Schule wählen', 'error');
     if (id) {
+      if (this._klasseKollidiert(id, bs, jg, fr)) return App.toast('Für diese Schule, diesen Jahrgang und diese Fachrichtung gibt es schon eine Klasse – bitte zusammenführen statt umbenennen', 'error');
       App.run('UPDATE klassen SET berufsschule_id=?,jahrgang_id=?,lehrjahr=?,fachrichtung_id=?,klassenbezeichnung=? WHERE id=?', [bs,jg,lj,fr,bez,id]);
     } else {
       // ON CONFLICT: legt ein Kollege dieselbe Klasse parallel an (oder der
@@ -1285,7 +1303,7 @@ const StammdatenTab = {
       <div class="card"><table class="data-table"><thead><tr>
         <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th title="Betriebs-Ampel: rot = Wiederholungsbetrieb oder überfällige WV, gelb = offene WV/Mängel, grün = unauffällig · Ø Tage bis zum Nachweis">Ampel</th><th>Aktionen</th>
       </tr></thead><tbody id="betriebeTableBody">
-        ${rows.map(b => `<tr data-search="${(b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase()}">
+        ${rows.map(b => `<tr data-search="${esc((b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase())}">
           <td>
             ${b.zusatzbezeichnung ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(b.zusatzbezeichnung)}</div>` : ''}
             <strong>${esc((b.vorname ? b.vorname + ' ' : '') + b.name)}</strong>
