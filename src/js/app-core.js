@@ -4489,6 +4489,21 @@ const App = {
         console.warn(`[SyncV3] Eigenes Log verschwunden → neue Generation ${this._logGen}`);
         handle = await dir.getFileHandle(this._myOplogName(), { create: true });
       }
+      // Eigenes Log ist schon groß (Rotation nach einem Fehlversuch nie erfolgt,
+      // alte Version ohne Rotation, ein einziger riesiger Schub): NICHT die
+      // ganze Datei kopieren lassen – auf eine neue Generation drehen. Sonst
+      // hängt jeder Versuch im Zeitlimit und die Datei wird nie kleiner.
+      if (size >= this.LOG_ROTATE_BYTES) {
+        const alt = size;
+        this._logOffsets[this._myOplogName()] = size;
+        this._logGen++;
+        this._myLogSize = 0;
+        size = 0;
+        console.warn(`[SyncV3] Eigenes Log ist ${Math.round(alt / 1024)} KB groß → vor dem Anhängen auf Generation ${this._logGen} gedreht`);
+        BhkSpur.notiere('anhaengen', 'Großes Log vor dem Anhängen rotiert', { ok: true, info: `Generation ${this._logGen}` });
+        handle = await dir.getFileHandle(this._myOplogName(), { create: true });
+        try { const f = await handle.getFile(); if (f.size > 0) size = f.size; } catch(e) {}
+      }
       const writeOp = async () => {
         writable = await handle.createWritable({ keepExistingData: true });
         await writable.write({ type: 'write', position: size, data: bytes });
@@ -4850,6 +4865,7 @@ const App = {
       // Op (z.B. Ergebnis zu einem Termin) im selben Batch VOR ihrer Grundlage
       // einsortiert sein. Ein einzelner Wiederholungsversuch heilt das; was dann
       // noch scheitert, ist wirklich defekt und wird gemeldet.
+      let doppelt = 0;
       for (const op of fehlgeschlagen) {
         try {
           lauf(op.sql, op.params);
@@ -4857,8 +4873,15 @@ const App = {
           this._merkeBetroffenenAzubi(op.sql, op.params);
           applied++;
         } catch(e) {
-          console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
+          // Schon vorhandene Zeile (Op steckt bereits im Snapshot): kein Fehler,
+          // nur zählen – Hunderte Einzelzeilen füllten sonst die Konsole
+          if (/UNIQUE constraint/i.test(String(e.message || ''))) doppelt++;
+          else console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
         }
+      }
+      if (doppelt) {
+        this._doppelteOps = (this._doppelteOps || 0) + doppelt;
+        console.log(`[SyncV3] ${doppelt} Op(s) übersprungen – Zeilen bereits vorhanden (Snapshot enthielt sie schon)`);
       }
     } finally {
       anweisungen.forEach(st => { try { st.free(); } catch(e) {} });
@@ -5157,6 +5180,14 @@ const App = {
           console.warn('[SyncV3] Eigenes Log endet in halber Zeile – neue Generation ' + this._logGen);
         }
       } catch(e) { /* eigenes Log existiert noch nicht */ }
+      // Großes eigenes Log (Rotation nach Fehlversuchen nie erfolgt): schon jetzt
+      // drehen, damit das erste Anhängen nicht Megabytes kopiert
+      if (this._myLogSize >= this.LOG_ROTATE_BYTES) {
+        this._logOffsets[mine] = this._myLogSize;
+        this._logGen++;
+        this._myLogSize = 0;
+        console.warn('[SyncV3] Eigenes Log groß – neue Generation ' + this._logGen);
+      }
       // Stempel des Snapshots übernehmen – erst dann die Log-Ops anwenden
       this._stampsLaden();
       // Eigene wie fremde Ops in globaler ts-Ordnung anwenden (eigene sind im
@@ -5193,9 +5224,14 @@ const App = {
   _letzteKompaktierung: 0,     // Zeitpunkt der letzten bekannten Kompaktierung (eigene oder snapmeta.t)
   kompaktSchwelle() { return Math.max(this.KOMPAKT_MIN_BYTES, Math.round((this._lastFileSize || 0) * this.KOMPAKT_ANTEIL)); },
   snapshotTimeoutMs(bytes) { return 120000 + Math.ceil((bytes || 0) / 1048576) * 10000; },
-  _kompaktGebremst() {
+  KOMPAKT_DRINGEND_BYTES: 8 * 1024 * 1024, // ab so vielen ungedeckten Protokoll-Bytes auch über langsame Leitung kompaktieren
+  // dringend = ungedeckte Protokolle über KOMPAKT_DRINGEND_BYTES: dann bremst
+  // nur noch die getaktete Verbindung und der Mindestabstand – jeder Start
+  // läse sonst Megabytes Protokoll und spielte Zehntausende Ops nach
+  _kompaktGebremst(dringend = false) {
     if (Date.now() - (this._letzteKompaktierung || 0) < this.KOMPAKT_MIN_ABSTAND_MS) return `letzte Kompaktierung vor ${Math.round((Date.now() - this._letzteKompaktierung) / 60000)} min`;
     if (this.getaktet) return 'getaktete Verbindung (Einstellung)';
+    if (dringend) return '';
     if (this.feldmodus) return 'langsame Leitung (Einstellung)';
     if (this._networkQuality === 'very-slow') return 'sehr langsame Leitung';
     return '';
@@ -5204,8 +5240,7 @@ const App = {
     try {
       const dir = this._syncDirV3();
       if (!dir) return false;
-      const bremse = this._kompaktGebremst();
-      if (bremse) { BhkSpur.uebersprungen('kompakt', 'automatische Kompaktierung zurückgestellt: ' + bremse); return false; }
+      if (this._kompaktGebremst(true)) { BhkSpur.uebersprungen('kompakt', 'automatische Kompaktierung zurückgestellt: ' + this._kompaktGebremst(true)); return false; }
       // Nur Bytes zählen, die der Snapshot noch NICHT abdeckt. Die Gesamtgröße
       // wäre irreführend: verwaiste (aber vollständig abgedeckte) Logs toter
       // Clients ließen sonst jede 5 Minuten eine sinnlose Kompaktierung samt
@@ -5222,7 +5257,11 @@ const App = {
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
         try { offen += Math.max(0, (await h.getFile()).size - (covered[name] || 0)); } catch(e) {}
       }
-      return offen > this.kompaktSchwelle(); // ungedeckte Ops über der Schwelle → kompakt
+      if (offen <= this.kompaktSchwelle()) return false; // ungedeckte Ops über der Schwelle → kompakt
+      const bremse = this._kompaktGebremst(offen > this.KOMPAKT_DRINGEND_BYTES);
+      if (bremse) { BhkSpur.uebersprungen('kompakt', 'automatische Kompaktierung zurückgestellt: ' + bremse); return false; }
+      if (offen > this.KOMPAKT_DRINGEND_BYTES) console.log(`[SyncV3] ${Math.round(offen / 1024 / 1024)} MB ungedeckte Protokolle – Kompaktierung trotz langsamer Leitung`);
+      return true;
     } catch(e) { return false; }
   },
   async _compact(reason) {
@@ -5238,6 +5277,15 @@ const App = {
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       this.ladeText && this._ladeTimer && this.ladeText('Änderungen sichern…');
       await this._saveV3();
+      // Eigene Ops, die NICHT im Protokoll stehen, stecken trotzdem im Speicher-
+      // abbild: der Snapshot enthielte sie, die Offsets nicht – beim späteren
+      // Anhängen spielten alle sie erneut ein (UNIQUE-Meldungen beim Start,
+      // 160.000 Ops im Bootstrap). Automatische Läufe warten deshalb; Import und
+      // Bereinigung müssen ihren Stand schreiben und laufen weiter.
+      if ((this._dirtyOps.length || this._appendHaengt) && (reason === 'groesse' || reason === 'start')) {
+        BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: 'eigene Änderungen noch nicht angehängt', info: reason });
+        return this._compactAbgelehnt(`${this._dirtyOps.length} eigene Änderung(en) noch nicht angehängt${this._appendHaengt ? ' (Anhängen hängt)' : ''} – Kompaktierung wartet`);
+      }
       this.ladeText && this._ladeTimer && this.ladeText('Fremde Änderungen einlesen…');
       await this._pollOplogs();
       // 2) Offsets = eigener LESESTAND. Ein erneuter Verzeichnis-Scan würde
@@ -8417,7 +8465,7 @@ const App = {
     const name = s ? `${s.nachname}, ${s.vorname}` : `ID ${schuelerId}`;
     const bearbeiter = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
     const ibykusRelevant = this.IBYKUS_FELDER.includes(feld) ? 1 : 0;
-    this.run("INSERT INTO aenderungslog (schueler_id, schueler_name, feld, alter_wert, neuer_wert, aktion, bearbeiter, ibykus_relevant) VALUES (?,?,?,?,?,?,?,?)",
+    this.run("INSERT OR IGNORE INTO aenderungslog (schueler_id, schueler_name, feld, alter_wert, neuer_wert, aktion, bearbeiter, ibykus_relevant) VALUES (?,?,?,?,?,?,?,?)",
       [schuelerId, name, feld, String(alterWert ?? ''), String(neuerWert ?? ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
   },
 
