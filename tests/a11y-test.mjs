@@ -58,7 +58,7 @@ console.log('\n══ Schriftgrößen ══');
 console.log('\n══ Zoom: feste Leisten nur bei genug Platz, Leiste bündig ══');
 {
   check(/@media \(max-height: 720px\), \(max-width: 720px\) \{\n  \.azubi-sticky, \.kw-legend, \.ke-leiste \{ position: static;/.test(CSS), 'Ab 720 px Fensterhöhe oder -breite scrollen Azubi-Kopf, Kürzel-Leiste und Ergebnisleiste mit');
-  check(/\.ke-leiste \{ position: sticky; bottom: -28px;/.test(CSS) && /\.ke-leiste \{ bottom: -20px;/.test(CSS) && /\.ke-leiste \{ bottom: -16px;/.test(CSS) && /\.ke-leiste \{ bottom: -12px;/.test(CSS) && /\.ke-leiste \{ bottom: -32px;/.test(CSS), 'Ergebnisleiste überbrückt den Seitenabstand je Breite (32/28/20/16/12 px)');
+  check(/\.ke-leiste \{ position: sticky; bottom: calc\(-1 \* var\(--gutter-unten\)\);/.test(CSS) && (CSS.match(/:root \{ --gutter: \d+px; --gutter-unten: \d+px; --gutter-kopf: \d+px; \}/g) || []).length === 4, 'Ergebnisleiste überbrückt den Seitenabstand über das Randmaß (vier Stufen je Breite)');
   check(/\.kw-bereich-select \{ width: auto !important; min-width: 78px; \}/.test(CSS) && /class="form-control kw-bereich-select" aria-label="Bereich von Kalenderwoche"/.test(K), 'Bereichsauswahl im Raster wird nicht abgeschnitten');
   check(/prefers-reduced-motion: reduce/.test(CSS), 'Bewegung reduziert, wenn das System es wünscht');
 }
@@ -79,6 +79,19 @@ console.log('\n══ Große Schrift ══');
   check(/body\.grosse-schrift \{ zoom: 1\.2; \}/.test(CSS), 'Große Schrift vergrößert die ganze Oberfläche um 20 %');
   check(/get grosseSchrift\(\) \{ return this\.lsGet\('bhk_grosse_schrift'\) === '1'; \}/.test(APP) && /setGrosseSchrift\(an\) \{/.test(APP) && /document\.body\.classList\.toggle\('grosse-schrift', this\.lsGet\('bhk_grosse_schrift'\) === '1'\);/.test(APP), 'Einstellung je Rechner, wird beim Start angewendet');
   check(/onchange="App\.setGrosseSchrift\(this\.checked\)"/.test(V) && /Große Schrift \(dieser Rechner\)/.test(V), 'Schalter unter Einstellungen → Darstellung');
+}
+
+console.log('\n══ Feinschliff Durchsicht: eine haftende Zeile ══');
+{
+  check(/<div class="kopf-block" id="kopfBlock">/.test(HTML) && /<\/div><!-- \/kopf-block -->/.test(HTML) && /_kopfInit\(\) \{/.test(APP) && /body\.kopf-weg \.kopf-block \{ margin-top: calc\(-1 \* var\(--kopf-h, 110px\)\); \}/.test(CSS), 'Kopfzeile und Filterbalken gleiten beim Scrollen nach unten weg (Klasse kopf-weg, gemessene Höhe)');
+  check(/if \(Date\.now\(\) < sperre\) return;/.test(APP) && /sperre = Date\.now\(\) \+ 350/.test(APP) && /this\.kopfZeigen\(\);/.test(APP.split('navigate(view, skipHash) {')[1].slice(0, 200)), 'Sperre gegen Hin und Her am unteren Rand, Seitenwechsel zeigt den Kopf wieder');
+  check(/--gutter: 32px;/.test(CSS) && /\.main-content \{\n  flex: 1;\n  overflow-y: auto;\n  padding: 0 var\(--gutter\) var\(--gutter-unten\);/.test(CSS) && /padding: 0 var\(--gutter\);\n  margin: 0 calc\(-1 \* var\(--gutter\)\) 0;/.test(CSS) && /margin: 12px calc\(-1 \* var\(--gutter\)\) calc\(-1 \* var\(--gutter-unten\)\); padding: 6px var\(--gutter\) 8px;/.test(CSS), 'Ein Randmaß für Inhalt, Azubi-Kopf und Ergebnisleiste');
+  check(!/\.main-content \{ padding: 0 \d+px \d+px; \}/.test(CSS) && !/\.ke-leiste \{ bottom: -\d+px;/.test(CSS), 'Keine festen Pixelabstände mehr in den Breakpoints');
+  check(/class="ke-zeile2"/.test(K) && !/class="ke-bemerkung"/.test(K) && !/class="ke-fuss"/.test(K) && /\.ke-zeile2 textarea \{ flex: 1 1 260px;/.test(CSS), 'Ergebnisleiste hat zwei Zeilen: Ergebnis · Bemerkung mit Navigation');
+  check(!/Auto-Weiter<\/label>/.test(K) && /Auto-Weiter nach „In Ordnung“/.test(K) && /autoWeiterUmschalten\(\) \{/.test(K) && /textbausteinEinfuegen\(i\) \{/.test(K), 'Auto-Weiter im ⋯-Menü, Textbausteine als Menü statt Auswahlfeld');
+  check(/id="keGesichert" class="as-gesichert/.test(K) && /<i class="punkt"><\/i><span class="sr-only">/.test(K) && /el\.classList\.toggle\('offen', offen\);/.test(K) && /\.azubi-sticky \.as-gesichert\.offen \.punkt/.test(CSS), 'Speicherstatus als Punkt im Azubi-Kopf mit Text für Vorleseprogramme');
+  check(/<div class="kw-legend-anker"><div class="kw-legend/.test(K) && /role="dialog" aria-label="Mängelcodes und Tastenkürzel"/.test(K) && /\.kw-legend-anker \{\n  position: sticky;\n  top: 33px;/.test(CSS) && /\.kw-legend \{\n  position: absolute;/.test(CSS) && /_legendeZuHandler/.test(K), 'Kürzel als Popover unter dem Azubi-Kopf, Klick daneben schließt');
+  check(/\.page-header\.kompakt \{/.test(CSS) && /page-header'\)\?\.classList\.add\('kompakt'\)/.test(K) && /page-header'\)\?\.classList\.remove\('kompakt'\)/.test(K), 'Seitenkopf der Durchsicht wird mit geladenem Termin kompakt');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

@@ -117,11 +117,13 @@ const KontrolleHandler = {
       </span>
     </div>`;
     kurz.style.display = ''; voll.style.display = 'none';
+    try { document.querySelector('#mainContent .page-header')?.classList.add('kompakt'); } catch(e) {}
   },
   terminWechseln() {
     const kurz = document.getElementById('terminWahlKurz'), voll = document.getElementById('terminWahlVoll');
     if (!kurz || !voll) return;
     kurz.style.display = 'none'; voll.style.display = '';
+    try { document.querySelector('#mainContent .page-header')?.classList.remove('kompakt'); } catch(e) {}
     const sel = document.getElementById('selKontrolltermin');
     if (sel) {
       // Aktuellen Termin vorwählen, wenn er in der Liste steht
@@ -148,6 +150,22 @@ const KontrolleHandler = {
     const zeigen = an == null ? bar.classList.contains('hidden') : !!an;
     bar.classList.toggle('hidden', !zeigen);
     App.uSet('legend_hidden', zeigen ? '0' : '1');
+    // Popover: ein Klick außerhalb schließt es wieder
+    if (zeigen && !this._legendeZuHandler) {
+      this._legendeZuHandler = (e) => { const b = document.getElementById('kwLegendBar'); if (b && !b.classList.contains('hidden') && !b.contains(e.target) && !(e.target.closest && e.target.closest('[aria-controls="kwLegendBar"]'))) this.legendeUmschalten(false); };
+      setTimeout(() => document.addEventListener('click', this._legendeZuHandler), 0);
+    }
+  },
+  // Textbaustein aus dem Menü an die Bemerkung anhängen (Index statt Text: kein Anführungszeichen-Problem)
+  textbausteinEinfuegen(i) {
+    const b = App.getTextbausteine()[i]; const ta = document.getElementById('keBemerkung');
+    if (b == null || !ta) return;
+    ta.value = ta.value ? (ta.value + '. ' + b) : b;
+    this.saveField('bemerkung', ta.value);
+  },
+  autoWeiterUmschalten() {
+    App.uSet('auto_next', App.uGet('auto_next', '1') !== '0' ? '0' : '1');
+    App.toast(App.uGet('auto_next', '1') !== '0' ? 'Auto-Weiter an: nach „In Ordnung“ geht es zum nächsten offenen Azubi' : 'Auto-Weiter aus', 'info');
   },
 
   _viewMode: 'uebersicht', // 'uebersicht' or 'einzeln'
@@ -1163,7 +1181,7 @@ const KontrolleHandler = {
     };
 
     const legendHidden = App.uGet('legend_hidden', '1') !== '0';
-    const kwLegendHtml = `<div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar">
+    const kwLegendHtml = `<div class="kw-legend-anker"><div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar" role="dialog" aria-label="Mängelcodes und Tastenkürzel">
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
@@ -1181,7 +1199,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>J</kbd>heutige KW</span>
       <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
       <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden" aria-label="Kürzel ausblenden">✕</button>
-    </div>`;
+    </div></div>`;
 
     const c = document.getElementById('kontrolleContent');
     // Get other active prüfer (from position files)
@@ -1198,6 +1216,7 @@ const KontrolleHandler = {
       <span class="as-name">${esc(s.nachname)}, ${esc(s.vorname)}</span>
       ${ergStk}
       <span class="as-meta">${[s.ausbildungsstaette, klasseStk.klassenbezeichnung, klasseStk.schule].filter(Boolean).map(esc).join(' · ')}</span>
+      <span id="keGesichert" class="as-gesichert${App.azubiGesichert(s.id) ? '' : ' offen'}" onclick="App.wartendeAenderungenDialog()" title="${App.azubiGesichert(s.id) ? 'Alle Änderungen an diesem Azubi sind auf dem Netzlaufwerk (Klick: Details)' : 'Änderungen an diesem Azubi werden gerade geschrieben (Klick: Details)'}" role="status"><i class="punkt"></i><span class="sr-only">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span></span>
       <span class="as-nav">
         <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" aria-label="Vorheriger Azubi" ${this.currentIndex === 0 ? 'disabled' : ''}>‹</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" aria-label="Nächster Azubi" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
@@ -1567,25 +1586,20 @@ const KontrolleHandler = {
             <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
           </span>
         </div>
-        <div class="ke-bemerkung">
-          <textarea class="form-control" rows="${ke.bemerkung && ke.bemerkung.length > 90 ? 3 : 1}" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="if(this.value.length<=90)this.rows=1">${esc(ke.bemerkung)}</textarea>
-          <select class="form-control" style="width:auto;font-size:12px;padding:4px 6px;color:var(--clr-text-light)" title="Textbaustein an die Bemerkung anhängen" onchange="if(this.value){const ta=document.getElementById('keBemerkung');ta.value=ta.value?(ta.value+'. '+this.value):this.value;KontrolleHandler.saveField('bemerkung',ta.value);this.value=''}">
-            <option value="">Textbaustein…</option>
-            ${App.getTextbausteine().map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="ke-fuss">
+        <div class="ke-zeile2">
+          <textarea class="form-control" rows="1" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="this.rows=1" aria-label="Bemerkung zum Berichtsheft">${esc(ke.bemerkung)}</textarea>
+          ${App.getTextbausteine().length ? this._menue('✎', App.getTextbausteine().map((b, i) => ({ label: esc(b), onclick: `KontrolleHandler.textbausteinEinfuegen(${i})` })), 'Textbaustein an die Bemerkung anhängen', 'klein oben') : ''}
           <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
           <button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.nextOffen()" title="Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet">✓ Fertig, nächster offener</button>
           <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
-          <span id="keGesichert" style="font-size:12px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
-          <span style="margin-left:auto">${this._menue('⋯', [
+          ${this._menue('⋯', [
+            { label: `${App.uGet('auto_next', '1') !== '0' ? '☑' : '☐'} Auto-Weiter nach „In Ordnung“`, onclick: 'KontrolleHandler.autoWeiterUmschalten()', title: 'Nach der Auswahl „In Ordnung“ automatisch zum nächsten offenen Azubi springen' },
+            { trenner: true },
             { label: '▤ Durchsichtsbogen dieses Azubis (PDF)', onclick: `PDFExport.generateSingle(${this.currentTerminId},${s.id})` },
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
             { trenner: true },
             { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
-          ], 'PDFs und Freigabe', 'oben')}</span>
+          ], 'Auto-Weiter, PDFs und Freigabe', 'oben')}
         </div>
       </div>
     </div>`;
@@ -1992,8 +2006,8 @@ const KontrolleHandler = {
       const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
       if (el && s) {
         const offen = !App.azubiGesichert(s.id);
-        el.innerHTML = offen ? '⏳ wird geschrieben…' : '✓ auf dem Netzlaufwerk';
-        el.style.color = offen ? 'var(--clr-amber)' : 'var(--clr-green)';
+        el.innerHTML = '<i class="punkt"></i><span class="sr-only">' + (offen ? '⏳ wird geschrieben…' : '✓ auf dem Netzlaufwerk') + '</span>';
+        el.classList.toggle('offen', offen);
         el.title = offen ? 'Änderungen an diesem Azubi liegen im Absturzpuffer und werden gleich an das Protokoll angehängt (Klick: Details)' : 'Alle Änderungen an diesem Azubi sind im Protokoll auf dem Netzlaufwerk';
       }
     } catch(e) {}

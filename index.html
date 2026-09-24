@@ -102,6 +102,8 @@
 <!-- ═══ MAIN APP (hidden until DB loaded) ═══ -->
 <div id="appMain" style="display:none; flex-direction:column; height:100%;">
 
+  <!-- Kopfblock: gleitet beim Scrollen nach unten aus dem Bild, beim Hochscrollen zurück -->
+  <div class="kopf-block" id="kopfBlock">
   <!-- Top Bar -->
   <div class="topbar">
     <div class="topbar-brand">
@@ -182,6 +184,8 @@
     <span id="dbLastSaved" style="display:none">–</span>
     <a href="#" id="filterReset" style="display:none;margin-left:auto;font-size:12px;color:var(--clr-forest);text-decoration:underline;white-space:nowrap" onclick="App.filterZuruecksetzen();return false" title="Alle Filter auf die Vorgabe zurücksetzen">✕ Filter zurücksetzen</a>
   </div>
+
+  </div><!-- /kopf-block -->
 
   <div class="app-layout">
     <!-- Sidebar Backdrop (mobile) -->
