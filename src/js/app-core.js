@@ -50,7 +50,7 @@ const BhkLog = {
 BhkLog.installieren();
 
 // ── Ereignisspur für Netz- und Dateivorgänge ──
-//  Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Chat, Anhängen, Abgleich,
+//  Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Sicherung,
 //  Kompaktierung, Sperre, Positionsdateien, Probe) hinterlässt hier Dauer,
 //  Ergebnis und Fehlerart. Übersprungene Takte werden mit Grund notiert, aber
 //  je Grund höchstens einmal je Minute (ein verdecktes Fenster füllte sonst
@@ -500,9 +500,39 @@ const App = {
     sel.classList.toggle('has-user', !!u);
   },
 
+  // ── Anmeldung: Wer arbeitet an diesem Rechner? ──
+  //  Vor der Arbeit wählt man sich aus der Prüferliste. Die Wahl bleibt im
+  //  Browser dieses Rechners (localStorage) und ist beim nächsten Start
+  //  vorausgewählt – ein Klick auf „Weiter“ genügt. Filter, Einstellungen und
+  //  letzte Ansicht hängen an dieser Person (App.uGet/uSet).
+  anmeldung() {
+    const pruefer = this.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name');
+    const aktuell = this.currentUser || '';
+    const knopf = (name) => `<button class="btn ${name === aktuell ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-bottom:6px;text-align:left;padding:10px 14px;font-size:14px" data-name="${esc(name)}" onclick="App.anmelden(this.dataset.name)">${esc(name)}${name === aktuell ? ' <span style="font-size:11px;opacity:0.85">(zuletzt an diesem Rechner)</span>' : ''}</button>`;
+    this.openModal('Wer arbeitet an diesem Rechner?', `
+      <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:10px">Bitte auswählen. Die Wahl wird in diesem Browser gemerkt; Filter, Einstellungen und die letzte Ansicht gehören zur gewählten Person. Ein Wechsel ist jederzeit oben rechts möglich.</p>
+      ${pruefer.length ? pruefer.map(p => knopf(p.name)).join('') : '<p style="font-size:12px;color:var(--clr-text-light)">Noch keine Prüfer angelegt – bitte einen Namen eingeben.</p>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><input class="form-control" id="anmeldungNeu" placeholder="Neuer Name (Nachname, Vorname)" onkeydown="if(event.key==='Enter'){event.preventDefault();App.anmeldenNeu()}"><button class="btn btn-secondary" onclick="App.anmeldenNeu()">Anlegen</button></div>`,
+      aktuell ? `<button class="btn btn-primary" data-name="${esc(aktuell)}" onclick="App.anmelden(this.dataset.name)">Weiter als ${esc(aktuell)}</button>` : '');
+    this._anmeldungOffen = true;
+  },
+  anmelden(name) {
+    name = String(name || '').trim();
+    if (!name) return this.toast('Bitte einen Namen wählen', 'warning');
+    this.switchUser(name);
+    this._anmeldungOffen = false;
+    this.closeModal();
+    this.toast(`Angemeldet als ${name}`, 'success');
+  },
+  anmeldenNeu() {
+    const el = document.getElementById('anmeldungNeu');
+    const name = ((el && el.value) || '').trim();
+    if (!name) return this.toast('Bitte einen Namen eingeben', 'warning');
+    this.run("INSERT INTO pruefer (name,aktiv) VALUES (?,1) ON CONFLICT(name) DO UPDATE SET aktiv=1", [name]);
+    this.anmelden(name);
+  },
   switchUser(name) {
     this.currentUser = name;
-    this._praesenzDirty = true;
     try { localStorage.setItem('bhk_current_user', name); } catch(e) {}
     this._restoreUserSettings();
     this._populateUserSelect();
@@ -2464,138 +2494,6 @@ const App = {
     }
   },
 
-  // ── Präsenz: Wer arbeitet gerade in dieser Datenbank? ──
-  //  Jeder Rechner schreibt im Abgleich-Takt (alle 30 s, im Feldmodus 60 s)
-  //  eine winzige Datei _bhk/praesenz_<db>_<client>.json (Prüfer, Ansicht,
-  //  Zeitstempel) und liest die der anderen. Online = Zeitstempel jünger als
-  //  3 Minuten. Dateien älter als 24 h werden beim Lesen entfernt. Läuft nie
-  //  bei Netzabriss oder im Offline-Modus und blockiert keine Bedienaktion.
-  PRAESENZ_TAKT_MS: 30000,
-  PRAESENZ_MIN_ABSTAND_MS: 5000,
-  PRAESENZ_ONLINE_MS: 3 * 60000,
-  PRAESENZ_ALT_MS: 24 * 3600000,
-  _praesenzLetzte: 0,
-  _praesenzDirty: false,
-  _praesenzSeit: 0,
-  _praesenzAndere: [],
-  VIEW_LABELS: { dashboard: 'Startseite', stammdaten: 'Stammdaten', import: 'Import', planung: 'Planung', kontrolle: 'Kontrolle', nacherfassung: 'Nacherfassung', wiedervorlagen: 'Wiedervorlagen', berichte: 'Berichte', einstellungen: 'Einstellungen', hilfe: 'Hilfe' },
-  _praesenzName() { return (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || this.currentUser || ''; },
-  _praesenzPrefix() { return 'praesenz_' + this._dbSlug() + '_'; },
-  _praesenzDatei() { return this._praesenzPrefix() + this._getClientId() + '.json'; },
-  _praesenzEintrag() {
-    if (!this._praesenzSeit) this._praesenzSeit = Date.now();
-    return { c: this._getClientId(), p: this._praesenzName(), v: this.currentView || '', ts: Date.now(), seit: this._praesenzSeit, fm: !!this.feldmodus };
-  },
-  // Wird vom Abgleich-Timer aufgerufen; drosselt sich selbst
-  // Kollegen-Anzeige und Nachrichten sind gemeinsam schaltbar (Einstellung
-  // kollegen_anzeige in der Datenbank, Standard AUS): ohne sie schreibt kein
-  // Rechner Lebenszeichen oder Chat-Dateien, und die Kopfzeile bleibt ruhig.
-  _kollegenCache: null,
-  _kollegenCacheZeit: 0,
-  kollegenAn() {
-    if (this._kollegenCache !== null && Date.now() - this._kollegenCacheZeit < 30000) return this._kollegenCache;
-    let an = false;
-    try { an = this.db ? this.scalar("SELECT wert FROM einstellungen WHERE schluessel='kollegen_anzeige'") === '1' : false; } catch(e) { an = false; }
-    this._kollegenCache = an; this._kollegenCacheZeit = Date.now();
-    return an;
-  },
-  setKollegenAnzeige(an) {
-    this.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige',?) ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", [an ? '1' : '0']);
-    this._kollegenCache = null;
-    if (!an) { this._praesenzAndere = []; try { this._praesenzAnzeigen(); } catch(e) {} }
-    else { this._praesenzLetzte = 0; this._praesenzTakt(true).catch(() => {}); }
-    try { if (typeof Chat !== 'undefined') Chat._render(); } catch(e) {}
-    this.toast(an ? 'Kollegen-Anzeige und Nachrichten eingeschaltet – gilt für alle Rechner dieser Datenbank' : 'Kollegen-Anzeige und Nachrichten ausgeschaltet – gilt für alle Rechner dieser Datenbank', 'info');
-  },
-  async _praesenzTakt(erzwingen) {
-    if (!this.dirHandle || this._netzWeg || this.offlineModus || this._praesenzLaeuft) return false;
-    if (!this.kollegenAn()) return false;
-    const takt = this.feldmodus ? this.PRAESENZ_TAKT_MS * 2 : this.PRAESENZ_TAKT_MS;
-    const seit = Date.now() - this._praesenzLetzte;
-    if (!erzwingen && seit < takt && !(this._praesenzDirty && seit >= this.PRAESENZ_MIN_ABSTAND_MS)) return false;
-    this._praesenzLaeuft = true;
-    try {
-      const dir = this._syncDirV3();
-      this._praesenzLetzte = Date.now();
-      this._praesenzDirty = false;
-      const t0 = Date.now();
-      try {
-        const fh = await dir.getFileHandle(this._praesenzDatei(), { create: true });
-        const w = await fh.createWritable();
-        await w.write(JSON.stringify(this._praesenzEintrag()));
-        await w.close();
-        this._praesenzLetzteOk = Date.now();
-        this._praesenzFehler = 0;
-        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: true, ms: Date.now() - t0, nurStat: true });
-      } catch(e) {
-        this._praesenzFehler = (this._praesenzFehler || 0) + 1;
-        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: false, ms: Date.now() - t0, fehler: e, info: `${this._praesenzFehler}. Fehler in Folge` });
-        this._verbindungsProblem(e, 'praesenz');
-        return false;
-      }
-      await this._praesenzLesen(dir);
-      this._praesenzAnzeigen();
-      return true;
-    } finally { this._praesenzLaeuft = false; }
-  },
-  async _praesenzLesen(dir) {
-    dir = dir || this._syncDirV3();
-    if (!dir) return [];
-    const prefix = this._praesenzPrefix(), eigen = this._praesenzDatei();
-    const jetzt = Date.now();
-    const andere = [];
-    const t0 = Date.now();
-    try {
-      for await (const [name, h] of dir.entries()) {
-        if (!name.startsWith(prefix) || !name.endsWith('.json') || name === eigen || h.kind !== 'file') continue;
-        try {
-          const f = await h.getFile();
-          if (jetzt - f.lastModified > this.PRAESENZ_ALT_MS) { try { await dir.removeEntry(name); } catch(_) {} continue; }
-          const d = JSON.parse(await f.text());
-          if (!d || !d.ts) continue;
-          andere.push({ client: String(d.c || name), name: d.p || '', view: d.v || '', ts: d.ts, seit: d.seit || d.ts, feldmodus: !!d.fm, online: jetzt - d.ts <= this.PRAESENZ_ONLINE_MS });
-        } catch(e) { /* unlesbar – überspringen */ }
-      }
-      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: true, ms: Date.now() - t0, info: `${andere.filter(a => a.online).length} online von ${andere.length}`, nurStat: true });
-    } catch(e) {
-      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: false, ms: Date.now() - t0, fehler: e });
-      this._verbindungsProblem(e, 'praesenz');
-    }
-    this._praesenzAndere = andere.sort((a, b) => b.ts - a.ts);
-    return andere;
-  },
-  onlineNutzer() { return this.kollegenAn() ? (this._praesenzAndere || []).filter(a => a.online) : []; },
-  _praesenzLabel(a) { return a.name || ('Rechner ' + String(a.client).slice(-4)); },
-  _praesenzVor(ts) {
-    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-    if (s < 60) return `vor ${s} s`;
-    if (s < 3600) return `vor ${Math.round(s / 60)} min`;
-    return `vor ${Math.round(s / 3600)} h`;
-  },
-  onlineNutzerText() {
-    return this.onlineNutzer().map(a => `${this._praesenzLabel(a)}${this.VIEW_LABELS[a.view] ? ' (' + this.VIEW_LABELS[a.view] + ')' : ''}`).join(' · ');
-  },
-  _praesenzAnzeigen() {
-    const el = document.getElementById('onlineNutzer');
-    if (!el) return;
-    const on = this.onlineNutzer();
-    el.style.display = on.length ? '' : 'none';
-    if (!on.length) return;
-    const namen = on.slice(0, 3).map(a => this._praesenzLabel(a)).join(', ') + (on.length > 3 ? ` +${on.length - 3}` : '');
-    el.innerHTML = `<span class="dot dot-green"></span>${esc(namen)}`;
-    el.title = 'Gerade online: ' + on.map(a => `${this._praesenzLabel(a)} – ${this.VIEW_LABELS[a.view] || a.view || '?'} – ${this._praesenzVor(a.ts)}`).join('\n') + '\n(Klick für Details)';
-  },
-  onlineNutzerDialog() {
-    const alle = this._praesenzAndere || [];
-    const zeile = (a) => `<tr><td>${esc(this._praesenzLabel(a))}${a.feldmodus ? ' <span style="font-size:10px;color:var(--clr-text-light)" title="Feldmodus">⇅</span>' : ''}</td><td>${esc(this.VIEW_LABELS[a.view] || a.view || '–')}</td><td>${esc(new Date(a.seit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))}</td><td>${a.online ? '<span style="color:var(--clr-green)">● online</span>' : esc(this._praesenzVor(a.ts))}</td></tr>`;
-    this.openModal('Wer arbeitet gerade?', `
-      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Alle Rechner, die diese Datenbank in den letzten 24 Stunden geöffnet hatten. „Online“ = Lebenszeichen jünger als 3 Minuten (Takt 30 s, im Feldmodus 60 s). Wer im Offline-Modus arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht.</p>
-      ${alle.length ? `<table class="data-table"><thead><tr><th>Prüfer / Rechner</th><th>Ansicht</th><th>seit</th><th>Status</th></tr></thead><tbody>${alle.map(zeile).join('')}</tbody></table>` : '<div style="font-size:12px;color:var(--clr-text-light)">Niemand sonst – nur dieser Rechner.</div>'}
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ich: ${esc(this._praesenzName() || 'kein Prüfer gewählt')} · ${esc(this.VIEW_LABELS[this.currentView] || '')} · letztes Lebenszeichen ${this._praesenzLetzte ? esc(this._praesenzVor(this._praesenzLetzte)) : '–'}</div>`,
-      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
-  },
-
   // In die Zwischenablage legen. navigator.clipboard gibt es auf file://
   // nicht überall und scheitert dort still – deshalb immer mit Rückfallweg
   // über ein unsichtbares Textfeld.
@@ -2675,13 +2573,12 @@ const App = {
         netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
         letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0), letztesAnhaengenMs: Math.round(this._lastAppendMs || 0),
         abgleichTaktMs: this._pollIntervalMs || 0, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
-        lebenszeichenZuletztOk: this._praesenzLetzteOk ? new Date(this._praesenzLetzteOk).toLocaleTimeString('de-DE') : '', lebenszeichenFehlerInFolge: this._praesenzFehler || 0,
         zugriffVeraltet: !!this._neuladenNoetig,
       },
       synchronisation: {
         kompaktierungGrund: this._compactGrund || '', sperre: this._lockInfo ? `${this._lockInfo.von} (seit ${this._lockInfo.alterS} s)` : '',
         importOffen: !!this._bulkPending, offenePufferOps: (this._dirtyOps || []).length,
-        snapshotGeneration: this._snapGen || 0, andereOnline: (this.onlineNutzer ? this.onlineNutzer().length : 0),
+        snapshotGeneration: this._snapGen || 0,
       },
       datenbank: {
         dateiBytes: this._lastFileSize || 0,
@@ -3110,14 +3007,8 @@ const App = {
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
           if (this._v3Active()) await this._pollOplogs();
           else await this._pollSyncMarker();
-          // Präsenz (drosselt sich selbst auf 30/60 s)
-          try { await this._praesenzTakt(false); } catch(e) {}
           // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
           try { await this._sperreAufraeumen(); } catch(e) {}
-          // Nachrichten der Kolleginnen und Kollegen abholen
-          try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
-          // Neue Fehlermeldungen zählen (höchstens alle 5 Minuten)
-          try { if (typeof Melden !== 'undefined') await Melden.pruefeNeue(false); } catch(e) {}
         } else if (!this.offlineModus) {
           // Warum kein Abgleich? Der Grund gehört in die Spur – ein verdecktes
           // Fenster oder ein langes Anhängen sah sonst aus wie ein Netzproblem
@@ -3281,7 +3172,7 @@ const App = {
   },
   // ── Zentrale Selbstheilung nach einem Windows-Dateicache-Fehler ──
   //  Der Fehler trifft nicht nur die Kompaktierung, sondern JEDEN Schreibweg
-  //  (Positionsdateien, Chat, Meldungen). Deshalb an einer Stelle: höchstens
+  //  (Positionsdateien, Sicherungen, Probe). Deshalb an einer Stelle: höchstens
   //  einmal je Minute die Zugriffspunkte erneuern. Hilft das dreimal in Folge
   //  nicht, ist der Ordner-Zugriffspunkt selbst tot – dann EINMAL deutlich
   //  sagen, dass nur Neuladen hilft, statt still weiter zu scheitern.
@@ -8704,6 +8595,8 @@ Anlagen: {anlagen}` },
     try { this.currentUser = localStorage.getItem('bhk_current_user') || ''; } catch(e) {}
     this._populateUserSelect();
     if (this.currentUser) this._restoreUserSettings();
+    // Anmeldung: Wer arbeitet an diesem Rechner? (im Demo-Modus nicht)
+    if (!this.demoMode) setTimeout(() => { try { this.anmeldung(); } catch(e) {} }, 50);
 
     // ── Restore last position after reload ──
     // Ein ausdrücklicher Hash (#planung, Lesezeichen/Link) gewinnt gegen die
@@ -9356,7 +9249,6 @@ Anlagen: {anlagen}` },
   },
 
   navigate(view, skipHash) {
-    if (view !== this.currentView) this._praesenzDirty = true;
     this.currentView = view;
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery

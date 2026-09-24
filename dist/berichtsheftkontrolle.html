@@ -7188,9 +7188,6 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
       </button>
       <span id="dbStatusIndicator" style="cursor:pointer" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen ansehen, jetzt schreiben oder als Datei sichern"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
-      <span id="onlineNutzer" style="display:none;font-size:10px;white-space:nowrap;cursor:pointer" onclick="App.onlineNutzerDialog()" title="Wer arbeitet gerade in dieser Datenbank?"></span>
-      <span id="chatBadge" style="font-size:11px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2)">✉ Nachrichten</span>
-      <span id="meldungBadge" style="display:none;font-size:11px;white-space:nowrap;cursor:pointer;color:var(--clr-amber)" onclick="Melden.uebersicht()" title="Neue Fehlermeldungen"></span>
       <button class="btn btn-sm btn-secondary" style="font-size:10px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">Prüfer</option>
@@ -7409,7 +7406,7 @@ const BhkLog = {
 BhkLog.installieren();
 
 // ── Ereignisspur für Netz- und Dateivorgänge ──
-//  Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Chat, Anhängen, Abgleich,
+//  Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Sicherung,
 //  Kompaktierung, Sperre, Positionsdateien, Probe) hinterlässt hier Dauer,
 //  Ergebnis und Fehlerart. Übersprungene Takte werden mit Grund notiert, aber
 //  je Grund höchstens einmal je Minute (ein verdecktes Fenster füllte sonst
@@ -7859,9 +7856,39 @@ const App = {
     sel.classList.toggle('has-user', !!u);
   },
 
+  // ── Anmeldung: Wer arbeitet an diesem Rechner? ──
+  //  Vor der Arbeit wählt man sich aus der Prüferliste. Die Wahl bleibt im
+  //  Browser dieses Rechners (localStorage) und ist beim nächsten Start
+  //  vorausgewählt – ein Klick auf „Weiter“ genügt. Filter, Einstellungen und
+  //  letzte Ansicht hängen an dieser Person (App.uGet/uSet).
+  anmeldung() {
+    const pruefer = this.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name');
+    const aktuell = this.currentUser || '';
+    const knopf = (name) => `<button class="btn ${name === aktuell ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-bottom:6px;text-align:left;padding:10px 14px;font-size:14px" data-name="${esc(name)}" onclick="App.anmelden(this.dataset.name)">${esc(name)}${name === aktuell ? ' <span style="font-size:11px;opacity:0.85">(zuletzt an diesem Rechner)</span>' : ''}</button>`;
+    this.openModal('Wer arbeitet an diesem Rechner?', `
+      <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:10px">Bitte auswählen. Die Wahl wird in diesem Browser gemerkt; Filter, Einstellungen und die letzte Ansicht gehören zur gewählten Person. Ein Wechsel ist jederzeit oben rechts möglich.</p>
+      ${pruefer.length ? pruefer.map(p => knopf(p.name)).join('') : '<p style="font-size:12px;color:var(--clr-text-light)">Noch keine Prüfer angelegt – bitte einen Namen eingeben.</p>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><input class="form-control" id="anmeldungNeu" placeholder="Neuer Name (Nachname, Vorname)" onkeydown="if(event.key==='Enter'){event.preventDefault();App.anmeldenNeu()}"><button class="btn btn-secondary" onclick="App.anmeldenNeu()">Anlegen</button></div>`,
+      aktuell ? `<button class="btn btn-primary" data-name="${esc(aktuell)}" onclick="App.anmelden(this.dataset.name)">Weiter als ${esc(aktuell)}</button>` : '');
+    this._anmeldungOffen = true;
+  },
+  anmelden(name) {
+    name = String(name || '').trim();
+    if (!name) return this.toast('Bitte einen Namen wählen', 'warning');
+    this.switchUser(name);
+    this._anmeldungOffen = false;
+    this.closeModal();
+    this.toast(`Angemeldet als ${name}`, 'success');
+  },
+  anmeldenNeu() {
+    const el = document.getElementById('anmeldungNeu');
+    const name = ((el && el.value) || '').trim();
+    if (!name) return this.toast('Bitte einen Namen eingeben', 'warning');
+    this.run("INSERT INTO pruefer (name,aktiv) VALUES (?,1) ON CONFLICT(name) DO UPDATE SET aktiv=1", [name]);
+    this.anmelden(name);
+  },
   switchUser(name) {
     this.currentUser = name;
-    this._praesenzDirty = true;
     try { localStorage.setItem('bhk_current_user', name); } catch(e) {}
     this._restoreUserSettings();
     this._populateUserSelect();
@@ -9823,138 +9850,6 @@ const App = {
     }
   },
 
-  // ── Präsenz: Wer arbeitet gerade in dieser Datenbank? ──
-  //  Jeder Rechner schreibt im Abgleich-Takt (alle 30 s, im Feldmodus 60 s)
-  //  eine winzige Datei _bhk/praesenz_<db>_<client>.json (Prüfer, Ansicht,
-  //  Zeitstempel) und liest die der anderen. Online = Zeitstempel jünger als
-  //  3 Minuten. Dateien älter als 24 h werden beim Lesen entfernt. Läuft nie
-  //  bei Netzabriss oder im Offline-Modus und blockiert keine Bedienaktion.
-  PRAESENZ_TAKT_MS: 30000,
-  PRAESENZ_MIN_ABSTAND_MS: 5000,
-  PRAESENZ_ONLINE_MS: 3 * 60000,
-  PRAESENZ_ALT_MS: 24 * 3600000,
-  _praesenzLetzte: 0,
-  _praesenzDirty: false,
-  _praesenzSeit: 0,
-  _praesenzAndere: [],
-  VIEW_LABELS: { dashboard: 'Startseite', stammdaten: 'Stammdaten', import: 'Import', planung: 'Planung', kontrolle: 'Kontrolle', nacherfassung: 'Nacherfassung', wiedervorlagen: 'Wiedervorlagen', berichte: 'Berichte', einstellungen: 'Einstellungen', hilfe: 'Hilfe' },
-  _praesenzName() { return (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || this.currentUser || ''; },
-  _praesenzPrefix() { return 'praesenz_' + this._dbSlug() + '_'; },
-  _praesenzDatei() { return this._praesenzPrefix() + this._getClientId() + '.json'; },
-  _praesenzEintrag() {
-    if (!this._praesenzSeit) this._praesenzSeit = Date.now();
-    return { c: this._getClientId(), p: this._praesenzName(), v: this.currentView || '', ts: Date.now(), seit: this._praesenzSeit, fm: !!this.feldmodus };
-  },
-  // Wird vom Abgleich-Timer aufgerufen; drosselt sich selbst
-  // Kollegen-Anzeige und Nachrichten sind gemeinsam schaltbar (Einstellung
-  // kollegen_anzeige in der Datenbank, Standard AUS): ohne sie schreibt kein
-  // Rechner Lebenszeichen oder Chat-Dateien, und die Kopfzeile bleibt ruhig.
-  _kollegenCache: null,
-  _kollegenCacheZeit: 0,
-  kollegenAn() {
-    if (this._kollegenCache !== null && Date.now() - this._kollegenCacheZeit < 30000) return this._kollegenCache;
-    let an = false;
-    try { an = this.db ? this.scalar("SELECT wert FROM einstellungen WHERE schluessel='kollegen_anzeige'") === '1' : false; } catch(e) { an = false; }
-    this._kollegenCache = an; this._kollegenCacheZeit = Date.now();
-    return an;
-  },
-  setKollegenAnzeige(an) {
-    this.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige',?) ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", [an ? '1' : '0']);
-    this._kollegenCache = null;
-    if (!an) { this._praesenzAndere = []; try { this._praesenzAnzeigen(); } catch(e) {} }
-    else { this._praesenzLetzte = 0; this._praesenzTakt(true).catch(() => {}); }
-    try { if (typeof Chat !== 'undefined') Chat._render(); } catch(e) {}
-    this.toast(an ? 'Kollegen-Anzeige und Nachrichten eingeschaltet – gilt für alle Rechner dieser Datenbank' : 'Kollegen-Anzeige und Nachrichten ausgeschaltet – gilt für alle Rechner dieser Datenbank', 'info');
-  },
-  async _praesenzTakt(erzwingen) {
-    if (!this.dirHandle || this._netzWeg || this.offlineModus || this._praesenzLaeuft) return false;
-    if (!this.kollegenAn()) return false;
-    const takt = this.feldmodus ? this.PRAESENZ_TAKT_MS * 2 : this.PRAESENZ_TAKT_MS;
-    const seit = Date.now() - this._praesenzLetzte;
-    if (!erzwingen && seit < takt && !(this._praesenzDirty && seit >= this.PRAESENZ_MIN_ABSTAND_MS)) return false;
-    this._praesenzLaeuft = true;
-    try {
-      const dir = this._syncDirV3();
-      this._praesenzLetzte = Date.now();
-      this._praesenzDirty = false;
-      const t0 = Date.now();
-      try {
-        const fh = await dir.getFileHandle(this._praesenzDatei(), { create: true });
-        const w = await fh.createWritable();
-        await w.write(JSON.stringify(this._praesenzEintrag()));
-        await w.close();
-        this._praesenzLetzteOk = Date.now();
-        this._praesenzFehler = 0;
-        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: true, ms: Date.now() - t0, nurStat: true });
-      } catch(e) {
-        this._praesenzFehler = (this._praesenzFehler || 0) + 1;
-        BhkSpur.notiere('praesenz', 'Lebenszeichen schreiben', { ok: false, ms: Date.now() - t0, fehler: e, info: `${this._praesenzFehler}. Fehler in Folge` });
-        this._verbindungsProblem(e, 'praesenz');
-        return false;
-      }
-      await this._praesenzLesen(dir);
-      this._praesenzAnzeigen();
-      return true;
-    } finally { this._praesenzLaeuft = false; }
-  },
-  async _praesenzLesen(dir) {
-    dir = dir || this._syncDirV3();
-    if (!dir) return [];
-    const prefix = this._praesenzPrefix(), eigen = this._praesenzDatei();
-    const jetzt = Date.now();
-    const andere = [];
-    const t0 = Date.now();
-    try {
-      for await (const [name, h] of dir.entries()) {
-        if (!name.startsWith(prefix) || !name.endsWith('.json') || name === eigen || h.kind !== 'file') continue;
-        try {
-          const f = await h.getFile();
-          if (jetzt - f.lastModified > this.PRAESENZ_ALT_MS) { try { await dir.removeEntry(name); } catch(_) {} continue; }
-          const d = JSON.parse(await f.text());
-          if (!d || !d.ts) continue;
-          andere.push({ client: String(d.c || name), name: d.p || '', view: d.v || '', ts: d.ts, seit: d.seit || d.ts, feldmodus: !!d.fm, online: jetzt - d.ts <= this.PRAESENZ_ONLINE_MS });
-        } catch(e) { /* unlesbar – überspringen */ }
-      }
-      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: true, ms: Date.now() - t0, info: `${andere.filter(a => a.online).length} online von ${andere.length}`, nurStat: true });
-    } catch(e) {
-      BhkSpur.notiere('praesenz', 'Lebenszeichen lesen', { ok: false, ms: Date.now() - t0, fehler: e });
-      this._verbindungsProblem(e, 'praesenz');
-    }
-    this._praesenzAndere = andere.sort((a, b) => b.ts - a.ts);
-    return andere;
-  },
-  onlineNutzer() { return this.kollegenAn() ? (this._praesenzAndere || []).filter(a => a.online) : []; },
-  _praesenzLabel(a) { return a.name || ('Rechner ' + String(a.client).slice(-4)); },
-  _praesenzVor(ts) {
-    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-    if (s < 60) return `vor ${s} s`;
-    if (s < 3600) return `vor ${Math.round(s / 60)} min`;
-    return `vor ${Math.round(s / 3600)} h`;
-  },
-  onlineNutzerText() {
-    return this.onlineNutzer().map(a => `${this._praesenzLabel(a)}${this.VIEW_LABELS[a.view] ? ' (' + this.VIEW_LABELS[a.view] + ')' : ''}`).join(' · ');
-  },
-  _praesenzAnzeigen() {
-    const el = document.getElementById('onlineNutzer');
-    if (!el) return;
-    const on = this.onlineNutzer();
-    el.style.display = on.length ? '' : 'none';
-    if (!on.length) return;
-    const namen = on.slice(0, 3).map(a => this._praesenzLabel(a)).join(', ') + (on.length > 3 ? ` +${on.length - 3}` : '');
-    el.innerHTML = `<span class="dot dot-green"></span>${esc(namen)}`;
-    el.title = 'Gerade online: ' + on.map(a => `${this._praesenzLabel(a)} – ${this.VIEW_LABELS[a.view] || a.view || '?'} – ${this._praesenzVor(a.ts)}`).join('\n') + '\n(Klick für Details)';
-  },
-  onlineNutzerDialog() {
-    const alle = this._praesenzAndere || [];
-    const zeile = (a) => `<tr><td>${esc(this._praesenzLabel(a))}${a.feldmodus ? ' <span style="font-size:10px;color:var(--clr-text-light)" title="Feldmodus">⇅</span>' : ''}</td><td>${esc(this.VIEW_LABELS[a.view] || a.view || '–')}</td><td>${esc(new Date(a.seit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))}</td><td>${a.online ? '<span style="color:var(--clr-green)">● online</span>' : esc(this._praesenzVor(a.ts))}</td></tr>`;
-    this.openModal('Wer arbeitet gerade?', `
-      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Alle Rechner, die diese Datenbank in den letzten 24 Stunden geöffnet hatten. „Online“ = Lebenszeichen jünger als 3 Minuten (Takt 30 s, im Feldmodus 60 s). Wer im Offline-Modus arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht.</p>
-      ${alle.length ? `<table class="data-table"><thead><tr><th>Prüfer / Rechner</th><th>Ansicht</th><th>seit</th><th>Status</th></tr></thead><tbody>${alle.map(zeile).join('')}</tbody></table>` : '<div style="font-size:12px;color:var(--clr-text-light)">Niemand sonst – nur dieser Rechner.</div>'}
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ich: ${esc(this._praesenzName() || 'kein Prüfer gewählt')} · ${esc(this.VIEW_LABELS[this.currentView] || '')} · letztes Lebenszeichen ${this._praesenzLetzte ? esc(this._praesenzVor(this._praesenzLetzte)) : '–'}</div>`,
-      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="App._praesenzTakt(true).then(()=>App.onlineNutzerDialog())">Jetzt aktualisieren</button>`);
-  },
-
   // In die Zwischenablage legen. navigator.clipboard gibt es auf file://
   // nicht überall und scheitert dort still – deshalb immer mit Rückfallweg
   // über ein unsichtbares Textfeld.
@@ -10034,13 +9929,12 @@ const App = {
         netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
         letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0), letztesAnhaengenMs: Math.round(this._lastAppendMs || 0),
         abgleichTaktMs: this._pollIntervalMs || 0, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
-        lebenszeichenZuletztOk: this._praesenzLetzteOk ? new Date(this._praesenzLetzteOk).toLocaleTimeString('de-DE') : '', lebenszeichenFehlerInFolge: this._praesenzFehler || 0,
         zugriffVeraltet: !!this._neuladenNoetig,
       },
       synchronisation: {
         kompaktierungGrund: this._compactGrund || '', sperre: this._lockInfo ? `${this._lockInfo.von} (seit ${this._lockInfo.alterS} s)` : '',
         importOffen: !!this._bulkPending, offenePufferOps: (this._dirtyOps || []).length,
-        snapshotGeneration: this._snapGen || 0, andereOnline: (this.onlineNutzer ? this.onlineNutzer().length : 0),
+        snapshotGeneration: this._snapGen || 0,
       },
       datenbank: {
         dateiBytes: this._lastFileSize || 0,
@@ -10469,14 +10363,8 @@ const App = {
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
           if (this._v3Active()) await this._pollOplogs();
           else await this._pollSyncMarker();
-          // Präsenz (drosselt sich selbst auf 30/60 s)
-          try { await this._praesenzTakt(false); } catch(e) {}
           // Eigene Sperre, deren Freigabe scheiterte, erneut freigeben
           try { await this._sperreAufraeumen(); } catch(e) {}
-          // Nachrichten der Kolleginnen und Kollegen abholen
-          try { if (typeof Chat !== 'undefined') await Chat.abholen(); } catch(e) {}
-          // Neue Fehlermeldungen zählen (höchstens alle 5 Minuten)
-          try { if (typeof Melden !== 'undefined') await Melden.pruefeNeue(false); } catch(e) {}
         } else if (!this.offlineModus) {
           // Warum kein Abgleich? Der Grund gehört in die Spur – ein verdecktes
           // Fenster oder ein langes Anhängen sah sonst aus wie ein Netzproblem
@@ -10640,7 +10528,7 @@ const App = {
   },
   // ── Zentrale Selbstheilung nach einem Windows-Dateicache-Fehler ──
   //  Der Fehler trifft nicht nur die Kompaktierung, sondern JEDEN Schreibweg
-  //  (Positionsdateien, Chat, Meldungen). Deshalb an einer Stelle: höchstens
+  //  (Positionsdateien, Sicherungen, Probe). Deshalb an einer Stelle: höchstens
   //  einmal je Minute die Zugriffspunkte erneuern. Hilft das dreimal in Folge
   //  nicht, ist der Ordner-Zugriffspunkt selbst tot – dann EINMAL deutlich
   //  sagen, dass nur Neuladen hilft, statt still weiter zu scheitern.
@@ -16063,6 +15951,8 @@ Anlagen: {anlagen}` },
     try { this.currentUser = localStorage.getItem('bhk_current_user') || ''; } catch(e) {}
     this._populateUserSelect();
     if (this.currentUser) this._restoreUserSettings();
+    // Anmeldung: Wer arbeitet an diesem Rechner? (im Demo-Modus nicht)
+    if (!this.demoMode) setTimeout(() => { try { this.anmeldung(); } catch(e) {} }, 50);
 
     // ── Restore last position after reload ──
     // Ein ausdrücklicher Hash (#planung, Lesezeichen/Link) gewinnt gegen die
@@ -16715,7 +16605,6 @@ Anlagen: {anlagen}` },
   },
 
   navigate(view, skipHash) {
-    if (view !== this.currentView) this._praesenzDirty = true;
     this.currentView = view;
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
@@ -18671,10 +18560,6 @@ const Views = {
           Feldmodus: Abgleich alle 30 s statt 3 s, Speichern gebündelt (10 s), Positionsanzeige seltener
         </label>
         <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
-          <input type="checkbox" ${App.kollegenAn() ? 'checked' : ''} onchange="App.setKollegenAnzeige(this.checked);Views.render()" style="accent-color:var(--clr-forest);width:18px;height:18px">
-          Kollegen-Anzeige und Nachrichten (Lebenszeichen alle 30 s, Chat-Dateien in <code>_bhk/</code>) – gilt für alle Rechner dieser Datenbank, Standard aus
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
           <input type="checkbox" ${App.offlineStandAn ? 'checked' : ''} onchange="App.setOfflineStand(this.checked)" style="accent-color:var(--clr-forest);width:18px;height:18px">
           Lokalen Stand für den Offline-Start vorhalten (stündlich, ganze Datenbank in den Browser-Speicher) – nur auf diesem Rechner
         </label>
@@ -18684,7 +18569,6 @@ const Views = {
           <span>Minuten (gemeinsam je Datenbank, komprimiert, eine Datei je Intervall). Bei Dateiversionierung auf dem Server reichen 120 bis 240.</span>
         </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px;line-height:1.6">
-          ${App.kollegenAn() ? `<strong>Gerade online:</strong> ${(() => { const on = App.onlineNutzer(); return on.length ? esc(App.onlineNutzerText()) : 'niemand sonst'; })()} <a href="#" onclick="App.onlineNutzerDialog();return false" style="color:var(--clr-forest)">Details</a> – jeder Rechner hinterlässt alle 30 s (Feldmodus 60 s) ein Lebenszeichen in <code>_bhk/</code>; die Kopfzeile zeigt, wer gerade mitarbeitet.<br>` : ''}
           Das Tool wartet nie auf das Netzlaufwerk – Abgleich und Speichern laufen im Hintergrund und drosseln sich selbst
           (aktuell: Netzqualität <strong>${esc(App._networkQuality)}</strong>, letzter Abgleich ${App._lastPollMs ? Math.round(App._lastPollMs) + ' ms' : '–'}, letztes Speichern ${App._lastSaveDurationMs ? Math.round(App._lastSaveDurationMs) + ' ms' : '–'}).
           Über Mobilfunk/VPN wird jede Dateioperation langsam; der Feldmodus nimmt den Takt heraus. Für längere Termine ohne Netz: <strong>Offline-Modus</strong> (Schaltfläche in der Kopfzeile).
@@ -18731,10 +18615,6 @@ const Views = {
         </div>
         <div class="form-group"><label>RP-Adresse (Post, für Serienbriefe)</label>
           <textarea class="form-control" id="setRPPost" rows="2" style="font-size:12px">${esc(rpAdressePost)}</textarea>
-        </div>
-        <div class="form-group"><label>E-Mail für Fehlermeldungen (Entwicklung/Betreuung)</label>
-          <input class="form-control" id="setMeldungEmail" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || '')}" placeholder="betreuung@example.de">
-          <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Ist hier eine Adresse hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Der Text geht dann direkt an diese Adresse; ein Bildschirmfoto muss von Hand angehängt werden.</div>
         </div>
         <div class="form-group"><label>Funktions-E-Mail Berichtsheftkontrolle (Absender/Kopie bei allen E-Mails)</label>
           <input class="form-control" id="setRPEmail" value="${esc(rpEmail)}" placeholder="berichtsheft.GB@rpf.bwl.de">
@@ -18803,9 +18683,6 @@ const Views = {
 
       <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
       ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
-
-      <!-- Fehlermeldungen der Kolleginnen und Kollegen -->
-      ${typeof Melden !== 'undefined' ? Melden.cardHtml() : ''}
 
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
@@ -19078,7 +18955,6 @@ const Views = {
       ['rp_adresse_persoenlich', document.getElementById('setRPPers').value.trim()],
       ['rp_adresse_post', document.getElementById('setRPPost').value.trim()],
       ['rp_email', document.getElementById('setRPEmail').value.trim()],
-      ['meldung_email', (document.getElementById('setMeldungEmail')?.value || '').trim()],
     ];
     sets.forEach(([k,v]) => {
       App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]);
@@ -19769,22 +19645,19 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
-            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code>. <strong>Drei Wege zur Betreuung:</strong> die Kopfzeile zeigt neue Meldungen als <code>⚑</code> mit Zähler (Klick öffnet die Übersicht), der Chat kündigt sie sofort an, und unter Einstellungen lassen sich alle Meldungen ansehen, mit <strong>„▤ Alle kopieren"</strong> in einem Klick in die Zwischenablage legen (zum Einfügen bei der Entwicklung) oder als Textdatei ausgeben. Ist unter Einstellungen eine E-Mail für Fehlermeldungen hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Ohne Netzlaufwerk wird die Meldung heruntergeladen. Löschung nach 60 Tagen</p>
-            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile; Standard aus, gemeinsam mit der Kollegen-Anzeige schaltbar – ausgeschaltet zeigt die Kopfzeile nur „⚑ Problem melden“)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Das Symbol <code>✉ Nachrichten</code> in der Kopfzeile ist immer sichtbar und öffnet das Fenster, dort steht auch der Link zum Melden eines Problems. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
             <p><strong>Große Bestände (mehrere tausend Azubis):</strong></p>
             <p>• Die Anwendung rechnet auch mit 5000 Azubis schnell; teuer sind allein Vorgänge mit der ganzen Datenbankdatei. Deshalb: <strong>eine</strong> komprimierte Sicherung je Datenbank und Intervall (Einstellung, Standard 60 Minuten) statt alle 5 Minuten je Rechner; Kompaktierung erst ab 10 % der Dateigröße an Änderungen, frühestens alle 30 Minuten und nie von selbst über eine sehr langsame Leitung oder im Feldmodus; kein Nachladen des Schnappschusses, wenn der eigene Stand ihn schon enthält; lokaler Offline-Stand nur auf Wunsch; große Änderungsschübe der Kollegen in einer Transaktion</p>
             <p>• <strong>Dateiversionierung auf dem Server</strong> (Schattenkopien, Sicherungsagent): Jede geschriebene Sicherung und jeder Schnappschuss wird dort als eigene Version aufgehoben, und während der Versionsbildung stocken Schreibzugriffe kurz. Deshalb das Sicherungsintervall auf 120 bis 240 Minuten setzen und den Ordner <code>_bhk/</code> mit seinen <code>.crswap</code>-Tauschdateien vom Sicherungsagenten ausnehmen lassen</p>
             <p>• Bestand klein halten: Einstellungen → Datenbank-Tools → alte Jahrgänge löschen, Aufräumen, Neuaufbau</p>
-            <p>• <strong>Wer ist online?</strong> (Standard aus, Einstellungen → Verbindung → „Kollegen-Anzeige und Nachrichten“, gilt für alle Rechner) Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk):</strong></p>
             <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
-            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Nachrichten, Anhängen, Abgleich, Kompaktierung, Sperre) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt automatisch in jeder Fehlermeldung (F2) und im Zustandsbild („▤ Zustandsbild kopieren“)</p>
-            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.praesenz()</code> (wer gesehen wird), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
+            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Kompaktierung, Sperre, Sicherung) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt im Zustandsbild („▤ Zustandsbild kopieren“ unter Einstellungen → Verbindung, oder <code>bhk.kopieren()</code> in der Konsole) – das ist der Weg, ein Problem an die Entwicklung zu geben</p>
+            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
             <p><strong>Verlustschutz – wo eine Änderung wann liegt:</strong></p>
             <p>• Jede Eingabe steht sofort im <strong>Absturzpuffer</strong> dieses Rechners (Browser-Speicher, übersteht Tab-Absturz und Neustart, wird beim nächsten Start desselben Rechners eingespielt, 30 Tage lang) und wird nach 1,5 s (Feldmodus 10 s) an das <strong>Protokoll auf dem Netzlaufwerk</strong> angehängt. Beim Abschluss eines Berichtshefts („Freigeben“), beim Azubi-Wechsel, beim Terminwechsel und beim Verlassen der Kontrolle wird <strong>sofort</strong> angehängt</p>
             <p>• Die Schnellnavigation zeigt Azubis mit noch nicht angehängten Änderungen mit einer orangen Unterkante; neben „Freigeben“ steht „✓ auf dem Netzlaufwerk“ oder „⏳ wird geschrieben…“. Ein Klick auf den Speicherstatus in der Kopfzeile (oder auf diese Anzeige) öffnet die Liste der wartenden Änderungen mit „Jetzt schreiben“ und „Änderungen als Datei“ als Notausgang</p>
-            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild (F2). Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
-            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Abgleich, Lebenszeichen und Nachrichten setzen dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
+            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild. Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
+            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Der Abgleich setzt dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
@@ -28583,7 +28456,6 @@ const KontrolleHandler = {
   setActivePruefer(name) {
     const oldPruefer = this.activePruefer;
     this.activePruefer = name;
-    App._praesenzDirty = true;
 
     // Delete old prüfer's position file
     if (oldPruefer && oldPruefer !== name) {
@@ -30424,8 +30296,6 @@ const GlobalSearch = {
     App.openModal('⌨︎ Tastenkürzel', `
       <div style="display:grid;grid-template-columns:120px 1fr;gap:4px 16px;font-size:13px">
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
-        <strong style="color:var(--clr-forest)">Ctrl+M</strong><span>Nachrichten an Kolleg/innen</span>
-        <strong style="color:var(--clr-forest)">F2</strong><span>Problem melden</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>
         <strong style="color:var(--clr-forest)">Ctrl+Z / Y</strong><span>Undo / Redo</span>
         <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Schüler</span>
@@ -30448,18 +30318,6 @@ const GlobalSearch = {
 // ── keyboard-shortcuts.js ──
 
 document.addEventListener('keydown', (e) => {
-  // F2 = Problem melden (Zustandsbild + Protokoll werden mitgesammelt)
-  if (e.key === 'F2' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault();
-    if (typeof Melden !== 'undefined') Melden.oeffnen();
-    return;
-  }
-  // Ctrl+M = Nachrichten an die Kolleginnen und Kollegen
-  if ((e.ctrlKey || e.metaKey) && e.key === 'm' && !e.shiftKey) {
-    e.preventDefault();
-    if (typeof Chat !== 'undefined') Chat.oeffnen();
-    return;
-  }
   // Ctrl+Z = Undo
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     // Don't intercept in text inputs/textareas (let browser handle native undo)
@@ -35715,7 +35573,6 @@ const DbTools = {
         <div>Letzter Grund: <strong>${esc(grund || '–')}</strong></div>
         <div>Sperrdatei <code>${esc(App._lockName())}</code>: ${!s ? 'nicht lesbar' : s.frei ? '<span style="color:var(--clr-green)">frei</span>' : `belegt von <strong>${esc(s.von)}</strong> seit ${s.alterS} s`}</div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Eine Sperre älter als 150 s gilt automatisch als verwaist und wird beim nächsten Versuch übernommen. Nur wenn die Nachholung trotzdem minutenlang hängt und sicher kein Kollege gerade kompaktiert (Kopfzeile „online“), die Sperre von Hand freigeben.</div>
-        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Gerade online: ${esc(App.onlineNutzerText ? (App.onlineNutzerText() || 'niemand sonst') : '–')}</div>
       </div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-secondary" onclick="App._nachholenBulk().then(ok=>App.toast(ok?'Gespeichert':'Weiterhin nicht möglich: '+(App._compactGrund||'?'),ok?'success':'warning'))">Jetzt erneut versuchen</button>
@@ -35823,733 +35680,6 @@ const DbTools = {
   },
 };
 
-// ── chat.js ──
-// ══════════════════════════════════════════════════════════════
-//  CHAT: kurze Zurufe an gleichzeitig arbeitende Kolleginnen und Kollegen
-//
-//  Transport wie bei den Op-Protokollen: JEDER Rechner hängt nur an seine
-//  EIGENE Datei _bhk/chat_<db>_<client>.jsonl an, die anderen lesen ab ihrer
-//  Leseposition. Eine gemeinsame Datei schiede aus – Chrome kopiert beim
-//  Anhängen die ganze Datei, gleichzeitige Schreibzugriffe zerstören sie.
-//
-//  Bewusste Grenzen:
-//  - Nichts landet in der Datenbank (sie soll nicht wieder wachsen).
-//  - Zustellung im Abgleich-Takt (3/10/30 s, Feldmodus 60 s), also kein
-//    Sofortnachrichtendienst. Offline und bei Netzabriss ruht der Chat.
-//  - Der Ordner ist gemeinsam: „direkt" ist eine Zustellregel, KEIN
-//    Vertraulichkeitsversprechen. Steht so auch in der Oberfläche.
-// ══════════════════════════════════════════════════════════════
-
-const Chat = {
-  MAX_LAENGE: 500,
-  AUFBEWAHRUNG_TAGE: 7,
-  DATEI_MAX_BYTES: 64 * 1024,
-  TOAST_MS: 9000,
-  VERLAUF_MAX: 200,
-  _nachrichten: [],     // zusammengeführter Verlauf (eigene + fremde)
-  _offsets: {},         // Datei → gelesene Bytes
-  _gesehenBis: 0,       // Zeitstempel der zuletzt gelesenen Nachricht
-  _offen: false,
-  _laeuft: false,
-  _eigeneDatei: null,
-  _eigeneGroesse: 0,
-
-  // ── Identität und Dateinamen ──
-  _prefix() { return 'chat_' + App._dbSlug() + '_'; },
-  _dateiName() { return this._prefix() + App._getClientId() + '.jsonl'; },
-  absender() {
-    return (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || ('Rechner ' + App._getClientId().slice(-4));
-  },
-  _uKey() { return 'chat_gesehen_' + App._dbSlug(); },
-
-  an() { return !!(App.kollegenAn && App.kollegenAn()); },
-  aktiv() { return !!(this.an() && App.dirHandle && !App.offlineModus && !App._netzWeg); },
-  _grund() {
-    if (!this.an()) return 'Nachrichten sind ausgeschaltet (Einstellungen → Verbindung → Kollegen-Anzeige und Nachrichten)';
-    if (!App.dirHandle) return 'Kein Datenbank-Ordner verbunden';
-    if (App.offlineModus) return 'Im Offline-Modus werden keine Nachrichten übertragen';
-    if (App._netzWeg) return 'Netzlaufwerk nicht erreichbar';
-    return '';
-  },
-
-  // ── Senden ──
-  async senden(text, anClient) {
-    text = String(text || '').trim().slice(0, this.MAX_LAENGE);
-    if (!text) return false;
-    const grund = this._grund();
-    if (grund) { App.toast(grund, 'warning'); return false; }
-    const n = {
-      id: App._newUid ? App._newUid() : (Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
-      c: App._getClientId(), von: this.absender(), an: anClient || '', anName: anClient ? (this._nameZuClient(anClient) || '') : '',
-      text, ts: Date.now(),
-    };
-    let ok = false;
-    try { ok = await this._anhaengen(n); } catch(e) { console.warn('[Chat] Senden:', e.message); }
-    if (!ok) { App.toast('Nachricht konnte nicht zugestellt werden', 'error'); return false; }
-    this._aufnehmen(n);
-    this._gesehenBis = Math.max(this._gesehenBis, n.ts);
-    this._gesehenSpeichern();
-    this._render();
-    return true;
-  },
-  async _anhaengen(n, versuch = 0) {
-    const dir = App._syncDirV3();
-    if (!dir) return false;
-    const zeile = JSON.stringify(n) + '\n';
-    const bytes = new TextEncoder().encode(zeile);
-    let writable = null;
-    const t0 = Date.now();
-    try {
-      let handle = await dir.getFileHandle(this._dateiName(), { create: true });
-      let size = (await handle.getFile()).size;
-      // Datei zu groß oder zu alt: neu beginnen (der Verlauf lebt im Speicher
-      // der Clients weiter, ein Chat braucht kein Langzeitgedächtnis).
-      if (size > this.DATEI_MAX_BYTES) {
-        try { await dir.removeEntry(this._dateiName()); } catch(e) {}
-        handle = await dir.getFileHandle(this._dateiName(), { create: true });
-        size = 0;
-        this._offsets[this._dateiName()] = 0;
-      }
-      writable = await handle.createWritable({ keepExistingData: true });
-      await writable.write({ type: 'write', position: size, data: bytes });
-      await writable.close();
-      writable = null;
-      this._eigeneGroesse = size + bytes.length;
-      this._offsets[this._dateiName()] = this._eigeneGroesse; // eigene Zeilen nicht zurücklesen
-      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachricht anhängen', { ok: true, ms: Date.now() - t0, info: `${bytes.length} B an ${Math.round(size / 1024)} KB${versuch ? ', 2. Versuch' : ''}` });
-      return true;
-    } catch(e) {
-      if (writable) { try { await writable.abort(); } catch(_) {} }
-      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachricht anhängen', { ok: false, ms: Date.now() - t0, fehler: e, info: versuch ? 'auch im 2. Versuch' : '' });
-      // HÖCHSTENS ein zweiter Versuch: ohne Grenze wiederholte sich das
-      // Anhängen bei dauerhaften Cache-Fehlern endlos.
-      if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
-        console.warn('[Chat] Zugriffspunkt erneuert, ein zweiter Sendeversuch');
-        return await this._anhaengen(n, 1);
-      }
-      App._verbindungsProblem && App._verbindungsProblem(e, 'chat');
-      throw e;
-    }
-  },
-
-  // ── Empfangen (hängt am Abgleich-Takt) ──
-  async abholen() {
-    if (!this.aktiv() || this._laeuft) return 0;
-    this._laeuft = true;
-    const t0 = Date.now();
-    try {
-      const dir = App._syncDirV3();
-      if (!dir) return 0;
-      const prefix = this._prefix(), eigen = this._dateiName();
-      const grenze = Date.now() - this.AUFBEWAHRUNG_TAGE * 86400000;
-      const neue = [];
-      let dateien = 0;
-      for await (const [name, h] of dir.entries()) {
-        if (!name.startsWith(prefix) || !name.endsWith('.jsonl') || h.kind !== 'file') continue;
-        dateien++;
-        try {
-          const f = await h.getFile();
-          if (f.lastModified < grenze) {
-            if (name !== eigen) { try { await dir.removeEntry(name); } catch(_) {} }
-            continue;
-          }
-          if (name === eigen) { this._offsets[name] = f.size; this._eigeneGroesse = f.size; continue; }
-          const gelesen = this._offsets[name] || 0;
-          if (f.size <= gelesen) { if (f.size < gelesen) this._offsets[name] = 0; continue; }
-          const text = await f.slice(gelesen).text();
-          this._offsets[name] = f.size;
-          text.split('\n').forEach(z => {
-            if (!z.trim()) return;
-            let n; try { n = JSON.parse(z); } catch(e) { return; }
-            if (!n || !n.text || !n.ts || n.ts < grenze) return;
-            if (n.an && n.an !== App._getClientId()) return; // nicht für mich
-            if (this._aufnehmen(n)) neue.push(n);
-          });
-        } catch(e) { /* einzelne Datei unlesbar – überspringen */ }
-      }
-      if (neue.length) this._melden(neue);
-      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachrichten abholen', { ok: true, ms: Date.now() - t0, info: `${dateien} Datei(en)${neue.length ? ', ' + neue.length + ' neu' : ''}`, nurStat: !neue.length });
-      return neue.length;
-    } catch(e) {
-      if (typeof BhkSpur !== 'undefined') BhkSpur.notiere('chat', 'Nachrichten abholen', { ok: false, ms: Date.now() - t0, fehler: e });
-      App._verbindungsProblem && App._verbindungsProblem(e, 'chat');
-      return 0;
-    } finally { this._laeuft = false; }
-  },
-  _aufnehmen(n) {
-    if (this._nachrichten.some(x => x.id === n.id)) return false;
-    this._nachrichten.push(n);
-    this._nachrichten.sort((a, b) => a.ts - b.ts);
-    if (this._nachrichten.length > this.VERLAUF_MAX) this._nachrichten = this._nachrichten.slice(-this.VERLAUF_MAX);
-    return true;
-  },
-  _melden(neue) {
-    if (this._offen) {
-      this._gesehenBis = Math.max(this._gesehenBis, ...neue.map(n => n.ts));
-      this._gesehenSpeichern();
-      this._verlaufRendern();
-    } else {
-      neue.forEach(n => this._toast(n));
-    }
-    this._render();
-  },
-  _toast(n) {
-    const c = document.getElementById('toastContainer');
-    if (!c) return;
-    const t = document.createElement('div');
-    t.className = 'toast toast-chat';
-    t.style.cursor = 'pointer';
-    t.title = 'Öffnen und antworten';
-    t.innerHTML = `<div style="min-width:0"><div style="font-weight:600;font-size:12px">${esc(n.von)}${n.an ? ' <span style="font-weight:400;color:var(--clr-text-light)">(nur an mich)</span>' : ''}</div>
-      <div style="white-space:pre-wrap;word-break:break-word">${esc(n.text)}</div></div>`;
-    t.onclick = () => { t.remove(); Chat.oeffnen(n.c); };
-    c.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, this.TOAST_MS);
-  },
-
-  // ── Ungelesen-Stand (nur lokal, kein Schreibzugriff aufs Netzlaufwerk) ──
-  _gesehenLaden() {
-    if (this._gesehenBis) return;
-    const v = parseInt(App.uGet(this._uKey(), '0')) || 0;
-    this._gesehenBis = v;
-  },
-  _gesehenSpeichern() { App.uSet(this._uKey(), String(this._gesehenBis || 0)); },
-  ungelesen() {
-    this._gesehenLaden();
-    return this._nachrichten.filter(n => n.c !== App._getClientId() && n.ts > this._gesehenBis).length;
-  },
-
-  // ── Kopfzeile ──
-  _render() {
-    const el = document.getElementById('chatBadge');
-    if (!el) return;
-    // Immer sichtbar: Nicht jeder kennt die Tastenkürzel, und das Symbol ist
-    // der einzige Weg zu Nachrichten und zum Melden eines Problems.
-    el.style.display = '';
-    if (!this.an()) {
-      // Nachrichten ausgeschaltet: Das Symbol führt nur noch zum Melden
-      el.innerHTML = '⚑ Problem melden';
-      el.title = 'Problem melden (F2): Zustandsbild, Protokoll und Bildschirmfoto an die Entwicklung. Nachrichten an Kollegen sind ausgeschaltet (Einstellungen → Verbindung).';
-      el.style.color = ''; el.style.opacity = '0.7';
-      return;
-    }
-    const n = this.ungelesen();
-    el.innerHTML = n ? `✉ <strong>${n}</strong> Nachrichten` : '✉ Nachrichten';
-    el.title = (n ? `${n} ungelesene Nachricht(en). ` : '') + 'Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2). Gemeinsamer Ordner, nicht vertraulich.'
-      + (this.aktiv() ? '' : ' – ' + this._grund());
-    el.style.color = n ? 'var(--clr-amber)' : '';
-    el.style.opacity = this.aktiv() ? '' : '0.55';
-  },
-  _nameZuClient(cid) {
-    const a = (App._praesenzAndere || []).find(x => x.client === cid);
-    if (a) return App._praesenzLabel(a);
-    const n = [...this._nachrichten].reverse().find(x => x.c === cid);
-    return n ? n.von : '';
-  },
-
-  // ── Fenster ──
-  oeffnen(anClient) {
-    if (!this.an()) { if (typeof Melden !== 'undefined') Melden.oeffnen(); else App.toast(this._grund(), 'info'); return; }
-    this._gesehenLaden();
-    const online = (App.onlineNutzer ? App.onlineNutzer() : []);
-    const ziel = anClient || this._letztesZiel || '';
-    App.openModal('✉ Nachrichten', `
-      <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">
-        Kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben. Zustellung im Abgleich-Takt (wenige Sekunden, bei langsamem Netz bis zu einer halben Minute, im Feldmodus länger); im Offline-Modus ruht der Chat.
-        <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar. Keine Namen von Azubis oder andere personenbezogene Angaben hineinschreiben. Automatische Löschung nach ${this.AUFBEWAHRUNG_TAGE} Tagen.
-      </div>
-      <div style="font-size:12px;margin-bottom:6px">Etwas funktioniert nicht?
-        <a href="#" onclick="Chat.schliessen();Melden.oeffnen();return false" style="color:var(--clr-forest);font-weight:600">⚑ Problem melden</a>
-        <span style="color:var(--clr-text-light)">– schickt Zustandsbild, Protokoll und auf Wunsch ein Bildschirmfoto an die Entwicklung (Taste F2)</span></div>
-      <div id="chatVerlauf" style="height:40vh;overflow:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);padding:8px;background:var(--clr-warm)"></div>
-      <div style="display:flex;gap:6px;align-items:flex-end;margin-top:8px">
-        <div style="flex:0 0 auto">
-          <label style="font-size:11px;color:var(--clr-text-light)">An</label>
-          <select class="form-control" id="chatZiel" style="font-size:12px;max-width:190px">
-            <option value="">alle (${online.length} online)</option>
-            ${online.map(a => `<option value="${esc(a.client)}" ${a.client === ziel ? 'selected' : ''}>${esc(App._praesenzLabel(a))}</option>`).join('')}
-          </select>
-        </div>
-        <div style="flex:1">
-          <label style="font-size:11px;color:var(--clr-text-light)">Nachricht (Enter sendet)</label>
-          <textarea class="form-control" id="chatText" rows="2" maxlength="${this.MAX_LAENGE}" style="font-size:13px;resize:vertical"
-            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();Chat.sendenAusFormular()}"></textarea>
-        </div>
-        <button class="btn btn-primary" onclick="Chat.sendenAusFormular()" style="flex:0 0 auto">Senden</button>
-      </div>
-      ${this._grund() ? `<div style="font-size:12px;color:var(--clr-red);margin-top:6px">${esc(this._grund())}</div>` : ''}`,
-      `<button class="btn btn-secondary" onclick="Chat.schliessen()">Schließen</button>
-       <button class="btn btn-secondary" onclick="Chat.abholen().then(()=>Chat._verlaufRendern())">Jetzt abrufen</button>
-       <button class="btn btn-secondary" onclick="Chat.schliessen();Melden.oeffnen()" title="Fehler mit Zustandsbild, Protokoll und Bildschirmfoto melden (F2)">⚑ Problem melden</button>`);
-    if (typeof _makeModalWide === 'function') _makeModalWide();
-    this._offen = true;
-    this._verlaufRendern();
-    setTimeout(() => { const t = document.getElementById('chatText'); if (t) t.focus(); }, 60);
-  },
-  schliessen() { this._offen = false; App.closeModal(); this._render(); },
-  _verlaufRendern() {
-    const box = document.getElementById('chatVerlauf');
-    if (!box) { this._offen = false; return; }
-    const mein = App._getClientId();
-    const zeit = (ts) => new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    box.innerHTML = this._nachrichten.length ? this._nachrichten.map(n => {
-      const eigen = n.c === mein;
-      return `<div style="display:flex;justify-content:${eigen ? 'flex-end' : 'flex-start'};margin-bottom:6px">
-        <div style="max-width:78%;padding:6px 10px;border-radius:10px;font-size:13px;background:${eigen ? 'var(--clr-forest)' : 'var(--clr-white)'};color:${eigen ? 'var(--clr-white)' : 'var(--clr-text)'};border:1px solid var(--clr-sand)">
-          <div style="font-size:10px;opacity:0.75">${esc(eigen ? 'Ich' : n.von)}${n.an ? (eigen ? ' → ' + esc(n.anName || 'direkt') : ' (nur an mich)') : ''} · ${esc(zeit(n.ts))}</div>
-          <div style="white-space:pre-wrap;word-break:break-word">${esc(n.text)}</div>
-        </div></div>`;
-    }).join('') : '<div style="font-size:12px;color:var(--clr-text-light)">Noch keine Nachrichten.</div>';
-    box.scrollTop = box.scrollHeight;
-    if (this._nachrichten.length) {
-      this._gesehenBis = Math.max(this._gesehenBis, ...this._nachrichten.map(n => n.ts));
-      this._gesehenSpeichern();
-    }
-    this._render();
-  },
-  async sendenAusFormular() {
-    const t = document.getElementById('chatText');
-    const z = document.getElementById('chatZiel');
-    if (!t || !t.value.trim()) return;
-    const text = t.value;
-    this._letztesZiel = z ? z.value : '';
-    t.value = '';
-    const ok = await this.senden(text, this._letztesZiel);
-    if (!ok) t.value = text; // Text nicht verlieren
-    this._verlaufRendern();
-    t.focus();
-  },
-};
-
-// ── melden.js ──
-// ══════════════════════════════════════════════════════════════
-//  PROBLEM MELDEN
-//  Eine Meldung besteht aus: Beschreibung, automatisch gesammeltem
-//  Zustandsbild, Konsolenprotokoll und optional einem Bildschirmfoto.
-//
-//  Ablage: _bhk/meldungen/<zeit>_<rechner>/meldung.json (+ bild.png).
-//  NICHT in der Chatdatei – Chrome kopiert beim Anhängen die ganze Datei,
-//  ein Bild darin würde jede weitere Nachricht über die Leitung schleppen.
-//  NICHT in der Datenbank – sie soll nicht wieder wachsen.
-//
-//  Datenschutz: Alles Übertragene läuft durch App.schwaerzen() und wird
-//  vor dem Absenden in einer bearbeitbaren Vorschau gezeigt. Automatische
-//  Löschung nach MELDUNG_TAGE.
-// ══════════════════════════════════════════════════════════════
-
-const Melden = {
-  ORDNER: 'meldungen',
-  MELDUNG_TAGE: 60,
-  BILD_MAX_BYTES: 4 * 1024 * 1024,
-  PROTOKOLL_ZEILEN: 150,
-  PRUEF_TAKT_MS: 300000,   // höchstens alle 5 Minuten im Ordner nachsehen
-  _bild: null,        // { bytes: Uint8Array, typ, name, vorschau }
-  _meldungen: [],
-  _letztePruefung: 0,
-
-  // ── Zustellweg: Zähler in der Kopfzeile ──
-  _uKey() { return 'meldungen_gesehen_' + (App._dbSlug ? App._dbSlug() : 'db'); },
-  _gesehen() { return App.uGet ? (App.uGet(this._uKey(), '') || '') : ''; },
-  _gesehenSetzen(stand) { if (App.uSet) App.uSet(this._uKey(), stand || ''); },
-  neue() {
-    const stand = this._gesehen();
-    return (this._meldungen || []).filter(m => String(m.zeitpunkt || '') > stand);
-  },
-  _badge() {
-    const el = document.getElementById('meldungBadge');
-    if (!el) return;
-    const n = this.neue().length;
-    el.style.display = n ? '' : 'none';
-    el.innerHTML = `⚑ <strong>${n}</strong> Meldung${n === 1 ? '' : 'en'}`;
-    el.title = `${n} neue Fehlermeldung(en) – klicken zum Ansehen`;
-  },
-  // Hängt am Abgleich-Takt, sieht aber höchstens alle PRUEF_TAKT_MS nach
-  async pruefeNeue(erzwingen) {
-    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) return 0;
-    if (!erzwingen && Date.now() - this._letztePruefung < this.PRUEF_TAKT_MS) return 0;
-    this._letztePruefung = Date.now();
-    try { await this.liste(); } catch(e) { return 0; }
-    this._badge();
-    return this.neue().length;
-  },
-  async uebersicht() {
-    await this.pruefeNeue(true);
-    const liste = this._meldungen || [];
-    App.openModal('⚑ Fehlermeldungen', `
-      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-        Meldungen aus <code>_bhk/${esc(this.ORDNER)}/</code>. „Alle als Textdatei" fasst sie für die Weitergabe an die Entwicklung zusammen; Bildschirmfotos liegen als eigene Dateien in den jeweiligen Ordnern.
-      </div>
-      ${this._tabelle(liste)}`,
-      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-secondary" onclick="Melden.oeffnen()">⚑ Selbst melden</button>
-       ${liste.length ? `<button class="btn btn-secondary" style="color:var(--clr-red)" onclick="Melden.alleLoeschen()">Alle löschen (${liste.length})</button>` : ''}
-       <button class="btn btn-primary" onclick="Melden.kopiereAlle()">▤ Alle kopieren</button>
-       <button class="btn btn-secondary" onclick="Melden.exportAlle()">Alle als Textdatei</button>`);
-    if (typeof _makeModalWide === 'function') _makeModalWide();
-    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
-    this._badge();
-  },
-  _tabelle(liste) {
-    const stand = this._gesehen();
-    return liste.length ? `<table class="data-table"><thead><tr><th>Zeitpunkt</th><th>Von</th><th>Version</th><th>Beschreibung</th><th>Bild</th><th>Aktionen</th></tr></thead><tbody>
-      ${liste.map(m => `<tr${String(m.zeitpunkt || '') > stand ? ' style="font-weight:600"' : ''}>
-        <td style="white-space:nowrap">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}</td>
-        <td>${esc(m.von || '–')}</td><td>${esc(m.version || '')}</td>
-        <td>${esc(String(m.beschreibung || '').slice(0, 90))}${String(m.beschreibung || '').length > 90 ? '…' : ''}</td>
-        <td>${m.bild ? '✓' : '–'}</td>
-        <td class="btn-group" style="white-space:nowrap">
-          <button class="btn btn-sm btn-secondary" onclick="Melden.anzeigen('${esc(m._ordner)}')">Ansehen</button>
-          <button class="btn btn-sm btn-secondary" onclick="Melden.kopiereEine('${esc(m._ordner)}')" title="Text dieser Meldung in die Zwischenablage">▤</button>
-          <button class="btn btn-sm" style="color:var(--clr-red)" onclick="Melden.loeschen('${esc(m._ordner)}')">Löschen</button>
-        </td></tr>`).join('')}
-    </tbody></table>` : `<div style="font-size:12px;color:var(--clr-text-light)">Keine Meldungen vorhanden.</div>`;
-  },
-  // Weg 3: per E-Mail an die hinterlegte Adresse (Bild muss von Hand angehängt werden)
-  meldungsEmail() { try { return App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || ''; } catch(e) { return ''; } },
-  perEmail(m) {
-    const ziel = this.meldungsEmail();
-    const text = this.alsText(m || this.bauen(this._formular()));
-    const betreff = `Berichtsheftkontrolle: Fehlermeldung (Version ${App.VERSION})`;
-    const url = `mailto:${encodeURIComponent(ziel)}?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.slice(0, 1800))}`;
-    location.href = url;
-    App.toast(text.length > 1800 ? 'E-Mail geöffnet – der Text ist gekürzt, die vollständige Meldung liegt im Ordner' : 'E-Mail geöffnet', 'info');
-  },
-
-  // ── Dialog ──
-  oeffnen(vorbelegung) {
-    this._bild = null;
-    const text = App.diagnoseText({ zeilen: this.PROTOKOLL_ZEILEN });
-    App.openModal('⚑ Problem melden', `
-      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-        Die Meldung landet als Datei im Ordner <code>_bhk/${esc(this.ORDNER)}/</code> und wird den anderen als Nachricht angekündigt.
-        <strong>Bitte prüfen:</strong> Namen von Azubis, Betrieben und Ausbildern sind unten automatisch durch <code>…</code> ersetzt. Der Text lässt sich vor dem Absenden ändern oder kürzen.
-      </div>
-      <div class="form-group"><label>Was ist passiert? *</label>
-        <textarea class="form-control" id="mdBeschreibung" rows="3" maxlength="2000" placeholder="z.B. Beim Speichern der Kontrolle kam eine rote Meldung und die Eingabe war weg.">${esc(vorbelegung || '')}</textarea></div>
-      <div class="form-group"><label>Was hast du davor gemacht? (Schritte)</label>
-        <textarea class="form-control" id="mdSchritte" rows="2" maxlength="1000" placeholder="z.B. Termin geöffnet, Azubi 5 angeklickt, KW 12 auf i.O. gesetzt"></textarea></div>
-      <div class="form-group">
-        <label>Bildschirmfoto (freiwillig)</label>
-        <div id="mdBildFeld" tabindex="0" style="border:2px dashed var(--clr-sand);border-radius:var(--radius);padding:12px;text-align:center;font-size:12px;color:var(--clr-text-light);cursor:pointer">
-          Hierher klicken und mit <strong>Strg+V</strong> einfügen (vorher <strong>Druck</strong> drücken), Bild hierher ziehen oder <label style="color:var(--clr-forest);text-decoration:underline;cursor:pointer">Datei wählen<input type="file" accept="image/*" style="display:none" onchange="Melden._bildAusDatei(this.files[0])"></label>
-        </div>
-        <div id="mdBildVorschau" style="margin-top:6px"></div>
-      </div>
-      <details style="margin-top:4px" open>
-        <summary style="cursor:pointer;font-size:12px">Mitgesendetes Zustandsbild und Protokoll (bearbeitbar)</summary>
-        <textarea class="form-control" id="mdDiagnose" rows="10" style="font-size:11px;font-family:monospace;margin-top:4px">${esc(text)}</textarea>
-      </details>`,
-      `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-       <button class="btn btn-secondary" onclick="App.kopieren(Melden.alsText(Melden.bauen(Melden._formular())), 'Meldung kopiert')" title="Text der Meldung in die Zwischenablage">▤ Kopieren</button>
-       <button class="btn btn-secondary" onclick="Melden.alsDateiSpeichern()" title="Ohne Netzlaufwerk: Meldung als Textdatei herunterladen">Als Datei speichern</button>
-       ${this.meldungsEmail() ? `<button class="btn btn-secondary" onclick="Melden.perEmail()" title="Meldung als E-Mail an ${esc(this.meldungsEmail())} (Bild bitte von Hand anhängen)">Per E-Mail</button>` : ''}
-       <button class="btn btn-primary" id="mdSenden" onclick="Melden.senden()">Melden</button>`);
-    if (typeof _makeModalWide === 'function') _makeModalWide();
-    setTimeout(() => this._bildFeldVerdrahten(), 60);
-  },
-  _bildFeldVerdrahten() {
-    const feld = document.getElementById('mdBildFeld');
-    if (!feld) return;
-    feld.onclick = () => feld.focus();
-    feld.onpaste = (e) => {
-      const items = (e.clipboardData && e.clipboardData.items) || [];
-      for (const it of items) {
-        if (it.type && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this._bildAusDatei(f); return; } }
-      }
-    };
-    feld.ondragover = (e) => { e.preventDefault(); feld.style.borderColor = 'var(--clr-forest)'; };
-    feld.ondragleave = () => { feld.style.borderColor = 'var(--clr-sand)'; };
-    feld.ondrop = (e) => { e.preventDefault(); feld.style.borderColor = 'var(--clr-sand)'; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this._bildAusDatei(f); };
-    // Einfügen ohne vorheriges Klicken ins Feld
-    document.getElementById('mdBeschreibung')?.addEventListener('paste', (e) => {
-      const items = (e.clipboardData && e.clipboardData.items) || [];
-      for (const it of items) if (it.type && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this._bildAusDatei(f); return; } }
-    });
-  },
-  async _bildAusDatei(file) {
-    if (!file) return;
-    if (!/^image\//.test(file.type || '')) return App.toast('Nur Bilddateien', 'warning');
-    if (file.size > this.BILD_MAX_BYTES) return App.toast(`Bild zu groß (max. ${Math.round(this.BILD_MAX_BYTES / 1024 / 1024)} MB)`, 'warning');
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const endung = (file.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').slice(0, 4);
-    this._bild = { bytes, typ: file.type, name: 'bild.' + endung, groesse: file.size };
-    const box = document.getElementById('mdBildVorschau');
-    if (box) {
-      const url = URL.createObjectURL(new Blob([bytes], { type: file.type }));
-      box.innerHTML = `<div style="display:flex;gap:8px;align-items:center">
-        <img src="${url}" style="max-height:120px;max-width:60%;border:1px solid var(--clr-sand);border-radius:6px">
-        <div style="font-size:11px;color:var(--clr-text-light)">${esc(this._bild.name)} · ${Math.round(file.size / 1024)} KB<br>
-        <a href="#" onclick="Melden._bild=null;document.getElementById('mdBildVorschau').innerHTML='';return false" style="color:var(--clr-red)">entfernen</a></div></div>`;
-    }
-  },
-
-  // ── Meldung zusammenstellen ──
-  _formular() {
-    const w = (id) => (document.getElementById(id)?.value || '').trim();
-    return { beschreibung: w('mdBeschreibung'), schritte: w('mdSchritte'), diagnose: document.getElementById('mdDiagnose')?.value || '' };
-  },
-  // Zeit + Rechner + Zufall: zwei Meldungen in derselben Sekunde bekamen sonst
-  // dieselbe Kennung und landeten im selben Ordner (die zweite überschrieb die erste)
-  _id() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + (App._getClientId ? App._getClientId().slice(-4) : 'xxxx') + '_' + Math.random().toString(36).slice(2, 6); },
-  bauen(f) {
-    return {
-      id: this._id(), version: App.VERSION, zeitpunkt: new Date().toISOString(),
-      von: (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '',
-      rechner: App._getClientId ? App._getClientId() : '',
-      beschreibung: App.schwaerzen(f.beschreibung), schritte: App.schwaerzen(f.schritte),
-      diagnose: f.diagnose, bild: this._bild ? this._bild.name : '',
-    };
-  },
-  alsText(m) {
-    return [
-      `# Fehlermeldung ${m.id}`, '',
-      `Programmversion: ${m.version}`,
-      `Gemeldet: ${new Date(m.zeitpunkt).toLocaleString('de-DE')}${m.von ? ' von ' + m.von : ''}`,
-      m.bild ? `Bildschirmfoto: ${m.bild} (liegt neben dieser Datei)` : 'Bildschirmfoto: keines', '',
-      '## Was ist passiert?', m.beschreibung || '(nichts angegeben)', '',
-      '## Schritte davor', m.schritte || '(nichts angegeben)', '',
-      '## Zustand und Protokoll', m.diagnose || '(nichts)', '',
-    ].join('\n');
-  },
-
-  // ── Senden ──
-  async _ordner(create = true) {
-    if (!App.bhkDirHandle) throw new Error('Kein Datenbank-Ordner verbunden');
-    return await App.bhkDirHandle.getDirectoryHandle(this.ORDNER, { create });
-  },
-  async _schreiben(dir, name, data) {
-    const fh = await dir.getFileHandle(name, { create: true });
-    const w = await fh.createWritable();
-    await w.write(data);
-    await w.close();
-  },
-  // Ablegen mit HÖCHSTENS einem Wiederholungsversuch und STABILER Kennung.
-  // Beides ist wichtig: Ohne Grenze wiederholte sich der Versuch endlos, und
-  // eine bei jedem Versuch neu erzeugte Kennung legte jedes Mal einen neuen
-  // Ordner an – aus einer Meldung wurden ein Dutzend.
-  async _ablegen(m, versuch = 0, bild = null) {
-    const t0 = Date.now();
-    const takt = [];
-    const messen = async (name, fn) => { const t = Date.now(); await fn(); takt.push(`${name} ${Date.now() - t} ms`); };
-    try {
-      let dir, eigen;
-      await messen('Ordner', async () => { dir = await this._ordner(true); eigen = await dir.getDirectoryHandle(m.id, { create: true }); });
-      await messen('meldung.json', () => this._schreiben(eigen, 'meldung.json', JSON.stringify(m, null, 1)));
-      await messen('meldung.txt', () => this._schreiben(eigen, 'meldung.txt', this.alsText(m)));
-      if (bild) await messen(bild.name, () => this._schreiben(eigen, bild.name, bild.bytes));
-      // Die Zeiten landen im Ringspeicher und damit in der NÄCHSTEN Meldung –
-      // so zeigt sich von selbst, welcher Schritt auf dem Laufwerk klemmt.
-      console.log(`[Melden] gespeichert in ${Date.now() - t0} ms (${takt.join(', ')})`);
-      return true;
-    } catch(e) {
-      if (versuch === 0 && App._istZustandsFehler && App._istZustandsFehler(e) && await App._handlesNeuHolen()) {
-        console.warn('[Melden] Zugriffspunkt erneuert, ein zweiter Versuch mit derselben Kennung');
-        return await this._ablegen(m, 1, bild);
-      }
-      console.warn('[Melden]', e);
-      // Angefangenen, leeren Ordner wieder entfernen – sonst bleibt bei jedem
-      // Fehlversuch Müll auf dem Netzlaufwerk liegen.
-      try { const d = await this._ordner(false); await d.removeEntry(m.id, { recursive: true }); } catch(_) {}
-      App.toast('Meldung konnte nicht abgelegt werden: ' + e.message + ' – bitte „Als Datei speichern" nutzen', 'error');
-      return false;
-    }
-  },
-  async senden() {
-    if (this._sendet) return false;              // Doppelklick erzeugt keine zweite Meldung
-    const f = this._formular();
-    if (!f.beschreibung) return App.toast('Bitte kurz beschreiben, was passiert ist', 'warning');
-    if (!App.bhkDirHandle || App.offlineModus || App._netzWeg) {
-      App.toast('Kein Netzlaufwerk – die Meldung wird als Datei gespeichert', 'warning');
-      return this.alsDateiSpeichern();
-    }
-    // Jeder Dateizugriff auf dem Netzlaufwerk kostet Sekunden. Deshalb wird
-    // das Fenster SOFORT geschlossen und im Hintergrund geschrieben; der Nutzer
-    // wartet nicht mehr auf das Laufwerk.
-    this._sendet = true;
-    const m = this.bauen(f);
-    const bild = this._bild;
-    this._bild = null;
-    App.closeModal();
-    App.toast('Meldung wird gespeichert…', 'info');
-    let ok = false;
-    try { ok = await this._ablegen(m, 0, bild); }
-    finally { this._sendet = false; }
-    if (!ok) {
-      // Nichts verloren geben: Text zum Herunterladen anbieten
-      this._letzteGescheiterte = { m, bild };
-      App.toast('Speichern fehlgeschlagen – „Problem melden" erneut öffnen oder den Text herunterladen', 'error');
-      return false;
-    }
-    App.toast('Danke, die Meldung ist abgelegt', 'success');
-    // Zähler aus dem gerade geschriebenen Objekt fortschreiben, statt ALLE
-    // Meldungen neu vom Laufwerk zu lesen (das war der größte Zeitfresser und
-    // wuchs mit jeder weiteren Meldung).
-    try {
-      m._ordner = m.id;
-      this._meldungen = [m, ...(this._meldungen || []).filter(x => x._ordner !== m.id)];
-      this._cache.set(m.id, m);
-      this._gesehenSetzen(String(m.zeitpunkt || ''));   // eigene Meldung gilt als gesehen
-      this._badge();
-    } catch(e) {}
-    // Ankündigung NICHT abwarten: sie kopiert beim Anhängen die ganze Chatdatei
-    try { if (typeof Chat !== 'undefined' && Chat.aktiv()) Chat.senden(`⚑ Neue Fehlermeldung: ${m.beschreibung.slice(0, 120)}`); } catch(e) {}
-    return true;
-  },
-  alsDateiSpeichern() {
-    const m = this.bauen(this._formular());
-    const blob = new Blob([this.alsText(m)], { type: 'text/plain;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = App.safeFilename(['Fehlermeldung', m.id], 'txt');
-    a.click();
-    if (this._bild) {
-      const b = document.createElement('a');
-      b.href = URL.createObjectURL(new Blob([this._bild.bytes], { type: this._bild.typ }));
-      b.download = App.safeFilename(['Fehlermeldung', m.id], this._bild.name.split('.').pop());
-      b.click();
-    }
-    App.toast('Meldung als Datei gespeichert', 'success');
-    return true;
-  },
-
-  // ── Übersicht (Einstellungen) ──
-  _cache: new Map(),   // Ordnername → Meldung (Meldungen ändern sich nie)
-  async liste() {
-    const out = [];
-    let dir;
-    try { dir = await this._ordner(false); } catch(e) { return out; }
-    const grenze = Date.now() - this.MELDUNG_TAGE * 86400000;
-    const gesehen = new Set();
-    for await (const [name, h] of dir.entries()) {
-      if (h.kind !== 'directory') continue;
-      gesehen.add(name);
-      // Eine einmal gelesene Meldung ändert sich nicht mehr – erneutes Lesen
-      // wäre auf dem Netzlaufwerk jedes Mal ein Zugriff je Meldung.
-      const bekannt = this._cache.get(name);
-      if (bekannt) { out.push(bekannt); continue; }
-      try {
-        const fh = await h.getFileHandle('meldung.json', { create: false });
-        const f = await fh.getFile();
-        if (f.lastModified < grenze) { try { await dir.removeEntry(name, { recursive: true }); } catch(_) {} continue; }
-        const m = JSON.parse(await f.text());
-        m._ordner = name;
-        this._cache.set(name, m);
-        out.push(m);
-      } catch(e) { /* unvollständiger Ordner */ }
-    }
-    [...this._cache.keys()].forEach(k => { if (!gesehen.has(k)) this._cache.delete(k); });
-    this._meldungen = out.sort((a, b) => String(b.zeitpunkt).localeCompare(String(a.zeitpunkt)));
-    return this._meldungen;
-  },
-  cardHtml() {
-    return `<div class="card" style="margin-top:16px">
-      <div class="card-header">⚑ Fehlermeldungen der Kolleginnen und Kollegen</div>
-      <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-        Meldungen aus <code>_bhk/${esc(this.ORDNER)}/</code>, inklusive Zustandsbild und Konsolenprotokoll. Namen sind beim Melden automatisch geschwärzt.
-        „Alle als Textdatei" fasst sie für die Weitergabe an die Entwicklung zusammen. Automatische Löschung nach ${this.MELDUNG_TAGE} Tagen.
-      </p>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-        <button class="btn btn-secondary btn-sm" onclick="Melden.oeffnen()">⚑ Problem melden (F2)</button>
-        <button class="btn btn-secondary btn-sm" onclick="Melden.kopiereAlle()" title="Alle Meldungen als Text in die Zwischenablage – zum Einfügen bei der Entwicklung">▤ Alle kopieren</button>
-        <button class="btn btn-secondary btn-sm" onclick="Melden.exportAlle()">Alle als Textdatei</button>
-        <button class="btn btn-secondary btn-sm" onclick="Melden.renderCard()">Aktualisieren</button>
-      </div>
-      <div id="meldungenBox"><div style="font-size:12px;color:var(--clr-text-light)">Meldungen werden gelesen…</div></div>
-    </div>`;
-  },
-  async renderCard() {
-    const box = document.getElementById('meldungenBox');
-    if (!box) return;
-    if (!App.bhkDirHandle) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Nur bei verbundenem Datenbank-Ordner verfügbar.</div>'; return; }
-    const liste = await this.liste();
-    if (!document.getElementById('meldungenBox')) return;
-    box.innerHTML = this._tabelle(liste);
-    if (liste.length) this._gesehenSetzen(String(liste[0].zeitpunkt || ''));
-    this._badge();
-  },
-  async anzeigen(ordner) {
-    const m = (this._meldungen || []).find(x => x._ordner === ordner);
-    if (!m) return;
-    let bildUrl = '';
-    if (m.bild) {
-      try {
-        const dir = await (await this._ordner(false)).getDirectoryHandle(ordner, { create: false });
-        const f = await (await dir.getFileHandle(m.bild, { create: false })).getFile();
-        bildUrl = URL.createObjectURL(f);
-      } catch(e) {}
-    }
-    App.openModal(`⚑ Meldung ${esc(m.id)}`, `
-      <div style="font-size:12px;color:var(--clr-text-light)">${esc(new Date(m.zeitpunkt).toLocaleString('de-DE'))}${m.von ? ' · ' + esc(m.von) : ''} · Version ${esc(m.version || '')}</div>
-      <div style="margin-top:8px"><strong>Was ist passiert?</strong><div style="white-space:pre-wrap;font-size:13px">${esc(m.beschreibung || '')}</div></div>
-      ${m.schritte ? `<div style="margin-top:8px"><strong>Schritte davor</strong><div style="white-space:pre-wrap;font-size:13px">${esc(m.schritte)}</div></div>` : ''}
-      ${bildUrl ? `<div style="margin-top:8px"><a href="${bildUrl}" target="_blank"><img src="${bildUrl}" style="max-width:100%;border:1px solid var(--clr-sand);border-radius:6px"></a></div>` : ''}
-      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px">Zustand und Protokoll</summary>
-        <pre style="font-size:11px;white-space:pre-wrap;max-height:40vh;overflow:auto;background:var(--clr-warm);padding:8px;border-radius:6px">${esc(m.diagnose || '')}</pre></details>`,
-      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="Melden.kopiereEine('${esc(ordner)}')">▤ Kopieren</button>
-       <button class="btn btn-secondary" onclick="Melden.exportEine('${esc(ordner)}')">Als Textdatei</button>`);
-    if (typeof _makeModalWide === 'function') _makeModalWide();
-  },
-  async loeschen(ordner) {
-    if (!(await App.confirm('Diese Meldung endgültig löschen?', { titel: 'Meldung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
-    try { await (await this._ordner(false)).removeEntry(ordner, { recursive: true }); } catch(e) { return App.toast('Löschen fehlgeschlagen: ' + e.message, 'error'); }
-    this._cache.delete(ordner);
-    this._meldungen = (this._meldungen || []).filter(x => x._ordner !== ordner);
-    App.closeModal();
-    App.toast('Meldung gelöscht', 'success');
-    this.renderCard();
-  },
-  async alleLoeschen() {
-    const liste = this._meldungen || [];
-    if (!liste.length) return;
-    if (!(await App.confirm(`Alle ${liste.length} Meldungen endgültig löschen?\n\nVorher lohnt sich „Alle als Textdatei".`, { titel: 'Meldungen löschen', ok: 'Alle löschen', gefaehrlich: true }))) return;
-    let dir;
-    try { dir = await this._ordner(false); } catch(e) { return; }
-    let n = 0;
-    for (const m of liste) { try { await dir.removeEntry(m._ordner, { recursive: true }); this._cache.delete(m._ordner); n++; } catch(e) {} }
-    this._meldungen = [];
-    App.closeModal();
-    App.toast(`${n} Meldungen gelöscht`, 'success');
-    this._letztePruefung = 0;
-    await this.pruefeNeue(true);
-    this.renderCard();
-  },
-  _download(text, teile) {
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = App.safeFilename(teile, 'txt');
-    a.click();
-  },
-  exportEine(ordner) {
-    const m = (this._meldungen || []).find(x => x._ordner === ordner);
-    if (!m) return;
-    this._download(this.alsText(m), ['Fehlermeldung', m.id]);
-    App.toast('Meldung als Textdatei gespeichert', 'success');
-  },
-  // Für die Weitergabe an die Entwicklung: ein Klick, dann einfügen
-  kopiereEine(ordner) {
-    const m = (this._meldungen || []).find(x => x._ordner === ordner);
-    if (!m) return;
-    return App.kopieren(this.alsText(m), 'Meldung kopiert – jetzt mit Strg+V einfügen');
-  },
-  _alleText(liste) {
-    return [`# Fehlermeldungen Berichtsheftkontrolle`, `Stand: ${new Date().toLocaleString('de-DE')} · ${liste.length} Meldung(en) · Programmversion ${App.VERSION}`, '',
-      ...liste.map(m => this.alsText(m) + '\n' + '─'.repeat(70) + '\n')].join('\n');
-  },
-  async kopiereAlle() {
-    const liste = await this.liste();
-    if (!liste.length) return App.toast('Keine Meldungen vorhanden', 'info');
-    return App.kopieren(this._alleText(liste), `${liste.length} Meldungen kopiert – jetzt mit Strg+V einfügen`);
-  },
-  async exportAlle() {
-    const liste = await this.liste();
-    if (!liste.length) return App.toast('Keine Meldungen vorhanden', 'info');
-    this._download(this._alleText(liste), ['Fehlermeldungen', new Date().toISOString().slice(0, 10)]);
-    App.toast(`${liste.length} Meldungen als Textdatei gespeichert`, 'success');
-  },
-};
-
 // ── konsole.js ──
 // ══════════════════════════════════════════════════════════════
 //  KONSOLE: Diagnosebefehle für die Browser-Konsole (F12 → Konsole)
@@ -36560,6 +35690,7 @@ const Melden = {
 //    bhk.status()     Zustand von Verbindung, Synchronisation, Präsenz
 //    bhk.spur()       Ereignisspur (BhkSpur) als Tabelle
 //    bhk.test()       Verbindungstest mit Schreibprobe und Uhrversatz
+//    bhk.kopieren()   Zustandsbild in die Zwischenablage (Weitergabe an die Entwicklung)
 //    bhk.dateien()    Inhalt von _bhk/ mit Größe und Alter
 //  Die Befehle lesen nur; einzig der Verbindungstest schreibt eine kleine
 //  Probedatei und löscht sie wieder. Nichts davon landet in der Datenbank.
@@ -36569,15 +35700,12 @@ const Konsole = {
   BEFEHLE: [
     ['bhk.hilfe()', 'diese Übersicht'],
     ['bhk.status()', 'Verbindung, Synchronisation, Präsenz und Zähler je Bereich'],
-    ['bhk.spur(bereich, n)', 'Ereignisspur, letzte n Einträge (Standard 40); Bereich z.B. "praesenz", "chat", "anhaengen", "abgleich", "kompakt", "netz", "takt", "fenster"'],
-    ['bhk.praesenz()', 'Wer wird gerade gesehen, eigenes Lebenszeichen'],
-    ['bhk.chat()', 'Nachrichtenverlauf und Lesestände je Datei'],
+    ['bhk.spur(bereich, n)', 'Ereignisspur, letzte n Einträge (Standard 40); Bereich z.B. "anhaengen", "abgleich", "kompakt", "netz", "takt", "fenster"'],
     ['bhk.dateien()', 'Inhalt von _bhk/ mit Größe und Alter (liest das Netzlaufwerk)'],
     ['bhk.test()', 'Verbindungstest: Auflisten, Lesen, Schreibprobe, Uhrversatz, Lebenszeichen'],
-    ['bhk.jetzt()', 'Lebenszeichen, Nachrichten und Abgleich sofort ausführen'],
-    ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage'],
+    ['bhk.jetzt()', 'Abgleich sofort ausführen'],
+    ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage (zur Weitergabe an die Entwicklung)'],
     ['bhk.debug(true)', 'jeden Netzvorgang sofort in der Konsole zeigen (bleibt bis bhk.debug(false))'],
-    ['bhk.melden()', 'Problem melden (wie F2)'],
   ],
   PROBE_PREFIX: 'probe_',
   _tabelle(zeilen) { try { if (console.table) console.table(zeilen); else console.log(zeilen); } catch(e) { console.log(zeilen); } },
@@ -36603,9 +35731,6 @@ const Konsole = {
       if (gruppe === 'datenbank' || gruppe === 'programm') return;
       Object.entries(werte).forEach(([k, v]) => zeilen.push({ Bereich: gruppe, Angabe: k, Wert: v === '' ? '–' : v }));
     });
-    zeilen.push({ Bereich: 'praesenz', Angabe: 'letztesLebenszeichen', Wert: App._praesenzLetzte ? `${this._zeit(App._praesenzLetzte)} (vor ${this._alter(App._praesenzLetzte)})` : '–' });
-    zeilen.push({ Bereich: 'praesenz', Angabe: 'gesehen', Wert: (App._praesenzAndere || []).map(a => `${App._praesenzLabel(a)} ${a.online ? 'online' : 'vor ' + this._alter(a.ts)}`).join(', ') || 'niemand' });
-    zeilen.push({ Bereich: 'chat', Angabe: 'nachrichten', Wert: typeof Chat !== 'undefined' ? `${Chat._nachrichten.length} im Verlauf, ${Chat.ungelesen()} ungelesen${Chat.aktiv() ? '' : ', ruht: ' + Chat._grund()}` : '–' });
     zeilen.push({ Bereich: 'sync', Angabe: 'anhaengenLaeuft', Wert: !!App._appendInProgress });
     zeilen.push({ Bereich: 'sync', Angabe: 'kompaktierungLaeuft', Wert: !!App._compactInProgress });
     zeilen.push({ Bereich: 'sync', Angabe: 'speichernLaeuft', Wert: !!App._mergeInProgress });
@@ -36623,24 +35748,6 @@ const Konsole = {
     if (!l.length) { console.log('Keine Einträge' + (bereich ? ' für „' + bereich + '“' : '') + '.'); return []; }
     this._tabelle(l.map(e => ({ Zeit: this._zeit(e.t), Bereich: e.kat, Vorgang: e.was, ms: e.ms == null ? '' : e.ms, OK: e.ok ? '✓' : '✗', Art: e.art || '', Info: e.ok ? (e.info || '') : `${e.fehler || ''}${e.info ? ' (' + e.info + ')' : ''}` })));
     return l;
-  },
-
-  praesenz() {
-    const andere = App._praesenzAndere || [];
-    console.log(`Eigenes Lebenszeichen: ${App._praesenzLetzte ? 'zuletzt ' + this._zeit(App._praesenzLetzte) : 'noch keins'}${App._praesenzLetzteOk ? ', zuletzt erfolgreich ' + this._zeit(App._praesenzLetzteOk) : ''}${App._praesenzFehler ? ', ' + App._praesenzFehler + ' Fehler in Folge' : ''} · Takt ${App.feldmodus ? 60 : 30} s · online = jünger als ${App.PRAESENZ_ONLINE_MS / 60000} min`);
-    if (!andere.length) { console.log('Niemand sonst gesehen (oder noch nicht gelesen – bhk.jetzt() liest sofort).'); return []; }
-    this._tabelle(andere.map(a => ({ Wer: App._praesenzLabel(a), Rechner: String(a.client).slice(-4), Ansicht: App.VIEW_LABELS[a.view] || a.view || '', Status: a.online ? 'online' : 'zuletzt vor ' + this._alter(a.ts), Lebenszeichen: this._zeit(a.ts), seit: this._zeit(a.seit), Feldmodus: a.feldmodus ? 'ja' : '' })));
-    return andere;
-  },
-
-  chat() {
-    if (typeof Chat === 'undefined') return [];
-    console.log(`Chat ${Chat.aktiv() ? 'aktiv' : 'ruht: ' + Chat._grund()} · eigene Datei ${Chat._dateiName()} (${Math.round((Chat._eigeneGroesse || 0) / 1024)} KB) · ${Chat.ungelesen()} ungelesen`);
-    const o = Object.entries(Chat._offsets || {}).map(([datei, bytes]) => ({ Datei: datei, gelesenBytes: bytes }));
-    if (o.length) this._tabelle(o);
-    const n = Chat._nachrichten.slice(-30).map(m => ({ Zeit: this._zeit(m.ts), Von: m.von, An: m.an ? (m.anName || m.an) : 'alle', Text: String(m.text).slice(0, 80) }));
-    if (n.length) this._tabelle(n); else console.log('Keine Nachrichten im Verlauf.');
-    return Chat._nachrichten;
   },
 
   // ── Netzlaufwerk ──
@@ -36732,16 +35839,7 @@ const Konsole = {
       return `Uhrversatz zum Dateiserver etwa ${Math.round(versatz / 1000)} s (geschätzt)`;
     });
     if (!schreib.ok) { try { await dir.removeEntry(probeName); } catch(e) {} }
-    // 4) Lebenszeichen schreiben und lesen
-    const praes = await schritt('Lebenszeichen schreiben und lesen', async () => {
-      if (App.kollegenAn && !App.kollegenAn()) return 'ausgeschaltet (Einstellungen → Verbindung → Kollegen-Anzeige)';
-      if (App._netzWeg || App.offlineModus) throw new Error(App.offlineModus ? 'Offline-Modus' : 'Netzabriss-Zustand aktiv');
-      const ok = await App._praesenzTakt(true);
-      if (!ok) throw new Error('Lebenszeichen konnte nicht geschrieben werden');
-      const on = App.onlineNutzer();
-      return on.length ? `${on.length} online: ${App.onlineNutzerText()}` : 'niemand sonst online';
-    });
-    // 5) Abgleich
+    // 4) Abgleich
     const abgleich = await schritt('Fremde Protokolle lesen (Abgleich)', async () => {
       if (!App._v3Ready) return 'Abgleich noch nicht bereit (Start läuft)';
       await App._pollOplogs();
@@ -36750,7 +35848,7 @@ const Konsole = {
 
     // Befunde
     if (!schreib.ok) {
-      if (schreib.art === 'safebrowsing') befunde.push('Schreiben blockiert: Der Browser lehnt Schreibvorgänge ab (Safe Browsing / Enterprise-Richtlinie ohne Internet-Ausleitung). Lesen geht, Lebenszeichen und Nachrichten kommen bei den Kollegen NICHT an. Hilfe → Mehrbenutzer-Betrieb nennt die IT-Einstellung.');
+      if (schreib.art === 'safebrowsing') befunde.push('Schreiben blockiert: Der Browser lehnt Schreibvorgänge ab (Safe Browsing / Enterprise-Richtlinie ohne Internet-Ausleitung). Lesen geht, eigene Änderungen kommen bei den Kollegen NICHT an. Hilfe → Mehrbenutzer-Betrieb nennt die IT-Einstellung.');
       else if (schreib.art === 'zustand') befunde.push('Zugriff veraltet (Windows-Dateicache): Bitte die Seite neu laden (F5).');
       else if (schreib.art === 'verweigert') befunde.push('Schreiben verweigert: Ordnerberechtigung nur lesend oder Zugriff abgelaufen – Ordner erneut verbinden.');
       else befunde.push(`Schreiben fehlgeschlagen (${BhkSpur.artText(schreib.art)}): ${schreib.fehler && schreib.fehler.message || ''}`);
@@ -36765,13 +35863,13 @@ const Konsole = {
     if ((App._dirtyOps || []).length) befunde.push(`${App._dirtyOps.length} Änderung(en) warten noch auf das Anhängen.`);
     if (typeof document !== 'undefined' && document.hidden) befunde.push('Das Fenster gilt als verdeckt – in diesem Zustand setzt der Abgleich-Takt aus.');
     const s = BhkSpur.stat;
-    ['praesenz', 'chat', 'anhaengen'].forEach(k => { if (s[k] && s[k].fehler && s[k].letzteArt) befunde.push(`Bereich ${k}: ${s[k].fehler} Fehler in dieser Sitzung, zuletzt ${BhkSpur.artText(s[k].letzteArt)}.`); });
-    if (!befunde.length) befunde.push('Keine Auffälligkeiten: Lesen, Schreiben und Lebenszeichen funktionieren.');
+    ['anhaengen', 'abgleich', 'backup'].forEach(k => { if (s[k] && s[k].fehler && s[k].letzteArt) befunde.push(`Bereich ${k}: ${s[k].fehler} Fehler in dieser Sitzung, zuletzt ${BhkSpur.artText(s[k].letzteArt)}.`); });
+    if (!befunde.length) befunde.push('Keine Auffälligkeiten: Lesen, Schreiben und Abgleich funktionieren.');
 
     this._tabelle(schritte);
     console.log('%cBefunde', 'font-weight:bold');
     befunde.forEach(b => console.log('• ' + b));
-    return { schritte, befunde, versatzMs: versatz, praesenz: praes.ok, abgleich: abgleich.ok, meta: meta.ok };
+    return { schritte, befunde, versatzMs: versatz, abgleich: abgleich.ok, meta: meta.ok };
   },
 
   // Verbindungstest mit Ergebnisfenster (Einstellungen → Verbindung)
@@ -36795,11 +35893,9 @@ const Konsole = {
 
   async jetzt() {
     const t0 = Date.now();
-    const p = await App._praesenzTakt(true);
-    const c = typeof Chat !== 'undefined' ? await Chat.abholen() : 0;
     if (App._v3Ready && !App._pollBusy) await App._pollOplogs();
-    console.log(`Lebenszeichen ${p ? 'geschrieben' : 'NICHT geschrieben'}, ${c} neue Nachricht(en), Abgleich ${Math.round(App._lastPollMs || 0)} ms – gesamt ${Date.now() - t0} ms`);
-    return { praesenz: p, nachrichten: c, abgleichMs: App._lastPollMs || 0 };
+    console.log(`Abgleich ${Math.round(App._lastPollMs || 0)} ms – gesamt ${Date.now() - t0} ms`);
+    return { abgleichMs: App._lastPollMs || 0 };
   },
   kopieren() { return App.kopieren(App.diagnoseText({ zeilen: 150 }), 'Zustandsbild kopiert – bei der Entwicklung einfügen'); },
   debug(an) {
@@ -36807,7 +35903,6 @@ const Konsole = {
     console.log(neu ? 'Debug an: Jeder Netzvorgang erscheint ab jetzt als [Spur:…] in der Konsole.' : 'Debug aus.');
     return neu;
   },
-  melden() { if (typeof Melden !== 'undefined') Melden.oeffnen(); },
 
   installieren() {
     if (typeof window === 'undefined') return;

@@ -7,6 +7,7 @@
 //    bhk.status()     Zustand von Verbindung, Synchronisation, Präsenz
 //    bhk.spur()       Ereignisspur (BhkSpur) als Tabelle
 //    bhk.test()       Verbindungstest mit Schreibprobe und Uhrversatz
+//    bhk.kopieren()   Zustandsbild in die Zwischenablage (Weitergabe an die Entwicklung)
 //    bhk.dateien()    Inhalt von _bhk/ mit Größe und Alter
 //  Die Befehle lesen nur; einzig der Verbindungstest schreibt eine kleine
 //  Probedatei und löscht sie wieder. Nichts davon landet in der Datenbank.
@@ -16,15 +17,12 @@ const Konsole = {
   BEFEHLE: [
     ['bhk.hilfe()', 'diese Übersicht'],
     ['bhk.status()', 'Verbindung, Synchronisation, Präsenz und Zähler je Bereich'],
-    ['bhk.spur(bereich, n)', 'Ereignisspur, letzte n Einträge (Standard 40); Bereich z.B. "praesenz", "chat", "anhaengen", "abgleich", "kompakt", "netz", "takt", "fenster"'],
-    ['bhk.praesenz()', 'Wer wird gerade gesehen, eigenes Lebenszeichen'],
-    ['bhk.chat()', 'Nachrichtenverlauf und Lesestände je Datei'],
+    ['bhk.spur(bereich, n)', 'Ereignisspur, letzte n Einträge (Standard 40); Bereich z.B. "anhaengen", "abgleich", "kompakt", "netz", "takt", "fenster"'],
     ['bhk.dateien()', 'Inhalt von _bhk/ mit Größe und Alter (liest das Netzlaufwerk)'],
     ['bhk.test()', 'Verbindungstest: Auflisten, Lesen, Schreibprobe, Uhrversatz, Lebenszeichen'],
-    ['bhk.jetzt()', 'Lebenszeichen, Nachrichten und Abgleich sofort ausführen'],
-    ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage'],
+    ['bhk.jetzt()', 'Abgleich sofort ausführen'],
+    ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage (zur Weitergabe an die Entwicklung)'],
     ['bhk.debug(true)', 'jeden Netzvorgang sofort in der Konsole zeigen (bleibt bis bhk.debug(false))'],
-    ['bhk.melden()', 'Problem melden (wie F2)'],
   ],
   PROBE_PREFIX: 'probe_',
   _tabelle(zeilen) { try { if (console.table) console.table(zeilen); else console.log(zeilen); } catch(e) { console.log(zeilen); } },
@@ -50,9 +48,6 @@ const Konsole = {
       if (gruppe === 'datenbank' || gruppe === 'programm') return;
       Object.entries(werte).forEach(([k, v]) => zeilen.push({ Bereich: gruppe, Angabe: k, Wert: v === '' ? '–' : v }));
     });
-    zeilen.push({ Bereich: 'praesenz', Angabe: 'letztesLebenszeichen', Wert: App._praesenzLetzte ? `${this._zeit(App._praesenzLetzte)} (vor ${this._alter(App._praesenzLetzte)})` : '–' });
-    zeilen.push({ Bereich: 'praesenz', Angabe: 'gesehen', Wert: (App._praesenzAndere || []).map(a => `${App._praesenzLabel(a)} ${a.online ? 'online' : 'vor ' + this._alter(a.ts)}`).join(', ') || 'niemand' });
-    zeilen.push({ Bereich: 'chat', Angabe: 'nachrichten', Wert: typeof Chat !== 'undefined' ? `${Chat._nachrichten.length} im Verlauf, ${Chat.ungelesen()} ungelesen${Chat.aktiv() ? '' : ', ruht: ' + Chat._grund()}` : '–' });
     zeilen.push({ Bereich: 'sync', Angabe: 'anhaengenLaeuft', Wert: !!App._appendInProgress });
     zeilen.push({ Bereich: 'sync', Angabe: 'kompaktierungLaeuft', Wert: !!App._compactInProgress });
     zeilen.push({ Bereich: 'sync', Angabe: 'speichernLaeuft', Wert: !!App._mergeInProgress });
@@ -70,24 +65,6 @@ const Konsole = {
     if (!l.length) { console.log('Keine Einträge' + (bereich ? ' für „' + bereich + '“' : '') + '.'); return []; }
     this._tabelle(l.map(e => ({ Zeit: this._zeit(e.t), Bereich: e.kat, Vorgang: e.was, ms: e.ms == null ? '' : e.ms, OK: e.ok ? '✓' : '✗', Art: e.art || '', Info: e.ok ? (e.info || '') : `${e.fehler || ''}${e.info ? ' (' + e.info + ')' : ''}` })));
     return l;
-  },
-
-  praesenz() {
-    const andere = App._praesenzAndere || [];
-    console.log(`Eigenes Lebenszeichen: ${App._praesenzLetzte ? 'zuletzt ' + this._zeit(App._praesenzLetzte) : 'noch keins'}${App._praesenzLetzteOk ? ', zuletzt erfolgreich ' + this._zeit(App._praesenzLetzteOk) : ''}${App._praesenzFehler ? ', ' + App._praesenzFehler + ' Fehler in Folge' : ''} · Takt ${App.feldmodus ? 60 : 30} s · online = jünger als ${App.PRAESENZ_ONLINE_MS / 60000} min`);
-    if (!andere.length) { console.log('Niemand sonst gesehen (oder noch nicht gelesen – bhk.jetzt() liest sofort).'); return []; }
-    this._tabelle(andere.map(a => ({ Wer: App._praesenzLabel(a), Rechner: String(a.client).slice(-4), Ansicht: App.VIEW_LABELS[a.view] || a.view || '', Status: a.online ? 'online' : 'zuletzt vor ' + this._alter(a.ts), Lebenszeichen: this._zeit(a.ts), seit: this._zeit(a.seit), Feldmodus: a.feldmodus ? 'ja' : '' })));
-    return andere;
-  },
-
-  chat() {
-    if (typeof Chat === 'undefined') return [];
-    console.log(`Chat ${Chat.aktiv() ? 'aktiv' : 'ruht: ' + Chat._grund()} · eigene Datei ${Chat._dateiName()} (${Math.round((Chat._eigeneGroesse || 0) / 1024)} KB) · ${Chat.ungelesen()} ungelesen`);
-    const o = Object.entries(Chat._offsets || {}).map(([datei, bytes]) => ({ Datei: datei, gelesenBytes: bytes }));
-    if (o.length) this._tabelle(o);
-    const n = Chat._nachrichten.slice(-30).map(m => ({ Zeit: this._zeit(m.ts), Von: m.von, An: m.an ? (m.anName || m.an) : 'alle', Text: String(m.text).slice(0, 80) }));
-    if (n.length) this._tabelle(n); else console.log('Keine Nachrichten im Verlauf.');
-    return Chat._nachrichten;
   },
 
   // ── Netzlaufwerk ──
@@ -179,16 +156,7 @@ const Konsole = {
       return `Uhrversatz zum Dateiserver etwa ${Math.round(versatz / 1000)} s (geschätzt)`;
     });
     if (!schreib.ok) { try { await dir.removeEntry(probeName); } catch(e) {} }
-    // 4) Lebenszeichen schreiben und lesen
-    const praes = await schritt('Lebenszeichen schreiben und lesen', async () => {
-      if (App.kollegenAn && !App.kollegenAn()) return 'ausgeschaltet (Einstellungen → Verbindung → Kollegen-Anzeige)';
-      if (App._netzWeg || App.offlineModus) throw new Error(App.offlineModus ? 'Offline-Modus' : 'Netzabriss-Zustand aktiv');
-      const ok = await App._praesenzTakt(true);
-      if (!ok) throw new Error('Lebenszeichen konnte nicht geschrieben werden');
-      const on = App.onlineNutzer();
-      return on.length ? `${on.length} online: ${App.onlineNutzerText()}` : 'niemand sonst online';
-    });
-    // 5) Abgleich
+    // 4) Abgleich
     const abgleich = await schritt('Fremde Protokolle lesen (Abgleich)', async () => {
       if (!App._v3Ready) return 'Abgleich noch nicht bereit (Start läuft)';
       await App._pollOplogs();
@@ -197,7 +165,7 @@ const Konsole = {
 
     // Befunde
     if (!schreib.ok) {
-      if (schreib.art === 'safebrowsing') befunde.push('Schreiben blockiert: Der Browser lehnt Schreibvorgänge ab (Safe Browsing / Enterprise-Richtlinie ohne Internet-Ausleitung). Lesen geht, Lebenszeichen und Nachrichten kommen bei den Kollegen NICHT an. Hilfe → Mehrbenutzer-Betrieb nennt die IT-Einstellung.');
+      if (schreib.art === 'safebrowsing') befunde.push('Schreiben blockiert: Der Browser lehnt Schreibvorgänge ab (Safe Browsing / Enterprise-Richtlinie ohne Internet-Ausleitung). Lesen geht, eigene Änderungen kommen bei den Kollegen NICHT an. Hilfe → Mehrbenutzer-Betrieb nennt die IT-Einstellung.');
       else if (schreib.art === 'zustand') befunde.push('Zugriff veraltet (Windows-Dateicache): Bitte die Seite neu laden (F5).');
       else if (schreib.art === 'verweigert') befunde.push('Schreiben verweigert: Ordnerberechtigung nur lesend oder Zugriff abgelaufen – Ordner erneut verbinden.');
       else befunde.push(`Schreiben fehlgeschlagen (${BhkSpur.artText(schreib.art)}): ${schreib.fehler && schreib.fehler.message || ''}`);
@@ -212,13 +180,13 @@ const Konsole = {
     if ((App._dirtyOps || []).length) befunde.push(`${App._dirtyOps.length} Änderung(en) warten noch auf das Anhängen.`);
     if (typeof document !== 'undefined' && document.hidden) befunde.push('Das Fenster gilt als verdeckt – in diesem Zustand setzt der Abgleich-Takt aus.');
     const s = BhkSpur.stat;
-    ['praesenz', 'chat', 'anhaengen'].forEach(k => { if (s[k] && s[k].fehler && s[k].letzteArt) befunde.push(`Bereich ${k}: ${s[k].fehler} Fehler in dieser Sitzung, zuletzt ${BhkSpur.artText(s[k].letzteArt)}.`); });
-    if (!befunde.length) befunde.push('Keine Auffälligkeiten: Lesen, Schreiben und Lebenszeichen funktionieren.');
+    ['anhaengen', 'abgleich', 'backup'].forEach(k => { if (s[k] && s[k].fehler && s[k].letzteArt) befunde.push(`Bereich ${k}: ${s[k].fehler} Fehler in dieser Sitzung, zuletzt ${BhkSpur.artText(s[k].letzteArt)}.`); });
+    if (!befunde.length) befunde.push('Keine Auffälligkeiten: Lesen, Schreiben und Abgleich funktionieren.');
 
     this._tabelle(schritte);
     console.log('%cBefunde', 'font-weight:bold');
     befunde.forEach(b => console.log('• ' + b));
-    return { schritte, befunde, versatzMs: versatz, praesenz: praes.ok, abgleich: abgleich.ok, meta: meta.ok };
+    return { schritte, befunde, versatzMs: versatz, abgleich: abgleich.ok, meta: meta.ok };
   },
 
   // Verbindungstest mit Ergebnisfenster (Einstellungen → Verbindung)
@@ -242,11 +210,9 @@ const Konsole = {
 
   async jetzt() {
     const t0 = Date.now();
-    const p = await App._praesenzTakt(true);
-    const c = typeof Chat !== 'undefined' ? await Chat.abholen() : 0;
     if (App._v3Ready && !App._pollBusy) await App._pollOplogs();
-    console.log(`Lebenszeichen ${p ? 'geschrieben' : 'NICHT geschrieben'}, ${c} neue Nachricht(en), Abgleich ${Math.round(App._lastPollMs || 0)} ms – gesamt ${Date.now() - t0} ms`);
-    return { praesenz: p, nachrichten: c, abgleichMs: App._lastPollMs || 0 };
+    console.log(`Abgleich ${Math.round(App._lastPollMs || 0)} ms – gesamt ${Date.now() - t0} ms`);
+    return { abgleichMs: App._lastPollMs || 0 };
   },
   kopieren() { return App.kopieren(App.diagnoseText({ zeilen: 150 }), 'Zustandsbild kopiert – bei der Entwicklung einfügen'); },
   debug(an) {
@@ -254,7 +220,6 @@ const Konsole = {
     console.log(neu ? 'Debug an: Jeder Netzvorgang erscheint ab jetzt als [Spur:…] in der Konsole.' : 'Debug aus.');
     return neu;
   },
-  melden() { if (typeof Melden !== 'undefined') Melden.oeffnen(); },
 
   installieren() {
     if (typeof window === 'undefined') return;

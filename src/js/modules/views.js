@@ -1538,10 +1538,6 @@ const Views = {
           Feldmodus: Abgleich alle 30 s statt 3 s, Speichern gebündelt (10 s), Positionsanzeige seltener
         </label>
         <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
-          <input type="checkbox" ${App.kollegenAn() ? 'checked' : ''} onchange="App.setKollegenAnzeige(this.checked);Views.render()" style="accent-color:var(--clr-forest);width:18px;height:18px">
-          Kollegen-Anzeige und Nachrichten (Lebenszeichen alle 30 s, Chat-Dateien in <code>_bhk/</code>) – gilt für alle Rechner dieser Datenbank, Standard aus
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
           <input type="checkbox" ${App.offlineStandAn ? 'checked' : ''} onchange="App.setOfflineStand(this.checked)" style="accent-color:var(--clr-forest);width:18px;height:18px">
           Lokalen Stand für den Offline-Start vorhalten (stündlich, ganze Datenbank in den Browser-Speicher) – nur auf diesem Rechner
         </label>
@@ -1551,7 +1547,6 @@ const Views = {
           <span>Minuten (gemeinsam je Datenbank, komprimiert, eine Datei je Intervall). Bei Dateiversionierung auf dem Server reichen 120 bis 240.</span>
         </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px;line-height:1.6">
-          ${App.kollegenAn() ? `<strong>Gerade online:</strong> ${(() => { const on = App.onlineNutzer(); return on.length ? esc(App.onlineNutzerText()) : 'niemand sonst'; })()} <a href="#" onclick="App.onlineNutzerDialog();return false" style="color:var(--clr-forest)">Details</a> – jeder Rechner hinterlässt alle 30 s (Feldmodus 60 s) ein Lebenszeichen in <code>_bhk/</code>; die Kopfzeile zeigt, wer gerade mitarbeitet.<br>` : ''}
           Das Tool wartet nie auf das Netzlaufwerk – Abgleich und Speichern laufen im Hintergrund und drosseln sich selbst
           (aktuell: Netzqualität <strong>${esc(App._networkQuality)}</strong>, letzter Abgleich ${App._lastPollMs ? Math.round(App._lastPollMs) + ' ms' : '–'}, letztes Speichern ${App._lastSaveDurationMs ? Math.round(App._lastSaveDurationMs) + ' ms' : '–'}).
           Über Mobilfunk/VPN wird jede Dateioperation langsam; der Feldmodus nimmt den Takt heraus. Für längere Termine ohne Netz: <strong>Offline-Modus</strong> (Schaltfläche in der Kopfzeile).
@@ -1598,10 +1593,6 @@ const Views = {
         </div>
         <div class="form-group"><label>RP-Adresse (Post, für Serienbriefe)</label>
           <textarea class="form-control" id="setRPPost" rows="2" style="font-size:12px">${esc(rpAdressePost)}</textarea>
-        </div>
-        <div class="form-group"><label>E-Mail für Fehlermeldungen (Entwicklung/Betreuung)</label>
-          <input class="form-control" id="setMeldungEmail" value="${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='meldung_email'") || '')}" placeholder="betreuung@example.de">
-          <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Ist hier eine Adresse hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Der Text geht dann direkt an diese Adresse; ein Bildschirmfoto muss von Hand angehängt werden.</div>
         </div>
         <div class="form-group"><label>Funktions-E-Mail Berichtsheftkontrolle (Absender/Kopie bei allen E-Mails)</label>
           <input class="form-control" id="setRPEmail" value="${esc(rpEmail)}" placeholder="berichtsheft.GB@rpf.bwl.de">
@@ -1670,9 +1661,6 @@ const Views = {
 
       <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
       ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
-
-      <!-- Fehlermeldungen der Kolleginnen und Kollegen -->
-      ${typeof Melden !== 'undefined' ? Melden.cardHtml() : ''}
 
       <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
@@ -1945,7 +1933,6 @@ const Views = {
       ['rp_adresse_persoenlich', document.getElementById('setRPPers').value.trim()],
       ['rp_adresse_post', document.getElementById('setRPPost').value.trim()],
       ['rp_email', document.getElementById('setRPEmail').value.trim()],
-      ['meldung_email', (document.getElementById('setMeldungEmail')?.value || '').trim()],
     ];
     sets.forEach(([k,v]) => {
       App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]);
@@ -2636,22 +2623,19 @@ const Views = {
             <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
-            <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code>. <strong>Drei Wege zur Betreuung:</strong> die Kopfzeile zeigt neue Meldungen als <code>⚑</code> mit Zähler (Klick öffnet die Übersicht), der Chat kündigt sie sofort an, und unter Einstellungen lassen sich alle Meldungen ansehen, mit <strong>„▤ Alle kopieren"</strong> in einem Klick in die Zwischenablage legen (zum Einfügen bei der Entwicklung) oder als Textdatei ausgeben. Ist unter Einstellungen eine E-Mail für Fehlermeldungen hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Ohne Netzlaufwerk wird die Meldung heruntergeladen. Löschung nach 60 Tagen</p>
-            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile; Standard aus, gemeinsam mit der Kollegen-Anzeige schaltbar – ausgeschaltet zeigt die Kopfzeile nur „⚑ Problem melden“)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Das Symbol <code>✉ Nachrichten</code> in der Kopfzeile ist immer sichtbar und öffnet das Fenster, dort steht auch der Link zum Melden eines Problems. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
             <p><strong>Große Bestände (mehrere tausend Azubis):</strong></p>
             <p>• Die Anwendung rechnet auch mit 5000 Azubis schnell; teuer sind allein Vorgänge mit der ganzen Datenbankdatei. Deshalb: <strong>eine</strong> komprimierte Sicherung je Datenbank und Intervall (Einstellung, Standard 60 Minuten) statt alle 5 Minuten je Rechner; Kompaktierung erst ab 10 % der Dateigröße an Änderungen, frühestens alle 30 Minuten und nie von selbst über eine sehr langsame Leitung oder im Feldmodus; kein Nachladen des Schnappschusses, wenn der eigene Stand ihn schon enthält; lokaler Offline-Stand nur auf Wunsch; große Änderungsschübe der Kollegen in einer Transaktion</p>
             <p>• <strong>Dateiversionierung auf dem Server</strong> (Schattenkopien, Sicherungsagent): Jede geschriebene Sicherung und jeder Schnappschuss wird dort als eigene Version aufgehoben, und während der Versionsbildung stocken Schreibzugriffe kurz. Deshalb das Sicherungsintervall auf 120 bis 240 Minuten setzen und den Ordner <code>_bhk/</code> mit seinen <code>.crswap</code>-Tauschdateien vom Sicherungsagenten ausnehmen lassen</p>
             <p>• Bestand klein halten: Einstellungen → Datenbank-Tools → alte Jahrgänge löschen, Aufräumen, Neuaufbau</p>
-            <p>• <strong>Wer ist online?</strong> (Standard aus, Einstellungen → Verbindung → „Kollegen-Anzeige und Nachrichten“, gilt für alle Rechner) Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk):</strong></p>
             <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
-            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Nachrichten, Anhängen, Abgleich, Kompaktierung, Sperre) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt automatisch in jeder Fehlermeldung (F2) und im Zustandsbild („▤ Zustandsbild kopieren“)</p>
-            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.praesenz()</code> (wer gesehen wird), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
+            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Kompaktierung, Sperre, Sicherung) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt im Zustandsbild („▤ Zustandsbild kopieren“ unter Einstellungen → Verbindung, oder <code>bhk.kopieren()</code> in der Konsole) – das ist der Weg, ein Problem an die Entwicklung zu geben</p>
+            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
             <p><strong>Verlustschutz – wo eine Änderung wann liegt:</strong></p>
             <p>• Jede Eingabe steht sofort im <strong>Absturzpuffer</strong> dieses Rechners (Browser-Speicher, übersteht Tab-Absturz und Neustart, wird beim nächsten Start desselben Rechners eingespielt, 30 Tage lang) und wird nach 1,5 s (Feldmodus 10 s) an das <strong>Protokoll auf dem Netzlaufwerk</strong> angehängt. Beim Abschluss eines Berichtshefts („Freigeben“), beim Azubi-Wechsel, beim Terminwechsel und beim Verlassen der Kontrolle wird <strong>sofort</strong> angehängt</p>
             <p>• Die Schnellnavigation zeigt Azubis mit noch nicht angehängten Änderungen mit einer orangen Unterkante; neben „Freigeben“ steht „✓ auf dem Netzlaufwerk“ oder „⏳ wird geschrieben…“. Ein Klick auf den Speicherstatus in der Kopfzeile (oder auf diese Anzeige) öffnet die Liste der wartenden Änderungen mit „Jetzt schreiben“ und „Änderungen als Datei“ als Notausgang</p>
-            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild (F2). Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
-            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Abgleich, Lebenszeichen und Nachrichten setzen dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
+            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild. Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
+            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Der Abgleich setzt dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
