@@ -14976,7 +14976,10 @@ const App = {
         if (phasen.length) {
           const phasenMit = Phasen.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0);
           const berechnetesEnde = Phasen.vertragsendeAusPhasen(phasenMit);
-          if (berechnetesEnde) d2 = berechnetesEnde;
+          // Das berechnete Phasen-Ende ist der Tag NACH dem Vertrag (Beginn + n
+          // Monate, z.B. 1.9.); das Vertragsende ist der Tag davor (31.8.) –
+          // sonst zählte ein Vertrag bis 31.8. ein Schuljahr zu viel
+          if (berechnetesEnde) { d2 = new Date(berechnetesEnde); d2.setDate(d2.getDate() - 1); }
         }
       } catch(e) {}
     }
@@ -14990,12 +14993,34 @@ const App = {
     const endeExkl = new Date(d2); endeExkl.setDate(endeExkl.getDate() + 1);
     let monate = (endeExkl.getFullYear() - d1.getFullYear()) * 12 + (endeExkl.getMonth() - d1.getMonth());
     if (endeExkl.getDate() < d1.getDate()) monate -= 1;
-    const numSY = Math.max(1, Math.min(4, Math.ceil(monate / 12)));
-
-    if (numSY <= 1) return [3];
-    if (numSY === 2) return [2, 3];
-    if (numSY === 3) return [1, 2, 3];
-    return Array.from({length: numSY}, (_, i) => i + 1);
+    // Erstes Ausbildungsjahr aus der Vertragsdauer: 36 Monate → 1, 24 → 2
+    // (Verkürzer steigen im 2. Lehrjahr ein), 12 → 3; Verlängerer ab 1.
+    const jahreVertrag = Math.max(1, Math.ceil(monate / 12));
+    const erstesAJ = Math.max(1, Math.min(3, 4 - jahreVertrag));
+    // ANZAHL der Raster = überspannte Schuljahre (Sep–Aug, August zählt zum
+    // kommenden Schuljahr, s. _schuljahrBeginn): Die Raster sind Schuljahre,
+    // nicht Vertragsjahre. Aus der Dauer gezählt fehlte einem Vertrag ab 1.3.
+    // (oder 1.7.) das letzte Schuljahr – die Wochen des letzten Vertragsjahres
+    // hatten kein Raster. Für Verträge ab 1.8./1.9. ändert sich nichts.
+    const anzahlSJ = Math.max(1, Math.min(5, this._schuljahrAm(d2) - this._schuljahrBeginn(d1) + 1));
+    return Array.from({ length: anzahlSJ }, (_, i) => erstesAJ + i);
+  },
+  // Schuljahr-Zuordnung der Raster (Sep–Aug): Beginnt ein Vertrag im August,
+  // zählt er zum KOMMENDEN Schuljahr – die Augustwochen KW 31–35 liegen am Ende
+  // des Rasters (getAJKWBounds: „ganzes Raster aktiv“). Ein beliebiges Datum
+  // (Stichtag, heute, Vertragsende) gehört im August noch zum ablaufenden Schuljahr.
+  _schuljahrBeginn(d) { return d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; },
+  _schuljahrAm(d) { return d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1; },
+  // Raster (Ausbildungsjahr) zu einem Datum: Schuljahr des Datums relativ zum
+  // ersten Raster. Vorher „Monate seit Beginn / 12 + 1“ – für Verkürzer mit
+  // Raster [2,3] ergab das im zweiten Jahr weiter AJ 2 (Stichtag „geprüft bis
+  // KW“ landete im falschen Raster), und für Verträge ab 1.8. passte es nicht
+  // zu den Schuljahres-Beschriftungen.
+  _ajZumDatum(beginn, ref, ajs) {
+    const d = this._parseDate(beginn);
+    if (!d || !ref) return null;
+    const idx = this._schuljahrAm(ref) - this._schuljahrBeginn(d);
+    return Math.min(Math.max(ajs[0], ajs[0] + idx), Math.max(...ajs));
   },
 
   // ── Status-Modell für Azubis (Audit 7 Paket B) ──
@@ -15066,48 +15091,21 @@ const App = {
   // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
   getCurrentAJ(beginn, schuelerId) {
     if (!beginn) return null;
-    if (schuelerId && typeof Phasen !== 'undefined') {
-      const phasen = Phasen.getPhasen(schuelerId);
-      if (phasen.length) {
-        const s = this.query('SELECT regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
-        const R = Phasen;
-        const phasenMit = R.phasenMitEnden(phasen, s?.regulaer_dauer_monate || 36, s?.verkuerzung_monate || 0);
-        const heute = new Date();
-        const erbrachtVZ = phasenMit
-          .filter(p => p.typ === 'ausbildung')
-          .reduce((sum, p) => {
-            const von = R.parseISO(p.von);
-            const bis = p.bis ? R.parseISO(p.bis) : heute;
-            const eff = bis < heute ? bis : heute;
-            if (eff < von) return sum;
-            return sum + R.diffMonths(von, eff) * ((p.teilzeit_prozent || 100) / 100);
-          }, 0);
-        // Ober- UND Untergrenze = tatsächliche Ausbildungsjahre: Verlängerer
-        // haben 4, zweijährige Verkürzer beginnen im 2. Jahr (Raster [2,3])
-        const ajsP = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
-        return Math.min(Math.max(...ajsP), Math.max(ajsP[0], Math.floor((erbrachtVZ + (s?.verkuerzung_monate || 0)) / 12) + 1));
-      }
-    }
-    const d = this._parseDate(beginn);
-    if (!d) return null;
-    const now = new Date();
-    const months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
     const ajs = schuelerId ? (this.getSchuelerAJs(schuelerId) || [1, 2, 3]) : [1, 2, 3];
-    if (months < 0) return ajs[0];
-    return Math.min(Math.max(ajs[0], Math.floor(months / 12) + 1), Math.max(...ajs));
+    // Kalenderbasiert wie das Raster selbst (Schuljahr Sep–Aug); Teilzeit und
+    // Unterbrechungen verschieben nur das Vertragsende (getSchuelerAJs), nicht
+    // die Kalenderwoche, in der der Prüfer gerade steht
+    return this._ajZumDatum(beginn, new Date(), ajs);
   },
 
   // Ausbildungsjahr, in dem sich der Azubi an einem STICHTAG befindet (nicht
   // heute): Monate seit Ausbildungsbeginn / 12, gedeckelt auf die Zahl der
   // tatsächlichen Ausbildungsjahre (Verkürzer/Verlängerer).
   getAJAtDate(beginn, datum, schuelerId) {
-    const d = this._parseDate(beginn);
     const ref = datum instanceof Date ? datum : this._parseDate(datum);
-    if (!d || !ref) return null;
-    const months = (ref.getFullYear() - d.getFullYear()) * 12 + (ref.getMonth() - d.getMonth());
+    if (!ref) return null;
     const ajs = schuelerId ? (this.getSchuelerAJs(schuelerId) || [1, 2, 3]) : [1, 2, 3];
-    if (months < 0) return ajs[0];
-    return Math.min(Math.max(ajs[0], Math.floor(months / 12) + 1), Math.max(...ajs));
+    return this._ajZumDatum(beginn, ref, ajs);
   },
 
   // Zu welchem Ausbildungsjahr gehört eine Kalenderwoche, die bei einer
@@ -15951,8 +15949,10 @@ const App = {
     const startKW = d1 ? Math.min(52, this._isoKW(d1)) : 36;
     const endKW = d2 ? Math.min(52, this._isoKW(d2)) : 35;
 
-    // School year of first AJ: month >= Sep → year, else year-1
-    const firstSY = d1 ? (d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1) : null;
+    // Schuljahr des ersten Rasters (August zählt zum kommenden Schuljahr – vorher
+    // bekam ein Vertrag ab 1.8. das Raster des VORjahres mit falschen Daten in den
+    // Tooltips, und sein letztes Vertragsjahr hatte kein Raster)
+    const firstSY = d1 ? this._schuljahrBeginn(d1) : null;
 
     // Diagnostic: log once per student to help debug KW issues
     if (!this._kwBoundsLogged) this._kwBoundsLogged = {};

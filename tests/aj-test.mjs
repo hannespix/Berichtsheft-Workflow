@@ -55,8 +55,8 @@ console.log('══ Anzahl Ausbildungsjahre (Regelverträge) ══');
 const faelle = [
   ['2023-09-01', '2026-08-31', 3, '3 Jahre, Beginn 1.9.'],
   ['2023-08-01', '2026-07-31', 3, '3 Jahre, Beginn 1.8.'],
-  ['2023-07-01', '2026-06-30', 3, '3 Jahre, Beginn 1.7.'],
-  ['2024-03-01', '2027-02-28', 3, '3 Jahre, Beginn 1.3.'],
+  ['2023-07-01', '2026-06-30', 4, '3 Jahre, Beginn 1.7. (überspannt vier Schuljahre)'],
+  ['2024-03-01', '2027-02-28', 4, '3 Jahre, Beginn 1.3. (überspannt vier Schuljahre)'],
   ['2023-08-15', '2026-08-14', 3, '3 Jahre, Beginn Monatsmitte'],
   ['2023-09-01', '2025-08-31', 2, 'Verkürzt auf 2 Jahre, Beginn 1.9.'],
   ['2023-08-01', '2025-07-31', 2, 'Verkürzt auf 2 Jahre, Beginn 1.8.'],
@@ -101,6 +101,34 @@ for (const [b, e, label] of [['2023-09-01','2026-08-31','Sep-Vertrag'], ['2023-0
   });
   // 3 Jahre ≈ 156 Wochen; Toleranz für Rand-KWs
   check(aktiv >= 145 && aktiv <= 160, `${label}: ${aktiv} aktive Wochen über alle Raster (erwartet ~156)`);
+}
+
+console.log('\n══ Verkürzer und Nicht-September-Beginner: Raster, Schuljahre, laufendes Jahr ══');
+{
+  const heute = new Date();
+  const jahr = heute.getFullYear();
+  // Verkürzer auf 2 Jahre, Beginn 1.9. vor einem Jahr: heute im zweiten Rasterjahr = AJ 3
+  const sj = heute.getMonth() >= 8 ? jahr : jahr - 1;
+  setAV(`${sj - 1}-09-01`, `${sj + 1}-08-31`, { verkuerzung: 12 });
+  check(JSON.stringify(App.getSchuelerAJs(ID)) === '[2,3]', 'Zweijähriger Verkürzer: Raster [2,3]');
+  check(App.getCurrentAJ(`${sj - 1}-09-01`, ID) === 3, `Verkürzer im zweiten Rasterjahr: laufendes Ausbildungsjahr 3 (${App.getCurrentAJ(`${sj - 1}-09-01`, ID)})`);
+  check(App.getAJAtDate(`${sj - 1}-09-01`, `${sj}-10-15`, ID) === 3 && App.getAJAtDate(`${sj - 1}-09-01`, `${sj - 1}-10-15`, ID) === 2, 'Stichtag im zweiten Jahr → AJ 3, im ersten → AJ 2');
+  const st = App.ajKwFuerStichtag(ID, new Date(sj, 9, 15), 40);
+  check(st && st.aj === 3 && st.kw === 40, `„Geprüft bis KW 40“ zum Stichtag im zweiten Jahr landet im Raster 3 (${st && st.aj})`);
+  // Beginn 1.8.: Raster tragen das Schuljahr des Vertrags, nicht das Vorjahr
+  setAV('2025-08-01', '2028-07-31');
+  let b = App.getAJKWBounds(ID);
+  check(b[1].schoolYear === '2025/26' && b[3].schoolYear === '2027/28' && App.getSchuelerAJs(ID).length === 3, `Beginn 1.8.2025: Raster 2025/26 … 2027/28 (${b[1].schoolYear} … ${b[3].schoolYear})`);
+  check(App.getAJAtDate('2025-08-01', '2026-10-15', ID) === 2 && App.getAJAtDate('2025-08-01', '2026-08-15', ID) === 1, 'Beginn 1.8.: Oktober 2026 → AJ 2, August 2026 → noch AJ 1 (Augustwochen am Rasterende)');
+  // Beginn 1.3.: vier Schuljahr-Raster, das letzte deckt das Vertragsende
+  setAV('2025-03-01', '2028-02-28');
+  b = App.getAJKWBounds(ID);
+  const ajs = App.getSchuelerAJs(ID);
+  check(ajs.length === 4 && b[4].schoolYear === '2027/28' && b[4].endKW === 9 && b[1].startKW === 9, `Beginn 1.3.2025: vier Raster bis 2027/28, letztes endet KW 9 (${ajs}, ${b[4] && b[4].schoolYear})`);
+  check(App.getAJAtDate('2025-03-01', '2027-10-15', ID) === 4, 'Oktober 2027 liegt im vierten Raster');
+  // Verkürzer ab 1.3.: [2,3,4] – Kennungen bestehender Raster bleiben, ein Raster kommt hinzu
+  setAV('2026-03-01', '2028-02-28', { verkuerzung: 12 });
+  check(JSON.stringify(App.getSchuelerAJs(ID)) === '[2,3,4]', 'Verkürzer ab 1.3.: Raster [2,3,4]');
 }
 
 console.log('\n══ Randfälle ══');
