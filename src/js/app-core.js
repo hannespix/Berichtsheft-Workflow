@@ -4820,7 +4820,7 @@ const App = {
       const sig = this._opSignatur(sql, params);
       if (!sig) return;
       if (!this._rowStamps) this._rowStamps = new Map();
-      if (this._rowStamps.size > 50000) this._rowStamps.clear();
+      if (this._rowStamps.size > this.STAMPS_MAX * 2) this._rowStamps.clear();
       const k = sig.table + '|' + sig.key;
       const eintrag = this._rowStamps.get(k) || {};
       const st = { ts, c: c || '', seq: seq || 0 };
@@ -4833,14 +4833,39 @@ const App = {
   // oder Neustart nichts über die Aktualität der Zeilen im Snapshot – seine
   // eigenen, älteren Nachzügler-Ops überschrieben dann neuere Werte der
   // Kollegen. Lokale Tabelle, nie als Op geloggt.
+  // Kompakte Ablage „spalte=ts,client,seq;…“ statt JSON: 50.000 Stempel
+  // belegten als JSON 16 MB in jedem Snapshot und jeder Sicherung.
+  STAMPS_MAX: 20000,
+  _stampText(v) {
+    return Object.entries(v).map(([col, s]) => `${col}=${s.ts || 0},${s.c || ''},${s.seq || 0}`).join(';');
+  },
+  _stampAusText(t) {
+    if (!t) return null;
+    if (t[0] === '{') { try { return JSON.parse(t); } catch(e) { return null; } } // alte JSON-Fassung
+    const v = {};
+    t.split(';').forEach(teil => {
+      const i = teil.indexOf('=');
+      if (i < 0) return;
+      const [ts, c, seq] = teil.slice(i + 1).split(',');
+      v[teil.slice(0, i)] = { ts: Number(ts) || 0, c: c || '', seq: Number(seq) || 0 };
+    });
+    return v;
+  },
   _stampsSpeichern() {
     try {
       this.db.run('CREATE TABLE IF NOT EXISTS bhk_stamps (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
       this.db.run('DELETE FROM bhk_stamps');
       if (!this._rowStamps || !this._rowStamps.size) return;
+      // Nur die jüngsten STAMPS_MAX Zeilen mitschreiben (älteste Stempel zuerst verwerfen)
+      let eintraege = [...this._rowStamps];
+      if (eintraege.length > this.STAMPS_MAX) {
+        const juengster = (v) => Math.max(0, ...Object.values(v).map(s => s.ts || 0));
+        eintraege.sort((a, b) => juengster(b[1]) - juengster(a[1]));
+        eintraege = eintraege.slice(0, this.STAMPS_MAX);
+      }
       const st = this.db.prepare('INSERT INTO bhk_stamps (k,v) VALUES (?,?)');
       this.db.run('BEGIN');
-      try { for (const [k, v] of this._rowStamps) { st.run([k, JSON.stringify(v)]); } this.db.run('COMMIT'); }
+      try { for (const [k, v] of eintraege) { st.run([k, this._stampText(v)]); } this.db.run('COMMIT'); }
       catch(e) { try { this.db.run('ROLLBACK'); } catch(_) {} }
       st.free();
     } catch(e) { console.warn('[SyncV3] Stempel speichern:', e.message); }
@@ -4852,13 +4877,43 @@ const App = {
       if (!this._rowStamps) this._rowStamps = new Map();
       let n = 0;
       rows.forEach(r => {
-        let v; try { v = JSON.parse(r.v); } catch(e) { return; }
+        const v = this._stampAusText(r.v);
+        if (!v) return;
         const eintrag = this._rowStamps.get(r.k) || {};
         Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; });
         this._rowStamps.set(r.k, eintrag); n++;
       });
       return n;
     } catch(e) { return 0; }
+  },
+
+  // ── Durchsichts-Snapshots kompakt ──
+  //  Beim Abschluss eines Termins wurde je Azubi das KOMPLETTE Wochenraster
+  //  aller Ausbildungsjahre mit allen Spalten als JSON in den Snapshot
+  //  kopiert – rund 28 KB je Durchsicht, bei 4300 Azubis 120 MB, das
+  //  Vierfache des Rasters selbst. Archiv-Ansicht und PDF brauchen nur die
+  //  Wochen mit Inhalt. Neue Fassung: {v:2, n:<Zeilen>, z:[[aj,kw,codes,
+  //  fehltage,behoben,bemerkung?],…]}; Leser verstehen beide Fassungen.
+  snapshotKompakt(kwRows) {
+    const z = [];
+    (kwRows || []).forEach(r => {
+      const codes = r.maengel_codes || '', beh = r.behobene_codes || '', bem = r.bemerkung || '', ft = Number(r.fehltage) || 0;
+      if (!codes && !beh && !bem && !ft) return;
+      const t = [r.ausbildungsjahr, r.kalenderwoche, codes, ft, beh];
+      if (bem) t.push(bem);
+      z.push(t);
+    });
+    return JSON.stringify({ v: 2, n: (kwRows || []).length, z });
+  },
+  snapshotIstAlt(json) { return typeof json === 'string' && /^\s*\[/.test(json); },
+  // Zeilen eines Snapshots wie kw_status-Zeilen – aus alter (volle Zeilen)
+  // oder neuer (kompakte Tupel) Fassung
+  snapshotZeilen(snapOderJson) {
+    const json = typeof snapOderJson === 'string' ? snapOderJson : ((snapOderJson && snapOderJson.kw_daten_json) || '[]');
+    let d; try { d = JSON.parse(json || '[]'); } catch(e) { return []; }
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.z)) return d.z.map(t => ({ ausbildungsjahr: t[0], kalenderwoche: t[1], maengel_codes: t[2] || '', fehltage: t[3] || 0, behobene_codes: t[4] || '', bemerkung: t[5] || '', geprueft: 1 }));
+    return [];
   },
   // Kompatibilität: alter Name (kontrollergebnisse-spezifisch)
   _notiereKeSpalten(sql, params, ts) { this._notiereStamp(sql, params, ts, '', 0); },

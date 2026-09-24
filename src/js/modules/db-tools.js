@@ -447,6 +447,7 @@ const DbTools = {
     log: { label: 'Änderungslog älter als 24 Monate (Lösch-Logbuch bleibt)', standard: true },
     importDetails: { label: 'Import-Details älter als 12 Monate (Zusammenfassung bleibt)', standard: true },
     stamps: { label: 'Sync-Stempel älter als 90 Tage', standard: true },
+    snapshots: { label: 'Durchsichts-Snapshots alter Fassung verdichten (volles Wochenraster je Durchsicht → nur Wochen mit Inhalt; Archiv-Ansicht und PDF bleiben)', standard: true },
     betriebe: { label: 'Betriebe ohne Azubis und Termine (samt Ausbildern)', standard: false },
     papierkorb: { label: 'Papierkorb leeren', standard: false },
   },
@@ -488,6 +489,11 @@ const DbTools = {
     add('log', 'Änderungslog-Zeilen', q(`SELECT COUNT(*) FROM aenderungslog WHERE zeitpunkt < '${this._monatsGrenze(this.LOG_MONATE_STANDARD)}' AND aktion != 'geloescht'`));
     add('importDetails', 'Import-Detaillisten', q(`SELECT COUNT(*) FROM import_historie WHERE zeitpunkt < '${this._monatsGrenze(this.IMPORT_DETAILS_MONATE)}' AND details_json != '[]' AND details_json != ''`));
     add('stamps', 'Sync-Stempel', this._stampsAlt());
+    if (o.snapshots) {
+      const alt = App.query("SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(kw_daten_json)),0) AS bytes FROM durchsicht_snapshots WHERE kw_daten_json LIKE '[%'")[0] || { n: 0, bytes: 0 };
+      v.snapshotBytes = alt.bytes || 0;
+      add('snapshots', `Durchsichts-Snapshots alter Fassung (${this._bytes(alt.bytes)})`, alt.n || 0);
+    }
     add('betriebe', 'Betriebe ohne Bezug', q(`SELECT COUNT(*) FROM betriebe b WHERE NOT EXISTS (SELECT 1 FROM schueler s WHERE s.betrieb_id=b.id) AND NOT EXISTS (SELECT 1 FROM kontrolltermine t WHERE t.betrieb_id=b.id)`));
     add('papierkorb', 'Papierkorb-Einträge', q('SELECT COUNT(*) FROM bhk_papierkorb'));
     v.gesamt = v.posten.reduce((a, p) => a + p.n, 0);
@@ -511,11 +517,23 @@ const DbTools = {
       for (const [k, val] of [...App._rowStamps]) { if (Object.values(val).every(x => (x.ts || 0) < grenze)) { App._rowStamps.delete(k); n++; } }
       r.stamps = n;
     }
+    if (o.snapshots) r.snapshots = this._snapshotsVerdichten();
     if (o.betriebe) App.query(`SELECT id FROM betriebe b WHERE NOT EXISTS (SELECT 1 FROM schueler s WHERE s.betrieb_id=b.id) AND NOT EXISTS (SELECT 1 FROM kontrolltermine t WHERE t.betrieb_id=b.id)`).forEach(b => { App.deleteBetriebKaskade(b.id); r.betriebe = (r.betriebe || 0) + 1; });
     if (o.papierkorb) { r.papierkorb = this._count('SELECT COUNT(*) FROM bhk_papierkorb'); App.papierkorbLeeren(); }
     try { App.run("DELETE FROM bhk_tombstones WHERE geloescht_am < datetime('now','localtime','-60 days')"); } catch(e) {}
     try { App.run('DELETE FROM bhk_applied_ops WHERE rowid NOT IN (SELECT rowid FROM bhk_applied_ops ORDER BY rowid DESC LIMIT 5000)'); } catch(e) {}
     return r;
+  },
+  // Snapshots alter Fassung (volle kw_status-Zeilen als JSON) in die kompakte
+  // Fassung bringen – Inhalt bleibt derselbe, nur die leeren Wochen fallen weg.
+  _snapshotsVerdichten() {
+    const alt = App.query("SELECT id, kw_daten_json FROM durchsicht_snapshots WHERE kw_daten_json LIKE '[%'");
+    let n = 0;
+    alt.forEach(s => {
+      const zeilen = App.snapshotZeilen(s.kw_daten_json);
+      try { App.run('UPDATE durchsicht_snapshots SET kw_daten_json=? WHERE id=?', [App.snapshotKompakt(zeilen), s.id]); n++; } catch(e) {}
+    });
+    return n;
   },
   _optionenAusFormular() {
     const o = {};
