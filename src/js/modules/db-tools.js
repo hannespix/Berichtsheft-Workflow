@@ -187,15 +187,19 @@ const DbTools = {
     const ids = this._jgIds(jahrgangIds);
     if (!ids.length) return App.toast('Keinen Jahrgang ausgewählt', 'warning');
     const v = this.jahrgangLoeschenVorschau(ids);
-    if (v.aktiv > 0) return App.toast(`${v.aktiv} Azubis dieses Jahrgangs sind noch aktiv – erst Jahrgang abschließen oder Status setzen`, 'error');
     if (!App.bhkDirHandle) return App.toast('Kein Datenbank-Ordner verbunden – Archiv kann nicht geschrieben werden', 'error');
     const namen = v.jahrgaenge.map(j => j.bezeichnung).join(', ');
+    // Auch Jahrgänge mit noch aktiven Azubis dürfen weg (etwa Altbestände, die
+    // nie abgeschlossen wurden). Die Aktiven werden mitgelöscht und stehen im
+    // Archiv mit ihrem Status; die Bestätigung verlangt dann ein anderes Wort.
+    const schluessel = v.aktiv > 0 ? 'AKTIVE LÖSCHEN' : 'LÖSCHEN';
     const text = `Jahrgang ${namen} endgültig löschen?\n\n` +
       `${v.azubis} Azubis, ${v.termine} Termine, ${v.ergebnisse} Ergebnisse, ${v.kwZeilen} Wochenzeilen, ${v.wiedervorlagen} Wiedervorlagen (${v.wvOffen} offen), ${v.dateien} Akten-Dateien, ${v.klassen} Klassen.\n` +
+      (v.aktiv > 0 ? `\nACHTUNG: ${v.aktiv} Azubis dieses Jahrgangs sind noch AKTIV und werden mitgelöscht – samt ${v.wvOffen} offenen Wiedervorlagen. Sie verschwinden aus Planung, Kontrolle und Berichten. Aus dem Archiv lassen sie sich einzeln zurückholen (dann wieder aktiv).\n` : '') +
       (v.termineGeteilt ? `${v.termineGeteilt} Termine mit Azubis anderer Jahrgänge bleiben bestehen (nur die Ergebnisse dieses Jahrgangs werden entfernt).\n` : '') +
-      `\nVorher wird ein Archiv (SQLite + Excel) nach _bhk/${this.ARCHIV_ORDNER}/ geschrieben und gegengelesen. Erst danach wird gelöscht.\n\nZur Bestätigung LÖSCHEN eingeben:`;
+      `\nVorher wird ein Archiv (SQLite + Excel) nach _bhk/${this.ARCHIV_ORDNER}/ geschrieben und gegengelesen. Erst danach wird gelöscht.\n\nZur Bestätigung ${schluessel} eingeben:`;
     const eingabe = await App.prompt(text, { titel: 'Jahrgang löschen' });
-    if (eingabe !== 'LÖSCHEN') return App.toast('Abgebrochen', 'info');
+    if (eingabe !== schluessel) return App.toast('Abgebrochen', 'info');
     let archiv;
     try {
       App.showLoading('Archiv wird geschrieben…');
@@ -750,14 +754,14 @@ const DbTools = {
       <h4 style="font-size:13px;margin:12px 0 6px">1 · Jahrgänge ausmisten</h4>
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">
         <strong>Verdichten</strong> entfernt nur die Wochendaten inaktiver Azubis (KW-Raster, Snapshots), Ergebnisse und Statistik bleiben.
-        <strong>Löschen</strong> entfernt den ganzen Jahrgang – vorher wird ein Archiv (SQLite + Excel) nach <code>_bhk/${esc(this.ARCHIV_ORDNER)}/</code> geschrieben, aus dem einzelne Azubis zurückholbar sind.
+        <strong>Löschen</strong> entfernt den ganzen Jahrgang, auch noch aktive Azubis darin (die Bestätigung verlangt dann „AKTIVE LÖSCHEN“) – vorher wird ein Archiv (SQLite + Excel) nach <code>_bhk/${esc(this.ARCHIV_ORDNER)}/</code> geschrieben, aus dem einzelne Azubis zurückholbar sind.
       </div>
       <div style="max-height:260px;overflow:auto"><table class="data-table" id="dbtJahrgaenge"><thead><tr>
         <th style="width:26px"><input type="checkbox" onchange="document.querySelectorAll('.chk-dbtjg:not(:disabled)').forEach(c=>c.checked=this.checked)"></th>
         <th>Jahrgang</th><th>aktiv</th><th>inaktiv</th><th>letzter Termin</th><th>Ergebnisse</th><th>Wochenzeilen</th><th>Snapshots</th><th>WV offen</th></tr></thead><tbody>
-        ${b.jahrgaenge.map(j => `<tr style="${j.abgeschlossen ? '' : 'opacity:0.75'}">
-          <td><input type="checkbox" class="chk-dbtjg" value="${j.id}" ${j.id && j.abgeschlossen ? '' : 'disabled'} title="${j.id ? (j.abgeschlossen ? '' : 'noch aktive Azubis') : 'ohne Jahrgang – nicht löschbar'}"></td>
-          <td><strong>${esc(j.bezeichnung)}</strong></td><td>${j.aktiv}</td><td>${j.inaktiv}</td><td>${j.letzter_termin ? esc(formatDate(j.letzter_termin)) : '–'}</td><td>${j.ergebnisse}</td><td>${j.kw_zeilen}</td><td>${j.snapshots}</td><td>${j.wv_offen || ''}</td></tr>`).join('')}
+        ${b.jahrgaenge.map(j => `<tr>
+          <td><input type="checkbox" class="chk-dbtjg" value="${j.id}" ${j.id ? '' : 'disabled'} title="${j.id ? (j.aktiv ? j.aktiv + ' aktive Azubis werden mitgelöscht' : 'abgeschlossen') : 'ohne Jahrgang – nicht löschbar'}"></td>
+          <td><strong>${esc(j.bezeichnung)}</strong>${j.id && !j.abgeschlossen && j.aktiv ? ' <span style="font-size:10px;color:var(--clr-amber)" title="Löschen entfernt auch die aktiven Azubis">● aktiv</span>' : ''}</td><td>${j.aktiv ? '<strong style="color:var(--clr-amber)">' + j.aktiv + '</strong>' : 0}</td><td>${j.inaktiv}</td><td>${j.letzter_termin ? esc(formatDate(j.letzter_termin)) : '–'}</td><td>${j.ergebnisse}</td><td>${j.kw_zeilen}</td><td>${j.snapshots}</td><td>${j.wv_offen || ''}</td></tr>`).join('')}
       </tbody></table></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <label style="font-size:12px">Verdichten: inaktiv seit mindestens <input type="number" id="dbtMonate" min="1" max="120" value="${monate}" style="width:56px" class="form-control" onchange="DbTools.renderCard()"> Monaten</label>
