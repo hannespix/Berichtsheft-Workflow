@@ -138,7 +138,7 @@ let archivDb = null;
   check(v.aktiv === 0 && v.azubis === 4 && v.ergebnisse === 5, `Vorschau: ${v.azubis} Azubis, ${v.ergebnisse} Ergebnisse`);
   check(v.termine === 1 && v.terminIds[0] === 100 && v.termineGeteilt === 1, 'Eigener Termin wird gelöscht, geteilter Termin 101 bleibt (nur gezählt)');
   check(v.klassen === 1 && v.dateien === 1 && v.wiedervorlagen === 2 && v.wvOffen === 1, 'Klassen, Dateien, Wiedervorlagen gezählt');
-  check(T.jahrgangLoeschenVorschau([20]).aktiv === 2, 'Aktiver Jahrgang zeigt aktive Azubis (Löschen wird verweigert)');
+  check(T.jahrgangLoeschenVorschau([20]).aktiv === 2, 'Aktiver Jahrgang zeigt die Zahl der aktiven Azubis (für die Warnung)');
   const a = T._archivDbBauen([10], SQL);
   archivDb = a.db;
   const q = (sql) => archivDb.exec(sql)[0]?.values[0][0] ?? 0;
@@ -150,6 +150,30 @@ let archivDb = null;
   check(q("SELECT wert FROM archiv_info WHERE schluessel='jahrgaenge'") === 'S2021', 'Archiv-Info mit Jahrgang');
   check(String(archivDb.exec("SELECT sql FROM sqlite_master WHERE name='schueler'")[0].values[0][0]).includes('inaktiv_grund'), 'Archiv-Schema = echtes Schema (inkl. migrierter Spalten)');
   check(T._archivName([{ bezeichnung: 'S2021' }]).startsWith('archiv_S2021_'), 'Archiv-Dateiname');
+}
+
+console.log('══ Jahrgang mit AKTIVEN Azubis löschen ══');
+{
+  // Eigener Jahrgang 30 mit einem aktiven Azubi samt offener Wiedervorlage – wird komplett gelöscht
+  db.run("INSERT INTO abschlussjahrgaenge (id,bezeichnung,typ,jahr) VALUES (30,'S2019','Sommer',2019)");
+  db.run("INSERT INTO klassen (id,berufsschule_id,jahrgang_id,fachrichtung_id,klassenbezeichnung) VALUES (31,1,30,1,'GL S2019')");
+  db.run("INSERT INTO schueler (id,ibykus_id,nachname,vorname,fachrichtung_id,betrieb_id,klasse_id,jahrgang_id,aktiv,status) VALUES (90,'X90','Uralt','Aktiv',1,1,31,30,1,'aktiv')");
+  db.run("INSERT INTO kontrolltermine (id,berufsschule_id,jahrgang_id,klasse_id,geplant_datum,status) VALUES (130,1,30,31,'2020-05-05','durchgefuehrt')");
+  db.run("INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis) VALUES (1300,130,90,'post_an_rp')");
+  db.run("INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (530,1300,90,'post','2020-06-01','offen')");
+  for (let kw = 1; kw <= 5; kw++) db.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche) VALUES (90,1,?)', [kw]);
+  const v = T.jahrgangLoeschenVorschau([30]);
+  check(v.aktiv === 1 && v.azubis === 1 && v.wvOffen === 1, 'Vorschau nennt den aktiven Azubi und die offene Wiedervorlage');
+  const a = T._archivDbBauen([30], SQL);
+  const q = (sql) => a.db.exec(sql)[0]?.values[0][0] ?? 0;
+  check(q('SELECT aktiv FROM schueler WHERE id=90') === 1 && q('SELECT COUNT(*) FROM wiedervorlagen WHERE id=530') === 1, 'Archiv hält den Azubi als AKTIV samt offener Wiedervorlage');
+  a.db.close();
+  const r = T._jahrgaengeLoeschenAusfuehren([30], 'archiv_S2019_test.sqlite');
+  check(r.azubis === 1 && cnt('SELECT COUNT(*) FROM schueler WHERE id=90') === 0 && cnt('SELECT COUNT(*) FROM wiedervorlagen WHERE id=530') === 0 && cnt('SELECT COUNT(*) FROM kw_status WHERE schueler_id=90') === 0, 'Aktiver Azubi samt Wiedervorlage und Wochenzeilen gelöscht');
+  check(cnt('SELECT COUNT(*) FROM abschlussjahrgaenge WHERE id=30') === 0 && cnt('SELECT COUNT(*) FROM klassen WHERE id=31') === 0 && cnt('SELECT COUNT(*) FROM kontrolltermine WHERE id=130') === 0, 'Jahrgang, Klasse und Termin entfernt');
+  check(cnt('SELECT COUNT(*) FROM schueler') === 6, 'Übrige Azubis unberührt');
+  check(/AKTIVE LÖSCHEN/.test(DBT_SRC) && /schluessel = v\.aktiv > 0/.test(DBT_SRC) && !/sind noch aktiv – erst Jahrgang abschließen/.test(DBT_SRC), 'Bestätigung bei aktiven Azubis verlangt „AKTIVE LÖSCHEN“, keine Verweigerung mehr');
+  check(/chk-dbtjg" value="\$\{j\.id\}" \$\{j\.id \? '' : 'disabled'\}/.test(DBT_SRC), 'Alle echten Jahrgänge sind in der Tabelle anwählbar');
 }
 
 console.log('══ Jahrgang löschen: Ausführung ══');
@@ -227,7 +251,7 @@ console.log('══ Wächter ══');
   App._netzWeg = true; check(/Netzlaufwerk/.test(T._sperrgrund()), 'Netzabriss sperrt'); App._netzWeg = false;
   App._bulkPending = true; check(/Import/.test(T._sperrgrund()), 'Ausstehender Import sperrt'); App._bulkPending = false;
   check(/_bulkImport = true/.test(DBT_SRC) && /App\.fullSave\(/.test(DBT_SRC) && /createBackup\('vor-'/.test(DBT_SRC) && /run\('VACUUM'\)/.test(DBT_SRC), 'Ablauf: Backup → Bulk-Pfad → VACUUM → Snapshot (fullSave)');
-  check(/eingabe !== 'LÖSCHEN'/.test(DBT_SRC) && /_archivSchreiben\(/.test(DBT_SRC) && /NICHTS gelöscht/.test(DBT_SRC), 'Jahrgang-Löschen: Tippbestätigung, Archiv vor dem Löschen, Abbruch bei Archivfehler');
+  check(/eingabe !== schluessel/.test(DBT_SRC) && /'LÖSCHEN'/.test(DBT_SRC) && /_archivSchreiben\(/.test(DBT_SRC) && /NICHTS gelöscht/.test(DBT_SRC), 'Jahrgang-Löschen: Tippbestätigung, Archiv vor dem Löschen, Abbruch bei Archivfehler');
   check(/n !== v\.azubis\) throw/.test(DBT_SRC), 'Archiv wird gegengelesen (Azubi-Zahl) – sonst kein Löschen');
   const APP = APP_SRC;
   check(/opts\.ohnePapierkorb && !opts\.dateienBehalten/.test(APP), 'deleteSchuelerKaskade lässt Akten-Dateien auf Wunsch stehen (werden ins Archiv verschoben)');
