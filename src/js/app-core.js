@@ -3504,6 +3504,8 @@ const App = {
     let n = 0;
     const cid = this._getClientId();
     const seit = this._offlineSeit || 0;
+    // Ein Schub in einer Transaktion (ein wiederhergestellter Import hat Tausende Ops)
+    let sp = false; try { this.db.run('SAVEPOINT bhk_restore'); sp = true; } catch(e) {}
     for (const o of ops) {
       const op = { sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq };
       // Konflikt: dieselbe Zeile/Spalte wurde von einem Kollegen geändert,
@@ -3526,6 +3528,7 @@ const App = {
       try { this.db.run(o.sql, o.params || []); n++; this._notiereStamp(o.sql, o.params, o.ts, cid, o.seq); }
       catch(e) { console.warn('[Restore] Op nicht anwendbar:', e.message, (o.sql || '').slice(0, 60)); }
     }
+    if (sp) { try { this.db.run('RELEASE bhk_restore'); } catch(e) {} }
     if (n) {
       try { this._entdoppleWiedervorlagen(); } catch(e) {}
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
@@ -5539,10 +5542,14 @@ const App = {
       // soeben nachgespielte fremde Op auf dieselbe Zeile.
       if (this._dirtyOps.length) {
         const cid = this._getClientId();
+        // In EINER Transaktion: nach einem Import warten Tausende Ops im Puffer,
+        // einzeln mit Autocommit dauerte das Sekunden
+        let sp = false; try { this.db.run('SAVEPOINT bhk_puffer'); sp = true; } catch(e) {}
         for (const o of this._dirtyOps) {
           if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq })) continue;
           try { this.db.run(o.sql, o.params || []); } catch(e) {}
         }
+        if (sp) { try { this.db.run('RELEASE bhk_puffer'); } catch(e) {} }
       }
       // Nicht kompaktierter Bulk-Import (steht in keinem Log): auf der frischen
       // DB wiederholen, damit der Tausch ihn nicht auslöscht. Die Nachholung
