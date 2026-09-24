@@ -1155,7 +1155,9 @@ const Views = {
         <p>Berichtsheftdurchsicht dokumentieren</p>
       </div>
       ${App.filterBadgeHtml()}
-      <div class="card">
+      <div class="card" id="terminWahlCard">
+        <div id="terminWahlKurz" style="display:none"></div>
+        <div id="terminWahlVoll">
         <div class="card-header">Kontrolltermin auswählen</div>
         <div class="form-group">
           ${(() => {
@@ -1176,6 +1178,7 @@ const Views = {
               <input type="checkbox" ${alteZeigen ? 'checked' : ''} onchange="App.uSet('kontrolle_alte', this.checked ? '1' : '0');Views.kontrolle()" style="accent-color:var(--clr-forest)"> ältere Termine anzeigen${!alteZeigen && grp.alt.length ? ` (${grp.alt.length} ausgeblendet)` : ''}
             </label>`;
           })()}
+        </div>
         </div>
       </div>
       <div id="kontrolleContent"></div>
@@ -2209,7 +2212,7 @@ const Views = {
     const c = document.getElementById('mainContent');
     const version = '2.0';
     const buildDate = '27.04.2026';
-    const helpSections = ['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Azubi-Dashboard','Azubi-Rechner & Tarife','Schüler-Akte','Phasen-Editor','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'];
+    const helpSections = ['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Ausbildungsverlauf (Phasen)','Azubi-Akte','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'];
     c.innerHTML = `
     <div class="fade-in">
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -2429,32 +2432,22 @@ const Views = {
             <p>Pro Azubi lassen sich Phasen der Ausbildung hinterlegen: Vollzeit, Teilzeit, Betriebswechsel, Unterbrechungen (Elternzeit, lange Krankheit). Erreichbar über das ${svgIcon('dashboard', 12)}-Symbol in Stammdaten, Azubi-Ansicht und Kontrolle sowie aus dem Bearbeiten-Fenster.</p>
             <p>• Aus den Phasen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit</p>
             <p>• Ohne Phasen gilt Ausbildungsbeginn und -ende aus den Stammdaten</p>
+            <p style="margin-top:8px"><strong>Phasentypen:</strong> <strong>Ausbildung</strong> (Betrieb, Teilzeit 25–100 %, pauschale Fehltage) und <strong>Unterbrechung</strong> (Mutterschutz, Elternzeit, Krankheit …, verschiebt das Vertragsende)</p>
+            <p>• „Standard-Phase aus Stammdaten erzeugen" legt eine Phase aus Ausbildungsbeginn und -ende an</p>
+            <p>• Überlappungen und Lücken werden erkannt; eine neue, überlappende Phase fragt, ob gekürzt, geteilt oder so übernommen wird</p>
+            <p>• Das Lehrjahr rechnet mit dem Vollzeit-Äquivalent, nicht mit der Kalenderzeit; Unterbrechungen erscheinen im KW-Raster als graue Wochen</p>
+            <p>• <strong>Import-Schutz:</strong> Würde ein IBYKUS-Re-Import Beginn oder Ende ändern, obwohl Phasen bestehen, bleiben die Datumsfelder stehen und ein Konflikt-Dialog fragt nach</p>
             <p>• Tarife, Vergütung und Urlaub werden nicht mehr geführt – sie gehören nicht zur Berichtsheftkontrolle</p>
           </div>
 
-          <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Schüler-Akte</div>
+          <div id="help_10" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Azubi-Akte</div>
             <p>Pro Schüler können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
-          <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">⇄ Phasen-Editor</div>
-            <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar über das Symbol „Ausbildungsverlauf“ → „Phasen bearbeiten".</p>
-            <p><strong>Phasentypen:</strong></p>
-            <p>• <strong>Ausbildung</strong> – Betrieb, Teilzeit-% (25–100%), pauschale Fehltage</p>
-            <p>• <strong>Unterbrechung</strong> – Grund (Mutterschutz, Elternzeit, Krankheit etc.), verschiebt Vertragsende</p>
-            <p style="margin-top:8px"><strong>Funktionen:</strong></p>
-            <p>• „Standard-Phase aus Stammdaten erzeugen" – Erstellt automatisch eine Phase aus Ausbildungsbeginn/-ende</p>
-            <p>• <strong>Konflikt-Erkennung</strong> – Neue Phase überlappt bestehende → Dialog mit Auflösungsoptionen (Kürzen, Splitten, Akzeptieren)</p>
-            <p>• <strong>Validierung</strong> – Lücken und Überlappungen werden automatisch erkannt und als Warnung angezeigt</p>
-            <p>• Lehrjahr-Berechnung basiert auf VZ-Äquivalent, nicht auf Kalenderzeit</p>
-            <p>• KW-Raster markiert Unterbrechungs-Phasen als inaktive (graue) Wochen</p>
-            <p style="margin-top:8px"><strong>IBYKUS-Import-Schutz:</strong> Wenn ein Re-Import Ausbildungsbeginn/-ende ändern würde und Phasen existieren, werden die Datums-Felder NICHT überschrieben. Ein Konflikt-Dialog nach dem Import ermöglicht die manuelle Entscheidung.</p>
-          </div>
-
-          <div id="help_13" class="card" style="margin-bottom:12px">
+          <div id="help_11" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">◷ Wiedervorlagen</div>
             <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
             <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
@@ -2464,7 +2457,7 @@ const Views = {
             <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
           </div>
 
-          <div id="help_14" class="card" style="margin-bottom:12px">
+          <div id="help_12" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">▤ Berichte & Export</div>
             <p>Folgende Exportfunktionen stehen zur Verfügung:</p>
             <p>• <strong>Jahresbericht (PDF)</strong> – Zusammenfassende Statistik mit Mängelverteilung, Berufsschulübersicht, Fachrichtungsauswertung, Betriebsranking und detaillierter Aufschlüsselung nach Fachrichtung und zuständigem Amt</p>
@@ -2475,7 +2468,7 @@ const Views = {
             <p>• <strong>Datenqualität IBYKUS</strong> – Prüft den Datenbestand auf Fehler (fehlende IBYKUS-ID, unplausible Daten, Ende vor Beginn), Lücken (Klasse/Jahrgang/Kontakt fehlt) und Duplikate. Ergebnis sortier- und filterbar nach Schweregrad/Kategorie; Zeilen-Klick öffnet den Datensatz. Excel-Export als Abarbeitungsliste – Korrekturen an IBYKUS-Stammdaten immer <strong>in IBYKUS</strong> vornehmen (Einbahn-Datenfluss).</p>
           </div>
 
-          <div id="help_15" class="card" style="margin-bottom:12px">
+          <div id="help_13" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Jahresbericht (PDF)</div>
             <p>Der Jahresbericht wird unter <em>Berichte → Jahresbericht generieren</em> erstellt und enthält:</p>
             <p><strong>Seite 1 – Zusammenfassung:</strong></p>
@@ -2491,7 +2484,7 @@ const Views = {
             <p>• Gesamtübersicht nach Amt (alle Schulen zusammengefasst)</p>
           </div>
 
-          <div id="help_16" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+          <div id="help_14" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
             <div class="card-header" style="font-size:15px">Globale Filter</div>
             <p>Die Filter in der Topbar wirken auf <strong>alle Ansichten</strong> gleichzeitig (Dashboard, Stammdaten, Kontrolle etc.):</p>
             <p>• <strong>Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
@@ -2522,7 +2515,7 @@ const Views = {
             <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
           </div>
 
-          <div id="help_17" class="card" style="margin-bottom:12px">
+          <div id="help_15" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Globale Suche (Strg+K)</div>
             <p>Die Suche durchsucht den <strong>gesamten Datenbestand in allen Feldern</strong> – Azubis (auch inaktive), Betriebe, Ausbilder, Schulen (inkl. Lehrer/Ansprechpartner) und Klassen: Namen, Adressen, Telefon, E-Mail, IBYKUS-ID, Betriebsnummer, Bemerkungen u.v.m.</p>
             <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
@@ -2532,7 +2525,7 @@ const Views = {
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 
-          <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+          <div id="help_16" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">⌨︎ Tastenkürzel (vollständig)</div>
             <p><strong>Allgemein:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
@@ -2566,7 +2559,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_19" class="card" style="margin-bottom:12px">
+          <div id="help_17" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">↩︎ Undo / Redo</div>
             <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
             <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
@@ -2575,7 +2568,7 @@ const Views = {
             <p>• Unterstützt: Code-Toggles, Fehltage-Änderungen, Zellen leeren</p>
           </div>
 
-          <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">Mehrbenutzer-Betrieb & Synchronisation</div>
             <p>Mehrere Ausbildungsberater (2–3) können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
             <p><strong>Funktionsweise:</strong></p>
@@ -2615,14 +2608,14 @@ const Views = {
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
           </div>
 
-          <div id="help_21" class="card" style="margin-bottom:12px">
+          <div id="help_19" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">Datensicherung</div>
             <p><strong>Automatisches Speichern:</strong> Jede Änderung wird nach 1,5 Sekunden automatisch in die Datenbankdatei geschrieben (verzögertes Speichern). Ein manuelles Speichern ist nicht erforderlich.</p>
             <p><strong>Automatische Backups:</strong> Sicherungskopien der Datenbank werden regelmäßig in <code>_bhk/backups/</code> erstellt. Ältere Sicherungen werden automatisch bereinigt.</p>
             <p><strong>Empfehlung:</strong> Der Arbeitsordner sollte auf einem regelmäßig gesicherten Netzlaufwerk liegen. Die SQLite-Datei im Unterordner <code>Datenbanken/</code> enthält den gesamten Datenbestand und kann zusätzlich manuell gesichert werden.</p>
           </div>
 
-          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+          <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
             <div class="card-header" style="font-size:15px">Nacherfassung (Übernahme von Altdaten)</div>
             <p>Beim Umstieg von der bisherigen papiergestützten Dokumentation auf die Berichtsheftkontrolle müssen vergangene Durchsichten nicht vollständig nacherfasst werden. Empfohlen wird folgender pragmatischer Ansatz:</p>
 
@@ -2678,7 +2671,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_21" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">⚙︎ Einstellungen</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
@@ -2694,7 +2687,7 @@ const Views = {
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
           </div>
 
-          <div id="help_24" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
             <div class="card-header" style="font-size:15px">⚙︎ Wartung & Administration</div>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (BaWue Sans, BaWue Serif – Landes-CI) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
@@ -2716,7 +2709,7 @@ const Views = {
             <p>• Auszubildende mit BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) verbleiben im Datenbestand, werden jedoch über den BAV-Status-Filter standardmäßig ausgeblendet</p>
           </div>
 
-          <div id="help_25" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
             <div class="card-header" style="font-size:15px">⊘ Datenschutz & Rechtskonformität</div>
             <p style="font-weight:600;color:var(--clr-forest-dark)">Datenschutzrechtliche Einordnung für Führungskräfte, Datenschutzbeauftragte und behördliche Prüfungen</p>
 
@@ -2819,7 +2812,7 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_26" class="card" style="margin-bottom:12px">
+          <div id="help_24" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">❓ Häufig gestellte Fragen (FAQ)</div>
             <p><strong>Die Diagramme im Dashboard werden unscharf dargestellt.</strong><br>
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>

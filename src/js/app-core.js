@@ -7896,7 +7896,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_3', stammdaten: 'help_4', import: 'help_5', planung: 'help_6', kontrolle: 'help_7', nacherfassung: 'help_22', wiedervorlagen: 'help_13', berichte: 'help_14', einstellungen: 'help_23', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_3', stammdaten: 'help_4', import: 'help_5', planung: 'help_6', kontrolle: 'help_7', nacherfassung: 'help_20', wiedervorlagen: 'help_11', berichte: 'help_12', einstellungen: 'help_21', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
