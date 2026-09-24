@@ -7831,6 +7831,28 @@ const App = {
     return k;
   },
 
+  // ── Kopfzeile und Filterbalken gleiten beim Scrollen nach unten weg ──
+  // Kein Schalter, keine Einstellung: nach unten scrollen versteckt, nach
+  // oben scrollen zeigt (wie im Handy-Browser). Nach einem Wechsel wird der
+  // Scroll-Takt 350 ms ignoriert, weil das Ein-/Ausblenden selbst die Höhe
+  // des Scrollbereichs ändert und sonst am unteren Rand hin- und herspränge.
+  _kopfInit() {
+    if (this._kopfInitDone) return;
+    const mc = document.getElementById('mainContent'), kopf = document.getElementById('kopfBlock');
+    if (!mc || !kopf) return;
+    this._kopfInitDone = true;
+    let letzter = 0, sperre = 0;
+    mc.addEventListener('scroll', () => {
+      const y = mc.scrollTop, delta = y - letzter; letzter = y;
+      if (Date.now() < sperre) return;
+      const weg = document.body.classList.contains('kopf-weg');
+      if (y < 40) { if (weg) { document.body.classList.remove('kopf-weg'); sperre = Date.now() + 350; } return; }
+      if (delta > 8 && !weg) { document.body.style.setProperty('--kopf-h', kopf.offsetHeight + 'px'); document.body.classList.add('kopf-weg'); sperre = Date.now() + 350; }
+      else if (delta < -8 && weg) { document.body.classList.remove('kopf-weg'); sperre = Date.now() + 350; }
+    }, { passive: true });
+  },
+  kopfZeigen() { document.body.classList.remove('kopf-weg'); },
+
   // ── Aufklappmenü für Listen und Kontrolltag ──
   // <details> ohne eigene Zustandslogik: ein Klick auf einen Eintrag oder
   // daneben schließt es, Scrollen ebenso. Die Liste wird beim Öffnen fest
@@ -8815,6 +8837,7 @@ Anlagen: {anlagen}` },
   // ── Show main app ──
   showApp() {
     document.getElementById('connectScreen').style.display = 'none';
+    this._kopfInit();
     const appEl = document.getElementById('appMain');
     appEl.style.display = 'flex';
     document.getElementById('btnSwitchDB').style.display = '';
@@ -9515,6 +9538,7 @@ Anlagen: {anlagen}` },
 
   navigate(view, skipHash) {
     this.currentView = view;
+    this.kopfZeigen();
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
