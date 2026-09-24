@@ -359,5 +359,34 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   KH.currentIndex = 0;
 }
 
+console.log('\n══ UI-Paket 1: Kontrolltag ══');
+{
+  const V_SRC = read('src/js/modules/views.js');
+  const CSS = read('src/css/styles.css');
+  check(/id="terminWahlKurz" style="display:none"/.test(V_SRC) && /id="terminWahlVoll"/.test(V_SRC) && /id="selKontrolltermin"/.test(V_SRC), 'Terminwahl: Karte mit kurzer Zeile und voller Auswahl, Auswahl bleibt im DOM');
+  check(/_terminZeile\(\) \{/.test(K_SRC) && /terminWechseln\(\) \{/.test(K_SRC) && (K_SRC.match(/this\._terminZeile\(\);/g) || []).length >= 2 && /this\.terminWechseln\(\);/.test(K_SRC), 'Nach dem Laden schrumpft die Terminwahl auf eine Zeile, „Termin wechseln“ klappt sie auf');
+  check(/_terminAktionen\(t, fremde\) \{/.test(K_SRC) && /Workflows\.emailSchule\(\$\{tid\}\)/.test(K_SRC) && /Workflows\.seriendruckBetriebe\(\$\{tid\}\)/.test(K_SRC) && /PlanungHandler\.fremdeAemter\(\$\{tid\}\)/.test(K_SRC) && /PlanungHandler\.exportTerminPDF\(\$\{tid\}\)/.test(K_SRC) && /KontrolleHandler\.printUebersicht\(\$\{tid\}\)/.test(K_SRC), 'Termin-Menü: Anfrage/Ergebnisse, Betriebe, Ämter, PDFs, Druck – keine Funktion verloren');
+  check(/_menue\(titel, eintraege, title, klasse\) \{/.test(K_SRC) && /details class="aktionen-menue/.test(K_SRC) && /this\.closest\('details'\)\.removeAttribute\('open'\)/.test(K_SRC) && /\.aktionen-menue\.oben \.menue-liste \{ top: auto; bottom: calc\(100% \+ 4px\); \}/.test(CSS), 'Aufklappmenü: <details>, schließt beim Klick, kann nach oben öffnen');
+  check(/this\._menue\('Weitere Aktionen', \[/.test(K_SRC) && /KontrolleHandler\.quickSetAllAnwesend\(true\)/.test(K_SRC) && /KontrolleHandler\.markOffeneOK\(\)/.test(K_SRC) && /KontrolleHandler\.showAddSchueler\(\)/.test(K_SRC) && /\.\.\.this\._terminAktionen\(termin, fremdeCount\)/.test(K_SRC), 'Übersicht: Sammelaktionen und Termin-Aktionen im Menü „Weitere Aktionen“');
+  check(!/Nach FR gruppieren<\/button>/.test(K_SRC) && /Nach Fachrichtung gruppieren/.test(K_SRC), 'FR-Gruppierung als Menüeintrag statt Kopfknopf');
+  check((K_SRC.match(/KontrolleHandler\.abschliessen\(\)/g) || []).length === 2 && !/▤ Alle als PDF<\/button>/.test(K_SRC), 'Abschließen bleibt der Hauptknopf (Übersicht und Fortschritt), PDF-Knopf daneben entfällt');
+  check(!/<!-- Prüfer \+ Suche \+ Live-Sync -->/.test(K_SRC) && !/← Topbar<\/span>/.test(K_SRC) && /id="kontrolleSearch"/.test(K_SRC) && /id="livePrueferBar"/.test(K_SRC) && /id="syncPulse"/.test(K_SRC), 'Prüfer-Karte entfällt (Prüfer steht in der Kopfzeile); Suche, Live-Anzeige und Kollegen-Positionen bleiben');
+  check(/App\.uGet\('legend_hidden', '1'\) !== '0'/.test(K_SRC) && /legendeUmschalten\(an\) \{/.test(K_SRC) && /onclick="KontrolleHandler\.legendeUmschalten\(\)" title="Mängelcodes und Tastenkürzel ein-\/ausblenden">\?<\/button>/.test(K_SRC) && !/kwLegendShow/.test(K_SRC), 'Kürzel-Leiste standardmäßig aus, „?“ im Azubi-Kopf blendet sie ein');
+  check(/aspect-ratio: 2 \/ 1;/.test(CSS) && /\.kw-cell \{\n  aspect-ratio: 2 \/ 1;/.test(CSS), 'Rasterzellen halb so hoch wie breit');
+  check(/const kuenftig = ajJetzt && aj > ajJetzt && !geprueftCount && !maengelCount;/.test(K_SRC) && /\|\| kuenftig\)/.test(K_SRC) && /class="card-header aj-kopf"[^>]*onclick="KontrolleHandler\.toggleAJ\(\$\{aj\}, \$\{zu \? 'true' : 'false'\}\)"/.test(K_SRC) && /Künftiges Ausbildungsjahr – noch keine geprüfte Woche\./.test(K_SRC), 'Künftige Jahre ohne geprüfte Woche eingeklappt, Kopf klickbar');
+  check(/onclick="event\.stopPropagation\(\)"/.test(K_SRC) && /display:\$\{zu \? 'none' : 'flex'\}/.test(K_SRC), 'Bereichsauswahl nur im aufgeklappten Jahr, Klick darauf klappt nicht zu');
+  check(/<div class="ke-leiste" id="lockableLeiste"/.test(K_SRC) && /id="keBemerkung"/.test(K_SRC) && /id="wvSection" class="ke-wv"/.test(K_SRC) && /id="wvDatum"/.test(K_SRC) && /name="ergebnis"/.test(K_SRC) && /class="erg-pill/.test(K_SRC), 'Feste Leiste unten: Ergebnis-Pillen, Bemerkung, Wiedervorlage (Kennungen für Kürzel und saveField unverändert)');
+  check(/\.ke-leiste \{ position: sticky; bottom: 0;/.test(CSS) && /\.erg-pill:has\(input:checked\)/.test(CSS), 'Leiste haftet am unteren Rand, gewählte Pille hebt sich ab');
+  check(/‹ Zurück<\/button>/.test(K_SRC) && /✓ Fertig, nächster offener<\/button>/.test(K_SRC) && /Weiter ›<\/button>/.test(K_SRC) && !/Freigeben<\/button>/.test(K_SRC) && /Freigeben ohne Wechsel/.test(K_SRC) && /PDFExport\.generateSingle\(\$\{this\.currentTerminId\},\$\{s\.id\}\)/.test(K_SRC), 'Fußzeile: drei Knöpfe; PDFs und Freigeben ohne Wechsel im ⋯-Menü');
+  check(/\['lockableContent', 'lockableLeiste'\]\.forEach/.test(K_SRC) && (K_SRC.match(/\['lockableContent', 'lockableLeiste'\]/g) || []).length === 2, 'Sperre durch Kollegen deckt auch die feste Leiste ab');
+  check(/id="keGesichert"/.test(K_SRC) && /id="quickNavGrid"/.test(K_SRC) && /data-sync-progress-bar/.test(K_SRC) && /id="fehlGesamt"/.test(K_SRC) && /id="fehlPauschalAnzeige"/.test(K_SRC) && /fehlSumAj\$\{aj\}_display/.test(K_SRC), 'Kennungen für Live-Sync, Verlustschutz und Fehltage bleiben erhalten');
+  check(/const sel = document\.getElementById\('selKontrolltermin'\);\n    if \(sel\) \{\n      \/\/ Aktuellen Termin vorwählen/.test(K_SRC), '„Termin wechseln“ wählt den aktuellen Termin vor');
+  const toc = V_SRC.match(/const helpSections = \[([^\]]*)\]/)[1].split(',').map(x => x.trim().replace(/'/g, ''));
+  const ids = [...V_SRC.matchAll(/id="help_(\d+)"/g)].map(m => +m[1]);
+  check(!toc.includes('Azubi-Dashboard') && !toc.includes('Azubi-Rechner & Tarife') && !toc.includes('Phasen-Editor') && toc.includes('Ausbildungsverlauf (Phasen)') && toc.includes('Azubi-Akte'), 'Hilfe-Inhaltsverzeichnis ohne entfernte Module, Phasen-Editor im Ausbildungsverlauf');
+  check(toc.length === ids.length && ids.every((n, i) => n === i) && !/⇄ Phasen-Editor/.test(V_SRC) && /Import-Schutz:/.test(V_SRC), `Jeder Eintrag hat genau ein Kapitel (${toc.length}), Kapitel fortlaufend nummeriert`);
+  check(APP_SRC.includes("nacherfassung: 'help_20', wiedervorlagen: 'help_11', berichte: 'help_12', einstellungen: 'help_21'"), 'Kontexthilfe zeigt auf die neu nummerierten Kapitel');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

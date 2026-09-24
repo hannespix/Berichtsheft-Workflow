@@ -36,6 +36,7 @@ const KontrolleHandler = {
     if (!terminId) {
       document.getElementById('kontrolleContent').innerHTML = '';
       this.stopLiveSync();
+      this.terminWechseln();
       return;
     }
     // Terminwechsel: offene Änderungen des vorigen Termins sofort anhängen
@@ -43,6 +44,7 @@ const KontrolleHandler = {
     this.currentTerminId = parseInt(terminId);
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return;
+    this._terminZeile();
 
     // Active prüfer = immer der in der Topbar ausgewählte Benutzer
     this.activePruefer = App.currentUser || '';
@@ -90,7 +92,70 @@ const KontrolleHandler = {
     const erster = this._ersterOffenerIndex();
     this.currentIndex = erster >= 0 ? erster : 0;
     this._viewMode = this._viewMode || 'uebersicht';
+    this._terminZeile();
     this.renderKontrolleView();
+  },
+
+  // ── Terminwahl nach dem Laden auf eine Zeile schrumpfen ──
+  // Die Auswahl bleibt im DOM (andere Stellen setzen #selKontrolltermin),
+  // „Termin wechseln“ klappt sie wieder auf. Die Folgeaktionen zum Termin
+  // (Anfrage, Betriebe, Ämter, PDFs, Druck) hängen als Menü an der Zeile.
+  _terminZeile() {
+    const kurz = document.getElementById('terminWahlKurz'), voll = document.getElementById('terminWahlVoll');
+    if (!kurz || !voll || !this.currentTerminId) return;
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
+    if (!t) return;
+    const abg = t.status === 'durchgefuehrt';
+    const fremde = (this.currentSchuelerList || []).filter(x => x.zustaendiges_amt && x.zustaendiges_amt !== App.EIGENES_AMT).length;
+    kurz.innerHTML = `<div class="termin-zeile">
+      <span class="tz-label">Termin</span>
+      <strong class="tz-name">${esc(App.formatTerminLabel(t))}</strong>
+      ${abg ? `<span class="badge-status badge-ok" style="font-size:10px">abgeschlossen ${formatDate(t.durchgefuehrt_datum || t.geplant_datum)}</span>` : ''}
+      <span class="tz-nav">
+        <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.terminWechseln()" title="Anderen Kontrolltermin wählen">Termin wechseln</button>
+        ${this._menue('Termin', this._terminAktionen(t, fremde), 'Anfrage, Betriebe, Ämter, PDFs und Druck zu diesem Termin')}
+      </span>
+    </div>`;
+    kurz.style.display = ''; voll.style.display = 'none';
+  },
+  terminWechseln() {
+    const kurz = document.getElementById('terminWahlKurz'), voll = document.getElementById('terminWahlVoll');
+    if (!kurz || !voll) return;
+    kurz.style.display = 'none'; voll.style.display = '';
+    const sel = document.getElementById('selKontrolltermin');
+    if (sel) {
+      // Aktuellen Termin vorwählen, wenn er in der Liste steht
+      if (this.currentTerminId && [...sel.options].some(o => o.value === String(this.currentTerminId))) sel.value = String(this.currentTerminId);
+      try { sel.focus(); } catch(e) {}
+    }
+  },
+  _terminAktionen(t, fremde) {
+    const tid = t.id, abg = t.status === 'durchgefuehrt';
+    return [
+      { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${tid})` },
+      { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${tid})` },
+      fremde ? { label: `§ Fremde Ämter (${fremde})`, onclick: `PlanungHandler.fremdeAemter(${tid})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt weitergeben' } : null,
+      { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${tid})` },
+      { label: '⎙ Übersichtstabelle drucken', onclick: `KontrolleHandler.printUebersicht(${tid})` },
+    ].filter(Boolean);
+  },
+  // Aufklappmenü ohne eigene Zustandslogik: <details>; ein Klick auf einen
+  // Eintrag oder daneben schließt es. Einträge: { label, onclick, title }
+  // oder { trenner: true }. Klasse „oben“ öffnet nach oben (Fußleiste).
+  _menue(titel, eintraege, title, klasse) {
+    if (!this._menueInit) {
+      this._menueInit = true;
+      try { document.addEventListener('click', (e) => { document.querySelectorAll('details.aktionen-menue[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); }); }); } catch(e) {}
+    }
+    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel} ▾</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
+  },
+  // Kürzel-Leiste (Mängelcodes + Tasten) ein-/ausblenden – Vorgabe: aus
+  legendeUmschalten(an) {
+    const bar = document.getElementById('kwLegendBar');
+    if (!bar) return;
+    const zeigen = an == null ? bar.classList.contains('hidden') : !!an;
+    bar.classList.toggle('hidden', !zeigen);
+    App.uSet('legend_hidden', zeigen ? '0' : '1');
   },
 
   _viewMode: 'uebersicht', // 'uebersicht' or 'einzeln'
@@ -292,7 +357,6 @@ const KontrolleHandler = {
           <div class="btn-group">
             <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">▤ Übersicht</button>
             <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()" style="${this._viewMode==='einzeln'?'border:2px solid var(--clr-forest)':''}">Einzelansicht</button>
-            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()" style="${this._groupByFR ? 'border:2px solid var(--clr-forest);background:var(--clr-green-light)' : ''}" title="Nach Fachrichtung gruppieren">Nach FR gruppieren</button>
           </div>
         </div>
 
@@ -358,11 +422,8 @@ const KontrolleHandler = {
           </table>
         </div>
 
-        <!-- Bulk-Aktionen -->
+        <!-- Aktionen: ein Hauptknopf, Prüferaufteilung, alles Weitere im Menü -->
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(true)">${istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend'}</button>
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.quickSetAllAnwesend(false)">${istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend'}</button>
-          ${istEinsendung && fehlendeHefte.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], addDaysStr(14))" title="Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")">✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen</button>` : ''}
           <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;background:var(--clr-warm);border-radius:var(--radius)" title="Prüferaufteilung: „Ich nehme #von–bis" – Kollegen überspringen diesen Bereich beim Weiterschalten">
             Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">
@@ -370,14 +431,17 @@ const KontrolleHandler = {
             ${this._bereich ? `<a href="#" onclick="KontrolleHandler.setzeBereich(null);return false" style="font-size:11px;color:var(--clr-text-light)">✕</a>` : ''}
           </span>
           ${(App._otherPositions || []).filter(p => p.terminId === this.currentTerminId && p.bereich).map(p => `<span style="font-size:11px;padding:2px 8px;background:var(--clr-blue-light);border-radius:var(--radius)">${esc(p.pruefer)}: #${p.bereich.von}–${p.bereich.bis}</span>`).join('')}
-          ${offen ? `<button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.markOffeneOK()" title="Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen">✓ ${offen} offene → In Ordnung</button>` : ''}
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.showAddSchueler()" title="Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)">+ Azubi hinzufügen</button>
-          <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht()" title="Übersichtstabelle drucken">⎙ Drucken</button>
-            <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${terminId})" title="${istAbgeschlossen ? 'Ergebnis-Mitteilung an die Schule' : 'Terminanfrage an die Schule'}">✉︎ ${istAbgeschlossen ? 'Ergebnisse an Schule' : 'Termin anfragen'}</button>
-            <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${terminId})" title="Betriebe anschreiben">▤ Betriebe</button>
-            ${fremdeCount ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${terminId})" title="Ergebnisse der Azubis fremder Ämter je Amt weitergeben">§ Ämter (${fremdeCount})</button>` : ''}
-            <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${terminId})">▤ Alle PDFs</button>
+          <div style="margin-left:auto">
+            ${this._menue('Weitere Aktionen', [
+              { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(true)' },
+              { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(false)' },
+              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], addDaysStr(14))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
+              offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
+              { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
+              { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()' },
+              { trenner: true },
+              ...this._terminAktionen(termin, fremdeCount),
+            ].filter(Boolean), 'Anwesenheit, Sammelaktionen, Anfrage, Betriebe, PDFs und Druck')}
           </div>
         </div>
 
@@ -1106,9 +1170,8 @@ const KontrolleHandler = {
       </div>`;
     };
 
-    const legendHidden = App.uGet('legend_hidden') === '1';
-    const kwLegendHtml = `<div class="kw-legend-show" id="kwLegendShow" style="${legendHidden?'display:block':''}" onclick="document.querySelector('.kw-legend').classList.remove('hidden');this.style.display='none';App.uRemove('legend_hidden')">▼ Legende einblenden</div>
-    <div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar">
+    const legendHidden = App.uGet('legend_hidden', '1') !== '0';
+    const kwLegendHtml = `<div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar">
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
@@ -1125,7 +1188,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>O</kbd>OK</span>
       <span class="leg-item"><kbd>J</kbd>heutige KW</span>
       <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
-      <button class="kw-legend-toggle" onclick="this.parentElement.classList.add('hidden');document.getElementById('kwLegendShow').style.display='block';App.uSet('legend_hidden','1')" title="Legende ausblenden">✕</button>
+      <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden">✕</button>
     </div>`;
 
     const c = document.getElementById('kontrolleContent');
@@ -1148,6 +1211,7 @@ const KontrolleHandler = {
         <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler.nextOffen()" title="Nächster offener Azubi">offen ›</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">▤</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.legendeUmschalten()" title="Mängelcodes und Tastenkürzel ein-/ausblenden">?</button>
       </span>
     </div>`;
     c.innerHTML = `${stickyHtml}${kwLegendHtml}
@@ -1174,66 +1238,42 @@ const KontrolleHandler = {
           </div>
         </div>
       </div>`}
-      <!-- Prüfer + Suche + Live-Sync -->
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
-          <label style="font-weight:600;white-space:nowrap">Prüfer:</label>
-          <span style="padding:4px 10px;background:var(--clr-leaf-light);border-radius:var(--radius);font-weight:600;font-size:12px">${esc(this.activePruefer || '–')}</span>
-          <span style="font-size:10px;color:var(--clr-text-light)" title="Prüfer wird über die Benutzerauswahl in der Topbar (rechts oben) gesteuert">← Topbar</span>
-          <!-- Live sync indicator -->
-          ${!App.demoMode ? `<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--clr-sage);margin-left:4px" title="Live-Sync alle 6 Sekunden">
-            <span id="syncPulse" style="width:6px;height:6px;border-radius:50%;background:var(--clr-green);opacity:0.3;transition:opacity 0.3s"></span>
-            LIVE
-          </span>` : '<span style="font-size:10px;color:var(--clr-amber)">Demo (kein Sync)</span>'}
-          <!-- Live prüfer positions (updated by doLiveSync) -->
-          <span id="livePrueferBar" style="display:${anderePruefer.length ? '' : 'none'};font-size:11px;padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">
-            ${anderePruefer.map(a => `⊘ ${esc(a.pruefer)} → #${this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId)+1} ${esc(a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?')}`).join(' · ')}
-          </span>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px">
-            <div style="position:relative">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:0.5;position:absolute;left:6px;top:7px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input class="form-control" id="kontrolleSearch" placeholder="Schüler suchen…" style="width:200px;padding:4px 8px 4px 24px;font-size:12px" autocomplete="off"
-                oninput="KontrolleHandler.searchSchueler(this.value)"
-                onfocus="if(this.value)KontrolleHandler.searchSchueler(this.value)"
-                onblur="setTimeout(()=>{const dd=document.getElementById('searchDropdown');if(dd)dd.style.display='none'},200)"
-                onkeydown="KontrolleHandler._searchKeyDown(event)">
-              <div id="searchDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:0 0 var(--radius) var(--radius);box-shadow:var(--shadow-md);z-index:50;font-size:12px"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Mode toggle + Navigation -->
+      <!-- Kopf: Azubi, Anwesenheit, Suche, Live-Anzeige (Prüfer steht in der Kopfzeile) -->
       <div class="card" style="margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--clr-sand)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">▤ Übersicht</button>
-          <span style="font-size:11px;color:var(--clr-text-light)">|</span>
-          <span style="font-size:12px;font-weight:600;color:var(--clr-forest)">Einzelansicht</span>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <button class="btn btn-secondary" ${this.currentIndex === 0 ? 'disabled' : ''} onclick="KontrolleHandler.prev()">← Vorheriger</button>
-          <div style="text-align:center">
+          <div style="flex:1;min-width:220px">
             <strong style="font-size:18px;font-family:var(--font-display)">${esc(s.nachname)}, ${esc(s.vorname)}</strong>
             <div style="font-size:12px;color:var(--clr-text-light)">
-              ${esc(s.ausbildungsstaette)} · Schüler ${this.currentIndex + 1} von ${total}
+              ${esc(s.ausbildungsstaette)} · Azubi ${this.currentIndex + 1} von ${total}
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:var(--clr-purple);font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
-              ${typeof Phasen!=='undefined'?`· <a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
+              ${typeof Phasen!=='undefined'?` · <a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 12)} Ausbildungsverlauf</a>`:''}
             </div>
-            ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
-              ✎ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>
-            </div>` : ''}
           </div>
-          <button class="btn btn-secondary" ${this.currentIndex === total - 1 ? 'disabled' : ''} onclick="KontrolleHandler.next()">Nächster →</button>
-        </div>
-        <!-- Anwesenheit -->
-        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 8px;background:${isAnwesend?'var(--clr-green-light)':'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600;color:${isAnwesend?'var(--clr-green)':'var(--clr-red)'}">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600;font-size:12px;padding:4px 10px;border-radius:14px;background:${isAnwesend?'var(--clr-green-light)':'var(--clr-red-light)'};color:${isAnwesend?'var(--clr-green)':'var(--clr-red)'}" title="${isAnwesend ? 'Anwesend – Berichtsheft wird geprüft' : 'Nicht anwesend – Berichtsheft wird nicht geprüft'}">
             <input type="checkbox" ${isAnwesend ? 'checked' : ''} onchange="KontrolleHandler.toggleAnwesend(this.checked)">
             ${isAnwesend ? '✓ Anwesend' : '✕ Nicht anwesend'}
           </label>
-          ${!isAnwesend ? '<span style="color:var(--clr-text-light)">– Berichtsheft wird nicht geprüft</span>' : ''}
+          <div style="position:relative">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:0.5;position:absolute;left:6px;top:7px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="form-control" id="kontrolleSearch" placeholder="Azubi suchen…" style="width:180px;padding:4px 8px 4px 24px;font-size:12px" autocomplete="off"
+              oninput="KontrolleHandler.searchSchueler(this.value)"
+              onfocus="if(this.value)KontrolleHandler.searchSchueler(this.value)"
+              onblur="setTimeout(()=>{const dd=document.getElementById('searchDropdown');if(dd)dd.style.display='none'},200)"
+              onkeydown="KontrolleHandler._searchKeyDown(event)">
+            <div id="searchDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:0 0 var(--radius) var(--radius);box-shadow:var(--shadow-md);z-index:50;font-size:12px"></div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:10px;color:var(--clr-sage);margin-top:4px;flex-wrap:wrap">
+          ${!App.demoMode ? `<span style="display:flex;align-items:center;gap:4px" title="Live-Abgleich mit den Kollegen (Positionen und Ergebnisse)">
+            <span id="syncPulse" style="width:6px;height:6px;border-radius:50%;background:var(--clr-green);opacity:0.3;transition:opacity 0.3s"></span>
+            LIVE
+          </span>` : '<span style="color:var(--clr-amber)">Demo (kein Sync)</span>'}
+          <span id="livePrueferBar" style="display:${anderePruefer.length ? '' : 'none'};font-size:11px;padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">
+            ${anderePruefer.map(a => `⊘ ${esc(a.pruefer)} → #${this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId)+1} ${esc(a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?')}`).join(' · ')}
+          </span>
         </div>
         <!-- Ampel + Wiederholungstäter + Template -->
         ${(() => {
@@ -1286,7 +1326,6 @@ const KontrolleHandler = {
             return `<button class="btn btn-sm ${cls}${ungesichert ? ' qn-ungesichert' : ''}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}${ungesichert ? ' – ⏳ noch nicht auf dem Netzlaufwerk' : ''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
           }).join('')}
         </div>
-        </div>
         <!-- Schnell-Aktion: Ausgewählte als OK -->
         ${(() => {
           const unkontrolliert = this.currentSchuelerList.filter(sc => {
@@ -1312,10 +1351,8 @@ const KontrolleHandler = {
             </div>
           </details>`;
         })()}
-        </div>
       </div>
 
-      <!-- Content area (disabled when locked by another prüfer) -->
       <!-- Content area (disabled when locked by another prüfer) -->
       <div id="lockableContent" style="${isLocked ? 'pointer-events:none;opacity:0.5;user-select:none' : ''}">
 
@@ -1445,15 +1482,18 @@ const KontrolleHandler = {
         // Frühere, vollständig geprüfte Jahre ohne offene Mängel eingeklappt –
         // das Raster begann sonst mit zwei Bildschirmen Vergangenheit
         const frueher = ajJetzt && aj < ajJetzt;
-        const zu = this._ajZustand.has(aj) ? this._ajZustand.get(aj) === false : (frueher && !maengelCount && geprueftCount >= activeCount);
+        // Künftige Jahre ohne eine geprüfte Woche ebenso eingeklappt: das Raster
+        // zeigte sonst vier volle Jahre, davon zwei leer
+        const kuenftig = ajJetzt && aj > ajJetzt && !geprueftCount && !maengelCount;
+        const zu = this._ajZustand.has(aj) ? this._ajZustand.get(aj) === false : ((frueher && !maengelCount && geprueftCount >= activeCount) || kuenftig);
         return `
-        <div class="card" style="margin-bottom:12px">
-          <div class="card-header" style="flex-wrap:wrap;gap:6px">
-            <span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''} – Kalenderwochen${frueher ? ` <a href="#" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'});return false" style="font-size:11px;font-weight:400;color:var(--clr-forest)">${zu ? '▸ aufklappen' : '▾ einklappen'}</a>` : ''}</span>
+        <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
+          <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" title="${zu ? 'Aufklappen' : 'Einklappen'}">
+            <span><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''}${aj === ajJetzt ? ' <span style="font-size:10px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
             <span style="font-size:11px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>
-            <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px">
+            <div style="margin-left:auto;display:${zu ? 'none' : 'flex'};align-items:center;gap:4px;font-size:11px" onclick="event.stopPropagation()">
               <span style="color:var(--clr-text-light)">Bereich pr\u00fcfen:</span>
               <select id="kwRangeFrom_${aj}" class="form-control" style="width:60px;padding:2px 4px;font-size:11px">
                 ${KW_ALL.map(kw => `<option value="${kw}" ${kw===36?'selected':''}${bnd.inactiveKWs.includes(kw)?' disabled':''}>${bnd.inactiveKWs.includes(kw)?'(':''}KW ${kw}${bnd.inactiveKWs.includes(kw)?')':''}</option>`).join('')}
@@ -1469,14 +1509,14 @@ const KontrolleHandler = {
           <div style="height:4px;background:var(--clr-sand);border-radius:2px;margin:0 0 4px">
             <div style="height:100%;width:${activePct}%;background:${barCol};border-radius:2px;transition:width 0.3s"></div>
           </div>
-          ${zu ? `<div style="font-size:12px;color:var(--clr-text-light);padding:2px 8px 6px">Früheres Ausbildungsjahr – ${geprueftCount}/${activeCount} Wochen geprüft, keine offenen Mängel.</div>` : renderKWGrid(aj)}
+          ${zu ? `<div style="font-size:12px;color:var(--clr-text-light);padding:2px 8px 0">${kuenftig ? 'Künftiges Ausbildungsjahr – noch keine geprüfte Woche.' : frueher ? `Früheres Ausbildungsjahr – ${geprueftCount}/${activeCount} Wochen geprüft${maengelCount ? '' : ', keine offenen Mängel'}.` : `${geprueftCount}/${activeCount} Wochen geprüft.`} <a href="#" onclick="event.preventDefault();KontrolleHandler.toggleAJ(${aj}, true)" style="color:var(--clr-forest)">Aufklappen</a></div>` : renderKWGrid(aj)}
         </div>`;
       }).join(''); })()}
 
-      <!-- Fehltage & Ergebnis -->
-      <div class="card" style="margin-bottom:12px;max-width:700px">
-        <div class="card-header">Fehl-/Krankheitstage & Ergebnis</div>
-        <div style="display:flex;gap:16px;align-items:center;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px;font-size:13px">
+      <!-- Fehltage (Ergebnis und Bemerkung stehen in der festen Leiste unten) -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-header">Fehl-/Krankheitstage</div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
           ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
           <span style="font-size:11px;color:var(--clr-text-light)">│</span>
           <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
@@ -1486,63 +1526,17 @@ const KontrolleHandler = {
             <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:11px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
             <span id="fehlPauschalAnzeige" style="display:none">${ke.fehltage_pauschal || 0}</span>
           </label>
-          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Sachberichte (bei Wetter-Mängeln)</label>
-            <input type="number" class="form-control" value="${ke.sachberichte_anzahl}" onchange="KontrolleHandler.saveField('sachberichte_anzahl',this.value)" style="width:120px">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Ergebnis</label>
-          <div class="check-row">
-            <input type="radio" name="ergebnis" value="" ${!ke.ergebnis || ke.ergebnis === '' ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis','')">
-            <span style="color:var(--clr-text-light)">– noch nicht bewertet –</span>
-          </div>
-          ${ergebnisOptions.map((o, oi) => `
-            <div class="check-row">
-              <input type="radio" name="ergebnis" value="${o.val}" ${ke.ergebnis === o.val ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis',this.value)">
-              <span>${o.label} <kbd style="font-size:9px;opacity:0.6" title="Tastenkürzel">⇧${oi + 1}</kbd></span>
-            </div>
-          `).join('')}
-        </div>
-
-        <div class="form-group">
-          <label>Bemerkung
-            <select style="margin-left:8px;font-size:11px;padding:2px 6px;border:1px solid var(--clr-sand);border-radius:4px;color:var(--clr-text-light)" onchange="if(this.value){const ta=this.closest('.form-group').querySelector('textarea');ta.value=ta.value?(ta.value+'. '+this.value):this.value;KontrolleHandler.saveField('bemerkung',ta.value);this.value=''}">
-              <option value="">Textbaustein einfügen…</option>
-              ${App.getTextbausteine().map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
-            </select>
+          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
+          <label style="font-size:11px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Sachberichte (bei Wetter-Mängeln)">Sachberichte:
+            <input type="number" class="form-control" value="${ke.sachberichte_anzahl}" onchange="KontrolleHandler.saveField('sachberichte_anzahl',this.value)" style="width:58px;padding:2px 4px;font-size:11px;text-align:center">
           </label>
-          <textarea class="form-control" rows="3" id="keBemerkung" onchange="KontrolleHandler.saveField('bemerkung',this.value)">${esc(ke.bemerkung)}</textarea>
-        </div>
-
-        <div class="form-row" id="wvSection" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
-          <div class="form-group">
-            <label>Termin zur Wiedervorlage</label>
-            <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
-          </div>
+          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
         </div>
       </div>
 
       </div><!-- /lock overlay -->
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px">
-        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''}>← Vorheriger</button>
-        <div class="btn-group" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
-          <button class="btn btn-success" onclick="KontrolleHandler.nextOffen()" title="Änderungen sind bereits gespeichert – zum nächsten Azubi ohne Ergebnis springen" style="font-weight:600">✓ Nächster offener Azubi →</button>
-          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Berichtsheft abschließen: Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für andere Prüfer freigeben">Freigeben</button>
-          <span id="keGesichert" style="font-size:11px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
-          <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">▤ PDF Einzeln</button>
-          <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">▤ PDF Alle (${total})</button>
-        </div>
-        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''}>Nächster →</button>
-      </div>
-
-      <!-- Kontrolle abschließen -->
+      <!-- Kontrollfortschritt (Abschluss steht in der Übersicht) -->
       ${(() => {
         const done = this.currentSchuelerList.filter(sc => {
           const r = App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, sc.id]);
@@ -1551,28 +1545,57 @@ const KontrolleHandler = {
         const open = total - done;
         const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
         const isDone = termin?.status === 'durchgefuehrt';
-        return `<div class="card" style="margin-top:16px;border-left:4px solid ${isDone ? 'var(--clr-green)' : open === 0 ? 'var(--clr-leaf)' : 'var(--clr-amber)'}">
+        return `<div class="card" style="margin-top:4px;border-left:4px solid ${isDone ? 'var(--clr-green)' : open === 0 ? 'var(--clr-leaf)' : 'var(--clr-amber)'}">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
             <div>
               <strong style="font-size:14px">${isDone ? '✓ Kontrolle abgeschlossen' : 'Kontrollfortschritt'}</strong>
               <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px" data-sync-progress>
-                ${done} von ${total} Schülern kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}
+                ${done} von ${total} Azubis kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}
                 ${isDone ? ` · Abgeschlossen am ${formatDate(termin.durchgefuehrt_datum)}` : ''}
               </div>
-              <!-- Progress bar -->
               <div style="width:200px;height:6px;background:var(--clr-sand);border-radius:3px;margin-top:6px;overflow:hidden">
                 <div data-sync-progress-bar style="width:${total?Math.round(done/total*100):0}%;height:100%;background:${done===total?'var(--clr-green)':'var(--clr-leaf)'};border-radius:3px;transition:width 0.3s"></div>
               </div>
             </div>
             <div class="btn-group">
-              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()" ${open > 0 ? '' : ''}>
-                ${open === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${open} offen)`}
-              </button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Kontrolle wieder öffnen</button>`}
-              <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})">▤ Alle als PDF</button>
+              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${open === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${open} offen)`}</button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Kontrolle wieder öffnen</button>`}
             </div>
           </div>
         </div>`;
       })()}
+
+      <!-- Feste Leiste: Ergebnis, Bemerkung, Wiedervorlage, Navigation – bei jedem Azubi sofort erreichbar -->
+      <div class="ke-leiste" id="lockableLeiste" style="${isLocked ? 'pointer-events:none;opacity:0.5' : ''}">
+        <div class="ke-ergebnis">
+          <span class="ke-titel">Ergebnis</span>
+          <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" ${!ke.ergebnis || ke.ergebnis === '' ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis','')">offen</label>
+          ${ergebnisOptions.map((o, oi) => `<label class="erg-pill${o.val === 'in_ordnung' ? ' erg-ok' : ''}" title="${esc(o.label)} (⇧${oi + 1})"><input type="radio" name="ergebnis" value="${o.val}" ${ke.ergebnis === o.val ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis',this.value)">${esc(ergebnisLabels[o.val] || o.label)}<kbd>⇧${oi + 1}</kbd></label>`).join('')}
+          <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
+            <label for="wvDatum">Wiedervorlage</label>
+            <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+          </span>
+        </div>
+        <div class="ke-bemerkung">
+          <textarea class="form-control" rows="${ke.bemerkung && ke.bemerkung.length > 90 ? 3 : 1}" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="if(this.value.length<=90)this.rows=1">${esc(ke.bemerkung)}</textarea>
+          <select class="form-control" style="width:auto;font-size:11px;padding:4px 6px;color:var(--clr-text-light)" title="Textbaustein an die Bemerkung anhängen" onchange="if(this.value){const ta=document.getElementById('keBemerkung');ta.value=ta.value?(ta.value+'. '+this.value):this.value;KontrolleHandler.saveField('bemerkung',ta.value);this.value=''}">
+            <option value="">Textbaustein…</option>
+            ${App.getTextbausteine().map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="ke-fuss">
+          <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
+          <button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.nextOffen()" title="Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet">✓ Fertig, nächster offener</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
+          <span id="keGesichert" style="font-size:11px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
+          <span style="margin-left:auto">${this._menue('⋯', [
+            { label: '▤ Durchsichtsbogen dieses Azubis (PDF)', onclick: `PDFExport.generateSingle(${this.currentTerminId},${s.id})` },
+            { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
+            { trenner: true },
+            { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
+          ], 'PDFs und Freigabe', 'oben')}</span>
+        </div>
+      </div>
     </div>`;
     // Tastaturbedienung sofort möglich: erste ungeprüfte aktive KW fokussieren
     setTimeout(() => {
@@ -2181,14 +2204,12 @@ const KontrolleHandler = {
             const lp = lockEl.querySelector('.lock-pruefer');
             if (lp) lp.textContent = lockedNow.pruefer;
           }
-          const formArea = document.getElementById('lockableContent');
-          if (formArea) { formArea.style.pointerEvents = 'none'; formArea.style.opacity = '0.5'; formArea.style.userSelect = 'none'; }
+          ['lockableContent', 'lockableLeiste'].forEach(id => { const formArea = document.getElementById(id); if (formArea) { formArea.style.pointerEvents = 'none'; formArea.style.opacity = '0.5'; formArea.style.userSelect = 'none'; } });
         } else if (!lockedNow && this.currentLock) {
           this.currentLock = null;
           const lockEl = document.getElementById('lockWarning');
           if (lockEl) lockEl.style.display = 'none';
-          const formArea = document.getElementById('lockableContent');
-          if (formArea) { formArea.style.pointerEvents = ''; formArea.style.opacity = ''; formArea.style.userSelect = ''; }
+          ['lockableContent', 'lockableLeiste'].forEach(id => { const formArea = document.getElementById(id); if (formArea) { formArea.style.pointerEvents = ''; formArea.style.opacity = ''; formArea.style.userSelect = ''; } });
         }
       }
 

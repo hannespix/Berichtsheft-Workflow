@@ -281,7 +281,7 @@ console.log('\n══ Stufe 3 (2): Ampeln, Sammel-Erinnerung, Hersendung, Kontex
   check(!!App.VORLAGEN.wv_sammel && /\{azubi_block\}/.test(App.VORLAGEN.wv_sammel.body), 'Vorlage „Sammel-Erinnerung" vorhanden');
   // Hersendung, Kontexthilfe, Rollen (Quelltext)
   check(/istEinsendung \? 'Heft da' : 'Anw\.'/.test(read('src/js/modules/kontrolle.js')) && /Erinnerung: \$\{fehlendeHefte\.length\} Heft\(e\) fehlen/.test(read('src/js/modules/kontrolle.js')), 'Hersendung: Eingangsliste „Heft da" und Erinnerung an Betriebe fehlender Hefte');
-  check(App.HILFE_MAP.kontrolle === 'help_7' && App.HILFE_MAP.wiedervorlagen === 'help_13' && /App\.kontextHilfe\(\)/.test(read('src/js/modules/keyboard-shortcuts.js')) && /_hilfeLinkEinblenden/.test(APP_SRC), 'F1 und ?-Link führen zur Hilfe der aktuellen Ansicht');
+  check(App.HILFE_MAP.kontrolle === 'help_7' && App.HILFE_MAP.wiedervorlagen === 'help_11' && /App\.kontextHilfe\(\)/.test(read('src/js/modules/keyboard-shortcuts.js')) && /_hilfeLinkEinblenden/.test(APP_SRC), 'F1 und ?-Link führen zur Hilfe der aktuellen Ansicht');
   check(/id="help_neu"/.test(read('src/js/modules/views.js')), '„Was ist neu" in der Hilfe');
   check(App.ROLLEN.assistenz.features.kontrolle === false && App.ROLLEN.berater.features.kontrolle === true && App.SIDEBAR_FEATURES.kontrolle && /data-feature="kontrolle"/.test(read('index.html')), 'Rollenprofile über die Sidebar-Schalter (Assistenz ohne Durchführung)');
   check(/Anschreiben: \$\{w\.mahnstufe \|\| 1\}×/.test(read('src/js/modules/schueler-akte.js')), 'Aktenvermerk zeigt die Versandhistorie der Wiedervorlagen');
