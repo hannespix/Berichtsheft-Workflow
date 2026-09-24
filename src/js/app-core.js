@@ -2399,7 +2399,6 @@ const App = {
     const n = e.name || '', m = String(e.message || '');
     if (n === 'NotFoundError' || n === 'NotAllowedError' || n === 'NetworkError') return true;
     if (n === 'AbortError' && /safe browsing/i.test(m)) return true;
-    if (/Oplog-Append Timeout|Timeout/i.test(m)) return true;
     if (n === 'TypeError' && /network|fetch|Failed to/i.test(m)) return true;
     return false;
   },
@@ -2589,7 +2588,7 @@ const App = {
       verbindung: {
         netzqualitaet: this._networkQuality || '', feldmodus: !!this.feldmodus, offline: !!this.offlineModus, netzWeg: !!this._netzWeg,
         letzterAbgleichMs: Math.round(this._lastPollMs || 0), letztesSpeichernMs: Math.round(this._lastSaveDurationMs || 0), letztesAnhaengenMs: Math.round(this._lastAppendMs || 0),
-        abgleichTaktMs: this._pollIntervalMs || 0, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
+        abgleichTaktMs: this._pollIntervalMs || 0, netzLangsam: !!this._netzLangsam, anhaengenHaengt: !!this._appendHaengt, schreibenBlockiertBis: this._safeBrowsingBis && Date.now() < this._safeBrowsingBis ? new Date(this._safeBrowsingBis).toLocaleTimeString('de-DE') : '',
         zugriffVeraltet: !!this._neuladenNoetig,
       },
       synchronisation: {
@@ -3019,7 +3018,7 @@ const App = {
           // Netzlaufwerk weg: nur eine leichte Probe, kein Abgleich
           if (!document.hidden && this.dirHandle) await this._netzProbe(false);
           else BhkSpur.uebersprungen('takt', document.hidden ? 'Fenster verdeckt (Netzabriss-Probe ausgesetzt)' : 'kein Ordner');
-        } else if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this.offlineModus) {
+        } else if (!document.hidden && this.dirHandle && !this._mergeInProgress && !this._appendInProgress && !this._snapshotSchreibt && !this._appendHaengt && !this.offlineModus) {
         // Nie parallel zu einem laufenden Anhängen: Chrome reiht Dateizugriffe
         // auf derselben Freigabe hintereinander – der Abgleich würde nur warten
           if (this._v3Active()) await this._pollOplogs();
@@ -3029,7 +3028,7 @@ const App = {
         } else if (!this.offlineModus) {
           // Warum kein Abgleich? Der Grund gehört in die Spur – ein verdecktes
           // Fenster oder ein langes Anhängen sah sonst aus wie ein Netzproblem
-          BhkSpur.uebersprungen('takt', document.hidden ? 'Fenster verdeckt' : !this.dirHandle ? 'kein Ordner' : this._mergeInProgress ? 'Speichern/Kompaktierung läuft' : 'Anhängen läuft');
+          BhkSpur.uebersprungen('takt', document.hidden ? 'Fenster verdeckt' : !this.dirHandle ? 'kein Ordner' : this._mergeInProgress ? 'Speichern/Kompaktierung läuft' : this._snapshotSchreibt ? 'Snapshot wird geschrieben' : this._appendHaengt ? 'Anhängen hängt (Freigabe sehr langsam)' : 'Anhängen läuft');
         }
         this._schedulePoll();
       }, interval);
@@ -3860,6 +3859,8 @@ const App = {
     const TAB = { kw_status: 'Wochenzeilen', kontrollergebnisse: 'Kontrollergebnisse', wiedervorlagen: 'Wiedervorlagen', schueler: 'Azubis', kontrolltermine: 'Termine', kw_maengel: 'KW-Mängel', durchsicht_snapshots: 'Durchsichts-Snapshots', schueler_bemerkungen: 'Bemerkungen', einstellungen: 'Einstellungen' };
     const zustand = this.offlineModus ? 'Offline-Modus: Änderungen werden beim Wiederverbinden zusammengeführt'
       : this._netzWeg ? 'Netzlaufwerk nicht erreichbar – Änderungen bleiben im Absturzpuffer dieses Rechners'
+      : this._appendHaengt ? `Netzlaufwerk sehr langsam – ein Schreibvorgang hängt seit ${Math.round((Date.now() - (this._appendHaengtSeit || Date.now())) / 1000)} s, nächster Versuch folgt automatisch`
+      : this._netzLangsam ? `Netzlaufwerk sehr langsam – nächster Versuch in bis zu ${Math.round(this.langsamWartezeitMs() / 1000)} s`
       : this._appendInProgress ? 'Anhängen läuft gerade…'
       : !this.dbFileHandle ? 'Kein Datenbank-Ordner verbunden'
       : (this._saveRetryCount ? `${this._saveRetryCount} Fehlversuch(e) in Folge – nächster Versuch automatisch` : 'Verbunden');
@@ -4325,11 +4326,61 @@ const App = {
   _snapMetaName() { return 'snapmeta_' + this._dbSlug() + '.json'; },
 
   // ── Speichern: eigene Ops an das eigene Log anhängen ──
+  // ── Sehr langsame Freigabe ──
+  //  Überschreitet ein Anhängen sein Zeitlimit, bricht Chrome den Schreib-
+  //  vorgang NICHT ab: er läuft im Browserprozess weiter und hält die Datei.
+  //  Jeder weitere createWritable reiht sich dahinter ein. So stapelten sich
+  //  alle 45 s neue Versuche samt Puffern und Tauschdateien, das Zeitlimit
+  //  zählte als Netzabriss, die Leseprobe hob ihn wieder auf, und der Rechner
+  //  lahmte nach einer Stunde. Jetzt: den hängenden Versuch im Auge behalten
+  //  (_appendHaengt), nie einen zweiten starten, bei spätem Erfolg die Ops
+  //  als geschrieben verbuchen, Wartezeit zwischen Versuchen verdoppeln.
+  APPEND_TIMEOUT_MIN_MS: 30000,
+  APPEND_TIMEOUT_MAX_MS: 180000,
+  _appendHaengt: null,
+  _netzLangsam: false,
+  _langsamStufe: 0,
+  appendTimeoutMs() { return Math.min(this.APPEND_TIMEOUT_MAX_MS, Math.max(this.APPEND_TIMEOUT_MIN_MS, (this._lastAppendMs || 0) * 3 + 10000)); },
+  langsamWartezeitMs() { return Math.min(300000, 15000 * Math.pow(2, Math.max(0, (this._langsamStufe || 1) - 1))); },
+  // Ein hängender Versuch ist doch noch durchgekommen: Ops nicht ein zweites
+  // Mal schreiben, Zustand nachziehen
+  _appendSpaeterGelungen(claimed, size, bytes, t0) {
+    const uids = new Set(claimed.map(o => o.uid));
+    this._dirtyOps = this._dirtyOps.filter(o => !uids.has(o.uid));
+    claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+    this._myLogSize = Math.max(this._myLogSize || 0, size + bytes.length);
+    this._lastAppendMs = Date.now() - t0;
+    this._lastSaveDurationMs = this._lastAppendMs;
+    this._netzLangsam = false; this._langsamStufe = 0; this._saveRetryCount = 0;
+    claimed.forEach(o => { if (o.sid != null) this._ungesichertAzubis.delete(o.sid); });
+    this._dirtyOps.forEach(o => { if (o.sid != null) this._ungesichertAzubis.add(o.sid); });
+    try { if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler._gesichertAnzeigen) KontrolleHandler._gesichertAnzeigen(); } catch(e) {}
+    this.unsavedChanges = this._dirtyOps.length > 0 || !!this._bulkPending;
+    this._persistDirtyOps();
+    try { this._updateNetworkQuality(); } catch(e) {}
+    const el = document.getElementById('dbStatusIndicator');
+    if (el) el.innerHTML = this._dirtyOps.length ? '<span class="dot dot-yellow"></span>Geändert…' : '<span class="dot dot-green"></span>Gespeichert';
+    BhkSpur.notiere('anhaengen', 'Anhängen nachträglich gelungen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en) nach Zeitlimit doch geschrieben` });
+    console.log(`[SyncV3] Hängendes Anhängen nach ${Math.round(this._lastAppendMs / 1000)} s doch gelungen (${claimed.length} Änderungen)`);
+  },
   async _saveV3() {
     if (this._appendInProgress) {
       // NICHT stillschweigend verwerfen: der Aufruf kam von einem Autosave mit
       // neuen Ops – nach dem laufenden Append erneut versuchen.
       setTimeout(() => this.scheduleAutoSave(), 1500);
+      return;
+    }
+    if (this._appendHaengt) {
+      // Voriger Versuch hängt noch im Browser: nicht dahinter einreihen
+      BhkSpur.uebersprungen('anhaengen', 'voriger Versuch hängt noch (Freigabe sehr langsam)');
+      const el = document.getElementById('dbStatusIndicator');
+      if (el) el.innerHTML = `<span class="dot dot-yellow"></span>Langsam · ${this._dirtyOps.length} wartend`;
+      return;
+    }
+    if (this._snapshotSchreibt) {
+      // Der eigene Snapshot wird gerade geschrieben – ein Anhängen reihte sich
+      // nur dahinter ein und liefe ins Zeitlimit
+      setTimeout(() => this.scheduleAutoSave(), 5000);
       return;
     }
     if (!this._dirtyOps.length) {
@@ -4378,15 +4429,24 @@ const App = {
         await writable.close();
         writable = null;
       };
+      const timeoutMs = this.appendTimeoutMs();
+      const lauf = writeOp();
       try {
         await Promise.race([
-          writeOp(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Oplog-Append Timeout')), 30000)),
+          lauf,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Oplog-Append Timeout')), timeoutMs)),
         ]);
       } catch(err) {
-        if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 10000))]); } catch(_) {} writable = null; }
+        if (/Timeout/i.test(String(err && err.message || ''))) {
+          // Nicht abbrechen (abort hinge genauso): weiterlaufen lassen und
+          // das Ergebnis nachträglich verbuchen – der nächste Versuch wartet
+          this._appendHaengt = lauf; this._appendHaengtSeit = Date.now();
+          lauf.then(() => { try { this._appendSpaeterGelungen(claimed, size, bytes, jetzt); } catch(e) {} }, (e2) => { BhkSpur.notiere('anhaengen', 'Hängendes Anhängen gescheitert', { ok: false, fehler: e2 }); })
+            .finally(() => { this._appendHaengt = null; if (this._dirtyOps.length && !this._netzWeg) setTimeout(() => this.scheduleAutoSave(), 500); });
+        } else if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 10000))]); } catch(_) {} writable = null; }
         throw err;
       }
+      this._netzLangsam = false; this._langsamStufe = 0;
       this._myLogSize = size + bytes.length;
       this._lastAppendMs = Date.now() - jetzt;
       // Ein gelungenes Anhängen IST die Speichermessung im v3-Betrieb – vorher
@@ -4441,12 +4501,22 @@ const App = {
       this._persistDirtyOps(); // Crash-Puffer sofort aktualisieren
       BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: false, fehler: e, info: `${claimed.length} Änderung(en) zurückgelegt` });
       console.error('[SyncV3] Append-Fehler:', e);
+      const istTimeout = /Timeout/i.test(String(e && e.message || ''));
+      // Zeitlimit = Freigabe sehr langsam, KEIN Netzabriss (die Leseprobe
+      // hätte ihn sofort wieder aufgehoben und den nächsten Versuch angestoßen)
+      if (istTimeout) {
+        this._netzLangsam = true;
+        this._langsamStufe = Math.min(6, (this._langsamStufe || 0) + 1);
+        this._lastSaveDurationMs = Math.max(this._lastSaveDurationMs || 0, 5000);
+        try { this._updateNetworkQuality(); } catch(_) {}
+        if (this._langsamStufe === 1) this.toast('Das Netzlaufwerk antwortet sehr langsam – Änderungen bleiben gepuffert und werden nachgeschrieben', 'warning');
+      }
       // Netzabriss / Safe-Browsing-Abbruch: pausieren statt sofort wieder anzurennen
-      const netzFehler = this._verbindungsProblem(e, 'anhaengen');
+      const netzFehler = istTimeout ? false : this._verbindungsProblem(e, 'anhaengen');
       // Nach drei Fehlversuchen in Folge sichtbar machen: Banner mit
       // "Erneut verbinden" (holt die Datei-Handles neu) statt nur roter Punkt.
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
-      if (this._saveRetryCount >= 3 && !this._netzWeg) {
+      if (this._saveRetryCount >= 3 && !this._netzWeg && !istTimeout) {
         try { this._showOfflineBanner(true); } catch(_) {}
         if (!this._lastReconnectAttempt || Date.now() - this._lastReconnectAttempt > 60000) {
           this._lastReconnectAttempt = Date.now();
@@ -4470,10 +4540,14 @@ const App = {
         this._myLogSize = 0;
         console.warn(`[SyncV3] Datei-Cache-Fehler → eigenes Log rotiert auf Generation ${this._logGen}`);
         setTimeout(() => this.scheduleAutoSave(), 500);
+      } else if (istTimeout) {
+        // Sicherheitsnetz, falls der hängende Versuch sich nie meldet: mit
+        // wachsender Wartezeit (15 s … 5 min) erneut anklopfen
+        setTimeout(() => this.scheduleAutoSave(), this.langsamWartezeitMs());
       } else if (!this._netzWeg) {
         setTimeout(() => this.scheduleAutoSave(), netzFehler ? 15000 : 5000);
       }
-      document.getElementById('dbStatusIndicator').innerHTML = this._netzWeg ? `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal` : '<span class="dot dot-red"></span>Fehler';
+      document.getElementById('dbStatusIndicator').innerHTML = this._netzWeg ? `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal` : istTimeout ? `<span class="dot dot-yellow"></span>Langsam · ${this._dirtyOps.length} wartend` : '<span class="dot dot-red"></span>Fehler';
     } finally {
       this._appendInProgress = false;
     }
@@ -5047,6 +5121,7 @@ const App = {
       // großer Snapshot über VPN dauert länger – ohne Herzschlag übernähme ein
       // Kollege die Sperre mitten im Schreibvorgang.
       const timeoutMs = this.snapshotTimeoutMs(data.length);
+      this._snapshotSchreibt = true; // Abgleich und Anhängen warten so lange (reihten sich sonst dahinter ein)
       const herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
@@ -5133,6 +5208,7 @@ const App = {
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: e, info: reason });
       return false;
     } finally {
+      this._snapshotSchreibt = false;
       await this._releaseLock();
       this._compactInProgress = false;
     }
