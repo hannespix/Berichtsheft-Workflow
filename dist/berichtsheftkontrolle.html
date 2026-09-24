@@ -9248,11 +9248,11 @@ const App = {
     try {
       // Find the DB file handle
       const name = this.autoLoadedDbName || 'berichtsheftkontrolle.sqlite';
-      this.dbFileHandle = await this.dirHandle.getFileHandle(name, { create: false });
+      // Get/create _bhk dirs (und Datenbanken/ – die Datei kann dort liegen)
+      await this.ensureAppDirs();
+      this.dbFileHandle = await this._dbDateiHandle(name);
       const file = await this.dbFileHandle.getFile();
       this.dbLastModified = file.lastModified; this._lastFileSize = file.size;
-      // Get/create _bhk dirs
-      await this.ensureAppDirs();
       // Store handle for next time
       await this.storeDirHandle(this.dirHandle);
       // Update UI
@@ -9748,14 +9748,30 @@ const App = {
     this._verbFehlerZaehlen(quelle, e);
     return true;
   },
+  // Die Datenbankdatei kann im Hauptordner ODER in Datenbanken/ liegen. Erst
+  // den bekannten Zugriffspunkt selbst prüfen, dann in beiden Ordnern suchen.
+  // Vorher suchte die Netzprobe nur im Hauptordner: Eine neue Datenbank in
+  // Datenbanken/ galt damit als „nicht erreichbar“ – Speichern pausiert,
+  // Import blockiert, obwohl das Laufwerk da war.
+  async _dbDateiHandle(name) {
+    name = name || (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
+    if (!name) throw new Error('keine Datenbankdatei bekannt');
+    if (this.dbFileHandle && this.dbFileHandle.name === name) {
+      try { await this.dbFileHandle.getFile(); return this.dbFileHandle; } catch(e) { /* Zugriffspunkt veraltet → frisch suchen */ }
+    }
+    let letzter = null;
+    for (const d of [this.dbDirHandle, this.dirHandle]) {
+      if (!d) continue;
+      try { const h = await d.getFileHandle(name, { create: false }); await h.getFile(); return h; } catch(e) { letzter = e; }
+    }
+    throw letzter || new Error('Datenbankdatei nicht gefunden');
+  },
   _netzPruefenAsync(quelle) {
     if (this._netzPruefungLaeuft) return this._netzPruefungLaeuft;
     this._netzPruefungLaeuft = (async () => {
       try {
         if (!this.dirHandle || this.offlineModus) return;
-        const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
-        if (!name) return;
-        await (await this.dirHandle.getFileHandle(name, { create: false })).getFile();
+        await this._dbDateiHandle();
       } catch(err) {
         if (this._istVerbindungsFehler(err)) this._verbFehlerZaehlen(quelle, err);
       } finally { this._netzPruefungLaeuft = null; }
@@ -9798,9 +9814,7 @@ const App = {
     if (!this.dirHandle) return false;
     const t0 = Date.now();
     try {
-      const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
-      const h = await this.dirHandle.getFileHandle(name, { create: false });
-      await h.getFile();
+      const h = await this._dbDateiHandle();
       this.dbFileHandle = h;
       BhkSpur.notiere('netz', 'Leseprobe Datenbankdatei', { ok: true, ms: Date.now() - t0, info: this._netzWeg ? 'wieder erreichbar' : (manuell ? 'von Hand' : ''), nurStat: !this._netzWeg && !manuell });
       if (this._netzWeg) console.log('[Netz] Netzlaufwerk wieder erreichbar');
@@ -10147,7 +10161,7 @@ const App = {
       if (e.name === 'InvalidStateError' && this.dirHandle && this._writeRetryCount <= 3) {
         try {
           const oldName = this.dbFileHandle?.name || 'berichtsheftkontrolle.sqlite';
-          this.dbFileHandle = await this.dirHandle.getFileHandle(oldName, { create: false });
+          this.dbFileHandle = await this._dbDateiHandle(oldName);
           console.log('[Save] direct-write retry ' + this._writeRetryCount + '/3');
           return this.writeDatabaseToFile(force);
         } catch(re) { /* fall through */ }
@@ -10980,7 +10994,7 @@ const App = {
       // First try: re-acquire file handle from directory (fixes InvalidStateError)
       if (this.dirHandle && this.dbFileHandle?.name) {
         try {
-          this.dbFileHandle = await this.dirHandle.getFileHandle(this.dbFileHandle.name, { create: false });
+          this.dbFileHandle = await this._dbDateiHandle(this.dbFileHandle.name);
           const file = await this.dbFileHandle.getFile();
           this._reconnectAttempts = 0;
           this._saveRetryCount = 0; this._saveCooldownUntil = null;
@@ -12595,7 +12609,11 @@ const App = {
       try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
       this._smartRefresh();
     } catch(e) {
-      if (BhkSpur.fehlerArt(e) !== 'nicht-gefunden') BhkSpur.notiere('snapshot', 'Snapshot prüfen', { ok: false, fehler: e });
+      // Vor der ersten Kompaktierung gibt es kein snapmeta – das ist kein
+      // Fehler und erst recht kein Netzabriss (kostete eine neue Datenbank
+      // sonst den Import: zwei Fehlzählungen → „nicht erreichbar“)
+      if (BhkSpur.fehlerArt(e) === 'nicht-gefunden') return;
+      BhkSpur.notiere('snapshot', 'Snapshot prüfen', { ok: false, fehler: e });
       if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
       else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
     }
