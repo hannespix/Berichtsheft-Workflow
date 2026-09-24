@@ -278,7 +278,7 @@ und liefert die Schreib-Maschinerie für die Kompaktierung.
 
 **Sync-v2 (Juli 2026) — strukturelle Absicherung, per Zwei-Client-Testharness verifiziert:**
 - **Globale IDs**: INSERTs auf allen relevanten Tabellen bekommen eine clientseitig
-  vergebene, zeitbasierte eindeutige INTEGER-ID (`App.newId()`, ~1.7e15 « 2^53) —
+  vergebene, zeitbasierte eindeutige INTEGER-ID (`App.newId()`, Sekunde × 2 Mio + Zufall, ~3.6e15 « 2^53; vorher Millisekunde × 1000 + Zufall – bei Sammelanlagen in einer Millisekunde kollidierten zwei Rechner) —
   parallele INSERTs zweier Nutzer koennen nicht mehr dieselbe ID belegen
 - **Natural-Key-Replay**: UPDATE/DELETE-Ops auf kontrollergebnisse/kw_status werden
   im Replay ueber den natuerlichen Schluessel adressiert (id-divergenzfest)
