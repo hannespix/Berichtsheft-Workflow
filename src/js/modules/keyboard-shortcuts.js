@@ -25,13 +25,17 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Ctrl+→ = Next student (in Kontrolle)
-  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight' && KontrolleHandler.currentTerminId) {
+  // Nur in der Einzelansicht der Kontrolle und nicht in Eingabefeldern (Ctrl+← im
+  // Bemerkungsfeld ist Wortsprung – vorher wechselte es den Azubi und der Text war weg)
+  const imFeld = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target && e.target.tagName);
+  const inEinzelansicht = App.currentView === 'kontrolle' && KontrolleHandler.currentTerminId && KontrolleHandler._viewMode === 'einzeln';
+  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight' && inEinzelansicht && !imFeld) {
     e.preventDefault();
     KontrolleHandler.next();
     return;
   }
   // Ctrl+← = Previous student (in Kontrolle)
-  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft' && KontrolleHandler.currentTerminId) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft' && inEinzelansicht && !imFeld) {
     e.preventDefault();
     KontrolleHandler.prev();
     return;

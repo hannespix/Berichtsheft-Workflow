@@ -211,6 +211,15 @@ const KontrolleHandler = {
     const alleKE = {};
     App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(ke => { alleKE[ke.schueler_id] = ke; });
 
+    if (!termin) {
+      // Ein Kollege hat den Termin gelöscht: nichts neu anlegen (die Zeilen
+      // hoben sonst die Löschmarken auf), keinen Fehler in den Abgleich werfen
+      const c0 = document.getElementById('kontrolleContent');
+      if (c0) c0.innerHTML = '<div class="card" style="border-left:4px solid var(--clr-red)"><strong>Dieser Termin wurde inzwischen gelöscht.</strong><div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Bitte oben einen anderen Termin wählen.</div></div>';
+      this.stopLiveSync();
+      this.currentTerminId = null;
+      return;
+    }
     // Count stats
     const linkedKlassenIds = new Set(App.getTerminKlassenIds(terminId));
     let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0;
@@ -603,6 +612,7 @@ const KontrolleHandler = {
   ],
   setzeErgebnisKurz(n) {
     if (this._viewMode !== 'einzeln' || !this.currentTerminId) return;
+    if (this.currentLock) return; // Kollege bearbeitet diesen Azubi – Tastatur darf die Sperre nicht umgehen
     const opt = n === 0 ? { val: '', label: 'zurückgesetzt' } : this.ERGEBNIS_OPTIONEN[n - 1];
     if (!opt) return;
     const radio = document.querySelector(`input[name="ergebnis"][value="${opt.val}"]`);
@@ -1001,7 +1011,9 @@ const KontrolleHandler = {
     App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [this.currentTerminId, schuelerId]);
     // Reload student list (now includes the extra student via KE)
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
-    this.currentSchuelerList.push(s);
+    // Gleiche Reihenfolge wie bei den Kollegen (Prüferaufteilung „#von–bis“ meint sonst je Rechner andere Personen)
+    try { this.currentSchuelerList = App.getTerminSchueler(this.currentTerminId); } catch(e) { this.currentSchuelerList.push(s); }
+    if (!this.currentSchuelerList.some(x => x.id === schuelerId)) this.currentSchuelerList.push(s);
     App.closeModal();
     this.renderUebersicht();
     App.toast(`${s.nachname}, ${s.vorname} zur Kontrolle hinzugefügt`, 'success');
@@ -1014,10 +1026,20 @@ const KontrolleHandler = {
     const name = `${s.nachname}, ${s.vorname}`;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     const hasDaten = ke && ke.ergebnis && ke.ergebnis !== '';
-    const msg = hasDaten
+    const ausKlasse = App.getTerminKlassenIds(this.currentTerminId).includes(s.klasse_id);
+    const msg = (hasDaten
       ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
-      : `${name} aus dieser Kontrolle entfernen?`;
+      : `${name} aus dieser Kontrolle entfernen?`)
+      + (ausKlasse ? '\n\nHinweis: Der Azubi gehört zu einer Klasse dieses Termins und erscheint beim nächsten Laden wieder (ohne Ergebnis).' : '');
     if (!(await App.confirm(msg, { titel: 'Azubi entfernen', ok: 'Entfernen', gefaehrlich: true }))) return;
+    // Alles, was am Kontrollergebnis hängt, mit entfernen – eine verwaiste offene
+    // Wiedervorlage führte beim erneuten Hinzufügen zu einer zweiten
+    if (ke) {
+      ['DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=?)',
+       'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=?',
+       'DELETE FROM kw_maengel WHERE kontrollergebnis_id=?',
+       'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id=?'].forEach(q => { try { App.run(q, [ke.id]); } catch(e) {} });
+    }
     // Delete kontrollergebnis for this termin+student
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
@@ -1229,6 +1251,8 @@ const KontrolleHandler = {
     const prueferList = App.query('SELECT name FROM pruefer WHERE aktiv=1');
     const isAnwesend = ke.anwesend !== 0;
     const isLocked = this.currentLock;
+    const aktiv = document.activeElement;
+    const fokusVorher = aktiv && aktiv.classList && aktiv.classList.contains('kw-cell') && aktiv.dataset.kw ? { aj: aktiv.dataset.aj, kw: aktiv.dataset.kw } : null;
 
     // Sticky-Kopf: aktueller Azubi immer sichtbar (kein Hochscrollen nötig)
     const klasseStk = s.klasse_id ? (App.query('SELECT k.klassenbezeichnung, bs.name AS schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {}) : {};
@@ -1625,9 +1649,14 @@ const KontrolleHandler = {
         </div>
       </div>
     </div>`;
-    // Tastaturbedienung sofort möglich: erste ungeprüfte aktive KW fokussieren
+    // Tastaturbedienung sofort möglich: die zuvor fokussierte Zelle wieder
+    // fokussieren (ein Neuzeichnen durch den Abgleich darf den Cursor nicht
+    // versetzen – der nächste Buchstabe träfe sonst die falsche Woche), sonst
+    // die erste ungeprüfte aktive KW. Bei Kollegen-Sperre gar nicht.
     setTimeout(() => {
-      const c = document.querySelector('.kw-cell:not(.kw-inactive):not(.kw-ok):not(.kw-session)') || document.querySelector('.kw-cell:not(.kw-inactive)');
+      if (this.currentLock) return;
+      const c = (fokusVorher && document.querySelector(`.kw-cell[data-aj="${fokusVorher.aj}"][data-kw="${fokusVorher.kw}"]`))
+        || document.querySelector('.kw-cell:not(.kw-inactive):not(.kw-ok):not(.kw-session)') || document.querySelector('.kw-cell:not(.kw-inactive)');
       if (c && c.focus) { try { c.focus({ preventScroll: true }); } catch(e) { c.focus(); } }
     }, 40);
   },
@@ -1653,7 +1682,14 @@ const KontrolleHandler = {
     }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
-    if (!this._pruefeAbgeschlossen(() => this.saveField(field, value))) return;
+    // Fortsetzung nach „Trotzdem ändern“ nur, wenn noch derselbe Azubi offen ist –
+    // ein „Weiter ›“ zwischen Rückfrage und Antwort schrieb sonst A's Eingabe auf B
+    const sidFest = s.id;
+    if (!this._pruefeAbgeschlossen(() => {
+      const jetzt = this.currentSchuelerList[this.currentIndex];
+      if (!jetzt || jetzt.id !== sidFest) { App.toast(`Änderung für ${s.nachname}, ${s.vorname} nicht übernommen – inzwischen ist ein anderer Azubi geöffnet. Bitte dort erneut eingeben.`, 'warning'); return; }
+      this.saveField(field, value);
+    })) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -1738,7 +1774,8 @@ const KontrolleHandler = {
       // Nach "In Ordnung" automatisch zum nächsten offenen Azubi (abschaltbar)
       if (value === 'in_ordnung' && App.uGet('auto_next', '1') !== '0') {
         App.toast('✓ In Ordnung – weiter zum nächsten offenen Azubi', 'success');
-        setTimeout(() => this.nextOffen(), 700);
+        const tidAuto = this.currentTerminId;
+        setTimeout(() => { if (App.currentView === 'kontrolle' && this._viewMode === 'einzeln' && this.currentTerminId === tidAuto) this.nextOffen(); }, 700);
       }
 
       // Auto-erledige offene Wiedervorlagen wenn "in Ordnung"
@@ -2064,6 +2101,9 @@ const KontrolleHandler = {
   enterSchüler() {
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
+    // Außerhalb der Kontrolle (Tastenkürzel, später Auto-Weiter) nichts tun – sonst
+    // liefe der Live-Sync mit Positionsdatei in einer fremden Ansicht weiter
+    if (!document.getElementById('kontrolleContent')) return;
     const pruefer = this.activePruefer || '';
 
     // ── Persist position for reload recovery ──
@@ -2080,7 +2120,7 @@ const KontrolleHandler = {
     // ── Write position file (tiny JSON, no DB lock needed) ──
     if (pruefer && App.dirHandle && !App.demoMode) {
       const posKey = this.currentTerminId + ':' + s.id;
-      if (this._lastWrittenPos !== posKey || !this._posSeit, this._bereich) this._posSeit = Date.now();
+      if (this._lastWrittenPos !== posKey || !this._posSeit) this._posSeit = Date.now();
       this._lastWrittenPos = posKey;
       App._writePositionFile(pruefer, this.currentTerminId, s.id, s.nachname, this._posSeit, this._bereich);
     }
@@ -2349,7 +2389,7 @@ const KontrolleHandler = {
         const idx = this.currentSchuelerList.findIndex(sc => sc.id === o.schuelerId);
         const name = o.schuelerName || (idx >= 0 ? this.currentSchuelerList[idx].nachname : '?');
         const ber = o.bereich ? ` (Bereich #${o.bereich.von}–${o.bereich.bis})` : '';
-        return o.schuelerId ? `⊘ ${o.pruefer} → #${idx+1} ${name}${ber}` : `${o.pruefer}${ber || ' (Übersicht)'}`;
+        return o.schuelerId ? `⊘ ${esc(o.pruefer)} → #${idx+1} ${esc(name)}${ber}` : `${esc(o.pruefer)}${ber || ' (Übersicht)'}`;
       });
       bar.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
       bar.style.display = '';
@@ -2764,7 +2804,7 @@ const KontrolleHandler = {
     if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
-    this.renderSchueler();
+    this.renderKontrolleView();
   },
 
   // ── Mark KW range as checked (geprüft) ──
@@ -2845,7 +2885,7 @@ const KontrolleHandler = {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
       if (existing.length) {
         const row = existing[0];
-        if (!row.maengel_codes && !row.behobene_codes && !row.fehltage) {
+        if (!row.maengel_codes && !row.behobene_codes && !row.fehltage && !row.bemerkung) {
           App.run('DELETE FROM kw_status WHERE id=?', [row.id]);
         } else {
           App.run('UPDATE kw_status SET geprueft=0 WHERE id=?', [row.id]);

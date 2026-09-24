@@ -658,6 +658,7 @@ const KWNav = {
   handleKeyDown(e) {
     const cell = document.activeElement;
     if (!cell || !cell.classList.contains('kw-cell') || !cell.dataset.ke) return;
+    if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.currentLock) return; // Kollegen-Sperre gilt auch für die Tastatur
     // Don't capture if popover input is focused
     if (this.activePopover && document.activeElement.tagName === 'INPUT') return;
 

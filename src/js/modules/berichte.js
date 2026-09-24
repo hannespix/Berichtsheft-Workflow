@@ -11,6 +11,7 @@ const BerichteHandler = {
   doExportKlasse() {
     const klasseId = document.getElementById('mExpKlasse').value;
     const klasse = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?`, [klasseId])[0];
+    if (!klasse) return App.toast('Bitte eine Klasse wählen', 'warning');
     // Eine Zeile PRO AZUBI mit dem jeweils letzten Ergebnis. Der frühere JOIN
     // erzeugte eine Zeile je Kontrolle – wer dreimal kontrolliert wurde, stand
     // dreimal im PDF, und die Anzahl im Dateinamen war entsprechend falsch.
@@ -242,7 +243,7 @@ const BerichteHandler = {
       return ke?.ergebnis && ke.ergebnis !== 'in_ordnung';
     }).length;
 
-    App.openModal('Gesamtpaket – ' + klassenStr, `
+    App.openModal('Gesamtpaket – ' + esc(klassenStr), `
       <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Azubis · ${mangelCount} beanstandet</p>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -383,9 +384,9 @@ const BerichteHandler = {
          <button class="btn btn-primary" onclick="const v=parseInt(document.getElementById('jbSchuljahr').value);App.closeModal();BerichteHandler.jahresbericht(v)">Bericht erstellen</button>`);
       return;
     }
-    try {
     App.showLoading('Erstelle Jahresbericht…');
     setTimeout(() => { // Allow spinner to render
+    try {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     const LM = 18; const RM = 192; const PW = RM - LM;
@@ -545,7 +546,7 @@ const BerichteHandler = {
 
     // Auffällige Betriebe
     if (betriebRank.length) {
-      if (y > 230) { drawFooter(doc, 1); doc.addPage(); y = drawHeader(doc, 12); }
+      if (y > 230) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
       y = drawSectionTitle(doc, y, 'Betriebe mit häufigsten Beanstandungen');
       const bCols = [{label:'#',x:LM+2},{label:'Betrieb',x:LM+10},{label:'Azubis',x:LM+115,align:'center'},{label:'Mängel',x:LM+135,align:'center'},{label:'Off. WV',x:RM-2,align:'right'}];
       y = drawTableHeader(doc, y, bCols);
@@ -698,15 +699,15 @@ const BerichteHandler = {
     drawFooter(doc, pageNum);
 
     doc.save(`Jahresbericht_BH-Kontrolle_${sj.replace('/', '-')}_Stand-${todayStr()}.pdf`);
-    App.hideLoading();
     App.toast('Jahresbericht erstellt', 'success');
-    }, 50); // end setTimeout
     } catch(e) {
+      // try/catch gehört IN den Timer – außerhalb lief finally sofort, ein Fehler beim Rendern blieb stumm
       console.error('Jahresbericht:', e);
       App.toast('Jahresbericht konnte nicht erstellt werden: ' + (e.message || e), 'error');
     } finally {
       App.hideLoading();
     }
+    }, 50); // end setTimeout
   },
 
   // ═══════════════════════════════════════════

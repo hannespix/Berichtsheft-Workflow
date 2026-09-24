@@ -198,7 +198,11 @@ const Workflows = {
   versandVermerken(wvId, art, typ, zusatz) {
     if (!wvId) return;
     const erinnerung = typ === 'wv_erinnerung';
-    App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${erinnerung ? 'COALESCE(mahnstufe,0)+1' : 'MAX(COALESCE(mahnstufe,0),1)'}, geaendert_am=datetime('now','localtime') WHERE id=?`,
+    // Absolut schreiben statt „+1“: eine geloggte Op kann doppelt eingespielt
+    // werden (Nachladen, Absturzpuffer) – relativ hieße Mahnstufe +2
+    const stufeAlt = App.scalar('SELECT COALESCE(mahnstufe,0) FROM wiedervorlagen WHERE id=?', [wvId]) || 0;
+    const stufeNeu = erinnerung ? stufeAlt + 1 : Math.max(stufeAlt, 1);
+    App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${stufeNeu}, geaendert_am=datetime('now','localtime') WHERE id=?`,
       [todayStr(), art || 'email', wvId]);
     const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung';
     App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)",
@@ -313,7 +317,7 @@ const Workflows = {
           <span style="display:flex;gap:4px">
             ${g.email
               ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-forest);color:var(--clr-white);border:none" onclick="Workflows._openIndividualEmail(${terminId},${idx})">✉︎ Senden</button>`
-              : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')" title="Brief nur für diesen Betrieb">▤ Brief</button>
+              : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._individualData.betriebe[${idx}].key)" title="Brief nur für diesen Betrieb">▤ Brief</button>
                  ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
           </span>
         </div>
@@ -414,7 +418,7 @@ const Workflows = {
             a.maengel.forEach(m => { maengelListe += `  AJ ${m.ausbildungsjahr}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
           }
         });
-        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status='offen' ORDER BY w.frist_datum LIMIT 1`);
+        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') ORDER BY w.frist_datum LIMIT 1`);
         try {
           const zip = new PizZip(bytes.buffer);
           const DocxTemplater = window.docxtemplater || window.Docxtemplater;
@@ -474,7 +478,12 @@ const Workflows = {
         frist: formatDate(addDaysStr(21)) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      doc.text(doc.splitTextToSize(body, 160), 25, 98);
+      // Zeilenweise mit Seitenumbruch – ein langer Azubi-Block lief sonst in die Fußzeile
+      let yz = 98;
+      doc.splitTextToSize(body, 160).forEach(zeile => {
+        if (yz > 270) { PDFExport.footer && PDFExport.footer(doc, idx + 1, betriebe.length); doc.addPage(); yz = 25; }
+        doc.text(zeile, 25, yz); yz += 4.5;
+      });
       PDFExport.footer && PDFExport.footer(doc, idx + 1, betriebe.length);
     });
     doc.save(App.safeFilename(['Anschreiben_Betriebe', t.ctx.schule, t.termin.geplant_datum], 'pdf'));
@@ -583,7 +592,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, '${esc(String(g.key))}')">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._nachholung.betroffen[${idx}].key)">▤ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };

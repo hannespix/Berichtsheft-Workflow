@@ -269,7 +269,7 @@ const NacherfassungHandler = {
     const alteWV = App.query(`SELECT w.id FROM wiedervorlagen w
       LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
       LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
-      WHERE w.schueler_id=? AND COALESCE(w.kontrollergebnis_id,0) != ? AND w.status IN ('offen','ueberfaellig')
+      WHERE w.schueler_id=? AND w.kontrollergebnis_id IS NOT NULL AND w.kontrollergebnis_id != ? AND w.status IN ('offen','ueberfaellig')
         AND COALESCE(NULLIF(kt.durchgefuehrt_datum,''), kt.geplant_datum, '') <= ?`, [s.id, keId, datum]);
     const grund = row.ergebnis === 'in_ordnung'
       ? 'Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung'

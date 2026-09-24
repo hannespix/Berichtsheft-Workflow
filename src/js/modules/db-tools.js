@@ -86,7 +86,7 @@ const DbTools = {
   // ─────────────────────────────────────────────
   _stichtag(monate) {
     const d = new Date(); d.setMonth(d.getMonth() - (parseInt(monate) || this.VERDICHTEN_MONATE_STANDARD));
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; // Ortszeit, nicht UTC
   },
   verdichtenKandidaten(monate, jahrgangIds) {
     const stich = this._stichtag(monate);
@@ -219,7 +219,7 @@ const DbTools = {
   // ── Archiv: eigene SQLite mit exakt den betroffenen Zeilen + Excel-Übersicht ──
   _archivName(jgs) {
     const bez = jgs.map(j => j.bezeichnung).join('+').replace(/[^A-Za-z0-9+_-]/g, '_').slice(0, 40) || 'jahrgang';
-    return `archiv_${bez}_${new Date().toISOString().slice(0, 10)}`;
+    return `archiv_${bez}_${todayStr()}`;
   },
   // Baut die Archiv-DB im Speicher (auch aus Tests nutzbar). Gibt die sql.js-DB zurück.
   _archivDbBauen(jahrgangIds, SQLlib) {

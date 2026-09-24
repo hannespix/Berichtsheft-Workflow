@@ -1992,6 +1992,7 @@ const App = {
     this._ownLogUids = null;
     this._appliedForeignUids = null;
     this._colStamps = null; this._rowStamps = null; this._betroffeneAzubis = null; this._bulkPending = false;
+    this._appendHaengt = null; this._appendHaengtSeit = 0; this._snapWechsel = false;
     this._snapGen = 0;
     this._logGen = 0;
     this._myLogSize = 0;
@@ -3309,15 +3310,22 @@ const App = {
   // Heartbeat: Lock-Timestamp auffrischen (vor langer Schreibphase), damit
   // ein legitimer langsamer Save nicht durch die 150s-Staleness gestohlen wird.
   async _refreshLock() {
-    if (!this._lockFileName || !this._lockNonce) return;
+    if (!this._lockFileName || !this._lockNonce) return false;
     try {
       const syncDir = this.bhkDirHandle || this.dirHandle;
-      if (!syncDir) return;
+      if (!syncDir) return false;
       const handle = await syncDir.getFileHandle(this._lockFileName, { create: true });
+      // Fremde Sperre nie überschreiben: hat ein Kollege unsere als veraltet
+      // übernommen, ist sie weg – der Aufrufer prüft vor dem Schreiben mit _lockNochMeins
+      try {
+        const text = await (await handle.getFile()).text();
+        if (text.trim()) { const l = JSON.parse(text); if (l.n && l.n !== this._lockNonce) { BhkSpur.notiere('sperre', 'Herzschlag: Sperre inzwischen fremd', { ok: false, info: l.u || '?' }); return false; } }
+      } catch(e) {}
       const writable = await handle.createWritable();
       await writable.write(JSON.stringify({ u: this._sperrHalter(), t: new Date().toISOString(), n: this._lockNonce }));
       await writable.close();
-    } catch(e) { /* best effort */ }
+      return true;
+    } catch(e) { return false; /* best effort */ }
   },
   async _releaseLock() {
     if (!this._lockFileName) return;
@@ -3999,9 +4007,12 @@ const App = {
       if (ci >= tokens.length || tokens[ci] !== '?') return -1;
       return tokens.slice(0, ci).filter(t => t === '?').length;
     }
-    const re = new RegExp(col + '\\s*=\\s*\\?', 'i');
-    const idx = sql.search(re);
-    if (idx < 0) return -1;
+    // Wortgrenze: „id=?“ darf nicht „klasse_id=?“ treffen (sonst zeigte der
+    // Speicherstatus den falschen Azubi als „wird geschrieben“)
+    const re = new RegExp('(^|[^A-Za-z0-9_])' + col + '\\s*=\\s*\\?', 'i');
+    const m = sql.match(re);
+    if (!m) return -1;
+    const idx = m.index + m[1].length;
     return (sql.slice(0, idx).match(/\?/g) || []).length;
   },
   /**
@@ -4362,6 +4373,8 @@ const App = {
     this._clientIdCache = id;
     return id;
   },
+  // Heutiges Datum in Ortszeit (toISOString wäre UTC: zwischen 0 und 2 Uhr der Vortag)
+  _heuteIso() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
   _dbSlug() { return (this.autoLoadedDbName || 'db').replace(/\.sqlite$|\.db$/i, '').replace(/[^A-Za-z0-9_-]/g, '_'); },
   _oplogPrefix() { return 'oplog_' + this._dbSlug() + '_'; },
   // Generation im Dateinamen: Beim Rotieren wird eine NEUE Datei begonnen statt
@@ -4385,6 +4398,7 @@ const App = {
   APPEND_TIMEOUT_MIN_MS: 30000,
   APPEND_TIMEOUT_MAX_MS: 180000,
   APPEND_MAX_BYTES: 256 * 1024,   // je Anhängen höchstens so viele Bytes (Import in Häppchen)
+  APPEND_HAENGT_MAX_MS: 10 * 60000, // nach so langem Hängen wird der Versuch aufgegeben (neue Generation)
   _appendHaengt: null,
   _netzLangsam: false,
   _langsamStufe: 0,
@@ -4419,6 +4433,17 @@ const App = {
       setTimeout(() => this.scheduleAutoSave(), 1500);
       return;
     }
+    if (this._appendHaengt && Date.now() - (this._appendHaengtSeit || 0) > this.APPEND_HAENGT_MAX_MS) {
+      // Chromes Schreibzusage hat sich nie gemeldet: nicht ewig warten. Die Ops
+      // liegen im Puffer; auf eine neue Generation drehen, damit ein doch noch
+      // durchkommender Zombie-Write nur die alte Datei trifft (höchstens ein
+      // Duplikat, das UNIQUE abfängt)
+      BhkSpur.notiere('anhaengen', 'Hängendes Anhängen aufgegeben', { ok: false, fehler: `keine Antwort seit ${Math.round((Date.now() - this._appendHaengtSeit) / 60000)} min`, info: `Generation ${this._logGen + 1}` });
+      this._appendHaengt = null;
+      this._logOffsets[this._myOplogName()] = this._myLogSize;
+      this._logGen++;
+      this._myLogSize = 0;
+    }
     if (this._appendHaengt) {
       // Voriger Versuch hängt noch im Browser: nicht dahinter einreihen
       BhkSpur.uebersprungen('anhaengen', 'voriger Versuch hängt noch (Freigabe sehr langsam)');
@@ -4430,6 +4455,12 @@ const App = {
       // Der eigene Snapshot wird gerade geschrieben – ein Anhängen reihte sich
       // nur dahinter ein und liefe ins Zeitlimit
       setTimeout(() => this.scheduleAutoSave(), 5000);
+      return;
+    }
+    if (this._snapWechsel) {
+      // Fremder Snapshot wird gerade übernommen: erst danach anhängen, sonst
+      // fehlen diese Ops im neuen Speicherbild
+      setTimeout(() => this.scheduleAutoSave(), 1000);
       return;
     }
     if (!this._dirtyOps.length) {
@@ -4482,7 +4513,9 @@ const App = {
       // Datei einen Lesestand hinter dem neuen Dateiende. Stattdessen eine
       // neue Generation beginnen; die erkennen alle Leser ab Byte 0.
       if (size === 0 && this._myLogSize > 0) {
-        try { await dir.removeEntry(this._myOplogName()); } catch(e) {}
+        // Nur rotieren, NICHT löschen: meldet die Freigabe eine veraltete 0 für
+        // eine gefüllte Datei, blieben die Ops sonst nur noch im eigenen Speicher
+        this._logOffsets[this._myOplogName()] = this._myLogSize;
         this._logGen++;
         this._myLogSize = 0;
         console.warn(`[SyncV3] Eigenes Log verschwunden → neue Generation ${this._logGen}`);
@@ -5035,7 +5068,7 @@ const App = {
         const v = this._stampAusText(r.v);
         if (!v) return;
         const eintrag = this._rowStamps.get(r.k) || {};
-        Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; });
+        Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; if (v[col].ts > (this._maxSeenTs || 0)) this._maxSeenTs = v[col].ts; });
         this._rowStamps.set(r.k, eintrag); n++;
       });
       return n;
@@ -5267,12 +5300,22 @@ const App = {
     if (this._tabIsPrimary === false) return this._compactAbgelehnt('Zweit-Registerkarte dieser Datenbank – nur die zuerst geöffnete Registerkarte schreibt den Snapshot'); // Zweit-Tab kompaktiert nie
     if (this._compactInProgress) return this._compactAbgelehnt('läuft bereits');
     if (!this.db || !this.dbFileHandle) return this._compactAbgelehnt('keine Datenbankdatei verbunden');
+    // Während eines Imports (Bulk-Modus) nie: der Snapshot enthielte den halben
+    // Import, und _bulkOps würde geleert – bulkAlsOps fände danach nichts mehr
+    if (this._bulkImport) return this._compactAbgelehnt('Import läuft gerade – Kompaktierung wartet');
     this._compactInProgress = true;
     let writable = null;
+    let herzschlag = null;
     const tKompakt = Date.now();
     try {
       const gotLock = await this._acquireLock();
       if (!gotLock) { BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: 'Sperre belegt', art: 'sperre', info: reason }); return this._compactAbgelehnt(`Sperre belegt${this._lockInfo ? ` von „${this._lockInfo.von}“ (seit ${this._lockInfo.alterS} s)` : ''}`); } // ein anderer kompaktiert bereits
+      // Fail-open der Sperre (nach drei Fehlern) reicht für einen Snapshot nicht:
+      // zwei Clients ohne Sperre schrieben dieselbe Generation
+      if (!this._lockNonce) return this._compactAbgelehnt('Sperre konnte nicht gesetzt werden (Sperrmechanismus gestört) – Kompaktierung wartet');
+      // Herzschlag ab JETZT: Anhängen und Einlesen vor dem Schreiben können auf
+      // langsamer Leitung länger als die Staleness (150 s) dauern
+      herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       // 1) Eigene Ops sichern + alle fremden Logs vollständig einziehen
       this.ladeText && this._ladeTimer && this.ladeText('Änderungen sichern…');
       await this._saveV3();
@@ -5320,8 +5363,11 @@ const App = {
       // großer Snapshot über VPN dauert länger – ohne Herzschlag übernähme ein
       // Kollege die Sperre mitten im Schreibvorgang.
       const timeoutMs = this.snapshotTimeoutMs(data.length);
+      // Unmittelbar vor dem Schreiben: gehört die Sperre noch uns? Ein Kollege
+      // kann sie in der Zwischenzeit als veraltet übernommen und selbst
+      // geschrieben haben – unser Export überschriebe dann seinen Stand
+      if (!(await this._lockNochMeins())) throw new Error('Sperre inzwischen von einem Kollegen übernommen – Kompaktierung abgebrochen');
       this._snapshotSchreibt = true; // Abgleich und Anhängen warten so lange (reihten sich sonst dahinter ein)
-      const herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
@@ -5389,7 +5435,10 @@ const App = {
       this._letzteKompaktierung = Date.now();
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: true, ms: Date.now() - tKompakt, info: `${reason}, ${Math.round(data.length / 1024 / 1024)} MB, Generation ${this._snapGen}` });
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
-      this._bulkOps = null;
+      // Bulk-Ops nur verwerfen, wenn dieser Snapshot sie trägt (Import-Nachholung,
+      // Bereinigung) – eine Größen-/Start-Kompaktierung darf einen laufenden
+      // Import nicht um seine Anweisungen bringen
+      if (this._bulkPending || /import|bereinigung/.test(String(reason))) this._bulkOps = null;
       if (this._bulkPending) {
         this._bulkPending = false;
         this.unsavedChanges = this._dirtyOps.length > 0;
@@ -5408,6 +5457,7 @@ const App = {
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: false, ms: Date.now() - tKompakt, fehler: e, info: reason });
       return false;
     } finally {
+      if (herzschlag) clearInterval(herzschlag);
       this._snapshotSchreibt = false;
       await this._releaseLock();
       this._compactInProgress = false;
@@ -5443,8 +5493,12 @@ const App = {
   // IBYKUS-Import)? Dann muss dieser Client ihn neu laden – sonst überschreibt
   // seine nächste eigene Kompaktierung den fremden Stand mit seinem älteren
   // Speicherabbild (der komplette Import wäre weg).
+  _snapWechsel: false,   // Snapshot-Tausch läuft (Datei lesen, DB tauschen, nachspielen) – Anhängen wartet so lange
   async _pruefeFremdenSnapshot() {
-    if (this._compactInProgress || this._appendInProgress) return;
+    if (this._compactInProgress || this._appendInProgress || this._snapWechsel) return;
+    // Während eines Imports laufen die Anweisungen nur auf der Arbeitskopie
+    // (_bulkOps): ein Tausch jetzt verlöre sie lokal – erst nach bulkAlsOps
+    if (this._bulkImport) return;
     try {
       const dir = this._syncDirV3();
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
@@ -5466,6 +5520,11 @@ const App = {
         return;
       }
       console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
+      // Ab hier kein Anhängen: Ops, die während des Lesens angehängt würden,
+      // fehlten sonst im neuen Speicherbild (der Tausch liest das eigene Log
+      // vor dem Anhängen) – die nächste eigene Kompaktierung erklärte sie für
+      // enthalten, und sie wären überall weg
+      this._snapWechsel = true;
       const tLade = Date.now();
       const file = await this.dbFileHandle.getFile();
       const buf = await file.arrayBuffer();
@@ -5540,12 +5599,15 @@ const App = {
       // sie waren nur auf der alten Arbeitskopie sichtbar. Aber LWW-geprüft:
       // eine noch nicht gespeicherte eigene Op kann ÄLTER sein als eine
       // soeben nachgespielte fremde Op auf dieselbe Zeile.
-      if (this._dirtyOps.length) {
+      // Auch Ops, die gerade in einem (evtl. hängenden) Anhängen stecken – sie
+      // sind weder im Snapshot noch im gelesenen Log-Stand
+      const offen = [...(this._opsInFlight || []), ...this._dirtyOps];
+      if (offen.length) {
         const cid = this._getClientId();
         // In EINER Transaktion: nach einem Import warten Tausende Ops im Puffer,
         // einzeln mit Autocommit dauerte das Sekunden
         let sp = false; try { this.db.run('SAVEPOINT bhk_puffer'); sp = true; } catch(e) {}
-        for (const o of this._dirtyOps) {
+        for (const o of offen) {
           if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq })) continue;
           try { this.db.run(o.sql, o.params || []); } catch(e) {}
         }
@@ -5571,6 +5633,8 @@ const App = {
       BhkSpur.notiere('snapshot', 'Snapshot prüfen', { ok: false, fehler: e });
       if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
       else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
+    } finally {
+      if (this._snapWechsel) { this._snapWechsel = false; if (this._dirtyOps.length && !this._netzWeg) setTimeout(() => this.scheduleAutoSave(), 200); }
     }
   },
   // Deckt der eigene Lesestand jedes Protokoll mindestens bis zu dem Offset
@@ -5742,6 +5806,7 @@ const App = {
     }
     ['DELETE FROM kw_maengel WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
+     'DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?))',
      'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id IN (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=?)',
      'DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=?',
      'DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?',
@@ -5764,12 +5829,14 @@ const App = {
       this.query('SELECT id FROM klassen WHERE berufsschule_id=?', [id]).forEach(k => this.deleteKlasseKaskade(k.id));
     } catch(e) {}
     ['DELETE FROM blockplan WHERE berufsschule_id=?',
+     'UPDATE kontrolltermine SET berufsschule_id=NULL WHERE berufsschule_id=?',
      'DELETE FROM berufsschulen WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
   },
   deleteBetriebKaskade(id) {
     if (!id) return;
     ['UPDATE schueler SET betrieb_id=NULL WHERE betrieb_id=?',
+     'UPDATE kontrolltermine SET betrieb_id=NULL WHERE betrieb_id=?',
      'DELETE FROM ausbilder WHERE betrieb_id=?',
      'DELETE FROM betriebe WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) {} });
@@ -7373,7 +7440,7 @@ const App = {
   // ohne Klassen – die zeigten vorher „–" bzw. „– – –" im Betreff).
   // Liefert [{fr, aj, jgBez, count}], sortiert nach Fachrichtung und AJ.
   terminGruppen(terminId, refDate) {
-    const datum = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum || new Date().toISOString().slice(0, 10);
+    const datum = refDate || this.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [terminId])[0]?.geplant_datum || this._heuteIso();
     const klassen = this.getTerminKlassen(terminId);
     const schueler = this.getTerminSchueler(terminId);
     const groups = {};
@@ -7602,7 +7669,9 @@ const App = {
     const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
     const order = [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35];
     let aj = this.getAJAtDate(s.ausbildungsbeginn, ref, schuelerId) || ajs[0];
-    const kwStichtag = this._isoKW(ref);
+    // KW 53 liegt nicht in `order`: indexOf(-1) machte JEDE Woche zur „späteren“
+    // und schob das Ausbildungsjahr um eins zurück (Stichtag 28.12.–03.01.)
+    const kwStichtag = Math.min(52, this._isoKW(ref));
     if (order.indexOf(kw) > order.indexOf(kwStichtag)) aj = aj - 1;
     if (aj < ajs[0]) aj = ajs[0];
     if (aj > ajs[ajs.length - 1]) aj = ajs[ajs.length - 1];
@@ -7860,7 +7929,7 @@ const App = {
   // Betrieb: Wiederholungsbetrieb (≥ 2 Azubis mit Mängeln bzw. ≥ 3 Mangel-
   // Ergebnisse in 24 Monaten), offene/überfällige WV, Ø Tage bis zum Nachweis
   betriebKennzahlen(betriebId) {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     const seit = new Date(); seit.setMonth(seit.getMonth() - 24);
     const seitIso = seit.toISOString().slice(0, 10);
     const k = { betriebId };
@@ -8005,7 +8074,7 @@ const App = {
 
   // ── Jahresablauf: „Wo stehen wir?" und der nächste sinnvolle Schritt ──
   jahresstand() {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     const st = { heute };
     st.azubis = this.scalar('SELECT COUNT(*) FROM schueler WHERE aktiv=1') || 0;
     st.pruefer = this.scalar('SELECT COUNT(*) FROM pruefer WHERE aktiv=1') || 0;
@@ -8313,7 +8382,7 @@ const App = {
   TERMIN_KUERZLICH_TAGE: 90,
   terminAktuell(t, heute) {
     if (!t) return 'alt';
-    heute = heute || new Date().toISOString().slice(0, 10);
+    heute = heute || this._heuteIso();
     if (t.status === 'geplant') return 'anstehend';
     const grenze = new Date(heute + 'T00:00:00'); grenze.setDate(grenze.getDate() - this.TERMIN_KUERZLICH_TAGE);
     const g = `${grenze.getFullYear()}-${String(grenze.getMonth() + 1).padStart(2, '0')}-${String(grenze.getDate()).padStart(2, '0')}`;
@@ -8326,7 +8395,7 @@ const App = {
   // Jeder Schritt mit Datum; „angefragt" merkt sich auch, wer angefragt hat –
   // zwei Kollegen fragten sonst doppelt an.
   terminSchritt(terminId, schritt) {
-    const heute = new Date().toISOString().slice(0, 10);
+    const heute = this._heuteIso();
     if (schritt === 'angefragt') this.run('UPDATE kontrolltermine SET angefragt_am=?, angefragt_von=? WHERE id=?', [heute, this.currentUser || '', terminId]);
     else if (schritt === 'bestaetigt') this.run('UPDATE kontrolltermine SET bestaetigt_am=? WHERE id=?', [heute, terminId]);
     else if (schritt === 'nachbereitet') this.run("UPDATE kontrolltermine SET nachbereitet_am=? WHERE id=? AND COALESCE(nachbereitet_am,'')=''", [heute, terminId]);
@@ -8420,8 +8489,10 @@ const App = {
 
     const d1 = this._parseDate(s.ausbildungsbeginn);
     const d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
-    const startKW = d1 ? this._isoKW(d1) : 36;
-    const endKW = d2 ? this._isoKW(d2) : 35;
+    // KW 53 (Beginn/Ende zwischen 28.12. und 03.01.) auf 52 abbilden – sonst
+    // fand indexOf sie nicht und die Wochen vor dem Beginn/nach dem Ende blieben aktiv
+    const startKW = d1 ? Math.min(52, this._isoKW(d1)) : 36;
+    const endKW = d2 ? Math.min(52, this._isoKW(d2)) : 35;
 
     // School year of first AJ: month >= Sep → year, else year-1
     const firstSY = d1 ? (d1.getMonth() >= 8 ? d1.getFullYear() : d1.getFullYear() - 1) : null;
@@ -9411,17 +9482,21 @@ Anlagen: {anlagen}` },
       // Ensure kw_status and durchsicht_snapshots tables exist
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_status (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        schueler_id INTEGER NOT NULL,
-        ausbildungsjahr INTEGER,
-        kalenderwoche INTEGER,
+        schueler_id INTEGER NOT NULL REFERENCES schueler(id),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
         maengel_codes TEXT DEFAULT '',
         behobene_codes TEXT DEFAULT '',
         fehltage INTEGER DEFAULT 0,
         geprueft INTEGER DEFAULT 0,
+        bemerkung TEXT DEFAULT '',
         erstellt_bei INTEGER DEFAULT NULL,
         behoben_bei INTEGER DEFAULT NULL,
         UNIQUE(schueler_id, ausbildungsjahr, kalenderwoche)
       )`);
+      // Parität mit _migrateDiskDb: ältere Fassungen der Snapshot-Tabelle
+      try { this.db.run('ALTER TABLE durchsicht_snapshots ADD COLUMN kontrollergebnis_id INTEGER'); } catch(e) {}
+      try { this.db.run("ALTER TABLE durchsicht_snapshots ADD COLUMN erstellt_am TEXT DEFAULT ''"); } catch(e) {}
       this.db.run(`CREATE TABLE IF NOT EXISTS durchsicht_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kontrollergebnis_id INTEGER NOT NULL,

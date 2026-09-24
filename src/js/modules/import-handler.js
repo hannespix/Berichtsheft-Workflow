@@ -205,7 +205,7 @@ const ImportHandler = {
               <label>${label} ${matched ? '✓' : ''}</label>
               <select class="form-control" id="map_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
                 <option value="">– nicht zuordnen –</option>
-                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+                ${fields.map(col => `<option value="${esc(col)}" ${col === matched ? 'selected' : ''}>${esc(col)}</option>`).join('')}
               </select>
             </div>`;
           }).join('')}
@@ -251,13 +251,14 @@ const ImportHandler = {
       data.slice(0,3).forEach(r => {
         const bavRaw = (r[gm('bav_status')]||'').trim().toUpperCase();
         const bavColor = bavRaw === 'ENDE' ? 'var(--clr-red)' : 'var(--clr-green)';
-        h += '<tr><td><strong>'+(r[gm('nachname')]||'?')+'</strong>, '+(r[gm('vorname')]||'?')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsstaette')]||'–')+'</td>';
-        h += '<td>'+(r[gm('beruf_code')]||'–')+'</td>';
-        h += '<td>'+(r[gm('berufsschule')]||'–')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsbeginn')]||'–')+'</td>';
-        h += '<td>'+(r[gm('ausbildungsende')]||'–')+'</td>';
-        h += '<td style="color:'+bavColor+';font-weight:600">'+(bavRaw||'–')+'</td></tr>';
+        const z = (k) => esc(r[gm(k)] || '–');
+        h += '<tr><td><strong>'+esc(r[gm('nachname')]||'?')+'</strong>, '+esc(r[gm('vorname')]||'?')+'</td>';
+        h += '<td>'+z('ausbildungsstaette')+'</td>';
+        h += '<td>'+z('beruf_code')+'</td>';
+        h += '<td>'+z('berufsschule')+'</td>';
+        h += '<td>'+z('ausbildungsbeginn')+'</td>';
+        h += '<td>'+z('ausbildungsende')+'</td>';
+        h += '<td style="color:'+bavColor+';font-weight:600">'+esc(bavRaw||'–')+'</td></tr>';
       });
       h += '</tbody></table>';
       document.getElementById('mappedPreview').innerHTML = h;
@@ -887,11 +888,11 @@ const ImportHandler = {
     let parts = [`<strong>${imported}</strong> Azubi importiert`];
     if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Azubis aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
-    if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
+    if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${esc([...stats.schulen].join(', '))}`);
     if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
-    if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${[...stats.jahrgaenge].join(', ')}`);
+    if (stats.jahrgaenge.size) parts.push(`<strong>${stats.jahrgaenge.size}</strong> Jahrgänge angelegt: ${esc([...stats.jahrgaenge].join(', '))}`);
     if (stats.klassen.size) parts.push(`<strong>${stats.klassen.size}</strong> Klassen angelegt`);
-    if (stats.switchedTo) parts.push(`Jahrgang <strong>${stats.switchedTo}</strong> aktiviert`);
+    if (stats.switchedTo) parts.push(`Jahrgang <strong>${esc(stats.switchedTo)}</strong> aktiviert`);
     // H/F codes now stored as Frühjahr/Herbst directly
     if (stats.frNotFound.size) parts.push(`⚠︎ Unbekannte Beruf-Codes: ${[...stats.frNotFound].join(', ')}`);
     if (stats.bavEnde) parts.push(`⚠︎ <strong>${stats.bavEnde}</strong> Auszubildende als inaktiv markiert (BAV-Status: ENDE)`);
@@ -945,7 +946,7 @@ const ImportHandler = {
         Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
       ${stats.klassen.size ? `<div style="margin-top:12px;padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;max-height:200px;overflow-y:auto">
-        <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${k}`).join('<br>')}</div>` : ''}
+        <strong>Erstellte Klassen:</strong><br>${[...stats.klassen].map(k => `• ${esc(k)}`).join('<br>')}</div>` : ''}
       ${stats.fehlende && stats.fehlende.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Nicht im Export enthalten (${stats.fehlende.length}):</strong> Diese aktiven Azubis kamen in der Datei nicht vor. Entweder ist ihr Vertrag in IBYKUS beendet (Status ENDE nicht mit exportiert) oder sie fielen aus dem Export-Filter.
         <div style="max-height:130px;overflow-y:auto;margin-top:6px">${stats.fehlende.slice(0, 40).map(k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`).join('')}${stats.fehlende.length > 40 ? `<div>… und ${stats.fehlende.length - 40} weitere</div>` : ''}</div>
@@ -982,6 +983,11 @@ const ImportHandler = {
     App.toast('Import-Fehler: ' + importErr.message, 'error');
    } finally {
     App._bulkImport = false;
+    // Vorschau-Savepoint auch nach einem Fehler schließen – sonst bliebe die
+    // Transaktion offen und der nächste Import liefe hinein
+    if (vorschau) { try { App.db.run('ROLLBACK TO bhk_vorschau'); App.db.run('RELEASE bhk_vorschau'); } catch(e) {} }
+    // Der Import hat den Auto-Save-Timer gelöscht: wartende Änderungen wieder anstoßen
+    try { if (App._dirtyOps && App._dirtyOps.length) App.scheduleAutoSave(); } catch(e) {}
     App.hideLoading();
    }
   },
@@ -1074,6 +1080,7 @@ const ImportHandler = {
   },
   editSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
+    if (!s) return App.toast('Azubi nicht mehr vorhanden (gelöscht oder im Papierkorb)', 'warning');
     const frs = App.query('SELECT * FROM fachrichtungen ORDER BY typ, bezeichnung');
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name`);
     const betriebe = App.query('SELECT * FROM betriebe ORDER BY name');
@@ -1146,7 +1153,7 @@ const ImportHandler = {
           <strong style="font-size:13px;color:var(--clr-forest-dark)">Aus IBYKUS</strong>
           <span style="font-size:12px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
           <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
-            <input type="checkbox" id="mSIbykusAendern" onchange="document.querySelectorAll('#modalOverlay .ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
+            <input type="checkbox" id="mSIbykusAendern" onchange="this.closest('.ibykus-block').querySelectorAll('.ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
           </label>
         </div>
         <div class="form-row">
@@ -1304,6 +1311,7 @@ const ImportHandler = {
     ids.forEach(id => { const r = App.setSchuelerStatus(id, status, { datum, grund, wvSchliessen: wv, aktion: 'ausbildung_beendet' }); if (r) wvN += r.wvGeschlossen; });
     App.closeModal();
     const nachher = this._beendenNachher; this._beendenNachher = null;
+    try { if (typeof AzubiSeite !== 'undefined' && ids.some(i => AzubiSeite.istOffen(i))) AzubiSeite.render(); } catch(e) {}
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
@@ -1313,6 +1321,7 @@ const ImportHandler = {
   setAktiv(id) {
     App.setSchuelerStatus(id, 'aktiv', { aktion: 'reaktiviert' });
     App.closeModal();
+    try { if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) AzubiSeite.render(); } catch(e) {}
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
@@ -1415,7 +1424,7 @@ const ImportHandler = {
               <label>${label} ${matched ? '✓' : ''}</label>
               <select class="form-control" id="lfkmap_${f}" ${matched ? 'style="border-color:var(--clr-green);background:var(--clr-green-light)"' : ''}>
                 <option value="">– nicht zuordnen –</option>
-                ${fields.map(col => `<option value="${col}" ${col === matched ? 'selected' : ''}>${col}</option>`).join('')}
+                ${fields.map(col => `<option value="${esc(col)}" ${col === matched ? 'selected' : ''}>${esc(col)}</option>`).join('')}
               </select>
             </div>`;
           }).join('')}
@@ -1469,9 +1478,11 @@ const ImportHandler = {
 
       // Finde Azubi: erst per ibykus_id, dann per Nr als allg. Match
       let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
-      if (!schuelerId) {
-        // Versuche numerischen Teil als BAV-Ident zu matchen
-        schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1', ['%' + nr + '%']);
+      if (!schuelerId && String(nr).length >= 5) {
+        // Teilstring nur als Nachsatz und nur bei GENAU einem Treffer – „1234“
+        // traf sonst jede Ident, die 1234 enthält, und hängte die LFK an den falschen Azubi
+        const treffer = App.query('SELECT id FROM schueler WHERE ibykus_id LIKE ? AND aktiv=1 LIMIT 2', ['%' + nr]);
+        if (treffer.length === 1) schuelerId = treffer[0].id;
       }
 
       if (!schuelerId) { notFound++; return; }
@@ -1581,7 +1592,8 @@ const ImportHandler = {
       reader.onload = e => {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        // raw:false – Zahlen (Betriebsnummer, Telefon, PLZ) als Text, sonst wirft .trim()
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
         const fields = data.length ? Object.keys(data[0]) : [];
         process(data, fields);
       };
@@ -1610,14 +1622,14 @@ const ImportHandler = {
     let imported = 0, updated = 0, skipped = 0, noMatch = 0;
 
     data.forEach(row => {
-      const nachname = (row[nachCol] || '').trim();
-      const vorname = (row[vorCol] || '').trim();
+      const nachname = String(row[nachCol] ?? '').trim();
+      const vorname = String(row[vorCol] ?? '').trim();
       if (!nachname && !vorname) { skipped++; return; }
 
       // Find Betrieb
-      const bnr = (row[bnrCol] || '').toString().trim();
-      const bname = (row[bnameCol] || '').trim();
-      const bort = (row[bortCol] || '').trim();
+      const bnr = String(row[bnrCol] ?? '').trim();
+      const bname = String(row[bnameCol] ?? '').trim();
+      const bort = String(row[bortCol] ?? '').trim();
 
       let betriebId = null;
       if (bnr) betriebId = App.scalar('SELECT id FROM betriebe WHERE betriebsnummer=?', [bnr]);
@@ -1627,10 +1639,10 @@ const ImportHandler = {
       }
       if (!betriebId) { noMatch++; return; }
 
-      const telefon = (row[telCol] || '').trim();
-      const email = (row[emailCol] || '').trim();
-      const mobil = (row[mobilCol] || '').trim();
-      const funktion = (row[funkCol] || '').trim();
+      const telefon = String(row[telCol] ?? '').trim();
+      const email = String(row[emailCol] ?? '').trim();
+      const mobil = String(row[mobilCol] ?? '').trim();
+      const funktion = String(row[funkCol] ?? '').trim();
 
       // Duplikat-Prüfung
       const existing = App.query('SELECT * FROM ausbilder WHERE betrieb_id=? AND nachname=? AND vorname=?', [betriebId, nachname, vorname])[0];

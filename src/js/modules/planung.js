@@ -504,7 +504,7 @@ const PlanungHandler = {
         onmouseenter="this.style.borderColor='var(--clr-purple)';this.style.boxShadow='0 1px 4px rgba(123,47,160,0.2)'"
         onmouseleave="this.style.borderColor='var(--clr-purple-line)';this.style.boxShadow='none'"
         onclick="PlanungHandler._selectStandort(${gi})"
-        title="${schuelerNames}${moreHint}">
+        title="${esc(schuelerNames + moreHint)}">
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
           <div style="font-size:12px;color:var(--clr-text-light)">
