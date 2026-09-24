@@ -620,6 +620,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   color: var(--clr-white);
 }
 .btn-success:hover { background: #4E7E0C; }
+/* Schnellnavigation: Änderungen an diesem Azubi sind noch nicht auf dem Netzlaufwerk */
+.qn-ungesichert { box-shadow: inset 0 -3px 0 var(--clr-amber) !important; }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon {
   padding: 6px;
