@@ -101,7 +101,7 @@ console.log('══ Entfernte Bestandteile ══');
   for (const f of ['src/js/modules/azubi-rechner.js', 'src/js/modules/azubi-dashboard.js', 'src/js/modules/blockplan-analyzer.js', 'src/js/modules/llm-helper.js', 'libs/pdf.min.js', 'libs/pdf.worker.min.js']) check(!fs.existsSync(path.join(ROOT, f)), 'entfernt: ' + f);
   check(!/AzubiRechner|AzubiDashboard|_loadCustomTarife/.test(APP_SRC) && /statsEnabled\(\)/.test(APP_SRC), 'Kern ohne Rechner und Dashboard, Statistik-Schalter im Kern');
   const html = read('index.html'), build = read('build.sh'), views = read('src/js/modules/views.js'), imp = read('src/js/modules/import-handler.js');
-  check(/phasen\.js/.test(html) && /phasen\.js/.test(build) && !/pdf\.min|pdfjs|azubi-|llm-helper|blockplan-analyzer/.test(html + build), 'index.html und build.sh: phasen.js statt Rechner, Dashboard, Hüllen und pdf.js');
+  check(/phasen\.js/.test(html) && /phasen\.js/.test(build) && !/pdf\.min|pdfjs|azubi-rechner|azubi-dashboard|llm-helper|blockplan-analyzer/.test(html + build), 'index.html und build.sh: phasen.js statt Rechner, Dashboard, Hüllen und pdf.js');
   check(!/Tariflöhne|openTarifModal|AzubiDashboard/.test(views) && /App\.statsEnabled\(\)/.test(views) && /Geschlechterquote/.test(views), 'Einstellungen ohne Tarif-Karte, Statistiken bleiben');
   check(!/Beruf \(Tarif\)|mSBerufId|beruf_id=\?/.test(imp) && /Phasen\.editor\(/.test(imp), 'Bearbeiten-Fenster ohne Tarif, mit Ausbildungsverlauf');
   const akte = read('src/js/modules/schueler-akte.js');

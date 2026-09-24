@@ -98,7 +98,7 @@ console.log('\n══ Kernfunktionen ══');
   await page.waitForTimeout(900);
   check(errors.length === before, `Kontrolldurchführung geladen (${r} Schüler)`);
 }
-for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassungsliste()','Views.openTarifModal()','GlobalSearch.showCheatSheet()']) {
+for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassungsliste()','GlobalSearch.showCheatSheet()']) {
   const before = errors.length;
   await page.evaluate(c => eval(c), call);
   await page.waitForTimeout(400);

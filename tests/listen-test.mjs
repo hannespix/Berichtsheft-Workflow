@@ -43,13 +43,13 @@ console.log('\n══ Wiedervorlagen: Erledigt als Hauptknopf ══');
   check(/<th>Azubi<\/th><th>Betrieb<\/th>/.test(V), 'Spalte heißt Azubi');
 }
 
-console.log('\n══ Stammdaten: Seiten à 50, Hauptknopf Bearbeiten, Menü ══');
+console.log('\n══ Stammdaten: Seiten à 50, Hauptknopf Öffnen (Azubi-Seite), Menü ══');
 {
   check(/AZUBI_SEITE: 50,/.test(ST) && /_azubiSeite\(n\) \{/.test(ST) && /const sichtbar = azubis\.slice\(this\._azubiPage \* this\.AZUBI_SEITE/.test(ST) && /\$\{sichtbar\.map\(s => \{/.test(ST), 'Liste rendert nur die aktuelle Seite');
   check(/class="azubi-pager"/.test(ST) && /StammdatenTab\._azubiSeite\(0\)/.test(ST) && /StammdatenTab\._azubiSeite\(\$\{seiten - 1\}\)/.test(ST) && /Seite \$\{this\._azubiPage \+ 1\}\/\$\{seiten\}/.test(ST), 'Seitenleiste und Trefferzähler mit Seite');
   check(/this\._lastAzubiWhere = where;/.test(ST) && /_getFilteredAzubis\(\) \{/.test(ST), 'Excel-Export und Kopieren nehmen weiterhin die ganze gefilterte Liste');
-  check(/onclick="ImportHandler\.editSchueler\(\$\{s\.id\}\)" title="Stammdaten bearbeiten">Bearbeiten<\/button> \$\{App\.menue\('⋯', \[/.test(ST), 'Zeile: Hauptknopf „Bearbeiten“ + ⋯-Menü');
-  for (const f of ['Phasen.editor(${s.id})', 'SchuelerAkte.open(${s.id})', 'StammdatenTab.quickEinsendung([${s.id}])', 'StammdatenTab.showAzubiSnapshots(${s.id})', 'ImportHandler.deleteSchueler(${s.id})']) check(ST.includes(f), `Zeilenmenü enthält ${f.split('(')[0]}`);
+  check(/onclick="AzubiSeite\.oeffnen\(\$\{s\.id\}\)" title="Azubi-Seite[^"]*">Öffnen<\/button> \$\{App\.menue\('⋯', \[/.test(ST), 'Zeile: Hauptknopf „Öffnen“ (Azubi-Seite) + ⋯-Menü');
+  for (const f of ["AzubiSeite.oeffnen(${s.id}, 'phasen')", "AzubiSeite.oeffnen(${s.id}, 'akte')", 'StammdatenTab.quickEinsendung([${s.id}])', 'StammdatenTab.showAzubiSnapshots(${s.id})', 'ImportHandler.deleteSchueler(${s.id})']) check(ST.includes(f), `Zeilenmenü enthält ${f.split('(')[0]}`);
   check(/onclick="ImportHandler\.addManually\(\)"[^>]*>\+ Azubi<\/button>/.test(ST) && /App\.menue\('Liste', \[/.test(ST) && /StammdatenTab\._exportAzubiExcel\(\)/.test(ST) && /StammdatenTab\._copyAzubiTable\(\)/.test(ST) && /SchuelerView\.abschliessenJahrgang\(\)/.test(ST) && /ImportHandler\.deleteAllJahrgang\(\)/.test(ST), 'Kopf: „+ Azubi“ und Listen-Menü mit Excel, Kopieren, Jahrgang abschließen, Jahrgang löschen');
 }
 

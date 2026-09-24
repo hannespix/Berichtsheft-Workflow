@@ -301,9 +301,9 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:12px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">Bearbeiten</button> ${App.menue('⋯', [
-            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `Phasen.editor(${s.id})`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
-            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `SchuelerAkte.open(${s.id})` },
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="AzubiSeite.oeffnen(${s.id})" title="Azubi-Seite: Stammdaten, Ausbildungsverlauf, Akte, Kontrollen, Wiedervorlagen">Öffnen</button> ${App.menue('⋯', [
+            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'phasen')`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
+            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'akte')` },
             { label: '▤ Einzelprüfung anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung)' },
             snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
             { trenner: true },

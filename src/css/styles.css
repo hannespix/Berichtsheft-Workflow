@@ -942,6 +942,27 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 }
 .kw-legend-show:hover { color: var(--clr-forest); }
 .kw-legend-sentinel { display: none; }
+/* ── Azubi-Seite: eine Seite je Azubi statt drei Dialoge ── */
+.az-seite { display: flex; flex-direction: column; gap: 12px; }
+.az-kopf { padding: 14px 18px; }
+.az-titel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.az-titel h1 { font-family: var(--font-display); font-size: 22px; margin: 0; color: var(--clr-forest-dark); }
+.az-ident { font-size: 12px; color: var(--clr-sage); }
+.az-meta { margin-top: 4px; font-size: 13px; color: var(--clr-text-light); }
+.az-punkt { color: var(--clr-sage-light); }
+.az-zahlen { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.az-zahl { border: 1px solid var(--clr-sand); background: var(--clr-warm); border-radius: 999px; padding: 3px 12px; font-size: 12px; color: var(--clr-text); cursor: pointer; font-family: inherit; }
+.az-zahl.statisch { cursor: default; }
+.az-zahl.offen { border-color: var(--clr-amber); color: var(--clr-amber); }
+.az-zahl strong { font-size: 13px; }
+.az-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.az-teil { padding: 14px 18px; }
+.az-teil h2 { font-family: var(--font-display); font-size: 17px; margin: 0 0 10px; color: var(--clr-forest-dark); }
+.az-teil-fuss { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--clr-sand); }
+.az-teil #mAkteBemerkungen { max-height: none; }
+.az-tabelle { font-size: 13px; }
+.az-leer { color: var(--clr-text-light); font-size: 12px; }
+@media (max-width: 768px) { .az-titel h1 { font-size: 18px; } .az-kopf, .az-teil { padding: 12px; } }
 .help-abschnitt { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--clr-sand); }
 .help-untertitel { font-family: var(--font-display); font-size: 15px; margin: 0 0 6px; color: var(--clr-forest-dark); }
 .einst-tab > .card:first-child { margin-top: 0 !important; }

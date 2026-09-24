@@ -242,7 +242,7 @@ const Phasen = {
 
     const probleme = Phasen.phasenValidieren(phasen);
 
-    App.openModal(`Ausbildungsverlauf: ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('phasen', schuelerId, `Ausbildungsverlauf: ${s.nachname}, ${s.vorname}`, `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Phasen der Ausbildung: Vollzeit, Teilzeit, Betriebswechsel und Unterbrechungen (Elternzeit, lange Krankheit). Aus ihnen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit. Ohne Phasen gilt Ausbildungsbeginn/-ende aus den Stammdaten.</p>
       ${probleme.length ? `<div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
         <strong>Validierung:</strong> ${probleme.map(p => esc(p.text)).join('; ')}
@@ -255,7 +255,6 @@ const Phasen = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="Phasen.addPhaseForm(${schuelerId})">+ Phase hinzufügen</button>`);
-    _makeModalWide();
   },
 
   autoCreateInitialPhase(schuelerId) {
