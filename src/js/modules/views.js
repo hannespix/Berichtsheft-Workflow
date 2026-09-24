@@ -1537,8 +1537,21 @@ const Views = {
           <input type="checkbox" ${App.feldmodus ? 'checked' : ''} onchange="App.setFeldmodus(this.checked)" style="accent-color:var(--clr-forest);width:18px;height:18px">
           Feldmodus: Abgleich alle 30 s statt 3 s, Speichern gebündelt (10 s), Positionsanzeige seltener
         </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
+          <input type="checkbox" ${App.kollegenAn() ? 'checked' : ''} onchange="App.setKollegenAnzeige(this.checked);Views.render()" style="accent-color:var(--clr-forest);width:18px;height:18px">
+          Kollegen-Anzeige und Nachrichten (Lebenszeichen alle 30 s, Chat-Dateien in <code>_bhk/</code>) – gilt für alle Rechner dieser Datenbank, Standard aus
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);cursor:pointer;font-size:13px;margin-top:6px">
+          <input type="checkbox" ${App.offlineStandAn ? 'checked' : ''} onchange="App.setOfflineStand(this.checked)" style="accent-color:var(--clr-forest);width:18px;height:18px">
+          Lokalen Stand für den Offline-Start vorhalten (stündlich, ganze Datenbank in den Browser-Speicher) – nur auf diesem Rechner
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:13px;margin-top:6px">
+          <label for="setBackupIntervall">Sicherung alle</label>
+          <input type="number" class="form-control" id="setBackupIntervall" min="5" max="1440" step="5" value="${Math.round(App.backupIntervallMs() / 60000)}" style="width:80px" onchange="Views.backupIntervallSpeichern(this.value)">
+          <span>Minuten (gemeinsam je Datenbank, komprimiert, eine Datei je Intervall). Bei Dateiversionierung auf dem Server reichen 120 bis 240.</span>
+        </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px;line-height:1.6">
-          <strong>Gerade online:</strong> ${(() => { const on = App.onlineNutzer(); return on.length ? esc(App.onlineNutzerText()) : 'niemand sonst'; })()} <a href="#" onclick="App.onlineNutzerDialog();return false" style="color:var(--clr-forest)">Details</a> – jeder Rechner hinterlässt alle 30 s (Feldmodus 60 s) ein Lebenszeichen in <code>_bhk/</code>; die Kopfzeile zeigt, wer gerade mitarbeitet.<br>
+          ${App.kollegenAn() ? `<strong>Gerade online:</strong> ${(() => { const on = App.onlineNutzer(); return on.length ? esc(App.onlineNutzerText()) : 'niemand sonst'; })()} <a href="#" onclick="App.onlineNutzerDialog();return false" style="color:var(--clr-forest)">Details</a> – jeder Rechner hinterlässt alle 30 s (Feldmodus 60 s) ein Lebenszeichen in <code>_bhk/</code>; die Kopfzeile zeigt, wer gerade mitarbeitet.<br>` : ''}
           Das Tool wartet nie auf das Netzlaufwerk – Abgleich und Speichern laufen im Hintergrund und drosseln sich selbst
           (aktuell: Netzqualität <strong>${esc(App._networkQuality)}</strong>, letzter Abgleich ${App._lastPollMs ? Math.round(App._lastPollMs) + ' ms' : '–'}, letztes Speichern ${App._lastSaveDurationMs ? Math.round(App._lastSaveDurationMs) + ' ms' : '–'}).
           Über Mobilfunk/VPN wird jede Dateioperation langsam; der Feldmodus nimmt den Takt heraus. Für längere Termine ohne Netz: <strong>Offline-Modus</strong> (Schaltfläche in der Kopfzeile).
@@ -1868,10 +1881,10 @@ const Views = {
     if (!backups.length) { box.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light)">Noch keine Backups vorhanden (werden beim Speichern automatisch angelegt).</div>'; return; }
     const fmt = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
     const lesbar = (name) => {
-      const m = name.match(/^backup_(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})_([^_.]+)(?:_([^.]+))?\.sqlite$/);
+      const m = name.match(/^backup_(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})_([^_.]+)(?:_([^.]+))?\.sqlite(\.gz)?$/);
       if (!m) return name;
       const d = new Date(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
-      return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + (m[6] ? ` · ${m[6].replace(/-/g, ' ')}` : '');
+      return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + (m[6] ? ` · ${m[6].replace(/-/g, ' ')}` : '') + (m[7] ? ' · komprimiert' : '');
     };
     box.innerHTML = `<div style="font-size:12px;font-weight:600;margin-bottom:4px">Backups (${backups.length}, neueste zuerst)</div>
       <div style="max-height:220px;overflow:auto"><table class="data-table" style="font-size:12px"><thead><tr><th>Zeitpunkt</th><th>Datei</th><th style="text-align:right">Größe</th><th style="text-align:right">Aktion</th></tr></thead><tbody>
@@ -1918,6 +1931,13 @@ const Views = {
     }
     App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('ferien_bw',?)", [JSON.stringify(liste)]);
     App.toast(`${liste.length} Ferienabschnitte gespeichert`, 'success');
+  },
+  backupIntervallSpeichern(wert) {
+    let min = parseInt(wert, 10);
+    if (isNaN(min) || min < 5) min = 5;
+    if (min > 1440) min = 1440;
+    App.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('backup_intervall_min',?) ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", [String(min)]);
+    App.toast(`Sicherung alle ${min} Minuten – gilt für alle Rechner dieser Datenbank`, 'success');
   },
   saveEinstellungen() {
     const sets = [
@@ -2617,8 +2637,12 @@ const Views = {
             <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
             <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
             <p>• <strong>Problem melden (F2)</strong> – beschreibt kurz, was passiert ist, und sammelt automatisch das Zustandsbild (Programmversion, Ansicht, Netzqualität, Sperr- und Synchronisationszustand, Größen der Datenbank), die letzten Konsolenmeldungen und abgefangene Programmfehler. Ein Bildschirmfoto lässt sich mit <strong>Druck</strong> und <strong>Strg+V</strong> einfügen oder hineinziehen. <strong>Namen von Azubis, Betrieben und Ausbildern werden automatisch geschwärzt</strong>, der mitgesendete Text ist vor dem Absenden sichtbar und änderbar. Die Meldung landet in <code>_bhk/meldungen/</code>. <strong>Drei Wege zur Betreuung:</strong> die Kopfzeile zeigt neue Meldungen als <code>⚑</code> mit Zähler (Klick öffnet die Übersicht), der Chat kündigt sie sofort an, und unter Einstellungen lassen sich alle Meldungen ansehen, mit <strong>„▤ Alle kopieren"</strong> in einem Klick in die Zwischenablage legen (zum Einfügen bei der Entwicklung) oder als Textdatei ausgeben. Ist unter Einstellungen eine E-Mail für Fehlermeldungen hinterlegt, bietet das Melde-Fenster zusätzlich „Per E-Mail" an. Ohne Netzlaufwerk wird die Meldung heruntergeladen. Löschung nach 60 Tagen</p>
-            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Das Symbol <code>✉ Nachrichten</code> in der Kopfzeile ist immer sichtbar und öffnet das Fenster, dort steht auch der Link zum Melden eines Problems. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
-            <p>• <strong>Wer ist online?</strong> Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
+            <p>• <strong>Nachrichten (Strg+M oder ✉ in der Kopfzeile; Standard aus, gemeinsam mit der Kollegen-Anzeige schaltbar – ausgeschaltet zeigt die Kopfzeile nur „⚑ Problem melden“)</strong> – kurze Zurufe an alle, die gerade dieselbe Datenbank geöffnet haben, oder an eine einzelne Person. Das Symbol <code>✉ Nachrichten</code> in der Kopfzeile ist immer sichtbar und öffnet das Fenster, dort steht auch der Link zum Melden eines Problems. Eingehende Nachrichten erscheinen als Hinweis oben rechts; ein Klick öffnet den Verlauf. Zustellung im Abgleich-Takt, im Offline-Modus ruht der Chat. <strong>Nicht vertraulich:</strong> Die Nachrichten liegen als Dateien im gemeinsamen Ordner und sind für alle mit Zugriff lesbar, deshalb keine Azubi-Namen oder anderen personenbezogenen Angaben hineinschreiben; automatische Löschung nach 7 Tagen</p>
+            <p><strong>Große Bestände (mehrere tausend Azubis):</strong></p>
+            <p>• Die Anwendung rechnet auch mit 5000 Azubis schnell; teuer sind allein Vorgänge mit der ganzen Datenbankdatei. Deshalb: <strong>eine</strong> komprimierte Sicherung je Datenbank und Intervall (Einstellung, Standard 60 Minuten) statt alle 5 Minuten je Rechner; Kompaktierung erst ab 10 % der Dateigröße an Änderungen, frühestens alle 30 Minuten und nie von selbst über eine sehr langsame Leitung oder im Feldmodus; kein Nachladen des Schnappschusses, wenn der eigene Stand ihn schon enthält; lokaler Offline-Stand nur auf Wunsch; große Änderungsschübe der Kollegen in einer Transaktion</p>
+            <p>• <strong>Dateiversionierung auf dem Server</strong> (Schattenkopien, Sicherungsagent): Jede geschriebene Sicherung und jeder Schnappschuss wird dort als eigene Version aufgehoben, und während der Versionsbildung stocken Schreibzugriffe kurz. Deshalb das Sicherungsintervall auf 120 bis 240 Minuten setzen und den Ordner <code>_bhk/</code> mit seinen <code>.crswap</code>-Tauschdateien vom Sicherungsagenten ausnehmen lassen</p>
+            <p>• Bestand klein halten: Einstellungen → Datenbank-Tools → alte Jahrgänge löschen, Aufräumen, Neuaufbau</p>
+            <p>• <strong>Wer ist online?</strong> (Standard aus, Einstellungen → Verbindung → „Kollegen-Anzeige und Nachrichten“, gilt für alle Rechner) Jeder Rechner hinterlässt alle 30 Sekunden (Feldmodus: 60 s) ein Lebenszeichen in <code>_bhk/praesenz_….json</code>. Die Kopfzeile zeigt mit grünem Punkt, welche Kolleginnen und Kollegen gerade in derselben Datenbank arbeiten und in welcher Ansicht; ein Klick öffnet die Liste mit „seit“ und „zuletzt gesehen“ (24 h). Wer offline arbeitet oder das Netzlaufwerk verloren hat, erscheint nicht. Die Datenbank-Tools nutzen dieselben Lebenszeichen als Warnung vor dem Ausmisten</p>
             <p><strong>Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk):</strong></p>
             <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
             <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Nachrichten, Anhängen, Abgleich, Kompaktierung, Sperre) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt automatisch in jeder Fehlermeldung (F2) und im Zustandsbild („▤ Zustandsbild kopieren“)</p>

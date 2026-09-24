@@ -2434,8 +2434,29 @@ const App = {
     return { c: this._getClientId(), p: this._praesenzName(), v: this.currentView || '', ts: Date.now(), seit: this._praesenzSeit, fm: !!this.feldmodus };
   },
   // Wird vom Abgleich-Timer aufgerufen; drosselt sich selbst
+  // Kollegen-Anzeige und Nachrichten sind gemeinsam schaltbar (Einstellung
+  // kollegen_anzeige in der Datenbank, Standard AUS): ohne sie schreibt kein
+  // Rechner Lebenszeichen oder Chat-Dateien, und die Kopfzeile bleibt ruhig.
+  _kollegenCache: null,
+  _kollegenCacheZeit: 0,
+  kollegenAn() {
+    if (this._kollegenCache !== null && Date.now() - this._kollegenCacheZeit < 30000) return this._kollegenCache;
+    let an = false;
+    try { an = this.db ? this.scalar("SELECT wert FROM einstellungen WHERE schluessel='kollegen_anzeige'") === '1' : false; } catch(e) { an = false; }
+    this._kollegenCache = an; this._kollegenCacheZeit = Date.now();
+    return an;
+  },
+  setKollegenAnzeige(an) {
+    this.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige',?) ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", [an ? '1' : '0']);
+    this._kollegenCache = null;
+    if (!an) { this._praesenzAndere = []; try { this._praesenzAnzeigen(); } catch(e) {} }
+    else { this._praesenzLetzte = 0; this._praesenzTakt(true).catch(() => {}); }
+    try { if (typeof Chat !== 'undefined') Chat._render(); } catch(e) {}
+    this.toast(an ? 'Kollegen-Anzeige und Nachrichten eingeschaltet – gilt für alle Rechner dieser Datenbank' : 'Kollegen-Anzeige und Nachrichten ausgeschaltet – gilt für alle Rechner dieser Datenbank', 'info');
+  },
   async _praesenzTakt(erzwingen) {
     if (!this.dirHandle || this._netzWeg || this.offlineModus || this._praesenzLaeuft) return false;
+    if (!this.kollegenAn()) return false;
     const takt = this.feldmodus ? this.PRAESENZ_TAKT_MS * 2 : this.PRAESENZ_TAKT_MS;
     const seit = Date.now() - this._praesenzLetzte;
     if (!erzwingen && seit < takt && !(this._praesenzDirty && seit >= this.PRAESENZ_MIN_ABSTAND_MS)) return false;
@@ -2490,7 +2511,7 @@ const App = {
     this._praesenzAndere = andere.sort((a, b) => b.ts - a.ts);
     return andere;
   },
-  onlineNutzer() { return (this._praesenzAndere || []).filter(a => a.online); },
+  onlineNutzer() { return this.kollegenAn() ? (this._praesenzAndere || []).filter(a => a.online) : []; },
   _praesenzLabel(a) { return a.name || ('Rechner ' + String(a.client).slice(-4)); },
   _praesenzVor(ts) {
     const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -2802,14 +2823,9 @@ const App = {
     if (this._saveCooldownUntil && Date.now() < this._saveCooldownUntil) return;
     try {
       await this.mergeAndSave();
-      // Backup frequency adapts to connection speed: 5 min (good), 15 min (slow), 30 min (very-slow)
-      const backupMs = this._networkQuality === 'good' ? this.backupIntervalMs
-        : this._networkQuality === 'slow' ? 15 * 60 * 1000 : 30 * 60 * 1000;
-      const now = Date.now();
-      if (now - this.lastBackupTime > backupMs) {
-        await this.createBackup();
-        this.lastBackupTime = now;
-      }
+      // Sicherung GEMEINSAM je Datenbank (Alter der neuesten Datei im Ordner),
+      // nicht je Rechner – drei Rechner sicherten sonst dreimal so oft
+      if (await this._backupFaellig()) await this.createBackup();
     } catch (e) {
       console.error('Auto-save error:', e);
       document.getElementById('dbStatusIndicator').innerHTML = '<span class="dot dot-red"></span>Fehler';
@@ -2863,29 +2879,92 @@ const App = {
     }
   },
 
-  // ── Backup History ──
+  // ── Sicherungen ──
+  //  Eine 33-MB-Datenbank alle 5 Minuten je Rechner zu sichern war bei drei
+  //  Rechnern über 1 GB je Stunde – dazu Safe-Browsing-Nachlesen, Virenscanner
+  //  und Serverversionierung. Jetzt: EINE Sicherung je Datenbank und Intervall
+  //  (Einstellung backup_intervall_min, Standard 60), komprimiert (gzip über
+  //  CompressionStream, etwa Faktor 5). Wer die Sicherung schreibt, entscheidet
+  //  das Alter der neuesten Datei im Ordner, nicht die eigene Uhr.
+  BACKUP_INTERVALL_MIN: 60,
+  BACKUP_LISTE_TAKT_MS: 10 * 60000,   // Ordner höchstens alle 10 min auflisten
+  _backupListeZeit: 0,
+  _backupNeueste: 0,
+  backupIntervallMs() {
+    let min = 0;
+    try { min = parseInt(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='backup_intervall_min'"), 10); } catch(e) {}
+    if (!min || isNaN(min) || min < 5) min = this.BACKUP_INTERVALL_MIN;
+    return min * 60000;
+  },
+  _backupZeitAusName(name) {
+    const m = String(name).match(/^backup_(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/);
+    return m ? Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`) : 0;
+  },
+  _istBackupDatei(name) { return name.startsWith('backup_') && (name.endsWith('.sqlite') || name.endsWith('.sqlite.gz')); },
+  async _backupFaellig() {
+    if (!this.backupsDirHandle || this._netzWeg || this.offlineModus || this._tabIsPrimary === false) return false;
+    const intervall = this.backupIntervallMs();
+    const jetzt = Date.now();
+    if (jetzt - this.lastBackupTime < intervall) return false;
+    // Neueste Sicherung ALLER Rechner: erst dann auflisten, wenn die eigene
+    // Frist abgelaufen ist, und nicht öfter als alle 10 Minuten
+    if (jetzt - this._backupListeZeit > this.BACKUP_LISTE_TAKT_MS) {
+      this._backupListeZeit = jetzt;
+      let neueste = 0;
+      try {
+        for await (const entry of this.backupsDirHandle.values()) {
+          if (entry.kind === 'file' && this._istBackupDatei(entry.name)) neueste = Math.max(neueste, this._backupZeitAusName(entry.name));
+        }
+      } catch(e) { return false; }
+      this._backupNeueste = neueste;
+    }
+    if (jetzt - this._backupNeueste < intervall) { this.lastBackupTime = Math.max(this.lastBackupTime, this._backupNeueste); return false; }
+    return true;
+  },
+  async _komprimieren(bytes) {
+    if (typeof CompressionStream === 'undefined' || typeof Response === 'undefined' || typeof Blob === 'undefined') return null;
+    try {
+      const strom = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+      return new Uint8Array(await new Response(strom).arrayBuffer());
+    } catch(e) { return null; }
+  },
+  async _dekomprimieren(bytes) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('Dieser Browser kann komprimierte Sicherungen nicht lesen');
+    const strom = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(strom).arrayBuffer());
+  },
   async createBackup(tag) {
-    if (!this.backupsDirHandle || !this.db) return;
-    if (this._netzWeg || this.offlineModus || (this._safeBrowsingBis && Date.now() < this._safeBrowsingBis)) return;
+    if (!this.backupsDirHandle || !this.db) return false;
+    if (this._netzWeg || this.offlineModus || (this._safeBrowsingBis && Date.now() < this._safeBrowsingBis)) return false;
+    const t0 = Date.now();
+    let backupName = '';
     try {
       const now = new Date();
       const ts = now.toISOString().replace(/[:.]/g, '-').substring(0, 19);
       // Client-Kürzel im Namen: 2-3 Nutzer sichern in DENSELBEN Ordner – ohne
       // Kürzel überschrieben sich Backups derselben Sekunde gegenseitig.
       const kuerzel = this._getClientId().slice(-4);
-      const backupName = `backup_${ts}_${kuerzel}${tag ? '_' + tag : ''}.sqlite`;
+      const roh = this.db.export();
+      const gz = await this._komprimieren(roh);
+      const data = gz || roh;
+      backupName = `backup_${ts}_${kuerzel}${tag ? '_' + tag : ''}.sqlite${gz ? '.gz' : ''}`;
       const backupHandle = await this.backupsDirHandle.getFileHandle(backupName, { create: true });
-      const data = this.db.export();
       const writable = await backupHandle.createWritable();
       await writable.write(data);
       await writable.close();
+      this.lastBackupTime = Date.now();
+      this._backupNeueste = Math.max(this._backupNeueste, this._backupZeitAusName(backupName));
       console.log('Backup erstellt:', backupName);
+      BhkSpur.notiere('backup', 'Sicherung schreiben', { ok: true, ms: Date.now() - t0, info: `${Math.round(data.length / 1024)} KB${gz ? ' (gzip aus ' + Math.round(roh.length / 1024) + ' KB)' : ''}${tag ? ', ' + tag : ''}` });
       // Aufbewahrung: 30 Stück GEMEINSAM über alle Nutzer (Namen sortieren
-      // chronologisch) – bei 3 aktiven Nutzern ≙ mehrere Stunden Historie.
+      // chronologisch) – bei stündlicher Sicherung gut ein Tag Historie.
       await this.cleanOldBackups(30);
+      return true;
     } catch (e) {
       console.warn('Backup failed:', e);
+      BhkSpur.notiere('backup', 'Sicherung schreiben', { ok: false, ms: Date.now() - t0, fehler: e, info: backupName });
       this._verbindungsProblem(e, 'backup');
+      return false;
     }
   },
 
@@ -2894,7 +2973,7 @@ const App = {
     try {
       const backups = [];
       for await (const entry of this.backupsDirHandle.values()) {
-        if (entry.kind === 'file' && entry.name.startsWith('backup_') && entry.name.endsWith('.sqlite')) {
+        if (entry.kind === 'file' && this._istBackupDatei(entry.name)) {
           backups.push(entry.name);
         }
       }
@@ -3357,7 +3436,7 @@ const App = {
     // Speichern UND Abgleich fließen ein (ein Abgleich hat viele Round-Trips,
     // deshalb ×3 gewichtet). Schwellen so, dass 3-Sekunden-Abgleiche nur bei
     // wirklich schneller Leitung laufen.
-    const dur = Math.max(this._lastSaveDurationMs || 0, (this._lastPollMs || 0) * 3);
+    const dur = Math.max(this._lastSaveDurationMs || 0, this._lastAppendMs || 0, (this._lastPollMs || 0) * 3);
     const prev = this._networkQuality;
     if (dur < 1500) this._networkQuality = 'good';
     else if (dur < 5000) this._networkQuality = 'slow';
@@ -4262,6 +4341,11 @@ const App = {
       }
       this._myLogSize = size + bytes.length;
       this._lastAppendMs = Date.now() - jetzt;
+      // Ein gelungenes Anhängen IST die Speichermessung im v3-Betrieb – vorher
+      // blieb ein Fehlversuch (30 s) für den Rest der Sitzung als Netzqualität
+      // stehen und pinnte den Abgleich auf 30-Sekunden-Takt
+      this._lastSaveDurationMs = this._lastAppendMs;
+      try { this._updateNetworkQuality(); } catch(e) {}
       BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en), ${bytes.length} B an ${Math.round(size / 1024)} KB` });
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
       // Kleine Protokolle: Chrome kopiert beim Anhängen die ganze Datei in
@@ -4453,37 +4537,55 @@ const App = {
       || (a.seq || 0) - (b.seq || 0));
     let applied = 0;
     const fehlgeschlagen = [];
-    for (const op of ops) {
-      if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
-      // Lamport-Uhr: eigene künftige Ops müssen NACH allem liegen, was wir
-      // gesehen haben – sonst verliert ein Client mit nachgehender Uhr jede
-      // kausal spätere Änderung in der ts-Sortierung der Empfänger.
-      if (op.ts && op.ts > (this._maxSeenTs || 0)) this._maxSeenTs = op.ts;
-      try {
-        if (!this._lwwSkip(op)) {
-          this.db.run(op.sql, op.params || []);
+    // Ein Schub in EINER Transaktion mit wiederverwendeten Anweisungen: 15.000
+    // Ops eines Kontrolltags brauchten einzeln 2–4 s Stillstand (Autocommit
+    // je Anweisung, jedes Mal neu übersetzt). Savepoint statt BEGIN, damit es
+    // auch innerhalb einer laufenden Transaktion (Datenbank-Tools) geht. Eine
+    // gescheiterte Anweisung rollt nur sich selbst zurück, nie den Schub.
+    const anweisungen = new Map();
+    const lauf = (sql, params) => {
+      let st = anweisungen.get(sql);
+      if (!st) { st = this.db.prepare(sql); anweisungen.set(sql, st); }
+      st.run(params || []);
+    };
+    let savepoint = false;
+    try { this.db.run('SAVEPOINT bhk_apply'); savepoint = true; } catch(e) {}
+    try {
+      for (const op of ops) {
+        if (op.uid && (this._appliedForeignUids.has(op.uid) || (this._ownLogUids && this._ownLogUids.has(op.uid)))) continue;
+        // Lamport-Uhr: eigene künftige Ops müssen NACH allem liegen, was wir
+        // gesehen haben – sonst verliert ein Client mit nachgehender Uhr jede
+        // kausal spätere Änderung in der ts-Sortierung der Empfänger.
+        if (op.ts && op.ts > (this._maxSeenTs || 0)) this._maxSeenTs = op.ts;
+        try {
+          if (!this._lwwSkip(op)) {
+            lauf(op.sql, op.params);
+            this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq);
+            this._merkeBetroffenenAzubi(op.sql, op.params);
+            applied++;
+          }
+        } catch(e) {
+          fehlgeschlagen.push(op);
+        }
+        if (op.uid) this._appliedForeignUids.add(op.uid);
+      }
+      // Zweiter Durchlauf: Bei Uhren-Versatz zwischen Clients kann eine abhängige
+      // Op (z.B. Ergebnis zu einem Termin) im selben Batch VOR ihrer Grundlage
+      // einsortiert sein. Ein einzelner Wiederholungsversuch heilt das; was dann
+      // noch scheitert, ist wirklich defekt und wird gemeldet.
+      for (const op of fehlgeschlagen) {
+        try {
+          lauf(op.sql, op.params);
           this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq);
           this._merkeBetroffenenAzubi(op.sql, op.params);
           applied++;
+        } catch(e) {
+          console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
         }
-      } catch(e) {
-        fehlgeschlagen.push(op);
       }
-      if (op.uid) this._appliedForeignUids.add(op.uid);
-    }
-    // Zweiter Durchlauf: Bei Uhren-Versatz zwischen Clients kann eine abhängige
-    // Op (z.B. Ergebnis zu einem Termin) im selben Batch VOR ihrer Grundlage
-    // einsortiert sein. Ein einzelner Wiederholungsversuch heilt das; was dann
-    // noch scheitert, ist wirklich defekt und wird gemeldet.
-    for (const op of fehlgeschlagen) {
-      try {
-        this.db.run(op.sql, op.params || []);
-        this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq);
-        this._merkeBetroffenenAzubi(op.sql, op.params);
-        applied++;
-      } catch(e) {
-        console.warn('[SyncV3] Op übersprungen:', e.message, (op.sql || '').slice(0, 60));
-      }
+    } finally {
+      anweisungen.forEach(st => { try { st.free(); } catch(e) {} });
+      if (savepoint) { try { this.db.run('RELEASE bhk_apply'); } catch(e) {} }
     }
     if (applied) { try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {} }
     return applied;
@@ -4506,40 +4608,61 @@ const App = {
   },
   // Signatur einer Schreib-Op: { table, key, cols } – für UPDATE … WHERE k=? [AND …]
   // und für UPSERTs (INSERT … ON CONFLICT(k…) DO UPDATE SET …). Sonst null.
-  _opSignatur(sql, params) {
-    if (!sql) return null;
-    params = params || [];
+  // Die SQL-Struktur (Tabelle, Spalten, Schlüsselbedingungen, Parameter-
+  // Positionen) hängt nur vom SQL-Text ab und wird je Text einmal zerlegt –
+  // ein Schub aus 15.000 gleichartigen Ops lief sonst 45.000-mal durch die
+  // regulären Ausdrücke (Stempel, LWW-Prüfung, betroffener Azubi).
+  _sigCache: null,
+  _sigStruktur(sql) {
+    if (!this._sigCache) this._sigCache = new Map();
+    if (this._sigCache.has(sql)) return this._sigCache.get(sql);
+    if (this._sigCache.size > 500) this._sigCache.clear();
+    let s = null;
     let m = sql.match(/^\s*UPDATE\s+([A-Za-z_]+)\s+SET\s([\s\S]*?)\s+WHERE\s([\s\S]*)$/i);
     if (m) {
       const cols = this._spaltenAusSet(m[2]);
-      if (!cols.length) return null;
-      const conds = m[3].trim().split(/\s+AND\s+/i);
-      let pi = (m[2].match(/\?/g) || []).length;
-      const key = [];
-      for (const c of conds) {
-        const mc = c.trim().match(/^([A-Za-z_]+)\s*=\s*(\?|-?\d+|'[^']*')$/);
-        if (!mc) return null; // komplexere Bedingung → keine zeilengenaue Signatur
-        let v;
-        if (mc[2] === '?') v = params[pi++];
-        else if (mc[2][0] === "'") v = mc[2].slice(1, -1);
-        else v = Number(mc[2]);
-        key.push(mc[1].toLowerCase() + ':' + String(v));
+      if (cols.length) {
+        const conds = m[3].trim().split(/\s+AND\s+/i);
+        let pi = (m[2].match(/\?/g) || []).length;
+        const bedingungen = [];
+        let ok = true;
+        for (const c of conds) {
+          const mc = c.trim().match(/^([A-Za-z_]+)\s*=\s*(\?|-?\d+|'[^']*')$/);
+          if (!mc) { ok = false; break; } // komplexere Bedingung → keine zeilengenaue Signatur
+          if (mc[2] === '?') bedingungen.push({ col: mc[1].toLowerCase(), pi: pi++ });
+          else if (mc[2][0] === "'") bedingungen.push({ col: mc[1].toLowerCase(), wert: mc[2].slice(1, -1) });
+          else bedingungen.push({ col: mc[1].toLowerCase(), wert: Number(mc[2]) });
+        }
+        if (ok) s = { table: m[1].toLowerCase(), cols, bedingungen };
       }
-      return { table: m[1].toLowerCase(), key: key.join('|'), cols };
-    }
-    m = sql.match(/^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\([\s\S]*?\)\s*ON\s+CONFLICT\s*\(([^)]*)\)\s*DO\s+UPDATE\s+SET\s([\s\S]*)$/i);
-    if (m) {
-      const key = [];
-      for (const k of m[3].split(',').map(x => x.trim().toLowerCase())) {
-        const pi = this._paramIndexForColumn(sql, k);
-        if (pi < 0 || pi >= params.length) return null;
-        key.push(k + ':' + String(params[pi]));
+    } else {
+      m = sql.match(/^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\([\s\S]*?\)\s*ON\s+CONFLICT\s*\(([^)]*)\)\s*DO\s+UPDATE\s+SET\s([\s\S]*)$/i);
+      if (m) {
+        const bedingungen = [];
+        let ok = true;
+        for (const k of m[3].split(',').map(x => x.trim().toLowerCase())) {
+          const pi = this._paramIndexForColumn(sql, k);
+          if (pi < 0) { ok = false; break; }
+          bedingungen.push({ col: k, pi });
+        }
+        const cols = this._spaltenAusSet(m[4]);
+        if (ok && cols.length) s = { table: m[1].toLowerCase(), cols, bedingungen };
       }
-      const cols = this._spaltenAusSet(m[4]);
-      if (!cols.length) return null;
-      return { table: m[1].toLowerCase(), key: key.join('|'), cols };
     }
-    return null;
+    this._sigCache.set(sql, s);
+    return s;
+  },
+  _opSignatur(sql, params) {
+    if (!sql) return null;
+    params = params || [];
+    const s = this._sigStruktur(sql);
+    if (!s) return null;
+    const key = [];
+    for (const b of s.bedingungen) {
+      if ('pi' in b) { if (b.pi >= params.length) return null; key.push(b.col + ':' + String(params[b.pi])); }
+      else key.push(b.col + ':' + String(b.wert));
+    }
+    return { table: s.table, key: key.join('|'), cols: s.cols };
   },
   _stampNeuer(a, b) {
     if ((a.ts || 0) !== (b.ts || 0)) return (a.ts || 0) > (b.ts || 0);
@@ -4735,10 +4858,29 @@ const App = {
   },
 
   // ── Kompaktierung: Snapshot (DB-Datei) aktualisieren, mit Lock ──
+  // Wann lohnt eine Kompaktierung? Schwelle wächst mit dem Snapshot (10 %,
+  // mindestens 1,5 MB), höchstens alle 30 Minuten (eigene oder fremde), und
+  // nie von selbst über eine sehr schwache Leitung oder im Feldmodus – ein
+  // 33-MB-Snapshot über VPN lief sonst regelmäßig ins Zeitlimit und wurde alle
+  // fünf Minuten erneut versucht.
+  KOMPAKT_MIN_BYTES: 1500000,
+  KOMPAKT_ANTEIL: 0.1,
+  KOMPAKT_MIN_ABSTAND_MS: 30 * 60000,
+  _letzteKompaktierung: 0,     // Zeitpunkt der letzten bekannten Kompaktierung (eigene oder snapmeta.t)
+  kompaktSchwelle() { return Math.max(this.KOMPAKT_MIN_BYTES, Math.round((this._lastFileSize || 0) * this.KOMPAKT_ANTEIL)); },
+  snapshotTimeoutMs(bytes) { return 120000 + Math.ceil((bytes || 0) / 1048576) * 10000; },
+  _kompaktGebremst() {
+    if (Date.now() - (this._letzteKompaktierung || 0) < this.KOMPAKT_MIN_ABSTAND_MS) return `letzte Kompaktierung vor ${Math.round((Date.now() - this._letzteKompaktierung) / 60000)} min`;
+    if (this.feldmodus) return 'Feldmodus';
+    if (this._networkQuality === 'very-slow') return 'sehr langsame Leitung';
+    return '';
+  },
   async _compactionDue() {
     try {
       const dir = this._syncDirV3();
       if (!dir) return false;
+      const bremse = this._kompaktGebremst();
+      if (bremse) { BhkSpur.uebersprungen('kompakt', 'automatische Kompaktierung zurückgestellt: ' + bremse); return false; }
       // Nur Bytes zählen, die der Snapshot noch NICHT abdeckt. Die Gesamtgröße
       // wäre irreführend: verwaiste (aber vollständig abgedeckte) Logs toter
       // Clients ließen sonst jede 5 Minuten eine sinnlose Kompaktierung samt
@@ -4755,7 +4897,7 @@ const App = {
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
         try { offen += Math.max(0, (await h.getFile()).size - (covered[name] || 0)); } catch(e) {}
       }
-      return offen > 1500000; // ~1,5 MB ungedeckte Ops → kompakt
+      return offen > this.kompaktSchwelle(); // ungedeckte Ops über der Schwelle → kompakt
     } catch(e) { return false; }
   },
   async _compact(reason) {
@@ -4801,6 +4943,12 @@ const App = {
       this._stampsSpeichern();
       const data = this.db.export();
       this.ladeText && this._ladeTimer && this.ladeText(`Datenbank schreiben (${Math.round(data.length / 1024 / 1024)} MB)…`);
+      // Zeitlimit nach Größe (120 s + 10 s je MB) und Sperren-Herzschlag
+      // während des Schreibens: Die Staleness der Sperre liegt bei 150 s, ein
+      // großer Snapshot über VPN dauert länger – ohne Herzschlag übernähme ein
+      // Kollege die Sperre mitten im Schreibvorgang.
+      const timeoutMs = this.snapshotTimeoutMs(data.length);
+      const herzschlag = setInterval(() => { this._refreshLock().catch(() => {}); }, 60000);
       const writeOp = async () => {
         writable = await this.dbFileHandle.createWritable();
         await writable.write(data);
@@ -4810,7 +4958,7 @@ const App = {
       try {
         await Promise.race([
           writeOp(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), 120000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), timeoutMs)),
         ]);
       } catch(err) {
         if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
@@ -4821,14 +4969,16 @@ const App = {
           try {
             await Promise.race([
               writeOp(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), 120000)),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Snapshot-Write Timeout')), timeoutMs)),
             ]);
           } catch(err2) {
             if (writable) { try { await Promise.race([writable.abort(), new Promise(r => setTimeout(r, 15000))]); } catch(_) {} writable = null; }
+            clearInterval(herzschlag);
             throw err2;
           }
-        } else throw err;
+        } else { clearInterval(herzschlag); throw err; }
       }
+      clearInterval(herzschlag);
       // 4) snapmeta schreiben (Lock nochmals auffrischen – der Write kann bis
       // zu 120s gedauert haben). Vorher prüfen, ob das Lock noch UNS gehört:
       // hat es ein anderer Kompaktierer übernommen (Staleness nach sehr
@@ -4862,6 +5012,7 @@ const App = {
         }
       } catch(e) {}
       this._compactGrund = '';
+      this._letzteKompaktierung = Date.now();
       BhkSpur.notiere('kompakt', 'Kompaktierung', { ok: true, ms: Date.now() - tKompakt, info: `${reason}, ${Math.round(data.length / 1024 / 1024)} MB, Generation ${this._snapGen}` });
       console.log(`[SyncV3] Snapshot kompaktiert (${reason})`);
       this._bulkOps = null;
@@ -4924,8 +5075,21 @@ const App = {
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
       const meta = JSON.parse(await (await h.getFile()).text());
       const gen = meta?.gen || 0;
+      if (meta && meta.t) { const t = Date.parse(meta.t); if (t && t > (this._letzteKompaktierung || 0)) this._letzteKompaktierung = t; }
       if (!gen || gen <= (this._snapGen || 0)) return;
       if (meta.by === this._getClientId()) { this._snapGen = gen; return; }
+      // Reine Protokoll-Kompaktierung, deren Ops wir alle schon angewendet
+      // haben? Dann steckt im Snapshot nichts, was wir nicht hätten – nur die
+      // Generation übernehmen statt 33 MB zu laden und die Datenbank zu
+      // tauschen. Nach Import, Bereinigung oder Wiederherstellung (grund ≠
+      // groesse/start) trägt der Snapshot Daten, die in keinem Protokoll
+      // stehen – dann wird IMMER nachgeladen.
+      if (this._snapshotSchonEnthalten(meta)) {
+        this._snapGen = gen;
+        console.log(`[SyncV3] Fremder Snapshot (Generation ${gen}, ${meta.grund || 'groesse'}) bereits vollständig enthalten – kein Nachladen`);
+        BhkSpur.notiere('snapshot', 'Generation übernommen ohne Nachladen', { ok: true, info: `Generation ${gen}, ${meta.grund || 'groesse'}` });
+        return;
+      }
       console.log(`[SyncV3] Fremder Snapshot erkannt (Generation ${gen}) – lade neu`);
       const tLade = Date.now();
       const file = await this.dbFileHandle.getFile();
@@ -5025,6 +5189,21 @@ const App = {
       if (this._verbindungsProblem(e, 'snapshot')) { if (Date.now() - (this._snapWarnZeit || 0) > 60000) { this._snapWarnZeit = Date.now(); console.warn('[SyncV3] Snapshot-Prüfung: Netzlaufwerk nicht erreichbar –', e.message); } }
       else console.warn('[SyncV3] Snapshot-Prüfung:', e.message);
     }
+  },
+  // Deckt der eigene Lesestand jedes Protokoll mindestens bis zu dem Offset
+  // ab, den der Snapshot enthält? Nur für reine Protokoll-Kompaktierungen.
+  _snapshotSchonEnthalten(meta) {
+    if (!meta || !this._v3Ready || this._bulkPending) return false;
+    const grund = meta.grund || 'groesse';
+    if (grund !== 'groesse' && grund !== 'start') return false;
+    const offsets = meta.offsets || {};
+    const mine = this._myOplogName();
+    for (const [name, off] of Object.entries(offsets)) {
+      if (!off) continue;
+      const eigen = name === mine ? (this._myLogSize || 0) : (this._logOffsets[name] || 0);
+      if (eigen < off) return false;
+    }
+    return true;
   },
   // Nach einem Snapshot-Tausch: KE-Zeilen mit gleichem fachlichem Schlüssel,
   // aber fremder ID, auf die bisherige LOKALE ID zurückschreiben (samt
@@ -5528,8 +5707,8 @@ const App = {
     const out = [];
     try {
       for await (const entry of this.backupsDirHandle.values()) {
-        if (entry.kind !== 'file' || !entry.name.startsWith('backup_') || !entry.name.endsWith('.sqlite')) continue;
-        try { const f = await entry.getFile(); out.push({ name: entry.name, size: f.size, lastModified: f.lastModified }); } catch(e) {}
+        if (entry.kind !== 'file' || !this._istBackupDatei(entry.name)) continue;
+        try { const f = await entry.getFile(); out.push({ name: entry.name, size: f.size, lastModified: f.lastModified, komprimiert: entry.name.endsWith('.gz') }); } catch(e) {}
       }
     } catch(e) {}
     return out.sort((a, b) => b.name.localeCompare(a.name));
@@ -5545,9 +5724,10 @@ const App = {
     let neu = null;
     try {
       const fh = await this.backupsDirHandle.getFileHandle(name, { create: false });
-      const buf = await (await fh.getFile()).arrayBuffer();
+      let bytes = new Uint8Array(await (await fh.getFile()).arrayBuffer());
+      if (name.endsWith('.gz')) bytes = await this._dekomprimieren(bytes);
       const SQL = await App._getSqlJs();
-      neu = new SQL.Database(new Uint8Array(buf));
+      neu = new SQL.Database(bytes);
       const check = neu.exec('PRAGMA integrity_check');
       const ok = check[0] && check[0].values[0] && check[0].values[0][0];
       if (ok !== 'ok') throw new Error('Integritätsprüfung fehlgeschlagen: ' + ok);
@@ -7471,13 +7651,24 @@ const App = {
     } catch(e) { return null; }
   },
   // Lokalen Stand regelmäßig auffrischen (nur wenn sich etwas geändert hat)
+  // Lokaler Stand für den Offline-Start: nur auf Wunsch (Einstellung je
+  // Rechner), dann höchstens einmal je Stunde. Vorher wanderte die ganze
+  // Datenbank alle 10 Minuten in die IndexedDB – bei umgeleiteten Browser-
+  // Profilen ebenfalls über das Netz.
+  OFFLINE_STAND_TAKT_MS: 60 * 60000,
+  get offlineStandAn() { return this.lsGet('bhk_offline_stand') === '1'; },
+  setOfflineStand(an) {
+    this.lsSet('bhk_offline_stand', an ? '1' : '0');
+    if (an) { this._offlineCachePlanen(); this.toast('Lokaler Stand wird jetzt und dann stündlich gesichert', 'info'); }
+    else { if (this._offlineCacheTimer) { clearInterval(this._offlineCacheTimer); this._offlineCacheTimer = null; } this.toast('Lokaler Stand wird nicht mehr automatisch gesichert („Lokalen Stand jetzt sichern“ bleibt möglich)', 'info'); }
+  },
   _offlineCachePlanen() {
-    if (this._offlineCacheTimer) return;
-    setTimeout(() => this._offlineCacheSchreiben(), 20000);
+    if (this._offlineCacheTimer || !this.offlineStandAn) return;
+    setTimeout(() => { if (this.offlineStandAn) this._offlineCacheSchreiben(); }, 20000);
     this._offlineCacheTimer = setInterval(() => {
-      if (this.offlineModus || document.hidden) return;
-      if ((this.saveCount || 0) !== (this._offlineCacheSaveCount || 0) || Date.now() - (this._offlineCacheTs || 0) > 60 * 60 * 1000) this._offlineCacheSchreiben();
-    }, 10 * 60 * 1000);
+      if (this.offlineModus || document.hidden || !this.offlineStandAn) return;
+      if ((this.saveCount || 0) !== (this._offlineCacheSaveCount || 0) || Date.now() - (this._offlineCacheTs || 0) > 24 * 3600000) this._offlineCacheSchreiben();
+    }, this.OFFLINE_STAND_TAKT_MS);
   },
   async _offlineStartAnbieten() {
     try {

@@ -181,6 +181,7 @@ const Konsole = {
     if (!schreib.ok) { try { await dir.removeEntry(probeName); } catch(e) {} }
     // 4) Lebenszeichen schreiben und lesen
     const praes = await schritt('Lebenszeichen schreiben und lesen', async () => {
+      if (App.kollegenAn && !App.kollegenAn()) return 'ausgeschaltet (Einstellungen → Verbindung → Kollegen-Anzeige)';
       if (App._netzWeg || App.offlineModus) throw new Error(App.offlineModus ? 'Offline-Modus' : 'Netzabriss-Zustand aktiv');
       const ok = await App._praesenzTakt(true);
       if (!ok) throw new Error('Lebenszeichen konnte nicht geschrieben werden');

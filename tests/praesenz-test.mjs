@@ -62,6 +62,19 @@ setFeldmodus(false);
 const now = Date.now();
 const eintrag = (c, p, v, ts) => JSON.stringify({ c, p, v, ts, seit: ts - 600000, fm: false });
 
+console.log('══ Schalter: Kollegen-Anzeige standardmäßig aus ══');
+{
+  check(App.kollegenAn() === false, 'Ohne Einstellung ist die Kollegen-Anzeige aus');
+  check(await App._praesenzTakt(true) === false && schreibZugriffe === 0, 'Kein Lebenszeichen, solange ausgeschaltet');
+  App.db.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige','1')"); App._kollegenCache = null;
+  check(App.kollegenAn() === true, 'Einstellung kollegen_anzeige=1 schaltet ein');
+  App.setKollegenAnzeige(false); check(App.kollegenAn() === false && App.onlineNutzer().length === 0, 'setKollegenAnzeige(false) schaltet aus, niemand gilt als online');
+  App.setKollegenAnzeige(true); check(App.kollegenAn() === true, 'setKollegenAnzeige(true) schaltet wieder ein');
+  // Das Einschalten stößt ein Lebenszeichen an – abwarten, sonst kollidiert der nächste Takt damit
+  for (let i = 0; i < 50 && App._praesenzLaeuft; i++) await new Promise(r => setImmediate(r));
+  App._praesenzLetzte = 0; store.clear(); schreibZugriffe = 0;
+}
+
 console.log('══ Schreiben & Lesen ══');
 {
   store.set('praesenz_test_client-BBBB.json', { data: eintrag('client-BBBB', 'Bernd', 'kontrolle', now - 20000), mtime: now - 20000 });

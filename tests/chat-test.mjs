@@ -109,6 +109,16 @@ const fremdSenden = (client, von, text, an, ts) => {
   store.set(name, { data: enc.encode(alt + z), mtime: ts || Date.now() });
 };
 
+console.log('══ Schalter: Nachrichten standardmäßig aus ══');
+{
+  check(C.an() === false && C.aktiv() === false && /ausgeschaltet/.test(C._grund()), 'Ohne Einstellung ruht der Chat mit klarem Grund');
+  check(await C.senden('geht nicht') === false && store.size === 0, 'Senden schreibt nichts, solange ausgeschaltet');
+  C._render();
+  check(/Problem melden/.test(el('chatBadge').innerHTML), 'Kopfzeile zeigt nur „Problem melden“');
+  App.db.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige','1')"); App._kollegenCache = null;
+  check(C.an() === true && C.aktiv() === true, 'Einstellung kollegen_anzeige=1 schaltet den Chat ein');
+}
+
 console.log('══ Senden: eigene Datei, Anhängen ══');
 {
   check(C._dateiName() === 'chat_test_client-AAAA.jsonl', `Dateiname je Rechner (${C._dateiName()})`);
