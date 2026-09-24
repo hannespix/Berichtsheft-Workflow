@@ -74,6 +74,54 @@ const BhkSpur = {
     voll: 'Kein Speicherplatz',
     abgebrochen: 'Vorgang abgebrochen',
     netz: 'Netzfehler',
+    haenger: 'Oberfläche stand still (Hauptfaden blockiert)',
+    offen: 'Änderungen noch nicht auf dem Netzlaufwerk',
+  },
+  // ── Wächter gegen Hängen ──
+  //  Ein Sekundentakt misst, wie spät er dran ist. Steht der Hauptfaden länger
+  //  als HAENGER_MS (blockierendes Skript), wird das mit der letzten
+  //  Bedienaktion notiert und in localStorage aufgehoben – so ist es auch nach
+  //  einem Abschuss des Tabs im nächsten Zustandsbild sichtbar. Verdeckte
+  //  Fenster zählen nicht (Chrome drosselt dort die Timer auf einmal je Minute).
+  HAENGER_MS: 4000,
+  HAENGER_MAX: 10,
+  _letzteAktion: '',
+  _aktionMerken(e) {
+    try {
+      const t = e && e.target && e.target.closest ? e.target.closest('button, a, select, input, textarea, [onclick]') : null;
+      if (!t) return;
+      const on = t.getAttribute && t.getAttribute('onclick');
+      let s = t.tagName.toLowerCase() + (t.id ? '#' + t.id : '');
+      if (on) s += ' ' + on.replace(/\s+/g, ' ').slice(0, 70);
+      else if (t.tagName === 'BUTTON') s += ' „' + String(t.textContent || '').trim().slice(0, 30) + '“';
+      if (e.type === 'keydown') s = 'Taste ' + (e.key || '?') + ' in ' + s;
+      this._letzteAktion = s + ' um ' + new Date().toLocaleTimeString('de-DE');
+    } catch(err) {}
+  },
+  haengerListe() { try { return JSON.parse(localStorage.getItem('bhk_haenger') || '[]'); } catch(e) { return []; } },
+  haenger(ms) {
+    const e = this.notiere('haenger', 'Oberfläche stand still', { ok: false, ms, art: 'haenger', fehler: `${(ms / 1000).toFixed(1)} s`, info: this._letzteAktion ? 'letzte Aktion: ' + this._letzteAktion : '' });
+    try {
+      const l = this.haengerListe();
+      l.push({ t: Date.now(), ms: Math.round(ms), aktion: this._letzteAktion || '' });
+      localStorage.setItem('bhk_haenger', JSON.stringify(l.slice(-this.HAENGER_MAX)));
+    } catch(err) {}
+    if (typeof console !== 'undefined') console.warn(`[Spur:haenger] Oberfläche stand ${(ms / 1000).toFixed(1)} s still${this._letzteAktion ? ' – letzte Aktion: ' + this._letzteAktion : ''}`);
+    return e;
+  },
+  _waechterZuletzt: 0,
+  _sichtbarSeit: 0,
+  _waechterStarten() {
+    if (this._waechter || typeof setInterval === 'undefined') return;
+    this._waechterZuletzt = Date.now();
+    this._sichtbarSeit = Date.now();
+    this._waechter = setInterval(() => {
+      const jetzt = Date.now();
+      const drift = jetzt - this._waechterZuletzt - 1000;
+      this._waechterZuletzt = jetzt;
+      const verdeckt = typeof document !== 'undefined' && document.hidden;
+      if (!verdeckt && jetzt - this._sichtbarSeit > 2000 && drift >= this.HAENGER_MS) this.haenger(drift);
+    }, 1000);
   },
   get debug() { try { return localStorage.getItem('bhk_debug') === '1'; } catch(e) { return false; } },
   setDebug(an) { try { if (an) localStorage.setItem('bhk_debug', '1'); else localStorage.removeItem('bhk_debug'); } catch(e) {} return !!an; },
@@ -183,8 +231,13 @@ const BhkSpur = {
     try {
       document.addEventListener('visibilitychange', () => {
         this.notiere('fenster', document.hidden ? 'Fenster verdeckt oder Tab im Hintergrund' : 'Fenster wieder sichtbar', { ok: true });
+        // Wächter neu aufsetzen: gedrosselte Timer im Hintergrund sind kein Hänger
+        this._sichtbarSeit = Date.now(); this._waechterZuletzt = Date.now();
       });
+      document.addEventListener('click', (e) => this._aktionMerken(e), true);
+      document.addEventListener('keydown', (e) => { if (e && (e.key === 'Enter' || (e.key && e.key.length > 1 && e.key !== 'Shift'))) this._aktionMerken(e); }, true);
     } catch(e) {}
+    this._waechterStarten();
   },
 };
 BhkSpur.installieren();
@@ -2651,8 +2704,13 @@ const App = {
       teile.push('', `abgefangene Fehler (${BhkLog.fehler.length}):`);
       BhkLog.fehler.slice(-10).forEach(f => teile.push(`  [${new Date(f.t).toLocaleTimeString('de-DE')}] ${f.art}: ${this.schwaerzen(f.nachricht)}${f.quelle ? ' (' + f.quelle + ')' : ''}${f.stack ? '\n' + this.schwaerzen(f.stack).split('\n').map(x => '      ' + x.trim()).join('\n') : ''}`));
     }
-    if (opts.spur !== false && typeof BhkSpur !== 'undefined' && BhkSpur.eintraege.length) {
-      teile.push('', this.schwaerzen(BhkSpur.text(opts.spurZeilen || 60)));
+    if (opts.spur !== false && typeof BhkSpur !== 'undefined') {
+      const h = BhkSpur.haengerListe ? BhkSpur.haengerListe() : [];
+      if (h.length) {
+        teile.push('', `Hänger (Oberfläche stand still, letzte ${Math.min(5, h.length)}, auch frühere Sitzungen):`);
+        h.slice(-5).forEach(x => teile.push(`  [${new Date(x.t).toLocaleString('de-DE')}] ${(x.ms / 1000).toFixed(1)} s${x.aktion ? ' – letzte Aktion: ' + this.schwaerzen(x.aktion) : ''}`));
+      }
+      if (BhkSpur.eintraege.length) teile.push('', this.schwaerzen(BhkSpur.text(opts.spurZeilen || 60)));
     }
     if (opts.protokoll !== false && typeof BhkLog !== 'undefined' && BhkLog.zeilen.length) {
       const n = opts.zeilen || 150;
@@ -2806,7 +2864,7 @@ const App = {
     if (this.demoMode || !this.dbFileHandle) return;
     if (this._netzWeg) {
       document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal`;
-      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      this._persistBald();
       try { this._offlineBannerAktualisieren(); } catch(e) {}
       return;
     }
@@ -3813,7 +3871,7 @@ const App = {
       const el = document.getElementById('dbStatusIndicator');
       if (el) el.innerHTML = `<span class="dot dot-amber"></span>Offline · ${n} lokal`;
       try { this._updateNetworkUI(); this._offlineBannerAktualisieren(); } catch(e) {}
-      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      this._persistBald();
       return;
     }
     if (!this.dbFileHandle && !this.demoMode) {
@@ -3825,13 +3883,93 @@ const App = {
       return;
     }
     this.scheduleAutoSave();
-    // Debounced IDB persist: ensures dirty ops survive unexpected tab close
-    if (!this._idbPersistTimer) {
-      this._idbPersistTimer = setTimeout(() => {
-        this._idbPersistTimer = null;
-        if (this._dirtyOps.length > 0) this._persistDirtyOps();
-      }, 5000);
-    }
+    // Absturzpuffer SOFORT, nicht erst nach 5 s: Ein Hänger oder Absturz in
+    // diesen Sekunden verlor sonst genau die letzten Eingaben.
+    this._persistBald();
+  },
+  // Absturzpuffer schreiben, ohne parallele Läufe: läuft gerade einer, wird
+  // danach genau einmal nachgeschrieben (viele Eingaben → ein Nachlauf).
+  _persistLaeuft: false,
+  _persistErneut: false,
+  _persistBald() {
+    if (this._persistLaeuft) { this._persistErneut = true; return; }
+    this._persistLaeuft = true;
+    Promise.resolve().then(() => this._persistDirtyOps()).catch(() => {}).then(() => {
+      this._persistLaeuft = false;
+      if (this._persistErneut) { this._persistErneut = false; this._persistBald(); }
+    });
+  },
+  // Ein Berichtsheft ist fertig, der Azubi wechselt, der Termin schließt:
+  // nicht auf die Wartezeit des Auto-Save vertrauen, sondern jetzt anhängen.
+  // Rückgabe: true = alles auf dem Netzlaufwerk (oder nichts offen).
+  async sofortSpeichern(quelle) {
+    if (this.demoMode || !this.db) return true;
+    if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
+    try { await this._persistDirtyOps(); } catch(e) {}
+    if (!this._dirtyOps.length && !(this._opsInFlight && this._opsInFlight.length)) return true;
+    if (!this.dbFileHandle || this.offlineModus || this._netzWeg) return false;
+    const t0 = Date.now();
+    const n = this._dirtyOps.length;
+    try { await this.mergeAndSave(); } catch(e) {}
+    const ok = this._dirtyOps.length === 0 && !this._appendInProgress;
+    BhkSpur.notiere('anhaengen', 'Sofort schreiben', { ok, ms: Date.now() - t0, info: `${quelle || ''}${quelle ? ', ' : ''}${n} Änderung(en)`, nurStat: ok, fehler: ok ? null : `noch ${this._dirtyOps.length} Änderung(en) offen`, art: ok ? '' : 'offen' });
+    return ok;
+  },
+  // Welche Azubis haben Änderungen, die noch nicht auf dem Netzlaufwerk sind?
+  _ungesichertAzubis: new Set(),
+  azubiGesichert(sid) { return !this._ungesichertAzubis.has(Number(sid)); },
+  _azubiAusOp(sql, params) {
+    try {
+      const sig = this._opSignatur(sql, params);
+      let sid = null;
+      if (sig) { const m = sig.key.match(/(?:^|\|)schueler_id:(\d+)/); if (m) sid = parseInt(m[1]); }
+      if (sid == null && /schueler_id/i.test(sql || '')) {
+        const pi = this._paramIndexForColumn(sql, 'schueler_id');
+        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
+      }
+      if (sid == null && /^\s*UPDATE\s+schueler\s+SET/i.test(sql || '')) {
+        const pi = this._paramIndexForColumn(sql, 'id');
+        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
+      }
+      return sid != null && !isNaN(sid) ? sid : null;
+    } catch(e) { return null; }
+  },
+  // Liste der wartenden Änderungen (Klick auf den Speicherstatus in der Kopfzeile)
+  wartendeAenderungenDialog() {
+    const offen = [...(this._opsInFlight || []), ...(this._dirtyOps || [])];
+    const tabellen = {};
+    const sids = new Set();
+    let aeltester = 0;
+    offen.forEach(o => {
+      const m = String(o.sql || '').match(/^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)/i);
+      const t = m ? m[1].toLowerCase() : '?';
+      tabellen[t] = (tabellen[t] || 0) + 1;
+      const sid = o.sid != null ? o.sid : this._azubiAusOp(o.sql, o.params);
+      if (sid != null) sids.add(sid);
+      if (o.ts && (!aeltester || o.ts < aeltester)) aeltester = o.ts;
+    });
+    const namen = [...sids].slice(0, 30).map(id => { const s = this.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0]; return s ? `${s.nachname}, ${s.vorname}` : 'Azubi ' + id; });
+    const TAB = { kw_status: 'Wochenzeilen', kontrollergebnisse: 'Kontrollergebnisse', wiedervorlagen: 'Wiedervorlagen', schueler: 'Azubis', kontrolltermine: 'Termine', kw_maengel: 'KW-Mängel', durchsicht_snapshots: 'Durchsichts-Snapshots', schueler_bemerkungen: 'Bemerkungen', einstellungen: 'Einstellungen' };
+    const zustand = this.offlineModus ? 'Offline-Modus: Änderungen werden beim Wiederverbinden zusammengeführt'
+      : this._netzWeg ? 'Netzlaufwerk nicht erreichbar – Änderungen bleiben im Absturzpuffer dieses Rechners'
+      : this._appendInProgress ? 'Anhängen läuft gerade…'
+      : !this.dbFileHandle ? 'Kein Datenbank-Ordner verbunden'
+      : (this._saveRetryCount ? `${this._saveRetryCount} Fehlversuch(e) in Folge – nächster Versuch automatisch` : 'Verbunden');
+    const zuletzt = document.getElementById('dbLastSaved') ? document.getElementById('dbLastSaved').textContent : '';
+    this.openModal(offen.length ? `⏳ ${offen.length} Änderung(en) warten` : '✓ Alles auf dem Netzlaufwerk', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Jede Eingabe liegt sofort im Absturzpuffer dieses Rechners (übersteht Tab-Absturz und Neustart) und wird ${this.feldmodus ? 'im Feldmodus gebündelt nach 10 s' : 'nach 1,5 s'} an das Protokoll auf dem Netzlaufwerk angehängt. Beim Abschluss eines Berichtshefts, beim Azubi-Wechsel und beim Verlassen der Kontrolle sofort.
+      </div>
+      <div style="font-size:13px"><strong>Zustand:</strong> ${esc(zustand)}${zuletzt ? ` · letztes Schreiben ${esc(zuletzt)}` : ''}</div>
+      ${offen.length ? `
+        <div style="font-size:13px;margin-top:6px"><strong>Wartend:</strong> ${offen.length} Änderung(en)${aeltester ? `, älteste von ${esc(new Date(aeltester).toLocaleTimeString('de-DE'))}` : ''}</div>
+        <ul style="font-size:12px;margin:4px 0 0 18px">${Object.entries(tabellen).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<li>${n} × ${esc(TAB[t] || t)}</li>`).join('')}</ul>
+        ${namen.length ? `<div style="font-size:12px;margin-top:6px"><strong>Betroffene Azubis:</strong> ${esc(namen.join(' · '))}${sids.size > 30 ? ` … (+${sids.size - 30})` : ''}</div>` : ''}
+      ` : `<div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Keine wartenden Änderungen.</div>`}
+      ${this._compactGrund ? `<div style="font-size:11px;color:var(--clr-amber);margin-top:8px">Kompaktierung: ${esc(this._compactGrund)}</div>` : ''}`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       ${offen.length ? `<button class="btn btn-secondary" onclick="App.exportOpPuffer()" title="Wartende Änderungen als Datei sichern (Notausgang)">Änderungen als Datei</button>
+       <button class="btn btn-primary" onclick="App.closeModal();App.sofortSpeichern('von Hand').then(ok=>App.toast(ok?'Alle Änderungen auf dem Netzlaufwerk':'Noch nicht alles geschrieben – Versuch läuft weiter','' + (ok?'success':'warning')))">Jetzt schreiben</button>` : ''}`);
   },
 
   // ── Query helpers ──
@@ -4095,6 +4233,8 @@ const App = {
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
     const rec = { ...stamp(), sql: prep.opSql, params: prep.opParams };
+    const sid = this._azubiAusOp(rec.sql, rec.params);
+    if (sid != null) { rec.sid = sid; this._ungesichertAzubis.add(sid); }
     this._dirtyOps.push(rec);
     this._notiereStamp(rec.sql, rec.params, rec.ts, this._getClientId(), rec.seq);
     // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
@@ -4348,6 +4488,10 @@ const App = {
       try { this._updateNetworkQuality(); } catch(e) {}
       BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en), ${bytes.length} B an ${Math.round(size / 1024)} KB` });
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+      // Azubis dieser Ops gelten als gesichert – außer es warten schon neue Ops zu ihnen
+      claimed.forEach(o => { if (o.sid != null) this._ungesichertAzubis.delete(o.sid); });
+      this._dirtyOps.forEach(o => { if (o.sid != null) this._ungesichertAzubis.add(o.sid); });
+      try { if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler._gesichertAnzeigen) KontrolleHandler._gesichertAnzeigen(); } catch(e) {}
       // Kleine Protokolle: Chrome kopiert beim Anhängen die ganze Datei in
       // eine Swap-Datei – ab LOG_ROTATE_BYTES neue Generation. Die alte bleibt
       // liegen, bis der Snapshot sie enthält (siehe _pruneAlteGenerationen).
@@ -4749,16 +4893,8 @@ const App = {
   // Refresh der offenen Durchsicht – siehe _smartRefresh)
   _betroffeneAzubis: null,
   _merkeBetroffenenAzubi(sql, params) {
-    try {
-      const sig = this._opSignatur(sql, params);
-      let sid = null;
-      if (sig) { const m = sig.key.match(/(?:^|\|)schueler_id:(\d+)/); if (m) sid = parseInt(m[1]); }
-      if (sid == null && /schueler_id/i.test(sql || '')) {
-        const pi = this._paramIndexForColumn(sql, 'schueler_id');
-        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
-      }
-      if (sid != null && !isNaN(sid)) { if (!this._betroffeneAzubis) this._betroffeneAzubis = new Set(); this._betroffeneAzubis.add(sid); }
-    } catch(e) {}
+    const sid = this._azubiAusOp(sql, params);
+    if (sid != null) { if (!this._betroffeneAzubis) this._betroffeneAzubis = new Set(); this._betroffeneAzubis.add(sid); }
   },
 
   // ── Bootstrap nach dem Laden der Snapshot-Datei ──

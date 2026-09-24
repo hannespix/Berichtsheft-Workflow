@@ -134,7 +134,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <kbd>Ctrl+K</kbd>
       </button>
-      <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
+      <span id="dbStatusIndicator" style="cursor:pointer" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen ansehen, jetzt schreiben oder als Datei sichern"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <span id="onlineNutzer" style="display:none;font-size:10px;white-space:nowrap;cursor:pointer" onclick="App.onlineNutzerDialog()" title="Wer arbeitet gerade in dieser Datenbank?"></span>
       <span id="chatBadge" style="font-size:11px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2)">✉ Nachrichten</span>

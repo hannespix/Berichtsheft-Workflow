@@ -38,6 +38,8 @@ const KontrolleHandler = {
       this.stopLiveSync();
       return;
     }
+    // Terminwechsel: offene Änderungen des vorigen Termins sofort anhängen
+    if (this.currentTerminId && parseInt(terminId) !== this.currentTerminId && App.dbFileHandle && !App.demoMode) App.sofortSpeichern('Terminwechsel').catch(() => {});
     this.currentTerminId = parseInt(terminId);
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return;
@@ -1280,7 +1282,8 @@ const KontrolleHandler = {
             if (lockedBy) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
             else if (otherPruefer) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
             const ampelDot = ampel.color === 'green' ? '' : (ampel.color === 'red' ? '<span style="color:var(--clr-red)">◆</span>' : (ampel.color === 'yellow' ? '<span style="color:var(--clr-amber)">◐</span>' : ''));
-            return `<button class="btn btn-sm ${cls}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
+            const ungesichert = !App.azubiGesichert(sc.id);
+            return `<button class="btn btn-sm ${cls}${ungesichert ? ' qn-ungesichert' : ''}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}${ungesichert ? ' – ⏳ noch nicht auf dem Netzlaufwerk' : ''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
           }).join('')}
         </div>
         </div>
@@ -1530,7 +1533,8 @@ const KontrolleHandler = {
         <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''}>← Vorheriger</button>
         <div class="btn-group" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
           <button class="btn btn-success" onclick="KontrolleHandler.nextOffen()" title="Änderungen sind bereits gespeichert – zum nächsten Azubi ohne Ergebnis springen" style="font-weight:600">✓ Nächster offener Azubi →</button>
-          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Azubi für andere Prüfer freigeben (Änderungen werden ohnehin automatisch gespeichert)">Freigeben</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Berichtsheft abschließen: Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für andere Prüfer freigeben">Freigeben</button>
+          <span id="keGesichert" style="font-size:11px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
           <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">▤ PDF Einzeln</button>
           <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">▤ PDF Alle (${total})</button>
@@ -1946,10 +1950,38 @@ const KontrolleHandler = {
   // ── Explicit "Speichern & Freigeben" (button handler) ──
   saveAndReleaseExplicit() {
     const s = this.currentSchuelerList?.[this.currentIndex];
-    this.microSave();
     this.releaseLock();
-    App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} gespeichert & freigegeben`, 'success');
     this.renderSchueler(); // re-render to show unlocked state
+    // Abschluss des Berichtshefts: sofort anhängen, Ergebnis zurückmelden
+    App.sofortSpeichern('Freigeben').then(ok => {
+      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
+      this._gesichertAnzeigen();
+    });
+  },
+  // Kennzeichen „noch nicht auf dem Netzlaufwerk“ in Schnellnavigation und Kopf der Durchsicht
+  _gesichertAnzeigen() {
+    try {
+      const grid = document.getElementById('quickNavGrid');
+      if (grid && this.currentSchuelerList) {
+        const buttons = grid.querySelectorAll('button');
+        this.currentSchuelerList.forEach((sc, i) => {
+          const btn = buttons[i];
+          if (!btn) return;
+          const offen = !App.azubiGesichert(sc.id);
+          btn.classList.toggle('qn-ungesichert', offen);
+          const t = (btn.title || '').replace(/ – ⏳ noch nicht auf dem Netzlaufwerk$/, '');
+          btn.title = offen ? t + ' – ⏳ noch nicht auf dem Netzlaufwerk' : t;
+        });
+      }
+      const el = document.getElementById('keGesichert');
+      const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
+      if (el && s) {
+        const offen = !App.azubiGesichert(s.id);
+        el.innerHTML = offen ? '⏳ wird geschrieben…' : '✓ auf dem Netzlaufwerk';
+        el.style.color = offen ? 'var(--clr-amber)' : 'var(--clr-green)';
+        el.title = offen ? 'Änderungen an diesem Azubi liegen im Absturzpuffer und werden gleich an das Protokoll angehängt (Klick: Details)' : 'Alle Änderungen an diesem Azubi sind im Protokoll auf dem Netzlaufwerk';
+      }
+    } catch(e) {}
   },
 
   // ── Release lock for current student ──
@@ -1971,7 +2003,9 @@ const KontrolleHandler = {
   // ── Micro-Save: schedule save when switching students (non-blocking) ──
   microSave() {
     if (App.dbFileHandle && !App.demoMode) {
-      App.scheduleAutoSave();
+      // Azubi-Wechsel = Berichtsheft abgeschlossen: sofort anhängen statt
+      // auf die Wartezeit des Auto-Save zu vertrauen (nicht blockierend)
+      App.sofortSpeichern('Azubi-Wechsel').then(() => this._gesichertAnzeigen()).catch(() => {});
     }
   },
 
@@ -2072,6 +2106,8 @@ const KontrolleHandler = {
     if (this._liveSyncTimer) {
       clearInterval(this._liveSyncTimer);
       this._liveSyncTimer = null;
+      // Kontrolle wird verlassen: offene Änderungen sofort anhängen
+      if (App.dbFileHandle && !App.demoMode && App.sofortSpeichern) App.sofortSpeichern('Kontrolle verlassen').catch(() => {});
     }
     // Position freigeben – mit gewähltem Bereich bleibt die Aufteilung für
     // die Kollegen sichtbar (Datei ohne Azubi, nur Bereich)
@@ -2208,6 +2244,7 @@ const KontrolleHandler = {
         btn.style.opacity = '0.4';
       }
     });
+    this._gesichertAnzeigen();
   },
 
   // Update quick-nav buttons with other prüfer positions + disk results

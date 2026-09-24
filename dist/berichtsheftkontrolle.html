@@ -6371,6 +6371,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   color: var(--clr-white);
 }
 .btn-success:hover { background: #4E7E0C; }
+/* Schnellnavigation: Änderungen an diesem Azubi sind noch nicht auf dem Netzlaufwerk */
+.qn-ungesichert { box-shadow: inset 0 -3px 0 var(--clr-amber) !important; }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon {
   padding: 6px;
@@ -7184,7 +7186,7 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <kbd>Ctrl+K</kbd>
       </button>
-      <span id="dbStatusIndicator"><span class="dot dot-green"></span>Verbunden</span>
+      <span id="dbStatusIndicator" style="cursor:pointer" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen ansehen, jetzt schreiben oder als Datei sichern"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
       <span id="onlineNutzer" style="display:none;font-size:10px;white-space:nowrap;cursor:pointer" onclick="App.onlineNutzerDialog()" title="Wer arbeitet gerade in dieser Datenbank?"></span>
       <span id="chatBadge" style="font-size:11px;white-space:nowrap;cursor:pointer" onclick="Chat.oeffnen()" title="Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2)">✉ Nachrichten</span>
@@ -7431,6 +7433,54 @@ const BhkSpur = {
     voll: 'Kein Speicherplatz',
     abgebrochen: 'Vorgang abgebrochen',
     netz: 'Netzfehler',
+    haenger: 'Oberfläche stand still (Hauptfaden blockiert)',
+    offen: 'Änderungen noch nicht auf dem Netzlaufwerk',
+  },
+  // ── Wächter gegen Hängen ──
+  //  Ein Sekundentakt misst, wie spät er dran ist. Steht der Hauptfaden länger
+  //  als HAENGER_MS (blockierendes Skript), wird das mit der letzten
+  //  Bedienaktion notiert und in localStorage aufgehoben – so ist es auch nach
+  //  einem Abschuss des Tabs im nächsten Zustandsbild sichtbar. Verdeckte
+  //  Fenster zählen nicht (Chrome drosselt dort die Timer auf einmal je Minute).
+  HAENGER_MS: 4000,
+  HAENGER_MAX: 10,
+  _letzteAktion: '',
+  _aktionMerken(e) {
+    try {
+      const t = e && e.target && e.target.closest ? e.target.closest('button, a, select, input, textarea, [onclick]') : null;
+      if (!t) return;
+      const on = t.getAttribute && t.getAttribute('onclick');
+      let s = t.tagName.toLowerCase() + (t.id ? '#' + t.id : '');
+      if (on) s += ' ' + on.replace(/\s+/g, ' ').slice(0, 70);
+      else if (t.tagName === 'BUTTON') s += ' „' + String(t.textContent || '').trim().slice(0, 30) + '“';
+      if (e.type === 'keydown') s = 'Taste ' + (e.key || '?') + ' in ' + s;
+      this._letzteAktion = s + ' um ' + new Date().toLocaleTimeString('de-DE');
+    } catch(err) {}
+  },
+  haengerListe() { try { return JSON.parse(localStorage.getItem('bhk_haenger') || '[]'); } catch(e) { return []; } },
+  haenger(ms) {
+    const e = this.notiere('haenger', 'Oberfläche stand still', { ok: false, ms, art: 'haenger', fehler: `${(ms / 1000).toFixed(1)} s`, info: this._letzteAktion ? 'letzte Aktion: ' + this._letzteAktion : '' });
+    try {
+      const l = this.haengerListe();
+      l.push({ t: Date.now(), ms: Math.round(ms), aktion: this._letzteAktion || '' });
+      localStorage.setItem('bhk_haenger', JSON.stringify(l.slice(-this.HAENGER_MAX)));
+    } catch(err) {}
+    if (typeof console !== 'undefined') console.warn(`[Spur:haenger] Oberfläche stand ${(ms / 1000).toFixed(1)} s still${this._letzteAktion ? ' – letzte Aktion: ' + this._letzteAktion : ''}`);
+    return e;
+  },
+  _waechterZuletzt: 0,
+  _sichtbarSeit: 0,
+  _waechterStarten() {
+    if (this._waechter || typeof setInterval === 'undefined') return;
+    this._waechterZuletzt = Date.now();
+    this._sichtbarSeit = Date.now();
+    this._waechter = setInterval(() => {
+      const jetzt = Date.now();
+      const drift = jetzt - this._waechterZuletzt - 1000;
+      this._waechterZuletzt = jetzt;
+      const verdeckt = typeof document !== 'undefined' && document.hidden;
+      if (!verdeckt && jetzt - this._sichtbarSeit > 2000 && drift >= this.HAENGER_MS) this.haenger(drift);
+    }, 1000);
   },
   get debug() { try { return localStorage.getItem('bhk_debug') === '1'; } catch(e) { return false; } },
   setDebug(an) { try { if (an) localStorage.setItem('bhk_debug', '1'); else localStorage.removeItem('bhk_debug'); } catch(e) {} return !!an; },
@@ -7540,8 +7590,13 @@ const BhkSpur = {
     try {
       document.addEventListener('visibilitychange', () => {
         this.notiere('fenster', document.hidden ? 'Fenster verdeckt oder Tab im Hintergrund' : 'Fenster wieder sichtbar', { ok: true });
+        // Wächter neu aufsetzen: gedrosselte Timer im Hintergrund sind kein Hänger
+        this._sichtbarSeit = Date.now(); this._waechterZuletzt = Date.now();
       });
+      document.addEventListener('click', (e) => this._aktionMerken(e), true);
+      document.addEventListener('keydown', (e) => { if (e && (e.key === 'Enter' || (e.key && e.key.length > 1 && e.key !== 'Shift'))) this._aktionMerken(e); }, true);
     } catch(e) {}
+    this._waechterStarten();
   },
 };
 BhkSpur.installieren();
@@ -10008,8 +10063,13 @@ const App = {
       teile.push('', `abgefangene Fehler (${BhkLog.fehler.length}):`);
       BhkLog.fehler.slice(-10).forEach(f => teile.push(`  [${new Date(f.t).toLocaleTimeString('de-DE')}] ${f.art}: ${this.schwaerzen(f.nachricht)}${f.quelle ? ' (' + f.quelle + ')' : ''}${f.stack ? '\n' + this.schwaerzen(f.stack).split('\n').map(x => '      ' + x.trim()).join('\n') : ''}`));
     }
-    if (opts.spur !== false && typeof BhkSpur !== 'undefined' && BhkSpur.eintraege.length) {
-      teile.push('', this.schwaerzen(BhkSpur.text(opts.spurZeilen || 60)));
+    if (opts.spur !== false && typeof BhkSpur !== 'undefined') {
+      const h = BhkSpur.haengerListe ? BhkSpur.haengerListe() : [];
+      if (h.length) {
+        teile.push('', `Hänger (Oberfläche stand still, letzte ${Math.min(5, h.length)}, auch frühere Sitzungen):`);
+        h.slice(-5).forEach(x => teile.push(`  [${new Date(x.t).toLocaleString('de-DE')}] ${(x.ms / 1000).toFixed(1)} s${x.aktion ? ' – letzte Aktion: ' + this.schwaerzen(x.aktion) : ''}`));
+      }
+      if (BhkSpur.eintraege.length) teile.push('', this.schwaerzen(BhkSpur.text(opts.spurZeilen || 60)));
     }
     if (opts.protokoll !== false && typeof BhkLog !== 'undefined' && BhkLog.zeilen.length) {
       const n = opts.zeilen || 150;
@@ -10163,7 +10223,7 @@ const App = {
     if (this.demoMode || !this.dbFileHandle) return;
     if (this._netzWeg) {
       document.getElementById('dbStatusIndicator').innerHTML = `<span class="dot dot-red"></span>Getrennt · ${this._dirtyOps.length} lokal`;
-      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      this._persistBald();
       try { this._offlineBannerAktualisieren(); } catch(e) {}
       return;
     }
@@ -11170,7 +11230,7 @@ const App = {
       const el = document.getElementById('dbStatusIndicator');
       if (el) el.innerHTML = `<span class="dot dot-amber"></span>Offline · ${n} lokal`;
       try { this._updateNetworkUI(); this._offlineBannerAktualisieren(); } catch(e) {}
-      if (!this._idbPersistTimer) this._idbPersistTimer = setTimeout(() => { this._idbPersistTimer = null; this._persistDirtyOps(); }, 800);
+      this._persistBald();
       return;
     }
     if (!this.dbFileHandle && !this.demoMode) {
@@ -11182,13 +11242,93 @@ const App = {
       return;
     }
     this.scheduleAutoSave();
-    // Debounced IDB persist: ensures dirty ops survive unexpected tab close
-    if (!this._idbPersistTimer) {
-      this._idbPersistTimer = setTimeout(() => {
-        this._idbPersistTimer = null;
-        if (this._dirtyOps.length > 0) this._persistDirtyOps();
-      }, 5000);
-    }
+    // Absturzpuffer SOFORT, nicht erst nach 5 s: Ein Hänger oder Absturz in
+    // diesen Sekunden verlor sonst genau die letzten Eingaben.
+    this._persistBald();
+  },
+  // Absturzpuffer schreiben, ohne parallele Läufe: läuft gerade einer, wird
+  // danach genau einmal nachgeschrieben (viele Eingaben → ein Nachlauf).
+  _persistLaeuft: false,
+  _persistErneut: false,
+  _persistBald() {
+    if (this._persistLaeuft) { this._persistErneut = true; return; }
+    this._persistLaeuft = true;
+    Promise.resolve().then(() => this._persistDirtyOps()).catch(() => {}).then(() => {
+      this._persistLaeuft = false;
+      if (this._persistErneut) { this._persistErneut = false; this._persistBald(); }
+    });
+  },
+  // Ein Berichtsheft ist fertig, der Azubi wechselt, der Termin schließt:
+  // nicht auf die Wartezeit des Auto-Save vertrauen, sondern jetzt anhängen.
+  // Rückgabe: true = alles auf dem Netzlaufwerk (oder nichts offen).
+  async sofortSpeichern(quelle) {
+    if (this.demoMode || !this.db) return true;
+    if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
+    try { await this._persistDirtyOps(); } catch(e) {}
+    if (!this._dirtyOps.length && !(this._opsInFlight && this._opsInFlight.length)) return true;
+    if (!this.dbFileHandle || this.offlineModus || this._netzWeg) return false;
+    const t0 = Date.now();
+    const n = this._dirtyOps.length;
+    try { await this.mergeAndSave(); } catch(e) {}
+    const ok = this._dirtyOps.length === 0 && !this._appendInProgress;
+    BhkSpur.notiere('anhaengen', 'Sofort schreiben', { ok, ms: Date.now() - t0, info: `${quelle || ''}${quelle ? ', ' : ''}${n} Änderung(en)`, nurStat: ok, fehler: ok ? null : `noch ${this._dirtyOps.length} Änderung(en) offen`, art: ok ? '' : 'offen' });
+    return ok;
+  },
+  // Welche Azubis haben Änderungen, die noch nicht auf dem Netzlaufwerk sind?
+  _ungesichertAzubis: new Set(),
+  azubiGesichert(sid) { return !this._ungesichertAzubis.has(Number(sid)); },
+  _azubiAusOp(sql, params) {
+    try {
+      const sig = this._opSignatur(sql, params);
+      let sid = null;
+      if (sig) { const m = sig.key.match(/(?:^|\|)schueler_id:(\d+)/); if (m) sid = parseInt(m[1]); }
+      if (sid == null && /schueler_id/i.test(sql || '')) {
+        const pi = this._paramIndexForColumn(sql, 'schueler_id');
+        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
+      }
+      if (sid == null && /^\s*UPDATE\s+schueler\s+SET/i.test(sql || '')) {
+        const pi = this._paramIndexForColumn(sql, 'id');
+        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
+      }
+      return sid != null && !isNaN(sid) ? sid : null;
+    } catch(e) { return null; }
+  },
+  // Liste der wartenden Änderungen (Klick auf den Speicherstatus in der Kopfzeile)
+  wartendeAenderungenDialog() {
+    const offen = [...(this._opsInFlight || []), ...(this._dirtyOps || [])];
+    const tabellen = {};
+    const sids = new Set();
+    let aeltester = 0;
+    offen.forEach(o => {
+      const m = String(o.sql || '').match(/^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([A-Za-z_]+)/i);
+      const t = m ? m[1].toLowerCase() : '?';
+      tabellen[t] = (tabellen[t] || 0) + 1;
+      const sid = o.sid != null ? o.sid : this._azubiAusOp(o.sql, o.params);
+      if (sid != null) sids.add(sid);
+      if (o.ts && (!aeltester || o.ts < aeltester)) aeltester = o.ts;
+    });
+    const namen = [...sids].slice(0, 30).map(id => { const s = this.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0]; return s ? `${s.nachname}, ${s.vorname}` : 'Azubi ' + id; });
+    const TAB = { kw_status: 'Wochenzeilen', kontrollergebnisse: 'Kontrollergebnisse', wiedervorlagen: 'Wiedervorlagen', schueler: 'Azubis', kontrolltermine: 'Termine', kw_maengel: 'KW-Mängel', durchsicht_snapshots: 'Durchsichts-Snapshots', schueler_bemerkungen: 'Bemerkungen', einstellungen: 'Einstellungen' };
+    const zustand = this.offlineModus ? 'Offline-Modus: Änderungen werden beim Wiederverbinden zusammengeführt'
+      : this._netzWeg ? 'Netzlaufwerk nicht erreichbar – Änderungen bleiben im Absturzpuffer dieses Rechners'
+      : this._appendInProgress ? 'Anhängen läuft gerade…'
+      : !this.dbFileHandle ? 'Kein Datenbank-Ordner verbunden'
+      : (this._saveRetryCount ? `${this._saveRetryCount} Fehlversuch(e) in Folge – nächster Versuch automatisch` : 'Verbunden');
+    const zuletzt = document.getElementById('dbLastSaved') ? document.getElementById('dbLastSaved').textContent : '';
+    this.openModal(offen.length ? `⏳ ${offen.length} Änderung(en) warten` : '✓ Alles auf dem Netzlaufwerk', `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
+        Jede Eingabe liegt sofort im Absturzpuffer dieses Rechners (übersteht Tab-Absturz und Neustart) und wird ${this.feldmodus ? 'im Feldmodus gebündelt nach 10 s' : 'nach 1,5 s'} an das Protokoll auf dem Netzlaufwerk angehängt. Beim Abschluss eines Berichtshefts, beim Azubi-Wechsel und beim Verlassen der Kontrolle sofort.
+      </div>
+      <div style="font-size:13px"><strong>Zustand:</strong> ${esc(zustand)}${zuletzt ? ` · letztes Schreiben ${esc(zuletzt)}` : ''}</div>
+      ${offen.length ? `
+        <div style="font-size:13px;margin-top:6px"><strong>Wartend:</strong> ${offen.length} Änderung(en)${aeltester ? `, älteste von ${esc(new Date(aeltester).toLocaleTimeString('de-DE'))}` : ''}</div>
+        <ul style="font-size:12px;margin:4px 0 0 18px">${Object.entries(tabellen).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<li>${n} × ${esc(TAB[t] || t)}</li>`).join('')}</ul>
+        ${namen.length ? `<div style="font-size:12px;margin-top:6px"><strong>Betroffene Azubis:</strong> ${esc(namen.join(' · '))}${sids.size > 30 ? ` … (+${sids.size - 30})` : ''}</div>` : ''}
+      ` : `<div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Keine wartenden Änderungen.</div>`}
+      ${this._compactGrund ? `<div style="font-size:11px;color:var(--clr-amber);margin-top:8px">Kompaktierung: ${esc(this._compactGrund)}</div>` : ''}`,
+      `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       ${offen.length ? `<button class="btn btn-secondary" onclick="App.exportOpPuffer()" title="Wartende Änderungen als Datei sichern (Notausgang)">Änderungen als Datei</button>
+       <button class="btn btn-primary" onclick="App.closeModal();App.sofortSpeichern('von Hand').then(ok=>App.toast(ok?'Alle Änderungen auf dem Netzlaufwerk':'Noch nicht alles geschrieben – Versuch läuft weiter','' + (ok?'success':'warning')))">Jetzt schreiben</button>` : ''}`);
   },
 
   // ── Query helpers ──
@@ -11452,6 +11592,8 @@ const App = {
     });
     // ── Dirty-Tracking: record the (Replay-)SQL + params for merge-save ──
     const rec = { ...stamp(), sql: prep.opSql, params: prep.opParams };
+    const sid = this._azubiAusOp(rec.sql, rec.params);
+    if (sid != null) { rec.sid = sid; this._ungesichertAzubis.add(sid); }
     this._dirtyOps.push(rec);
     this._notiereStamp(rec.sql, rec.params, rec.ts, this._getClientId(), rec.seq);
     // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
@@ -11705,6 +11847,10 @@ const App = {
       try { this._updateNetworkQuality(); } catch(e) {}
       BhkSpur.notiere('anhaengen', 'Protokoll anhängen', { ok: true, ms: this._lastAppendMs, info: `${claimed.length} Änderung(en), ${bytes.length} B an ${Math.round(size / 1024)} KB` });
       claimed.forEach(o => { if (this._ownLogUids) this._ownLogUids.add(o.uid); });
+      // Azubis dieser Ops gelten als gesichert – außer es warten schon neue Ops zu ihnen
+      claimed.forEach(o => { if (o.sid != null) this._ungesichertAzubis.delete(o.sid); });
+      this._dirtyOps.forEach(o => { if (o.sid != null) this._ungesichertAzubis.add(o.sid); });
+      try { if (typeof KontrolleHandler !== 'undefined' && KontrolleHandler._gesichertAnzeigen) KontrolleHandler._gesichertAnzeigen(); } catch(e) {}
       // Kleine Protokolle: Chrome kopiert beim Anhängen die ganze Datei in
       // eine Swap-Datei – ab LOG_ROTATE_BYTES neue Generation. Die alte bleibt
       // liegen, bis der Snapshot sie enthält (siehe _pruneAlteGenerationen).
@@ -12106,16 +12252,8 @@ const App = {
   // Refresh der offenen Durchsicht – siehe _smartRefresh)
   _betroffeneAzubis: null,
   _merkeBetroffenenAzubi(sql, params) {
-    try {
-      const sig = this._opSignatur(sql, params);
-      let sid = null;
-      if (sig) { const m = sig.key.match(/(?:^|\|)schueler_id:(\d+)/); if (m) sid = parseInt(m[1]); }
-      if (sid == null && /schueler_id/i.test(sql || '')) {
-        const pi = this._paramIndexForColumn(sql, 'schueler_id');
-        if (pi >= 0 && params && pi < params.length) sid = parseInt(params[pi]);
-      }
-      if (sid != null && !isNaN(sid)) { if (!this._betroffeneAzubis) this._betroffeneAzubis = new Set(); this._betroffeneAzubis.add(sid); }
-    } catch(e) {}
+    const sid = this._azubiAusOp(sql, params);
+    if (sid != null) { if (!this._betroffeneAzubis) this._betroffeneAzubis = new Set(); this._betroffeneAzubis.add(sid); }
   },
 
   // ── Bootstrap nach dem Laden der Snapshot-Datei ──
@@ -19587,6 +19725,10 @@ const Views = {
             <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
             <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Lebenszeichen, Nachrichten, Anhängen, Abgleich, Kompaktierung, Sperre) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt automatisch in jeder Fehlermeldung (F2) und im Zustandsbild („▤ Zustandsbild kopieren“)</p>
             <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.praesenz()</code> (wer gesehen wird), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
+            <p><strong>Verlustschutz – wo eine Änderung wann liegt:</strong></p>
+            <p>• Jede Eingabe steht sofort im <strong>Absturzpuffer</strong> dieses Rechners (Browser-Speicher, übersteht Tab-Absturz und Neustart, wird beim nächsten Start desselben Rechners eingespielt, 30 Tage lang) und wird nach 1,5 s (Feldmodus 10 s) an das <strong>Protokoll auf dem Netzlaufwerk</strong> angehängt. Beim Abschluss eines Berichtshefts („Freigeben“), beim Azubi-Wechsel, beim Terminwechsel und beim Verlassen der Kontrolle wird <strong>sofort</strong> angehängt</p>
+            <p>• Die Schnellnavigation zeigt Azubis mit noch nicht angehängten Änderungen mit einer orangen Unterkante; neben „Freigeben“ steht „✓ auf dem Netzlaufwerk“ oder „⏳ wird geschrieben…“. Ein Klick auf den Speicherstatus in der Kopfzeile (oder auf diese Anzeige) öffnet die Liste der wartenden Änderungen mit „Jetzt schreiben“ und „Änderungen als Datei“ als Notausgang</p>
+            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild (F2). Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
             <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Abgleich, Lebenszeichen und Nachrichten setzen dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
             <p><strong>Positionsanzeige:</strong></p>
             <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
@@ -26060,6 +26202,8 @@ const KontrolleHandler = {
       this.stopLiveSync();
       return;
     }
+    // Terminwechsel: offene Änderungen des vorigen Termins sofort anhängen
+    if (this.currentTerminId && parseInt(terminId) !== this.currentTerminId && App.dbFileHandle && !App.demoMode) App.sofortSpeichern('Terminwechsel').catch(() => {});
     this.currentTerminId = parseInt(terminId);
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return;
@@ -27302,7 +27446,8 @@ const KontrolleHandler = {
             if (lockedBy) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
             else if (otherPruefer) style += ';box-shadow:0 0 0 2px var(--clr-red);opacity:0.7';
             const ampelDot = ampel.color === 'green' ? '' : (ampel.color === 'red' ? '<span style="color:var(--clr-red)">◆</span>' : (ampel.color === 'yellow' ? '<span style="color:var(--clr-amber)">◐</span>' : ''));
-            return `<button class="btn btn-sm ${cls}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
+            const ungesichert = !App.azubiGesichert(sc.id);
+            return `<button class="btn btn-sm ${cls}${ungesichert ? ' qn-ungesichert' : ''}" style="${style}" onclick="KontrolleHandler.goTo(${i})" title="${esc(sc.nachname)}, ${esc(sc.vorname)}${ampelDot ? ' – '+ampel.label : ''}${lockedBy ? ' – ⊘ '+lockedBy : (otherPruefer ? ' – ⊘ '+otherPruefer.pruefer : '')}${anw===0?' – NICHT ANWESEND':''}${ungesichert ? ' – ⏳ noch nicht auf dem Netzlaufwerk' : ''}">${lockedBy ? '⊘' : ampelDot}${i+1}</button>`;
           }).join('')}
         </div>
         </div>
@@ -27552,7 +27697,8 @@ const KontrolleHandler = {
         <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''}>← Vorheriger</button>
         <div class="btn-group" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
           <button class="btn btn-success" onclick="KontrolleHandler.nextOffen()" title="Änderungen sind bereits gespeichert – zum nächsten Azubi ohne Ergebnis springen" style="font-weight:600">✓ Nächster offener Azubi →</button>
-          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Azubi für andere Prüfer freigeben (Änderungen werden ohnehin automatisch gespeichert)">Freigeben</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.saveAndReleaseExplicit()" title="Berichtsheft abschließen: Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für andere Prüfer freigeben">Freigeben</button>
+          <span id="keGesichert" style="font-size:11px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
           <button class="btn btn-secondary" onclick="PDFExport.generateSingle(${this.currentTerminId},${s.id})" title="Durchsichtsbogen dieses Schülers">▤ PDF Einzeln</button>
           <button class="btn btn-secondary" onclick="PlanungHandler.exportTerminPDF(${this.currentTerminId})" title="Alle Durchsichtsbögen dieser Klasse">▤ PDF Alle (${total})</button>
@@ -27968,10 +28114,38 @@ const KontrolleHandler = {
   // ── Explicit "Speichern & Freigeben" (button handler) ──
   saveAndReleaseExplicit() {
     const s = this.currentSchuelerList?.[this.currentIndex];
-    this.microSave();
     this.releaseLock();
-    App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} gespeichert & freigegeben`, 'success');
     this.renderSchueler(); // re-render to show unlocked state
+    // Abschluss des Berichtshefts: sofort anhängen, Ergebnis zurückmelden
+    App.sofortSpeichern('Freigeben').then(ok => {
+      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
+      this._gesichertAnzeigen();
+    });
+  },
+  // Kennzeichen „noch nicht auf dem Netzlaufwerk“ in Schnellnavigation und Kopf der Durchsicht
+  _gesichertAnzeigen() {
+    try {
+      const grid = document.getElementById('quickNavGrid');
+      if (grid && this.currentSchuelerList) {
+        const buttons = grid.querySelectorAll('button');
+        this.currentSchuelerList.forEach((sc, i) => {
+          const btn = buttons[i];
+          if (!btn) return;
+          const offen = !App.azubiGesichert(sc.id);
+          btn.classList.toggle('qn-ungesichert', offen);
+          const t = (btn.title || '').replace(/ – ⏳ noch nicht auf dem Netzlaufwerk$/, '');
+          btn.title = offen ? t + ' – ⏳ noch nicht auf dem Netzlaufwerk' : t;
+        });
+      }
+      const el = document.getElementById('keGesichert');
+      const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
+      if (el && s) {
+        const offen = !App.azubiGesichert(s.id);
+        el.innerHTML = offen ? '⏳ wird geschrieben…' : '✓ auf dem Netzlaufwerk';
+        el.style.color = offen ? 'var(--clr-amber)' : 'var(--clr-green)';
+        el.title = offen ? 'Änderungen an diesem Azubi liegen im Absturzpuffer und werden gleich an das Protokoll angehängt (Klick: Details)' : 'Alle Änderungen an diesem Azubi sind im Protokoll auf dem Netzlaufwerk';
+      }
+    } catch(e) {}
   },
 
   // ── Release lock for current student ──
@@ -27993,7 +28167,9 @@ const KontrolleHandler = {
   // ── Micro-Save: schedule save when switching students (non-blocking) ──
   microSave() {
     if (App.dbFileHandle && !App.demoMode) {
-      App.scheduleAutoSave();
+      // Azubi-Wechsel = Berichtsheft abgeschlossen: sofort anhängen statt
+      // auf die Wartezeit des Auto-Save zu vertrauen (nicht blockierend)
+      App.sofortSpeichern('Azubi-Wechsel').then(() => this._gesichertAnzeigen()).catch(() => {});
     }
   },
 
@@ -28094,6 +28270,8 @@ const KontrolleHandler = {
     if (this._liveSyncTimer) {
       clearInterval(this._liveSyncTimer);
       this._liveSyncTimer = null;
+      // Kontrolle wird verlassen: offene Änderungen sofort anhängen
+      if (App.dbFileHandle && !App.demoMode && App.sofortSpeichern) App.sofortSpeichern('Kontrolle verlassen').catch(() => {});
     }
     // Position freigeben – mit gewähltem Bereich bleibt die Aufteilung für
     // die Kollegen sichtbar (Datei ohne Azubi, nur Bereich)
@@ -28230,6 +28408,7 @@ const KontrolleHandler = {
         btn.style.opacity = '0.4';
       }
     });
+    this._gesichertAnzeigen();
   },
 
   // Update quick-nav buttons with other prüfer positions + disk results
