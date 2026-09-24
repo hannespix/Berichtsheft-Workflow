@@ -30,7 +30,17 @@ export function makeStore() {
     readFail: () => false,        // (name) => boolean – Lesefehler auslösen
     writeFail: () => false,       // (name) => boolean – createWritable scheitert
     negativeCacheMs: 0,           // > 0: Negativ-Cache pro Client-Dir aktiv
+    now: null,                    // () => ms – virtuelle Uhr (Laufwerk UND App-Instanzen), sonst echte Zeit
     writes: 0, reads: 0,
+  };
+}
+const jetzt = (store) => store.now ? store.now() : Date.now();
+// Date-Klasse, deren „jetzt“ aus der virtuellen Uhr kommt (Date.now, new Date());
+// alles andere (Date.parse, Date.UTC, Instanzmethoden) bleibt unverändert.
+export function fakeDateClass(now) {
+  return class FakeDate extends Date {
+    constructor(...args) { if (args.length) super(...args); else super(now()); }
+    static now() { return now(); }
   };
 }
 
@@ -85,7 +95,7 @@ export class FakeFileHandle {
       async close() {
         if (aborted) throw new Error('stream aborted');
         store.writes++;
-        store.files.set(name, { data: Uint8Array.from(buf, x => x || 0), mtime: Date.now() });
+        store.files.set(name, { data: Uint8Array.from(buf, x => x || 0), mtime: jetzt(store) });
       },
       async abort() { aborted = true; },
     };
@@ -100,17 +110,17 @@ export class FakeDir {
       // Windows-Redirector: "nicht gefunden" wird für einige Sekunden gecacht
       if (neg > 0) {
         const until = this._negCache.get(name);
-        if (until && until > Date.now()) { const err = new Error('NotFound(cached): ' + name); err.name = 'NotFoundError'; throw err; }
+        if (until && until > jetzt(this.store)) { const err = new Error('NotFound(cached): ' + name); err.name = 'NotFoundError'; throw err; }
       }
       if (!this.store.files.has(name)) {
-        if (neg > 0) this._negCache.set(name, Date.now() + neg);
+        if (neg > 0) this._negCache.set(name, jetzt(this.store) + neg);
         const err = new Error('NotFound: ' + name); err.name = 'NotFoundError'; throw err;
       }
       return new FakeFileHandle(this.store, name);
     }
     // create:true geht immer zum Server (OPEN_ALWAYS) – kein Negativ-Cache
     this._negCache.delete(name);
-    if (!this.store.files.has(name)) this.store.files.set(name, { data: new Uint8Array(0), mtime: Date.now() });
+    if (!this.store.files.has(name)) this.store.files.set(name, { data: new Uint8Array(0), mtime: jetzt(this.store) });
     return new FakeFileHandle(this.store, name);
   }
   async getDirectoryHandle() { return this; }
@@ -136,7 +146,8 @@ export function makeSeed(SQL, extraSql) {
 }
 
 // App-Instanz in eigenem vm-Kontext. opts.clientId erzwingt eine feste Client-Identität
-// (z.B. "derselbe Rechner nach Neustart").
+// (z.B. "derselbe Rechner nach Neustart"). store.now (virtuelle Uhr) gilt auch in der
+// App (Date.now, new Date()); opts.random ersetzt Math.random der Instanz.
 export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   const el = () => ({ textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {} } });
   const ls = new Map();
@@ -144,7 +155,9 @@ export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   const sandbox = {
     console: opts.quiet ? { log() {}, warn() {}, error() {} } : console,
     setTimeout, clearTimeout, setInterval, clearInterval,
-    Date, Math, JSON, Promise, TextEncoder, TextDecoder, Uint8Array, Set, Map,
+    Date: store.now ? fakeDateClass(store.now) : Date,
+    Math: opts.random ? Object.assign(Object.create(Math), { random: opts.random }) : Math,
+    JSON, Promise, TextEncoder, TextDecoder, Uint8Array, Set, Map,
     document: { getElementById: el, createElement: el, hidden: false, addEventListener() {}, body: { classList: { add() {}, remove() {}, contains: () => false } } },
     navigator: {},
     localStorage: { getItem: (k) => ls.has(k) ? ls.get(k) : null, setItem(k, v) { ls.set(k, String(v)); }, removeItem(k) { ls.delete(k); } },
@@ -171,7 +184,7 @@ export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   app.db = new SQL.Database(dbBytes);
   app.migrateDB();
   // Die Datenbankdatei liegt im (Fake-)Laufwerk – die Netzabriss-Probe fasst sie an
-  if (!store.files.has('test.sqlite')) store.files.set('test.sqlite', { data: new Uint8Array(dbBytes), mtime: Date.now() });
+  if (!store.files.has('test.sqlite')) store.files.set('test.sqlite', { data: new Uint8Array(dbBytes), mtime: jetzt(store) });
   app.dbFileHandle = new FakeFileHandle(store, 'test.sqlite');
   app.dirHandle = opts.dir || new FakeDir(store);
   app.bhkDirHandle = null;

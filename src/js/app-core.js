@@ -3916,10 +3916,21 @@ const App = {
     'schueler_bemerkungen','schueler_dateien','schueler',
     'kontrolltermin_klassen','kontrolltermin_schueler']),
   _lastNewId: 0,
-  // Zeitbasierte, kollisionsarme INTEGER-ID (~1.7e15 « 2^53): ms-Timestamp × 1000
-  // + Zufall; monoton pro Client, praktisch kollisionsfrei zwischen 2-3 Clients.
+  // Zeitbasierte INTEGER-Kennung, monoton je Client: Sekunde × ID_JE_SEKUNDE +
+  // Zufall (bis 2^53 reicht das bis ins Jahr 2112). Vorher galt Millisekunde ×
+  // 1000 + Zufall 0…999: Legte ein Rechner viele Zeilen in EINER Millisekunde an
+  // (Termin mit 300 Azubis → 300 fortlaufende Nummern), deckte er bis zu einem
+  // Drittel des Millisekunden-Fensters ab; traf ein Kollege in dieselbe
+  // Millisekunde, bekam er mit hoher Wahrscheinlichkeit dieselbe Nummer. Sein
+  // INSERT scheiterte bei allen anderen still an UNIQUE („Zeile bereits
+  // vorhanden“) – die Zeile fehlte dort für immer (Stresstest: eine von 66
+  // Einfügungen verloren). Zwei Millionen Nummern je Sekunde statt tausend je
+  // Millisekunde: Überlappung nur noch, wenn zwei Rechner in derselben Sekunde
+  // gemeinsam über zwei Millionen Zeilen anlegen. Neue Nummern liegen über allen
+  // alten, „ORDER BY id“ (jüngste Wiedervorlage, jüngster Snapshot) bleibt gültig.
+  ID_JE_SEKUNDE: 2000000,
   newId() {
-    let id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    let id = Math.floor(Date.now() / 1000) * this.ID_JE_SEKUNDE + Math.floor(Math.random() * this.ID_JE_SEKUNDE);
     if (id <= this._lastNewId) id = this._lastNewId + 1;
     this._lastNewId = id;
     return id;
@@ -4411,8 +4422,14 @@ const App = {
       })).join('\n') + '\n';
       const bytes = new TextEncoder().encode(lines);
       let handle = await dir.getFileHandle(this._myOplogName(), { create: true });
+      // Die Größe MUSS bekannt sein: Bei unlesbarer Datei galt bisher 0, und das
+      // Anhängen überschrieb den Anfang des eigenen Protokolls – diese Ops las
+      // kein Kollege je (alle standen schon dahinter) und der nächste Snapshot
+      // erklärte sie für enthalten. Lieber den Versuch abbrechen: die Ops bleiben
+      // im Puffer, der nächste Anlauf liest die Größe erneut.
       let size = 0;
-      try { size = (await handle.getFile()).size; } catch(e) {}
+      try { size = (await handle.getFile()).size; }
+      catch(e) { throw new Error('Größe des eigenen Protokolls nicht lesbar (' + (e && e.message || e) + ')'); }
       // Eigene Log-Datei ist verschwunden (nach 3 Tagen Stillstand aufgeräumt,
       // Ordner wiederhergestellt …), obwohl wir schon hineingeschrieben hatten:
       // NICHT denselben Namen leer neu befüllen – die Leser hielten für diese
