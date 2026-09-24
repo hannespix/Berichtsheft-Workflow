@@ -189,9 +189,9 @@ const ImportHandler = {
               <option value="TMJ" ${this._datumsFormat === 'TMJ' ? 'selected' : ''}>Tag.Monat.Jahr (deutsch, z.B. 01.09.2024)</option>
               <option value="MTJ" ${this._datumsFormat === 'MTJ' ? 'selected' : ''}>Monat/Tag/Jahr (US/Excel, z.B. 9/1/07)</option>
             </select>
-            <span style="font-size:11px;color:var(--clr-text-light)">Beispiele aus der Datei: ${datumsBeispiele.map(b => `<code>${esc(b)}</code>`).join(' · ')}</span>
+            <span style="font-size:12px;color:var(--clr-text-light)">Beispiele aus der Datei: ${datumsBeispiele.map(b => `<code>${esc(b)}</code>`).join(' · ')}</span>
           </div>
-          <div style="font-size:11px;margin-top:6px;color:${folgeText ? 'var(--clr-green)' : 'var(--clr-amber)'}">
+          <div style="font-size:12px;margin-top:6px;color:${folgeText ? 'var(--clr-green)' : 'var(--clr-amber)'}">
             ${folgeText
               ? `✓ Automatisch erkannt: ${folgeText} – bei Bedarf oben ändern.`
               : `⚠︎ Reihenfolge nicht eindeutig erkennbar (kein Tageswert über 12 gefunden). Bitte anhand der Beispiele prüfen! Falsche Wahl vertauscht Tag und Monat.`}
@@ -222,14 +222,14 @@ const ImportHandler = {
           </ul>
         </div>
         <div style="overflow:auto;max-height:200px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
-          <table class="data-table"><thead><tr><th style="font-size:10px;color:var(--clr-text-light)">Roh-Daten (erste ${Math.min(5,data.length)} Zeilen)</th>${fields.slice(0,12).map(f => `<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
-            ${data.slice(0,5).map((row,i) => `<tr><td style="font-size:10px;color:var(--clr-text-light)">${i+1}</td>${fields.slice(0,12).map(f => `<td style="font-size:11px">${esc((row[f]||'').substring(0,25))}</td>`).join('')}</tr>`).join('')}
+          <table class="data-table"><thead><tr><th style="font-size:12px;color:var(--clr-text-light)">Roh-Daten (erste ${Math.min(5,data.length)} Zeilen)</th>${fields.slice(0,12).map(f => `<th style="font-size:12px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+            ${data.slice(0,5).map((row,i) => `<tr><td style="font-size:12px;color:var(--clr-text-light)">${i+1}</td>${fields.slice(0,12).map(f => `<td style="font-size:12px">${esc((row[f]||'').substring(0,25))}</td>`).join('')}</tr>`).join('')}
           </tbody></table>
-          ${data.length > 5 ? `<p style="padding:4px 8px;font-size:11px;color:var(--clr-text-light)">… und ${data.length - 5} weitere Zeilen</p>` : ''}
+          ${data.length > 5 ? `<p style="padding:4px 8px;font-size:12px;color:var(--clr-text-light)">… und ${data.length - 5} weitere Zeilen</p>` : ''}
         </div>
         <details style="margin-bottom:12px" onmouseover="if(!this._loaded){this._loaded=true;ImportHandler._renderMappedPreview()}">
           <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">Vorschau: So werden die Daten interpretiert (erste 3)</summary>
-          <div id="mappedPreview" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-top:4px;max-height:200px;overflow-y:auto">
+          <div id="mappedPreview" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;margin-top:4px;max-height:200px;overflow-y:auto">
             <em style="color:var(--clr-text-light)">Aufklappen um Vorschau zu laden…</em>
           </div>
         </details>
@@ -287,7 +287,7 @@ const ImportHandler = {
             <td style="text-align:right">${h.aktualisiert}</td>
             <td style="text-align:right">${h.uebersprungen}</td>
             <td style="text-align:right">${probleme ? `<span class="badge-status ${h.fehler ? 'badge-overdue' : 'badge-open'}">${probleme}</span>` : '<span style="color:var(--clr-green)">0</span>'}</td>
-            <td>${probleme ? `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 8px" onclick="ImportHandler.zeigeImportDetails(${h.id})">Details</button>` : ''}</td>
+            <td>${probleme ? `<button class="btn btn-sm btn-secondary" style="font-size:12px;padding:2px 8px" onclick="ImportHandler.zeigeImportDetails(${h.id})">Details</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody></table></div>
@@ -442,10 +442,10 @@ const ImportHandler = {
       </div>
       ${v.diff.neu.length ? block(`✚ Neu (${v.diff.neu.length})`, 'var(--clr-green)', liste(v.diff.neu, n => `<div>• ${esc(n.name)} <span style="color:var(--clr-text-light)">${esc(n.ident || '')}${n.jahrgang ? ' · ' + esc(n.jahrgang) : ''}${n.schule ? ' · ' + esc(n.schule) : ''}${n.betrieb ? ' · ' + esc(n.betrieb) : ''}</span></div>`)) : ''}
       ${v.diff.geaendert.length ? block(`✎ Geändert (${v.diff.geaendert.length})`, 'var(--clr-blue)', liste(v.diff.geaendert, g => `<div>• <strong>${esc(g.name)}</strong>: ${g.felder.map(x => `${esc(lbl(x.f))} ${esc(wert(x.f, x.alt))} → ${esc(wert(x.f, x.neu))}`).join('; ')}</div>`)) : ''}
-      ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
-      ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:10px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
+      ${v.fehlende.length ? block(`⚠︎ Nicht im Export (${v.fehlende.length})`, 'var(--clr-amber)', `<div style="font-size:12px">Aktive Azubis mit BAV-Ident (gleiche Fachrichtungen/Ämter), die in der Datei nicht vorkommen – in IBYKUS beendet oder aus dem Export-Filter gefallen.</div>` + liste(v.fehlende, k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`) + `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">Ausbildung beenden (Auswahl)…</button></div>`) : ''}
+      ${v.stats.neuvertraege?.length ? block(`⚠︎ Namenstreffer mit anderer BAV-Ident (${v.stats.neuvertraege.length})`, 'var(--clr-amber)', `<div style="font-size:12px">Betriebswechsel = Neuvertrag mit neuer Ident. Der alte Vertrag bleibt bestehen – hier bei Bedarf beenden.</div>` + liste(v.stats.neuvertraege, k => `<div>• ${esc(k.name)}: neu ${esc(k.ident)}, bisher ${esc(k.alt || '–')} <button class="btn btn-sm btn-secondary" style="padding:0 6px;font-size:12px" onclick="ImportHandler.ausbildungBeenden([${k.altId}], { nachher: () => ImportHandler._zeigeVorschau(ImportHandler._vorschau) })">alten Vertrag beenden…</button></div>`)) : ''}
       ${v.stats.phasenKonflikte?.length ? block(`⚠︎ Phasen-Konflikte (${v.stats.phasenKonflikte.length})`, 'var(--clr-amber)', liste(v.stats.phasenKonflikte, k => `<div>• ${esc(k.name)}: ${k.changes.map(([f, n, o]) => `${esc(lbl(f))} ${esc(o || '–')} → ${esc(n)}`).join(', ')} – Datumsfelder werden nicht überschrieben</div>`)) : ''}
-      ${(() => { const w = ImportHandler._stammdatenWaechter(v.stats); return w.length ? block(`⚠︎ Neue Stammdaten ähneln vorhandenen (${w.length})`, 'var(--clr-amber)', `<div style="font-size:11px">Namensänderung in IBYKUS? Zuordnen statt neu anlegen – die alte Schreibweise wird als Alias gemerkt und künftig automatisch erkannt.</div>` + liste(w, x => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">• Neu: <strong>${esc(x.name)}</strong> <span style="color:var(--clr-text-light)">(${esc(App.ALIAS_ARTEN[x.art].label)})</span> → <select class="form-control imp-zuord" data-art="${x.art}" data-name="${esc(x.name)}" style="width:auto;font-size:11px;padding:2px 4px"><option value="">neu anlegen</option>${x.kandidaten.map((k, i) => `<option value="${k.id}" ${i === 0 && k.grund.startsWith('gleicher') ? 'selected' : ''}>${esc(k.name)} – ${esc(k.grund)}</option>`).join('')}</select></div>`)) : ''; })()}
+      ${(() => { const w = ImportHandler._stammdatenWaechter(v.stats); return w.length ? block(`⚠︎ Neue Stammdaten ähneln vorhandenen (${w.length})`, 'var(--clr-amber)', `<div style="font-size:12px">Namensänderung in IBYKUS? Zuordnen statt neu anlegen – die alte Schreibweise wird als Alias gemerkt und künftig automatisch erkannt.</div>` + liste(w, x => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">• Neu: <strong>${esc(x.name)}</strong> <span style="color:var(--clr-text-light)">(${esc(App.ALIAS_ARTEN[x.art].label)})</span> → <select class="form-control imp-zuord" data-art="${x.art}" data-name="${esc(x.name)}" style="width:auto;font-size:12px;padding:2px 4px"><option value="">neu anlegen</option>${x.kandidaten.map((k, i) => `<option value="${k.id}" ${i === 0 && k.grund.startsWith('gleicher') ? 'selected' : ''}>${esc(k.name)} – ${esc(k.grund)}</option>`).join('')}</select></div>`)) : ''; })()}
       ${v.errorRows.length ? block(`⚠︎ Fehlerhafte Zeilen (${v.errorRows.length})`, 'var(--clr-red)', liste(v.errorRows, e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`, 20)) : ''}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="const z=ImportHandler._zuordnungAusVorschau();App.closeModal();ImportHandler.doImport(ImportHandler._vorschau.data, { zuordnung: z })">✓ Jetzt importieren (${v.diff.neu.length} neu, ${v.diff.geaendert.length} geändert)</button>`);
@@ -945,7 +945,7 @@ const ImportHandler = {
         <div style="max-height:130px;overflow-y:auto;margin-top:6px">${stats.fehlende.slice(0, 40).map(k => `<div>• ${esc(k.nachname)}, ${esc(k.vorname)} <span style="color:var(--clr-text-light)">(${esc(k.ibykus_id)}${k.ausbildungsende ? ', Ende ' + formatDate(k.ausbildungsende) : ''})</span></div>`).join('')}${stats.fehlende.length > 40 ? `<div>… und ${stats.fehlende.length - 40} weitere</div>` : ''}</div>
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-sm btn-secondary" onclick="ImportHandler.ausbildungBeenden(ImportHandler._pendingFehlende, { nachher: () => App.closeModal() })">Ausbildung beenden (Auswahl)…</button>
-          <span style="font-size:11px;color:var(--clr-text-light);align-self:center">Tipp: In IBYKUS ohne Status-Filter exportieren, dann übernimmt der Import den Status ENDE automatisch.</span>
+          <span style="font-size:12px;color:var(--clr-text-light);align-self:center">Tipp: In IBYKUS ohne Status-Filter exportieren, dann übernimmt der Import den Status ENDE automatisch.</span>
         </div>
       </div>` : ''}
       ${stats.neuvertraege && stats.neuvertraege.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
@@ -957,13 +957,13 @@ const ImportHandler = {
         <div style="max-height:150px;overflow-y:auto;margin-top:6px;font-size:12px">
           ${pKonf.map((k, ki) => `<div style="padding:4px 0;border-bottom:1px solid #eee">
             <strong>${esc(k.name)}</strong>: ${k.changes.map(([f,neu,alt]) => `${esc(f)}: ${esc(alt||'–')} → ${esc(neu)}`).join(', ')}
-            <button class="btn btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',ImportHandler._pendingKonflikte[${ki}].changes);this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
+            <button class="btn btn-sm" style="padding:1px 6px;font-size:12px;margin-left:4px" onclick="ImportHandler._resolveKonflikt(${k.id},'accept',ImportHandler._pendingKonflikte[${ki}].changes);this.parentElement.style.opacity=0.4;this.textContent='✓ Übernommen'">Neue Daten übernehmen</button>
           </div>`).join('')}
         </div>
       </div>` : ''}
       ${datumsFehler.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
         <strong>⚠︎ Unlesbare Datumswerte (${datumsFehler.length}) – Datensätze OHNE Datum importiert:</strong>
-        <div style="font-size:11px;margin:4px 0">Häufigste Ursache: falsches Datumsformat gewählt. Format im Import-Dialog umstellen und erneut importieren – die Daten werden dann nachgetragen.</div>
+        <div style="font-size:12px;margin:4px 0">Häufigste Ursache: falsches Datumsformat gewählt. Format im Import-Dialog umstellen und erneut importieren – die Daten werden dann nachgetragen.</div>
         <div style="max-height:100px;overflow-y:auto;margin-top:4px">${datumsFehler.slice(0, 10).map(e => `<div>Zeile ${e.zeile}: ${esc(e.name)} – ${esc(e.fehler)}</div>`).join('')}${datumsFehler.length > 10 ? `<div style="color:var(--clr-text-light)">…und ${datumsFehler.length - 10} weitere</div>` : ''}</div>
       </div>` : ''}
       ${errorRows.length ? `<div style="margin-top:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:12px">
@@ -1017,7 +1017,7 @@ const ImportHandler = {
         <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
           <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}">${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
         </select></div>
-        <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" placeholder="Falls kein Betrieb verknüpft" style="font-size:11px"></div>
+        <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" placeholder="Falls kein Betrieb verknüpft" style="font-size:12px"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
@@ -1094,7 +1094,7 @@ const ImportHandler = {
 
     App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
       <!-- Quick-Info Bar -->
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:11px">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:12px">
         <span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:10px">${keCount} Kontrollen</span>
         ${wvCount ? `<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">${wvCount} offene WV</span>` : ''}
         <span style="padding:3px 8px;background:${fehlGesamt>=77?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:10px">${fehlGesamt} Fehltage</span>
@@ -1138,8 +1138,8 @@ const ImportHandler = {
       <div class="ibykus-block">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">Aus IBYKUS</strong>
-          <span style="font-size:11px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
-          <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
+          <span style="font-size:12px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
             <input type="checkbox" id="mSIbykusAendern" onchange="document.querySelectorAll('#modalOverlay .ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
           </label>
         </div>
@@ -1424,8 +1424,8 @@ const ImportHandler = {
           </ul>
         </div>
         <div style="overflow:auto;max-height:180px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
-          <table class="data-table"><thead><tr>${fields.slice(0,6).map(f => `<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
-            ${data.slice(0,5).map(row => `<tr>${fields.slice(0,6).map(f => `<td style="font-size:11px">${esc((row[f]||'').substring(0,35))}</td>`).join('')}</tr>`).join('')}
+          <table class="data-table"><thead><tr>${fields.slice(0,6).map(f => `<th style="font-size:12px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+            ${data.slice(0,5).map(row => `<tr>${fields.slice(0,6).map(f => `<td style="font-size:12px">${esc((row[f]||'').substring(0,35))}</td>`).join('')}</tr>`).join('')}
           </tbody></table>
         </div>
         <button class="btn btn-primary" onclick="ImportHandler.doImportLFK(window._lfkImportData)">
@@ -1549,14 +1549,14 @@ const ImportHandler = {
       preview.innerHTML = `<div class="card" style="margin-top:12px">
         <div class="card-header">Ausbilder-Import: Spaltenzuordnung</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-          ${mapFields.map(k => `<div class="form-group" style="margin:0"><label style="font-size:11px">${k.replace(/_/g,' ')}</label><select class="form-control" id="aumap_${k}" style="font-size:12px"><option value="">– Nicht zuordnen –</option>${fields.map(f=>`<option value="${esc(f)}" ${autoMap[k]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></div>`).join('')}
+          ${mapFields.map(k => `<div class="form-group" style="margin:0"><label style="font-size:12px">${k.replace(/_/g,' ')}</label><select class="form-control" id="aumap_${k}" style="font-size:12px"><option value="">– Nicht zuordnen –</option>${fields.map(f=>`<option value="${esc(f)}" ${autoMap[k]===f?'selected':''}>${esc(f)}</option>`).join('')}</select></div>`).join('')}
         </div>
         <div style="overflow:auto;max-height:160px;border:1px solid var(--clr-sand);border-radius:var(--radius);margin-bottom:8px">
-          <table class="data-table"><thead><tr>${fields.slice(0,8).map(f=>`<th style="font-size:10px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
-          ${data.slice(0,5).map(row=>`<tr>${fields.slice(0,8).map(f=>`<td style="font-size:11px">${esc((row[f]||'').toString().substring(0,30))}</td>`).join('')}</tr>`).join('')}
+          <table class="data-table"><thead><tr>${fields.slice(0,8).map(f=>`<th style="font-size:12px">${esc(f)}</th>`).join('')}</tr></thead><tbody>
+          ${data.slice(0,5).map(row=>`<tr>${fields.slice(0,8).map(f=>`<td style="font-size:12px">${esc((row[f]||'').toString().substring(0,30))}</td>`).join('')}</tr>`).join('')}
           </tbody></table>
         </div>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">${data.length} Zeilen erkannt</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">${data.length} Zeilen erkannt</div>
         <button class="btn btn-primary" onclick="ImportHandler.doImportAusbilder(window._ausbilderImportData)">Ausbilder importieren</button>
         <button class="btn btn-secondary" onclick="document.getElementById('ausbilderImportPreview').innerHTML=''">Abbrechen</button>
       </div>`;

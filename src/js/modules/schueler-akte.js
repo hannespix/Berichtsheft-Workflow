@@ -20,8 +20,8 @@ const SchuelerAkte = {
         ${bemerkungen.length ? bemerkungen.map(b => `
           <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:var(--clr-warm)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <span style="font-size:11px;color:var(--clr-text-light)">${b.erstellt_von ? esc(b.erstellt_von) + ' · ' : ''}${SchuelerAkte._formatDate(b.erstellt_am)}</span>
-              <button class="btn btn-sm" style="color:var(--clr-red);padding:1px 5px;font-size:10px" onclick="SchuelerAkte.deleteBemerkung(${b.id},${schuelerId})">Löschen</button>
+              <span style="font-size:12px;color:var(--clr-text-light)">${b.erstellt_von ? esc(b.erstellt_von) + ' · ' : ''}${SchuelerAkte._formatDate(b.erstellt_am)}</span>
+              <button class="btn btn-sm" style="color:var(--clr-red);padding:1px 5px;font-size:12px" onclick="SchuelerAkte.deleteBemerkung(${b.id},${schuelerId})">Löschen</button>
             </div>
             <div style="font-size:13px;white-space:pre-wrap;word-break:break-word">${esc(b.text)}</div>
           </div>

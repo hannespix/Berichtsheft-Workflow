@@ -118,9 +118,9 @@ const NacherfassungHandler = {
     <div class="card">
       <div class="card-header" style="justify-content:space-between">
         <span>2. Ergebnisse erfassen – ${schueler.length} Azubis</span>
-        <span id="neProgress" style="font-size:11px;color:var(--clr-sage)">0/${schueler.length} erfasst</span>
+        <span id="neProgress" style="font-size:12px;color:var(--clr-sage)">0/${schueler.length} erfasst</span>
       </div>
-      <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;line-height:1.7;margin-bottom:8px">
+      <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:8px">
         <strong>So wird gespeichert:</strong>
         <strong>Geprüft bis KW</strong> = alle Wochen vom Ausbildungsbeginn bis einschließlich dieser Woche gelten als kontrolliert (auch frühere Ausbildungsjahre) und erscheinen so im KW-Raster; Vorschlag ist die Woche vor dem Durchsichtsdatum – KW-Nummern vor der Durchsichtswoche zählen zum Vorjahr des Rasters.
         <strong>Fehltage gesamt</strong> = Stand laut Berichtsheft, pauschal (nicht wochengenau) – spätere wochengenaue Einträge kommen obendrauf.
@@ -158,21 +158,21 @@ const NacherfassungHandler = {
               return `<tr data-sid="${s.id}" class="ne-row">
                 <td>
                   <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
-                  ${fremd ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes Amt: ${esc(App.amtLabel(s.zustaendiges_amt))}">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
-                  <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')} · ${esc(s.jahrgang||'')}</div>
+                  ${fremd ? `<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes Amt: ${esc(App.amtLabel(s.zustaendiges_amt))}">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
+                  <div style="font-size:12px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')} · ${esc(s.jahrgang||'')}</div>
                 </td>
-                <td style="font-size:11px">${esc(s.betrieb_name||s.ausbildungsstaette||'–')}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.betrieb_ort||'')}</div></td>
-                <td style="font-size:10px"><div>${lastInfo}</div><div style="color:var(--clr-text-light)">${bisherTxt}</div><div style="color:var(--clr-text-light)">${fehlBisher} Fehltage</div></td>
-                <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${this._kwDefault}" min="1" max="53" placeholder="–" style="font-size:11px;padding:3px 4px;width:56px;text-align:center" title="Bis einschließlich dieser KW geprüft (Vorschlag: Woche vor dem Durchsichtsdatum)"></td>
-                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="999" placeholder="${fehlBisher}" style="font-size:11px;padding:3px 4px;width:56px;text-align:center" title="Fehltage gesamt laut Berichtsheft (bisher im Tool: ${fehlBisher}) – leer lassen = unverändert"></td>
+                <td style="font-size:12px">${esc(s.betrieb_name||s.ausbildungsstaette||'–')}<div style="font-size:12px;color:var(--clr-text-light)">${esc(s.betrieb_ort||'')}</div></td>
+                <td style="font-size:12px"><div>${lastInfo}</div><div style="color:var(--clr-text-light)">${bisherTxt}</div><div style="color:var(--clr-text-light)">${fehlBisher} Fehltage</div></td>
+                <td><input type="number" class="form-control ne-kw" data-idx="${i}" value="${this._kwDefault}" min="1" max="53" placeholder="–" style="font-size:12px;padding:3px 4px;width:56px;text-align:center" title="Bis einschließlich dieser KW geprüft (Vorschlag: Woche vor dem Durchsichtsdatum)"></td>
+                <td><input type="number" class="form-control ne-fehl" data-idx="${i}" value="" min="0" max="999" placeholder="${fehlBisher}" style="font-size:12px;padding:3px 4px;width:56px;text-align:center" title="Fehltage gesamt laut Berichtsheft (bisher im Tool: ${fehlBisher}) – leer lassen = unverändert"></td>
                 <td>
-                  <select class="form-control ne-ergebnis" data-idx="${i}" style="font-size:11px;padding:3px 6px" onchange="NacherfassungHandler._onErgebnis(${i},this.value)">
+                  <select class="form-control ne-ergebnis" data-idx="${i}" style="font-size:12px;padding:3px 6px" onchange="NacherfassungHandler._onErgebnis(${i},this.value)">
                     ${Object.entries(eLbl).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
                   </select>
                 </td>
-                <td><input type="date" class="form-control ne-wv" data-idx="${i}" style="font-size:11px;padding:3px 6px;display:none"></td>
-                <td><input class="form-control ne-codes" data-idx="${i}" placeholder="A,B,F…" style="font-size:11px;padding:3px 6px;width:70px;text-transform:uppercase"></td>
-                <td><input class="form-control ne-bem" data-idx="${i}" placeholder="optional" style="font-size:11px;padding:3px 6px"></td>
+                <td><input type="date" class="form-control ne-wv" data-idx="${i}" style="font-size:12px;padding:3px 6px;display:none"></td>
+                <td><input class="form-control ne-codes" data-idx="${i}" placeholder="A,B,F…" style="font-size:12px;padding:3px 6px;width:70px;text-transform:uppercase"></td>
+                <td><input class="form-control ne-bem" data-idx="${i}" placeholder="optional" style="font-size:12px;padding:3px 6px"></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -180,7 +180,7 @@ const NacherfassungHandler = {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px">
         <button class="btn btn-primary" onclick="NacherfassungHandler.saveAll()" style="font-size:14px;padding:10px 24px">Alle speichern</button>
-        <span style="font-size:11px;color:var(--clr-text-light)">Nur Zeilen mit einem Ergebnis (≠ "–") werden gespeichert. Mehrfaches Speichern ergänzt denselben Nacherfassungs-Termin (Schule + Datum).</span>
+        <span style="font-size:12px;color:var(--clr-text-light)">Nur Zeilen mit einem Ergebnis (≠ "–") werden gespeichert. Mehrfaches Speichern ergänzt denselben Nacherfassungs-Termin (Schule + Datum).</span>
       </div>
     </div>`;
   },
@@ -412,7 +412,7 @@ const NacherfassungHandler = {
       <div style="margin:8px 0">
         <div style="font-weight:600;font-size:12px;color:var(--clr-forest);padding:4px 0">${esc(school)} (${students.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${students.map(s => `<span style="font-size:11px;padding:2px 6px;background:var(--clr-amber-light);border-radius:4px" title="${esc(s.fachrichtung||'')} · ${esc(s.jahrgang||'')} · ${App.amtLabel(s.zustaendiges_amt)}">${esc(s.nachname)}, ${esc(s.vorname)}${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? ' <small>§' + esc(s.zustaendiges_amt) + '</small>' : ''}</span>`).join('')}
+          ${students.map(s => `<span style="font-size:12px;padding:2px 6px;background:var(--clr-amber-light);border-radius:4px" title="${esc(s.fachrichtung||'')} · ${esc(s.jahrgang||'')} · ${App.amtLabel(s.zustaendiges_amt)}">${esc(s.nachname)}, ${esc(s.vorname)}${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? ' <small>§' + esc(s.zustaendiges_amt) + '</small>' : ''}</span>`).join('')}
         </div>
       </div>
     `).join('');

@@ -184,7 +184,7 @@ const GlobalSearch = {
     const sTop = schueler.slice(0, 20);
 
     if (sTop.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase">Azubis (' + (schueler.length > 20 ? '20 von ' + schueler.length : schueler.length) + ')</div>';
+      html += '<div style="padding:4px 12px;font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase">Azubis (' + (schueler.length > 20 ? '20 von ' + schueler.length : schueler.length) + ')</div>';
       sTop.forEach(({ s }) => {
         const ampel = App.getSchuelerAmpel(s.id);
         const ktrls = App.query('SELECT ke.ergebnis, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis!="" ORDER BY kt.geplant_datum DESC LIMIT 3', [s.id]);
@@ -199,18 +199,18 @@ const GlobalSearch = {
             <span style="font-size:14px" title="${esc(ampel.label)}">${ampel.icon}</span>
             <div style="flex:1;min-width:0">
               <div><strong>${esc(s.nachname)}, ${esc(s.vorname)}</strong>
-                ${s.aktiv ? '' : '<span style="font-size:9px;padding:1px 4px;background:var(--clr-sand);color:var(--clr-text-light);border-radius:6px;margin-left:4px">inaktiv</span>'}
-                ${oMgl > 0 ? '<span style="font-size:9px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:6px;margin-left:4px" title="' + oMgl + ' KW(s) mit offenen Mängeln">' + oMgl + 'M</span>' : ''}
-                ${wvO ? '<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:6px;margin-left:2px" title="Offene Wiedervorlage">WV</span>' : ''}
+                ${s.aktiv ? '' : '<span style="font-size:12px;padding:1px 4px;background:var(--clr-sand);color:var(--clr-text-light);border-radius:6px;margin-left:4px">inaktiv</span>'}
+                ${oMgl > 0 ? '<span style="font-size:12px;padding:1px 4px;background:var(--clr-red);color:white;border-radius:6px;margin-left:4px" title="' + oMgl + ' KW(s) mit offenen Mängeln">' + oMgl + 'M</span>' : ''}
+                ${wvO ? '<span style="font-size:12px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:6px;margin-left:2px" title="Offene Wiedervorlage">WV</span>' : ''}
               </div>
-              <div style="font-size:11px;color:var(--clr-text-light);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:2px">
+              <div style="font-size:12px;color:var(--clr-text-light);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:2px">
                 <span>${esc(s.b_name || s.ausbildungsstaette || '')}</span>
                 ${s.b_ort ? '<span>' + esc(s.b_ort) + '</span>' : ''}
                 ${s.schule ? '<span>' + esc(s.schule) + '</span>' : ''}
                 ${s.klassenbezeichnung ? '<span>' + esc(s.klassenbezeichnung) + '</span>' : ''}
                 ${s.jahrgang ? '<span style="font-weight:600">' + esc(s.jahrgang) + '</span>' : ''}
               </div>
-              <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
+              <div style="font-size:12px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
                 ${s.telefon ? '<span>☎︎ ' + esc(s.telefon) + '</span>' : ''}${s.email ? '<span>✉︎ ' + esc(s.email) + '</span>' : ''}
                 ${!s.telefon && s.b_tel ? '<span>☎︎ ' + esc(s.b_tel) + ' (Betrieb)</span>' : ''}
                 ${!s.email && s.b_email ? '<span>✉︎ ' + esc(s.b_email) + ' (Betrieb)</span>' : ''}
@@ -219,8 +219,8 @@ const GlobalSearch = {
               </div>
             </div>
             <div style="display:flex;gap:2px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;max-width:120px">
-              ${ktrls.map(ke => '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:' + (ke.ergebnis === 'in_ordnung' ? 'var(--clr-green-light);color:var(--clr-green)' : 'var(--clr-red-light);color:var(--clr-red)') + '">' + formatDate(ke.geplant_datum).substring(0, 6) + '</span>').join('')}
-              ${snapCnt ? '<span style="font-size:9px;padding:1px 4px;border-radius:4px;background:var(--clr-blue-light);color:var(--clr-blue)">' + snapCnt + 'x</span>' : ''}
+              ${ktrls.map(ke => '<span style="font-size:12px;padding:1px 4px;border-radius:4px;background:' + (ke.ergebnis === 'in_ordnung' ? 'var(--clr-green-light);color:var(--clr-green)' : 'var(--clr-red-light);color:var(--clr-red)') + '">' + formatDate(ke.geplant_datum).substring(0, 6) + '</span>').join('')}
+              ${snapCnt ? '<span style="font-size:12px;padding:1px 4px;border-radius:4px;background:var(--clr-blue-light);color:var(--clr-blue)">' + snapCnt + 'x</span>' : ''}
             </div>
           </div>
         </div>`;
@@ -239,7 +239,7 @@ const GlobalSearch = {
     betriebe.sort((x, y) => y.score - x.score || String(x.b.name).localeCompare(String(y.b.name)));
     const bTop = betriebe.slice(0, 8);
     if (bTop.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Betriebe (' + betriebe.length + ')</div>';
+      html += '<div style="padding:4px 12px;font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Betriebe (' + betriebe.length + ')</div>';
       bTop.forEach(({ b }) => {
         const idx = this._results.length;
         this._results.push({ type: 'betrieb', id: b.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('betriebe'), 100); setTimeout(() => StammdatenTab.showBetriebAzubis(b.id), 200); } });
@@ -247,7 +247,7 @@ const GlobalSearch = {
           <span></span>
           <div style="flex:1;min-width:0">
             <div><strong>${esc(b.name)}</strong>${b.vorname ? ' ' + esc(b.vorname) : ''} <span style="color:var(--clr-text-light);font-size:12px">${esc(b.ort || '')} · ${b.cnt} Azubis</span></div>
-            <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
+            <div style="font-size:12px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
               ${b.telefon ? '<span>☎︎ ' + esc(b.telefon) + '</span>' : ''}
               ${b.email ? '<span>✉︎ ' + esc(b.email) + '</span>' : ''}
               ${b.betriebsnummer ? '<span>Nr:' + esc(b.betriebsnummer) + '</span>' : ''}
@@ -269,7 +269,7 @@ const GlobalSearch = {
     ausbilder.sort((x, y) => y.score - x.score || String(x.a.nachname).localeCompare(String(y.a.nachname)));
     const aTop = ausbilder.slice(0, 8);
     if (aTop.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder (' + ausbilder.length + ')</div>';
+      html += '<div style="padding:4px 12px;font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Ausbilder (' + ausbilder.length + ')</div>';
       aTop.forEach(({ a }) => {
         const idx = this._results.length;
         this._results.push({ type: 'ausbilder', id: a.id, action: () => { App.navigate('stammdaten'); if (a.betrieb_id) { setTimeout(() => StammdatenTab.showBetriebAzubis(a.betrieb_id), 200); } else { setTimeout(() => StammdatenTab.show('betriebe'), 100); } } });
@@ -277,7 +277,7 @@ const GlobalSearch = {
           <span></span>
           <div style="flex:1;min-width:0">
             <div><strong>${esc((a.vorname ? a.vorname + ' ' : '') + a.nachname)}</strong>${a.funktion ? ' <span style="color:var(--clr-text-light);font-size:12px">(' + esc(a.funktion) + ')</span>' : ''}</div>
-            <div style="font-size:10px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
+            <div style="font-size:12px;color:var(--clr-sage);display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:1px">
               ${a.betrieb_name ? '<span>' + esc(a.betrieb_name) + (a.betrieb_ort ? ' (' + esc(a.betrieb_ort) + ')' : '') + '</span>' : ''}
               ${a.telefon ? '<span>☎︎ ' + esc(a.telefon) + '</span>' : ''}
               ${a.mobil ? '<span>☎︎ ' + esc(a.mobil) + '</span>' : ''}
@@ -301,14 +301,14 @@ const GlobalSearch = {
     schulen.sort((x, y) => y.score - x.score || String(x.sc.name).localeCompare(String(y.sc.name)));
     const schTop = schulen.slice(0, 5);
     if (schTop.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Schulen (' + schulen.length + ')</div>';
+      html += '<div style="padding:4px 12px;font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Schulen (' + schulen.length + ')</div>';
       schTop.forEach(({ sc }) => {
         const idx = this._results.length;
         this._results.push({ type: 'schule', id: sc.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('schulen'), 100); } });
         html += `<div class="gs-row" role="option" data-idx="${idx}" style="padding:6px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer;display:flex;align-items:center;gap:8px" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <span></span>
           <div style="flex:1"><strong>${esc(sc.name)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${esc(sc.ort || '')} · ${sc.kl_cnt} Klassen · ${sc.s_cnt} Azubis</span></div>
-          ${sc.email ? '<a href="mailto:' + esc(sc.email) + '" onclick="event.stopPropagation()" style="font-size:10px;color:var(--clr-forest);text-decoration:none">Mail</a>' : ''}
+          ${sc.email ? '<a href="mailto:' + esc(sc.email) + '" onclick="event.stopPropagation()" style="font-size:12px;color:var(--clr-forest);text-decoration:none">Mail</a>' : ''}
         </div>`;
       });
     }
@@ -324,7 +324,7 @@ const GlobalSearch = {
     klassen.sort((x, y) => y.score - x.score || String(x.k.klassenbezeichnung).localeCompare(String(y.k.klassenbezeichnung)));
     const kTop = klassen.slice(0, 6);
     if (kTop.length) {
-      html += '<div style="padding:4px 12px;font-size:10px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Klassen (' + klassen.length + ')</div>';
+      html += '<div style="padding:4px 12px;font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;margin-top:4px">Klassen (' + klassen.length + ')</div>';
       kTop.forEach(({ k }) => {
         const idx = this._results.length;
         this._results.push({ type: 'klasse', id: k.id, action: () => { App.navigate('stammdaten'); setTimeout(() => StammdatenTab.show('klassen'), 100); } });

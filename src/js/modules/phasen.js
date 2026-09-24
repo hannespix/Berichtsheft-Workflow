@@ -298,7 +298,7 @@ const Phasen = {
           </select>
         </div>
         <div class="form-group"><label>Von</label><input type="date" class="form-control" id="mPhVon" value="${p.von || ''}"></div>
-        <div class="form-group"><label>Bis</label><input type="date" class="form-control" id="mPhBis" value="${p.bis || ''}"><div style="font-size:10px;color:var(--clr-text-light)">Leer = läuft noch</div></div>
+        <div class="form-group"><label>Bis</label><input type="date" class="form-control" id="mPhBis" value="${p.bis || ''}"><div style="font-size:12px;color:var(--clr-text-light)">Leer = läuft noch</div></div>
       </div>
       <div id="mPhAusb" style="${isAusb ? '' : 'display:none'}">
         <div class="form-row">

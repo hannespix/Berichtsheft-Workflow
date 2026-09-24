@@ -90,12 +90,12 @@ const PlanungHandler = {
     return `<span style="position:relative;display:inline-block">
       <button class="btn btn-secondary" id="planVorlagenBtn" onclick="PlanungHandler._toggleVorlagen();event.stopPropagation()">★ Kontroll-Vorlagen ▾</button>
       <div id="planVorlagenDd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:70;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 6px 18px rgba(0,0,0,0.18);min-width:330px;max-width:420px;padding:4px 0">
-        <div style="padding:4px 14px;font-size:10px;color:var(--clr-text-light);border-bottom:1px solid var(--clr-sand)">Stellt die Kohorten-Filter für die jeweilige Kontrolle ein (aktive BAV, Jahre automatisch)</div>
+        <div style="padding:4px 14px;font-size:12px;color:var(--clr-text-light);border-bottom:1px solid var(--clr-sand)">Stellt die Kohorten-Filter für die jeweilige Kontrolle ein (aktive BAV, Jahre automatisch)</div>
         ${this._kontrollVorlagen().map(v => {
           const teile = [...v.jgLabels, ...v.zps];
           return `<div style="padding:7px 14px;cursor:pointer;border-bottom:1px solid var(--clr-sand-light)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._applyVorlage('${v.key}')">
-            <div style="font-size:13px;font-weight:600;color:var(--clr-forest-dark)">${esc(v.titel)} <span style="font-weight:400;font-size:11px;color:var(--clr-text-light)">· ${esc(v.termin)}</span></div>
-            <div style="font-size:11px;margin-top:1px">${teile.length ? '→ ' + esc(teile.join(' + ')) : ''}${v.fehlt.length ? ` <span style="color:var(--clr-red)">fehlt: ${esc(v.fehlt.join(', '))}</span>` : ''}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--clr-forest-dark)">${esc(v.titel)} <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">· ${esc(v.termin)}</span></div>
+            <div style="font-size:12px;margin-top:1px">${teile.length ? '→ ' + esc(teile.join(' + ')) : ''}${v.fehlt.length ? ` <span style="color:var(--clr-red)">fehlt: ${esc(v.fehlt.join(', '))}</span>` : ''}</div>
           </div>`;
         }).join('')}
       </div>
@@ -147,7 +147,7 @@ const PlanungHandler = {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <strong style="font-size:14px">★ ${esc(v.titel)}</strong>
         <span style="font-size:12px;color:var(--clr-text-light)">${esc(v.termin)}</span>
-        ${teile.length ? `<span style="font-size:11px;padding:2px 8px;background:var(--clr-green-light);border-radius:8px">Filter: ${esc(teile.join(' + '))}</span>` : ''}
+        ${teile.length ? `<span style="font-size:12px;padding:2px 8px;background:var(--clr-green-light);border-radius:8px">Filter: ${esc(teile.join(' + '))}</span>` : ''}
         <span style="margin-left:auto;cursor:pointer;color:var(--clr-red);font-weight:bold" title="Vorlagen-Hinweis ausblenden (Filter bleiben)" onclick="PlanungHandler._aktiveVorlage=null;App.renderCurrentView()">✕</span>
       </div>
       <div style="font-size:12px;line-height:1.8;margin-top:6px">
@@ -235,17 +235,17 @@ const PlanungHandler = {
             </div>
           `).join('')}
         </div>
-        <div style="font-size:10px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
       <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
-          <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
-        <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
+        <div id="standortAuswahlInfo" style="font-size:12px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
       <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
@@ -256,7 +256,7 @@ const PlanungHandler = {
           <div id="mKtEinsendResults" style="max-height:150px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);display:none"></div>
         </div>
         <div id="mKtEinsendSelected" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-        <div id="einsendCountInfo" style="font-size:11px;color:var(--clr-text-light);margin-top:4px"></div>
+        <div id="einsendCountInfo" style="font-size:12px;color:var(--clr-text-light);margin-top:4px"></div>
       </div>
 
       <div class="form-group"><label>Ort des Termins (Berufsschule)</label>
@@ -264,7 +264,7 @@ const PlanungHandler = {
           <option value="">automatisch (Schule der ersten Klasse)</option>
           ${App.query('SELECT id,name FROM berufsschulen ORDER BY name').map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select>
-        <div style="font-size:10px;color:var(--clr-text-light);margin-top:2px">Bei Landesfachklassen-Terminen die LFK-Schule wählen – E-Mail und Anzeige nutzen diesen Ort.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Bei Landesfachklassen-Terminen die LFK-Schule wählen – E-Mail und Anzeige nutzen diesen Ort.</div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Datum</label>
@@ -282,10 +282,10 @@ const PlanungHandler = {
         </div>
       </div>
       <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mKtBem" rows="2"></textarea></div>
-      <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-bottom:8px">
+      <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <strong style="color:var(--clr-forest)">KW-Kalender – Klick = Datum setzen</strong>
-          <div style="display:flex;gap:8px;font-size:10px">
+          <div style="display:flex;gap:8px;font-size:12px">
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> Alle LJ</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:#a7d7a7;border-radius:2px;vertical-align:middle"></span> Teilweise</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-sand);border-radius:2px;vertical-align:middle"></span> Kein LJ / Ferien</span>
@@ -325,18 +325,18 @@ const PlanungHandler = {
     };
     return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
       ${Object.keys(this._tfNamen).map(k => `<div style="position:relative">
-        <button type="button" class="form-control" id="tfBtn_${k}" style="width:auto;font-size:11px;padding:2px 8px;cursor:pointer;text-align:left" onclick="PlanungHandler._tfToggle('${k}');event.stopPropagation()">${this._tfNamen[k]}: Alle ▾</button>
+        <button type="button" class="form-control" id="tfBtn_${k}" style="width:auto;font-size:12px;padding:2px 8px;cursor:pointer;text-align:left" onclick="PlanungHandler._tfToggle('${k}');event.stopPropagation()">${this._tfNamen[k]}: Alle ▾</button>
         <div id="tfDd_${k}" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:60;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,0.18);min-width:190px;max-width:280px;max-height:190px;overflow-y:auto;padding:2px 0">
-          <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
+          <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:12px">
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',true);return false">alle</a>
             <a href="#" style="color:var(--clr-forest)" onclick="PlanungHandler._tfAll('${k}',false);return false">keine</a>
           </div>
-          ${(this._terminFilterOpts[k] || []).map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:11px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+          ${(this._terminFilterOpts[k] || []).map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:12px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
             <input type="checkbox" class="chk-tf-${k}" value="${esc(o.v)}" checked onchange="PlanungHandler._tfChange('${k}')" style="accent-color:var(--clr-forest)"> ${esc(o.l)}
           </label>`).join('')}
         </div>
       </div>`).join('')}
-      <span style="font-size:10px;color:var(--clr-text-light);align-self:center">Mehrfachauswahl möglich · AP + ZP kombiniert = alle gewählten Kohorten</span>
+      <span style="font-size:12px;color:var(--clr-text-light);align-self:center">Mehrfachauswahl möglich · AP + ZP kombiniert = alle gewählten Kohorten</span>
     </div>`;
   },
   _tfToggle(k) {
@@ -488,7 +488,7 @@ const PlanungHandler = {
     if (bs.length) activeFilters.push(bs.join(', '));
 
     box.style.display = '';
-    content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
+    content.innerHTML = `<div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">
         Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Azubis an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
       </div>`
     + filtered.map((g, gi) => {
@@ -507,15 +507,15 @@ const PlanungHandler = {
         title="${schuelerNames}${moreHint}">
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
-          <div style="font-size:11px;color:var(--clr-text-light)">
+          <div style="font-size:12px;color:var(--clr-text-light)">
             ${g.schueler.length} Azubis${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
           </div>
         </div>
-        ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
-        <span style="font-size:11px;color:var(--clr-forest);font-weight:600">Auswählen →</span>
+        ${g.hasLFK ? '<span style="font-size:12px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
+        <span style="font-size:12px;color:var(--clr-forest);font-weight:600">Auswählen →</span>
       </div>`;
     }).join('')
-    + (hasAnyLFK ? `<div style="font-size:10px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
+    + (hasAnyLFK ? `<div style="font-size:12px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
       <strong>LFK</strong> = Azubi an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
@@ -599,7 +599,7 @@ const PlanungHandler = {
         <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
       </span>`;
     }).join('');
-    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Azubi ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
+    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Azubi ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:12px">Alle entfernen</a>`;
   },
 
   _einsendSchuelerIds: [],
@@ -699,7 +699,7 @@ const PlanungHandler = {
       const mon = kwMon(kw, yr);
       const m = mon.getMonth();
       if (m !== lastM) {
-        html += `<div style="width:100%;font-size:9px;color:var(--clr-sage);font-weight:600;margin-top:3px">${months[m]} ${yr}</div>`;
+        html += `<div style="width:100%;font-size:12px;color:var(--clr-sage);font-weight:600;margin-top:3px">${months[m]} ${yr}</div>`;
         lastM = m;
       }
       const d = kwData[kw];
@@ -713,7 +713,7 @@ const PlanungHandler = {
       const border = isSelected ? '2px solid var(--clr-forest)' : '1px solid transparent';
       const ljTip = d ? `LJ ${[...d].join('+')} anwesend` : 'Keine Blockplan-Daten';
       html += `<div onclick="document.getElementById('mKtDatum').value='${dateStr}';PlanungHandler._updateKwHighlight()"
-        style="width:30px;height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;background:${bg};color:${fg};font-weight:${isAll?'700':'400'};border:${border}"
+        style="width:30px;height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;background:${bg};color:${fg};font-weight:${isAll?'700':'400'};border:${border}"
         title="KW ${kw} · ${String(mon.getDate()).padStart(2,'0')}.${String(m+1).padStart(2,'0')}.${yr} · ${ljTip}">${kw}</div>`;
     });
     html += '</div>';
@@ -925,17 +925,17 @@ const PlanungHandler = {
             </div>
           `).join('')}
         </div>
-        <div style="font-size:10px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Filter grenzen die Klassenliste ein. Mehrere Klassen gleichzeitig auswählbar.</div>
       </div>
 
       <!-- Smart-Standort: Zeigt aktuelle Schulstandorte inkl. Landesfachklassen -->
       <div id="smartStandortBox" style="display:none;margin-top:12px;padding:12px 16px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:var(--radius)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <strong style="font-size:13px;color:var(--clr-purple)">Aktuelle Schulstandorte</strong>
-          <span style="font-size:11px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">(Berücksichtigt Landesfachklassen)</span>
         </div>
         <div id="smartStandortContent"></div>
-        <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
+        <div id="standortAuswahlInfo" style="font-size:12px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
       <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
@@ -946,7 +946,7 @@ const PlanungHandler = {
           <div id="mKtEinsendResults" style="max-height:150px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius);display:none"></div>
         </div>
         <div id="mKtEinsendSelected" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-        <div id="einsendCountInfo" style="font-size:11px;color:var(--clr-text-light);margin-top:4px"></div>
+        <div id="einsendCountInfo" style="font-size:12px;color:var(--clr-text-light);margin-top:4px"></div>
       </div>
 
       <div class="form-group"><label>Ort des Termins (Berufsschule)</label>
@@ -971,10 +971,10 @@ const PlanungHandler = {
         </div>
       </div>
       <div class="form-group"><label>Bemerkung</label><textarea class="form-control" id="mKtBem" rows="2">${esc(t.bemerkung)}</textarea></div>
-      <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;margin-bottom:8px">
+      <div id="bpKwPicker" style="padding:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <strong style="color:var(--clr-forest)">KW-Kalender – Klick = Datum setzen</strong>
-          <div style="display:flex;gap:8px;font-size:10px">
+          <div style="display:flex;gap:8px;font-size:12px">
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> Alle LJ</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:#a7d7a7;border-radius:2px;vertical-align:middle"></span> Teilweise</span>
             <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-sand);border-radius:2px;vertical-align:middle"></span> Kein LJ</span>
@@ -1205,20 +1205,20 @@ const PlanungHandler = {
         const bsIdZeile = App.berufsschuleIdZuName(g.schule);
         const vorhandene = bsIdZeile ? App.termineImZeitraum(bsIdZeile, fenster.von, fenster.bis) : [];
         return `<tr>
-          <td><strong>${esc(g.schule)}</strong>${!bsIdZeile ? '<div style="font-size:10px;color:var(--clr-red)">⚠ keine Berufsschule in den Stammdaten – Termin ohne Ort</div>' : ''}${vorhandene.length ? `<div style="font-size:10px;color:var(--clr-amber)">⚠ ${vorhandene.length} Termin(e) im Zeitfenster: ${vorhandene.map(t => formatDate(t.geplant_datum)).join(', ')}</div>` : ''}</td>
+          <td><strong>${esc(g.schule)}</strong>${!bsIdZeile ? '<div style="font-size:12px;color:var(--clr-red)">⚠ keine Berufsschule in den Stammdaten – Termin ohne Ort</div>' : ''}${vorhandene.length ? `<div style="font-size:12px;color:var(--clr-amber)">⚠ ${vorhandene.length} Termin(e) im Zeitfenster: ${vorhandene.map(t => formatDate(t.geplant_datum)).join(', ')}</div>` : ''}</td>
           <td style="text-align:right">${g.schueler.length}</td>
           <td style="text-align:right">${fremd ? `<span class="badge-status badge-open">${fremd}</span>` : '0'}</td>
           <td style="text-align:right">${lfk || '–'}</td>
-          <td><input type="date" class="form-control kamp-datum" data-idx="${i}" style="font-size:11px;padding:2px 4px;width:135px" onchange="PlanungHandler._kampKw(this)"></td>
-          <td class="kamp-kw" id="kampKw_${i}" style="font-size:11px;color:var(--clr-text-light);white-space:nowrap">–</td>
+          <td><input type="date" class="form-control kamp-datum" data-idx="${i}" style="font-size:12px;padding:2px 4px;width:135px" onchange="PlanungHandler._kampKw(this)"></td>
+          <td class="kamp-kw" id="kampKw_${i}" style="font-size:12px;color:var(--clr-text-light);white-space:nowrap">–</td>
         </tr>`;
       }).join('')}
     </tbody></table>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
       <button class="btn btn-sm btn-secondary" onclick="PlanungHandler._kampVorschlaege()">📅 Datumsvorschläge für alle</button>
-      <span style="font-size:11px;color:var(--clr-text-light)">${esc(this._kampFenster(key).label)} – je Schule die erste Blockplan-Woche im Zeitfenster (Dienstag); ohne Blockplan der erste Dienstag${this._kampAusgeschlossen ? ` · <strong>${this._kampAusgeschlossen}</strong> bereits kontrollierte Azubis ausgeschlossen` : ''}</span>
+      <span style="font-size:12px;color:var(--clr-text-light)">${esc(this._kampFenster(key).label)} – je Schule die erste Blockplan-Woche im Zeitfenster (Dienstag); ohne Blockplan der erste Dienstag${this._kampAusgeschlossen ? ` · <strong>${this._kampAusgeschlossen}</strong> bereits kontrollierte Azubis ausgeschlossen` : ''}</span>
     </div>
-    <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">
+    <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">
       „§ n" = Azubis fremder Zuständigkeitsbereiche – sie werden mitkontrolliert;
       die Weitergabe der Ergebnisse läuft danach über „§ Ämter" am Termin.
     </div>`;
@@ -1361,14 +1361,14 @@ const PlanungHandler = {
         return `<div class="card" style="margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <strong>§ ${esc(App.amtLabel(amt))}</strong>
-            <span style="font-size:11px;color:var(--clr-text-light)">${liste.length} Azubi(s)</span>
+            <span style="font-size:12px;color:var(--clr-text-light)">${liste.length} Azubi(s)</span>
             <span style="margin-left:auto;display:flex;gap:6px">
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportAmtPDF(${terminId},'${esc(amt)}')">Bögen (PDF)</button>
               <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportAmtExcel(${terminId},'${esc(amt)}')">Liste (Excel)</button>
               <button class="btn btn-sm btn-primary" onclick="Workflows.emailAmtUebergabe(${terminId},'${esc(amt)}')">✉︎ Übergabeschreiben</button>
             </span>
           </div>
-          <div style="font-size:11px;margin-top:4px;color:var(--clr-text)">${liste.map(s => esc(s.nachname + ', ' + s.vorname)).join(' · ')}</div>
+          <div style="font-size:12px;margin-top:4px;color:var(--clr-text)">${liste.map(s => esc(s.nachname + ', ' + s.vorname)).join(' · ')}</div>
         </div>`;
       }).join('')}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);

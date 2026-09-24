@@ -316,7 +316,7 @@ const App = {
     available.forEach(([k, def]) => { if (!byCat[def.cat]) byCat[def.cat] = []; byCat[def.cat].push([k, def]); });
     const catOrder = ['Ausbildung', 'Prüfungen', 'Standort', 'Kontrolle', 'Datenqualität'];
     dd.innerHTML = catOrder.filter(c => byCat[c]).map(cat => `
-      <div style="padding:4px 12px 2px;font-size:10px;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">${esc(cat)}</div>
+      <div style="padding:4px 12px 2px;font-size:12px;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">${esc(cat)}</div>
       ${byCat[cat].map(([k, def]) => `<div class="fp-dd-item" style="padding:4px 12px;cursor:pointer;font-size:12px" onclick="App._addExtraFilter('${k}')">${esc(def.label)}</div>`).join('')}
     `).join('');
     dd.style.display = '';
@@ -417,15 +417,15 @@ const App = {
       if (!def) return '';
       let input = '';
       if (def.type === 'text') {
-        input = `<input class="form-control" style="width:100px;font-size:11px;padding:1px 6px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
+        input = `<input class="form-control" style="width:100px;font-size:12px;padding:1px 6px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" placeholder="${esc(def.placeholder||'')}" value="${esc(f.value)}" oninput="App._onExtraFilterChange(${idx},this.value)">`;
       } else if (def.type === 'date') {
-        input = `<input type="date" class="form-control" style="width:130px;font-size:11px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
+        input = `<input type="date" class="form-control" style="width:130px;font-size:12px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" value="${esc(f.value)}" onchange="App._onExtraFilterChange(${idx},this.value)">`;
       } else if (def.type === 'toggle') {
         const opts = def.options;
         if (opts.length === 1) {
-          input = `<span style="font-size:11px">${esc(opts[0].l)}</span>`;
+          input = `<span style="font-size:12px">${esc(opts[0].l)}</span>`;
         } else {
-          input = `<select style="font-size:11px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
+          input = `<select style="font-size:12px;padding:1px 4px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px" onchange="App._onExtraFilterChange(${idx},this.value)">
             <option value="">–</option>${opts.map(o => `<option value="${esc(o.v)}" ${f.value===o.v?'selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
         }
       } else if (def.type === 'select') {
@@ -437,14 +437,14 @@ const App = {
         if (!Array.isArray(f.value)) f.value = f.value ? [String(f.value)] : [];
         const sel = f.value.map(String);
         input = `<span style="position:relative;display:inline-block">
-          <button type="button" id="efBtn_${idx}" style="font-size:11px;padding:1px 8px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
+          <button type="button" id="efBtn_${idx}" style="font-size:12px;padding:1px 8px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
           <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:var(--clr-white);color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
-            <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:10px">
+            <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:12px">
               <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},true);return false">alle</a>
               <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},false);return false">keine</a>
               <span style="margin-left:auto;color:var(--clr-text-light)">Mehrfachauswahl</span>
             </div>
-            ${opts.map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:11px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+            ${opts.map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:12px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
               <input type="checkbox" class="chk-ef-${idx}" value="${esc(String(o.v))}" data-l="${esc(String(o.l))}" ${sel.includes(String(o.v)) ? 'checked' : ''} onchange="App._efChange(${idx})" style="accent-color:var(--clr-forest)"> ${esc(String(o.l))}
             </label>`).join('')}
           </div>
@@ -511,7 +511,7 @@ const App = {
   anmeldung() {
     const pruefer = this.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name');
     const aktuell = this.currentUser || '';
-    const knopf = (name) => `<button class="btn ${name === aktuell ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-bottom:6px;text-align:left;padding:10px 14px;font-size:14px" data-name="${esc(name)}" onclick="App.anmelden(this.dataset.name)">${esc(name)}${name === aktuell ? ' <span style="font-size:11px;opacity:0.85">(zuletzt an diesem Rechner)</span>' : ''}</button>`;
+    const knopf = (name) => `<button class="btn ${name === aktuell ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-bottom:6px;text-align:left;padding:10px 14px;font-size:14px" data-name="${esc(name)}" onclick="App.anmelden(this.dataset.name)">${esc(name)}${name === aktuell ? ' <span style="font-size:12px;opacity:0.85">(zuletzt an diesem Rechner)</span>' : ''}</button>`;
     this.openModal('Wer arbeitet an diesem Rechner?', `
       <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:10px">Bitte auswählen. Die Wahl wird in diesem Browser gemerkt; Filter, Einstellungen und die letzte Ansicht gehören zur gewählten Person. Ein Wechsel ist jederzeit oben rechts möglich.</p>
       ${pruefer.length ? pruefer.map(p => knopf(p.name)).join('') : '<p style="font-size:12px;color:var(--clr-text-light)">Noch keine Prüfer angelegt – bitte einen Namen eingeben.</p>'}
@@ -561,6 +561,13 @@ const App = {
     if (w) { const sb = document.getElementById('sidebarNav'); if (sb) sb.style.width = w + 'px'; }
     const dark = this.uGet('dark');
     if (dark !== null) document.body.classList.toggle('dark-mode', dark === '1');
+    document.body.classList.toggle('grosse-schrift', this.lsGet('bhk_grosse_schrift') === '1');
+  },
+  // Große Schrift (je Rechner, nicht je Person – wer sie braucht, braucht sie immer)
+  get grosseSchrift() { return this.lsGet('bhk_grosse_schrift') === '1'; },
+  setGrosseSchrift(an) {
+    this.lsSet('bhk_grosse_schrift', an ? '1' : '0');
+    document.body.classList.toggle('grosse-schrift', !!an);
   },
 
   cycleBavFilter() { this.toggleBavDropdown(); }, // legacy compat
@@ -802,7 +809,7 @@ const App = {
 
     dd.innerHTML = `
       <div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-        <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
           <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleBgAll()" style="accent-color:var(--clr-forest)"> Alle / Keine
         </label>
       </div>
@@ -818,18 +825,18 @@ const App = {
           <div style="display:flex;align-items:center;gap:4px;padding:5px 12px;cursor:pointer" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
             <input type="checkbox" class="chk-bg-group" data-typ="${esc(grp)}" data-ids="${groupIds.join(',')}" ${allChecked ? 'checked' : ''} ${someChecked ? 'style="accent-color:var(--clr-amber)"' : 'style="accent-color:var(--clr-forest)"'} onchange="App._toggleBgGroup(this)">
             <span onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" style="flex:1;font-size:12px;font-weight:600;color:var(--clr-forest-dark);cursor:pointer">${esc(grp)}</span>
-            <span style="font-size:10px;color:var(--clr-text-light)">${allFrs.length}</span>
-            <span onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" style="font-size:10px;cursor:pointer;color:var(--clr-text-light);width:14px;text-align:center">${expanded ? '▾' : '▸'}</span>
+            <span style="font-size:12px;color:var(--clr-text-light)">${allFrs.length}</span>
+            <span onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" style="font-size:12px;cursor:pointer;color:var(--clr-text-light);width:14px;text-align:center">${expanded ? '▾' : '▸'}</span>
           </div>
           <div style="display:${expanded ? 'block' : 'none'};padding-left:20px;padding-bottom:4px;background:var(--clr-warm)">
             ${subTyps.map(typ => {
               const frs = subGroups[typ];
               const subLabel = hasSubGroups ? (typ === grp ? grp : typ) : null;
-              return (subLabel ? `<div style="font-size:9px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.04em;padding:4px 8px 1px;margin-top:2px">${esc(subLabel)}</div>` : '') +
-              frs.map(fr => `<label style="display:flex;align-items:center;gap:5px;padding:2px 12px 2px 8px;cursor:pointer;font-size:11px" onmouseenter="this.style.background='rgba(0,0,0,0.03)'" onmouseleave="this.style.background=''">
+              return (subLabel ? `<div style="font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.04em;padding:4px 8px 1px;margin-top:2px">${esc(subLabel)}</div>` : '') +
+              frs.map(fr => `<label style="display:flex;align-items:center;gap:5px;padding:2px 12px 2px 8px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='rgba(0,0,0,0.03)'" onmouseleave="this.style.background=''">
                 <input type="checkbox" class="chk-bg-fr" value="${fr.id}" data-typ="${esc(grp)}" ${isAll || active.includes(fr.id) ? 'checked' : ''} onchange="App._onBgFrChange('${esc(grp)}')" style="accent-color:var(--clr-forest);width:13px;height:13px">
                 <span style="color:var(--clr-text-light)">${esc(fr.bezeichnung)}</span>
-                <span style="margin-left:auto;font-size:9px;color:var(--clr-text-light)">${esc(fr.code)}</span>
+                <span style="margin-left:auto;font-size:12px;color:var(--clr-text-light)">${esc(fr.code)}</span>
               </label>`).join('');
             }).join('')}
           </div>
@@ -940,7 +947,7 @@ const App = {
 
       dd.innerHTML = `
         <div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-          <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
             <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleAmtAll(this.checked)"> Alle / Keine
           </label>
         </div>
@@ -1007,7 +1014,7 @@ const App = {
       const zpLabel = (c) => App.zpLabel(c);
       dd.innerHTML = `
         <div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-          <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
             <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleZpAll(this.checked)"> Alle / Keine
           </label>
         </div>
@@ -1166,32 +1173,32 @@ const App = {
       }
       const hasNone = (this.filterJahrgang[0] === -1) || (this.filterZp[0] === '---');
       const bg = hasNone ? 'var(--clr-red-light)' : 'var(--clr-amber-light)';
-      parts.push(`<span style="padding:3px 8px;background:${bg};border-radius:8px;font-size:11px">${esc(subParts.join(' + '))} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterJahrgang=[];App.filterZp=[];App._updateJgButton();App._updateFilterCount();App.renderCurrentView();return false" title="Jahrgangs-Filter entfernen">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:${bg};border-radius:8px;font-size:12px">${esc(subParts.join(' + '))} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterJahrgang=[];App.filterZp=[];App._updateJgButton();App._updateFilterCount();App.renderCurrentView();return false" title="Jahrgangs-Filter entfernen">✕</span></span>`);
     }
     if (this.filterFachrichtungen.length) {
       if (this.filterFachrichtungen[0] === -1) {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">Keine Berufe <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:12px">Keine Berufe <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
       } else {
         const btn = document.getElementById('bgFilterBtn');
         const label = btn ? btn.textContent.replace(' ▾','').replace(/^(?:||§|▤|✎)\s*/,'').trim() : this.filterFachrichtungen.length + ' Berufe';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-amber-light);border-radius:8px;font-size:11px">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-amber-light);border-radius:8px;font-size:12px">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
       }
     }
     if (this.filterAmt.length) {
       if (this.filterAmt[0] === '-1') {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:11px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:12px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
       } else if (this.filterAmt.length === 1 && this.filterAmt[0] === this.EIGENES_AMT) {
         // Standardfilter (eigenes Amt) – kein „✕": er ist die Normalansicht,
         // andere Ämter über die Amt-Auswahl in der Topbar
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-warm);border:1px dashed var(--clr-sand);border-radius:8px;font-size:11px;color:var(--clr-text-light)" title="Standard: nur Azubis des eigenen Amts. Andere Ämter über „§" in der Topbar wählen">§ Standard: ${esc(this.amtLabel(this.filterAmt[0]))}</span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-warm);border:1px dashed var(--clr-sand);border-radius:8px;font-size:12px;color:var(--clr-text-light)" title="Standard: nur Azubis des eigenen Amts. Andere Ämter über „§" in der Topbar wählen">§ Standard: ${esc(this.amtLabel(this.filterAmt[0]))}</span>`);
       } else {
         const label = this.filterAmt.length === 1 ? this.amtLabel(this.filterAmt[0]) : this.filterAmt.length + ' Ämter';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:11px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
+        parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:12px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
       }
     }
     if (this.filterBavStatus !== 'aktiv') {
       const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
-      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:11px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.classList.remove('active');bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:12px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.classList.remove('active');bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
     }
     // Extra filter badges
     this.extraFilters.forEach((f, idx) => {
@@ -1207,14 +1214,14 @@ const App = {
         label = def.label + ': ' + f.value;
         if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
       }
-      parts.push(`<span style="padding:3px 8px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:8px;font-size:11px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
+      parts.push(`<span style="padding:3px 8px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:8px;font-size:12px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
     });
     if (!parts.length) return '';
     const hasMultiple = parts.length > 1;
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-size:10px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
+      <span style="font-size:12px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
       ${parts.join('')}
-      ${hasMultiple ? `<span style="font-size:10px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App.refreshJgDropdown();App._updateJgButton();App._applyBgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
+      ${hasMultiple ? `<span style="font-size:12px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App.refreshJgDropdown();App._updateJgButton();App._applyBgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
     </div>`;
   },
 
@@ -1294,39 +1301,39 @@ const App = {
     // ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028 gemeinsam anzeigen.
     const beideAktiv = !isAllJg && activeJg[0] !== -1 && !isAllZp && activeZp[0] !== '---';
     const sektionLinks = (cls) => `<span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0">
-      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',true);return false">alle</a>
+      <a href="#" style="font-size:12px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',true);return false">alle</a>
       <span style="color:var(--clr-sand)">·</span>
-      <a href="#" style="font-size:9px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',false);return false">keine</a>
+      <a href="#" style="font-size:12px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',false);return false">keine</a>
     </span>`;
 
     let html = `<div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-      <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
         <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleJgAll()" style="accent-color:var(--clr-forest)"> Alle (kein Filter)
       </label>
     </div>
-    <div id="jgUnionHint" style="display:${beideAktiv ? '' : 'none'};padding:3px 12px;font-size:10px;color:var(--clr-forest);background:var(--clr-green-light);border-bottom:1px solid var(--clr-sand)">AP + ZP kombiniert: zeigt Azubis aus <strong>allen</strong> gewählten Kohorten</div>`;
+    <div id="jgUnionHint" style="display:${beideAktiv ? '' : 'none'};padding:3px 12px;font-size:12px;color:var(--clr-forest);background:var(--clr-green-light);border-bottom:1px solid var(--clr-sand)">AP + ZP kombiniert: zeigt Azubis aus <strong>allen</strong> gewählten Kohorten</div>`;
 
     // ── AP Section ──
-    html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)${sektionLinks('chk-jg')}</div>`;
+    html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:12px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)${sektionLinks('chk-jg')}</div>`;
     jgs.forEach(j => {
       const label = this._prefixLabel(j.bezeichnung) || j.typ;
       const chk = isAllJg || activeJg.includes(j.id);
       html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
         <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-forest)">
-        <strong>${esc(j.bezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:10px">${label} ${j.jahr}</span>
+        <strong>${esc(j.bezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${label} ${j.jahr}</span>
       </label>`;
     });
 
     // ── ZP Section ──
     if (zpSorted.length) {
-      html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:9px;font-weight:700;color:var(--clr-amber);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)${sektionLinks('chk-zp')}</div>`;
+      html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:12px;font-weight:700;color:var(--clr-amber);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)${sektionLinks('chk-zp')}</div>`;
       zpSorted.forEach(code => {
         const sem = this._prefixLabel(code) || code[0];
         const yr = code.substring(1);
         const chk = isAllZp || activeZp.includes(code);
         html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
           <input type="checkbox" class="chk-zp" value="${esc(code)}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-amber)">
-          <strong>${esc(code)}</strong> <span style="color:var(--clr-text-light);font-size:10px">${sem} ${yr}</span>
+          <strong>${esc(code)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${sem} ${yr}</span>
         </label>`;
       });
     }
@@ -1865,7 +1872,7 @@ const App = {
                     Erneut verbinden
                   </button>
                 </div>
-                <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Chrome benötigt bei jedem Neustart eine einmalige Bestätigung.</div>
+                <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Chrome benötigt bei jedem Neustart eine einmalige Bestätigung.</div>
               </div>`;
           }
         } catch(e) { console.log('Auto-reconnect:', e.message); }
@@ -1962,19 +1969,19 @@ const App = {
       <div style="display:flex;flex-direction:column;gap:10px">
         <button class="btn btn-primary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.switchToNewFolder()">
           <span style="font-size:22px"></span>
-          <div><strong>Anderen Arbeitsordner wählen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Ordner mit Datenbanken auswählen</div></div>
+          <div><strong>Anderen Arbeitsordner wählen</strong><div style="font-size:12px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Ordner mit Datenbanken auswählen</div></div>
         </button>
         <button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.promptNewDb()">
           <span style="font-size:22px"></span>
-          <div><strong>Neue Datenbank erstellen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Leere DB im aktuellen Ordner anlegen</div></div>
+          <div><strong>Neue Datenbank erstellen</strong><div style="font-size:12px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Leere DB im aktuellen Ordner anlegen</div></div>
         </button>
         <button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB()">
           <span style="font-size:22px"></span>
-          <div><strong>Verbindung trennen</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Zurück zum Startbildschirm</div></div>
+          <div><strong>Verbindung trennen</strong><div style="font-size:12px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Zurück zum Startbildschirm</div></div>
         </button>
         ${!this.demoMode ? '' : `<button class="btn btn-secondary" style="padding:12px;font-size:14px;text-align:left;display:flex;align-items:center;gap:10px" onclick="App.closeModal();App.disconnectDB().then(()=>App.start())">
           <span style="font-size:22px"></span>
-          <div><strong>Echte Datenbank verbinden</strong><div style="font-size:11px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Demo beenden und Ordner wählen</div></div>
+          <div><strong>Echte Datenbank verbinden</strong><div style="font-size:12px;font-weight:normal;color:var(--clr-sage);margin-top:2px">Demo beenden und Ordner wählen</div></div>
         </button>`}
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>`);
@@ -2480,8 +2487,8 @@ const App = {
     const seit = this._netzWegSeit ? new Date(this._netzWegSeit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
     banner.style.background = '#fde8e8'; banner.style.color = '#991b1b'; banner.style.transform = 'translateY(0)';
     banner.innerHTML = `<span style="color:var(--clr-red)">◆</span> Netzlaufwerk nicht erreichbar${seit ? ' seit ' + seit : ''} – <span id="offlineOpsZahl">${n}</span> Änderung(en) werden lokal gehalten, Probe alle 30 s
-      <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:11px" onclick="App._netzProbe(true)">↻ Erneut verbinden</button>
-      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:11px" onclick="App.offlineModusEinschalten()" title="Bewusst ohne Netz weiterarbeiten; Zusammenführung beim Wiederverbinden">⇅ Offline weiterarbeiten</button>`;
+      <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:12px" onclick="App._netzProbe(true)">↻ Erneut verbinden</button>
+      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:12px" onclick="App.offlineModusEinschalten()" title="Bewusst ohne Netz weiterarbeiten; Zusammenführung beim Wiederverbinden">⇅ Offline weiterarbeiten</button>`;
   },
   // Leichte Probe: nur die Datenbankdatei anfassen. Erfolg → alles wieder an.
   async _netzProbe(manuell) {
@@ -2723,7 +2730,7 @@ const App = {
         <button class="btn btn-secondary" style="width:100%;margin-bottom:8px;text-align:left;padding:10px 14px" onclick="App.loadDatabaseFromHandle(App._dbChoices[${i}].handle,App._dbChoices[${i}].subDir);App.closeModal()">
           <div style="display:flex;align-items:center;gap:10px;width:100%">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-            <div><strong>${esc(f.name)}</strong><div style="font-size:11px;color:var(--clr-text-light)">${f.subDir?f.subDir+'/':'Hauptordner'}</div></div>
+            <div><strong>${esc(f.name)}</strong><div style="font-size:12px;color:var(--clr-text-light)">${f.subDir?f.subDir+'/':'Hauptordner'}</div></div>
           </div>
         </button>
       `).join('')}
@@ -3939,7 +3946,7 @@ const App = {
         <ul style="font-size:12px;margin:4px 0 0 18px">${Object.entries(tabellen).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<li>${n} × ${esc(TAB[t] || t)}</li>`).join('')}</ul>
         ${namen.length ? `<div style="font-size:12px;margin-top:6px"><strong>Betroffene Azubis:</strong> ${esc(namen.join(' · '))}${sids.size > 30 ? ` … (+${sids.size - 30})` : ''}</div>` : ''}
       ` : `<div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Keine wartenden Änderungen.</div>`}
-      ${this._compactGrund ? `<div style="font-size:11px;color:var(--clr-amber);margin-top:8px">Kompaktierung: ${esc(this._compactGrund)}</div>` : ''}`,
+      ${this._compactGrund ? `<div style="font-size:12px;color:var(--clr-amber);margin-top:8px">Kompaktierung: ${esc(this._compactGrund)}</div>` : ''}`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        ${offen.length ? `<button class="btn btn-secondary" onclick="App.exportOpPuffer()" title="Wartende Änderungen als Datei sichern (Notausgang)">Änderungen als Datei</button>
        <button class="btn btn-primary" onclick="App.closeModal();App.sofortSpeichern('von Hand').then(ok=>App.toast(ok?'Alle Änderungen auf dem Netzlaufwerk':'Noch nicht alles geschrieben – Versuch läuft weiter','' + (ok?'success':'warning')))">Jetzt schreiben</button>` : ''}`);
@@ -7912,7 +7919,7 @@ const App = {
         window.addEventListener('resize', () => zu(null));
       } catch(e) {}
     }
-    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}" ontoggle="App._menuePosition(this)"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel}${klasse && klasse.includes('klein') ? '' : ' ▾'}</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
+    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}" ontoggle="App._menuePosition(this)"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}" aria-label="${esc(title || 'Weitere Aktionen')}" aria-haspopup="menu">${titel}${klasse && klasse.includes('klein') ? '' : ' ▾'}</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
   },
   _menuePosition(d) {
     try {
@@ -8089,7 +8096,7 @@ const App = {
       if (!rec || !box || document.getElementById('btnOfflineStart')) return;
       const wann = new Date(rec.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
       box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="font-size:13px;padding:8px 16px;width:100%;border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
-        ⇅ Offline weiterarbeiten<div style="font-size:11px;font-weight:400;color:var(--clr-text-light)">„${esc(rec.name)}", lokaler Stand vom ${wann}</div></button>`);
+        ⇅ Offline weiterarbeiten<div style="font-size:12px;font-weight:400;color:var(--clr-text-light)">„${esc(rec.name)}", lokaler Stand vom ${wann}</div></button>`);
     } catch(e) {}
   },
   // Start ohne Netzlaufwerk: lokaler Stand + gepufferte eigene Änderungen
@@ -8146,8 +8153,8 @@ const App = {
     const n = this._dirtyOps.length + (this._opsInFlight || []).length;
     banner.style.background = '#fef7ec'; banner.style.color = '#92400e'; banner.style.transform = 'translateY(0)';
     banner.innerHTML = `<span style="color:var(--clr-amber)">⇅</span> Offline-Modus – <span id="offlineOpsZahl">${n}</span> Änderung(en) lokal gesammelt
-      <button class="btn btn-sm btn-primary" style="margin-left:8px;padding:3px 12px;font-size:11px" onclick="App.wiederverbinden()">↻ Wiederverbinden &amp; zusammenführen</button>
-      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:11px" onclick="App.exportOpPuffer()" title="Falls dieser Rechner nicht mehr ans Netz kommt: Änderungen als Datei sichern und an einem anderen Rechner einspielen">Änderungen als Datei</button>`;
+      <button class="btn btn-sm btn-primary" style="margin-left:8px;padding:3px 12px;font-size:12px" onclick="App.wiederverbinden()">↻ Wiederverbinden &amp; zusammenführen</button>
+      <button class="btn btn-sm btn-secondary" style="padding:3px 12px;font-size:12px" onclick="App.exportOpPuffer()" title="Falls dieser Rechner nicht mehr ans Netz kommt: Änderungen als Datei sichern und an einem anderen Rechner einspielen">Änderungen als Datei</button>`;
   },
   _offlineBannerAktualisieren() {
     const el = document.getElementById('offlineOpsZahl');
@@ -9674,7 +9681,7 @@ Anlagen: {anlagen}` },
     }
     if (critical) {
       banner.style.background = '#fde8e8'; banner.style.color = '#991b1b';
-      banner.innerHTML = `<span style="color:var(--clr-red)">◆</span> Verbindung zur Datenbank getrennt – Änderungen werden lokal gehalten <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:11px" onclick="App.tryReconnect()">↻ Erneut verbinden</button>`;
+      banner.innerHTML = `<span style="color:var(--clr-red)">◆</span> Verbindung zur Datenbank getrennt – Änderungen werden lokal gehalten <button class="btn btn-sm" style="background:#e8a820;color:#fff;border:none;margin-left:8px;padding:3px 12px;font-size:12px" onclick="App.tryReconnect()">↻ Erneut verbinden</button>`;
     } else {
       banner.style.background = '#fef7ec'; banner.style.color = '#92400e';
       banner.innerHTML = '<span style="color:var(--clr-amber)">◐</span> Verbindungsversuch…';
