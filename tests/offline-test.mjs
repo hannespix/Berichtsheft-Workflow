@@ -130,7 +130,7 @@ console.log('\n══ Netzabriss: erkennen, pausieren, Probe, weiter ══');
   await F._pollOplogs();
   check(F.scalar('SELECT nachname FROM schueler WHERE id=3') === 'Netz-weg', 'Gepufferte Änderung erreicht den Kollegen nach der Wiederverbindung');
   const sb = new Error('Failed to perform Safe Browsing check'); sb.name = 'AbortError';
-  check(E._istVerbindungsFehler(sb) && E._istVerbindungsFehler(new Error('Oplog-Append Timeout')) && !E._istVerbindungsFehler(new Error('near "SELEC": syntax error')), 'Safe-Browsing-Abbruch und Append-Timeout gelten als Verbindungsproblem, SQL-Fehler nicht');
+  check(E._istVerbindungsFehler(sb) && !E._istVerbindungsFehler(new Error('Oplog-Append Timeout')) && !E._istVerbindungsFehler(new Error('near "SELEC": syntax error')), 'Safe-Browsing-Abbruch gilt als Verbindungsproblem, Append-Zeitlimit (sehr langsam) und SQL-Fehler nicht');
   check(/if \(this\._netzWeg \|\| this\.offlineModus \|\| \(this\._safeBrowsingBis/.test(APP_SRC) && /if \(!this\.dirHandle \|\| this\._netzWeg \|\| this\.offlineModus\) return;/.test(APP_SRC), 'Backups und Positionsdateien pausieren bei Netzabriss');
   check(/const interval = this\._netzWeg \? 30000 : this\._pollIntervallBerechnen\(\);/.test(APP_SRC) && /await this\._netzProbe\(false\);/.test(APP_SRC), 'Abgleich wird durch eine 30-s-Probe ersetzt');
   check(/location\.href = url; w = window;/.test(fs.readFileSync(path.join(ROOT, 'src/js/modules/workflows.js'), 'utf8')), 'Mailprogramm über location.href (keine „Unsafe attempt"-Warnung auf file:-Seiten)');

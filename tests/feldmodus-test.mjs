@@ -49,7 +49,7 @@ console.log('\n══ Dauer des Abgleichs fließt in die Netzqualität ein ═�
   A._lastSaveDurationMs = 0; A._updateNetworkQuality();
   await A._pollOplogs();
   check(typeof A._lastPollMs === 'number' && A._lastPollMs >= 0, `Abgleich misst seine Dauer (${A._lastPollMs} ms)`);
-  check(/!this\._appendInProgress && !this\.offlineModus\) \{/.test(APP_SRC), 'Abgleich läuft nie parallel zu einem Anhängen');
+  check(/!this\._appendInProgress && !this\._snapshotSchreibt && !this\._appendHaengt && !this\.offlineModus\) \{/.test(APP_SRC), 'Abgleich läuft nie parallel zu einem Anhängen, Snapshot-Write oder hängenden Versuch');
   const K_SRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/kontrolle.js'), 'utf8');
   check(/if \(App\._appendInProgress \|\| App\.offlineModus \|\| App\._netzWeg\) return;/.test(K_SRC) && /App\._liveSyncIntervallBerechnen\(\)/.test(K_SRC), 'Positionsabgleich pausiert während des Anhängens und nutzt den Takt');
 }
