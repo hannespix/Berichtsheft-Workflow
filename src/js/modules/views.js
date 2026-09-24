@@ -114,9 +114,6 @@ const Views = {
       ORDER BY maengel_count DESC, offene_wv DESC
       LIMIT 15`, jf.params);
 
-    // Morgen-Briefing data
-    const naechste7Tage = App.query(`SELECT COUNT(*) as c FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum BETWEEN ? AND ?${jfkt.where}`, [today, addDaysStr(7), ...jfkt.params])[0]?.c || 0;
-    const bald_ueberfaellig = App.query(`SELECT COUNT(*) as c FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status='offen' AND w.frist_datum BETWEEN ? AND ?${jf.where}`, [today, addDaysStr(3), ...jf.params])[0]?.c || 0;
     // Datenpflege
     const ohneBetrieb = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.betrieb_id IS NULL AND s.ausbildungsstaette != '' AND ${aktivClause}${jf.where}`, jf.params) || 0;
     const gfSch = App.gf('schulen');
@@ -186,21 +183,10 @@ const Views = {
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
         <h2>Dashboard</h2>
-        <p>Gesamtübersicht</p>
+        <p>Was heute ansteht, und wo das Jahr steht</p>
       </div>
       ${App.filterBadgeHtml()}
       ${startseiteHtml}
-
-      <!-- Morgen-Briefing -->
-      ${(naechste7Tage || bald_ueberfaellig || ueberfaellig) ? `
-      <div class="card" style="margin-bottom:20px;border-left:4px solid var(--clr-forest);padding:14px 18px">
-        <strong style="font-size:14px;color:var(--clr-forest-dark)">▤ Was steht an?</strong>
-        <div class="dash-briefing" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:13px">
-          ${naechste7Tage ? `<span style="padding:5px 12px;background:var(--clr-blue-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('planung')"><strong>${naechste7Tage}</strong> Termin${naechste7Tage>1?'e':''} in den nächsten 7 Tagen</span>` : ''}
-          ${ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-red-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')"><span style="color:var(--clr-red)">◆</span> <strong>${ueberfaellig}</strong> Wiedervorlage${ueberfaellig>1?'n':''} überfällig!</span>` : ''}
-          ${bald_ueberfaellig ? `<span style="padding:5px 12px;background:var(--clr-amber-light);border-radius:var(--radius);cursor:pointer" onclick="App.navigate('wiedervorlagen')">⚠︎ <strong>${bald_ueberfaellig}</strong> WV laufen in 3 Tagen ab</span>` : ''}
-        </div>
-      </div>` : ''}
 
       <!-- Arbeitsliste: was heute / diese Woche zu tun ist -->
       ${arbeitsliste.length ? `
@@ -1457,17 +1443,8 @@ const Views = {
   // ════════════════════════════════════════════
   //  EINSTELLUNGEN
   // ════════════════════════════════════════════
-  einstellungen() {
-    const mc = document.getElementById('mainContent');
-    // DB stats
-    const tables = ['schueler','betriebe','klassen','berufsschulen','kontrolltermine','kontrollergebnisse','wiedervorlagen','kw_status','durchsicht_snapshots','pruefer'];
-    const stats = tables.map(t => {
-      try { return { name: t, count: App.scalar(`SELECT COUNT(*) FROM ${t}`) || 0 }; }
-      catch(e) { return { name: t, count: '–' }; }
-    });
-    const totalRows = stats.reduce((s,r) => s + (typeof r.count === 'number' ? r.count : 0), 0);
-    const integrity = (() => { try { return App.query("PRAGMA integrity_check")[0]?.integrity_check || 'ok'; } catch(e) { return 'error'; } })();
-
+  // Bausteine der Einstellungen und der Wartung (ein Rechenvorspann, zwei Ansichten)
+  _einstellungenTeile() {
     // Settings
     const emailFreisprechung = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='email_freisprechung'") || '';
     const rpAdresseP = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_persoenlich'") || '';
@@ -1475,32 +1452,9 @@ const Views = {
     const rpEmail = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
     const isDark = document.body.classList.contains('dark-mode');
 
-    mc.innerHTML = `<div class="fade-in">
-      <div class="page-header">
-        <h2>Einstellungen</h2>
-        <p>Datenbank-Statistik, Kontaktdaten und Darstellung</p>
-      </div>
-
-      <div class="grid-2">
-        <!-- DB Stats -->
-        <div class="card">
-          <div class="card-header">Datenbank-Statistik</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:2px 16px;font-size:13px;padding:4px 0">
-            ${stats.map(s => `<span>${s.name}</span><strong>${s.count}</strong>`).join('')}
-            <span style="border-top:1px solid var(--clr-sand);padding-top:4px;margin-top:4px;font-weight:600">Gesamt</span>
-            <strong style="border-top:1px solid var(--clr-sand);padding-top:4px;margin-top:4px">${totalRows}</strong>
-          </div>
-          <div style="margin-top:8px;font-size:12px;color:${integrity==='ok'?'var(--clr-green)':'var(--clr-red)'}">
-            Integrität: ${integrity === 'ok' ? '✓ OK' : '✗ ' + integrity}
-          </div>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <button class="btn btn-sm btn-secondary" onclick="App.saveDatabase();App.toast('Gespeichert','success')">Jetzt speichern</button>
-            <button class="btn btn-sm btn-secondary" onclick="App.reloadFromFile&&App.reloadFromFile();App.toast('Neu geladen','success')">↻ Neu laden</button>
-          </div>
-        </div>
-
-        <!-- Darstellung -->
-        <div class="card">
+    return {
+      darstellung: `        <!-- Darstellung -->
+        <div class="card" style="margin-top:16px">
           <div class="card-header">◑ Darstellung</div>
           <div style="padding:8px 0">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:12px">
@@ -1514,11 +1468,10 @@ const Views = {
             <p style="font-size:12px;color:var(--clr-text-light)">Tastenkürzel: <strong>F1</strong> oder <strong>?</strong> für Hilfe, <strong>Ctrl+K</strong> für Suche</p>
           </div>
         </div>
-      </div>
-
-      <!-- Sichtbare Menüpunkte -->
+`,
+      menue: `      <!-- Sichtbare Menüpunkte -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header"><span onclick="Views._pinClicked()" style="cursor:default">⌖</span> Sichtbare Menüpunkte</div>
+        <div class="card-header"><span><span onclick="Views._pinClicked()" style="cursor:default">⌖</span> Sichtbare Menüpunkte</span></div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
           Menüpunkte ein-/ausblenden. Weniger genutzte Funktionen können ausgeblendet werden, um die Sidebar übersichtlich zu halten.
         </p>
@@ -1546,7 +1499,8 @@ const Views = {
         </div>
       </div>
 
-      <!-- Verbindung: Feldmodus für mobil / VPN -->
+`,
+      verbindung: `      <!-- Verbindung: Feldmodus für mobil / VPN -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⇅ Verbindung (Büro, VPN, Mobilfunk)</div>
         <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px;flex-wrap:wrap">
@@ -1586,7 +1540,8 @@ const Views = {
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
       </div>
 
-      <!-- Landesfachklassen-Regeln -->
+`,
+      lfk: `      <!-- Landesfachklassen-Regeln -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Je Zeile <code>Fachrichtungs-Code;ab AJ</code> (IBYKUS-Code, z.B. <code>034;2</code> = Obstbau ab dem 2. Jahr an der Landesfachklasse). Leer = Standard des Programms.</div>
@@ -1594,7 +1549,8 @@ const Views = {
         <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.lfkRegelnSetzen(document.getElementById('setLfkRegeln').value);App.toast(Object.keys(o).length+' Regeln gespeichert','success')">Regeln speichern</button></div>
       </div>
 
-      <!-- Schulferien BW (für den Jahreskalender) -->
+`,
+      ferien: `      <!-- Schulferien BW (für den Jahreskalender) -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms.</div>
@@ -1603,7 +1559,8 @@ const Views = {
           <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='ferien_bw'&quot;);App.toast('Richtwerte wiederhergestellt','success');Views.einstellungen()">Richtwerte</button></div>
       </div>
 
-      <!-- Kontaktdaten für E-Mails und PDFs -->
+`,
+      kontakt: `      <!-- Kontaktdaten für E-Mails und PDFs -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✉︎ Kontaktdaten (für E-Mails & PDFs)</div>
         <div class="form-group"><label>E-Mail Freisprechung</label>
@@ -1622,7 +1579,8 @@ const Views = {
         <button class="btn btn-primary" onclick="Views.saveEinstellungen()">Einstellungen speichern</button>
       </div>
 
-      <!-- E-Mail-Adressen fremder Ämter -->
+`,
+      aemter: `      <!-- E-Mail-Adressen fremder Ämter -->
       ${(() => {
         const aemter = App.query(`SELECT DISTINCT zustaendiges_amt AS amt FROM schueler WHERE zustaendiges_amt IS NOT NULL AND zustaendiges_amt != '' AND zustaendiges_amt != ? ORDER BY 1`, [App.EIGENES_AMT]).map(r => r.amt);
         const gespeichert = App.aemterEmails();
@@ -1642,7 +1600,8 @@ const Views = {
         </div>`;
       })()}
 
-      <!-- Vorlagen für E-Mails & Briefe -->
+`,
+      vorlagen: `      <!-- Vorlagen für E-Mails & Briefe -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✉︎ Vorlagen für E-Mails &amp; Briefe</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -1667,7 +1626,8 @@ const Views = {
         </div>
       </div>
 
-      <!-- Backups & Papierkorb -->
+`,
+      backups: `      <!-- Backups & Papierkorb -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⟲ Backups &amp; Papierkorb</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -1680,10 +1640,12 @@ const Views = {
         <div id="backupBox" style="margin-top:12px"><div style="font-size:12px;color:var(--clr-text-light)">Backups werden geladen…</div></div>
       </div>
 
-      <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
+`,
+      dbtools: `      <!-- Datenbank-Tools: Bestand, Verdichten, Jahrgänge mit Archiv löschen, Aufräumen/Neuaufbau -->
       ${typeof DbTools !== 'undefined' ? DbTools.cardHtml() : ''}
 
-      <!-- Textbausteine für Bemerkungen + Sonstiges -->
+`,
+      textbausteine: `      <!-- Textbausteine für Bemerkungen + Sonstiges -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✎ Textbausteine für Bemerkungen</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -1697,7 +1659,8 @@ const Views = {
         </div>
       </div>
 
-      <!-- Word-Vorlage für Serienbriefe -->
+`,
+      word: `      <!-- Word-Vorlage für Serienbriefe -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">✎ Word-Vorlage für Serienbriefe an Betriebe</div>
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
@@ -1738,7 +1701,8 @@ const Views = {
         <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">▤ Beispiel-Vorlage herunterladen</button>
       </div>
 
-      <!-- Änderungs-Logbuch -->
+`,
+      logbuch: `      <!-- Änderungs-Logbuch -->
       ${(() => {
         const logCount = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE ibykus_relevant=1 AND exportiert=0") || 0;
         const logAll = App.scalar("SELECT COUNT(*) FROM aenderungslog") || 0;
@@ -1753,10 +1717,12 @@ const Views = {
         </div>`;
       })()}
 
-      <!-- Import-Historie (aus der Datenbank, mit Detail-Ansicht) -->
+`,
+      historie: `      <!-- Import-Historie (aus der Datenbank, mit Detail-Ansicht) -->
       <div style="margin-top:16px">${ImportHandler.historieHtml(20)}</div>
 
-      <!-- Betrieb-Duplikate -->
+`,
+      dupes: `      <!-- Betrieb-Duplikate -->
       ${(() => {
         const dupes = App.query(`SELECT b1.id as id1, b1.name as name1, b2.id as id2, b2.name as name2
           FROM betriebe b1, betriebe b2
@@ -1778,8 +1744,43 @@ const Views = {
           </tbody></table>
         </div>`;
       })()}
+`,
+    };
+  },
+  EINST_TABS: [['persoenlich', 'Persönlich'], ['kontakt', 'Kontakt & Vorlagen'], ['regeln', 'Regeln & Textbausteine']],
+  einstellungen() {
+    const mc = document.getElementById('mainContent');
+    const t = this._einstellungenTeile();
+    const tab = this.EINST_TABS.some(x => x[0] === App.uGet('einst_tab')) ? App.uGet('einst_tab') : 'persoenlich';
+    mc.innerHTML = `<div class="fade-in">
+      <div class="page-header">
+        <h2>Einstellungen</h2>
+        <p>Darstellung und Menü, Kontaktdaten und Vorlagen, Regeln und Textbausteine. Verbindung, Sicherungen, Papierkorb, Datenbank-Tools und Logbuch stehen unter <a href="#" onclick="event.preventDefault();App.navigate('wartung')" style="color:var(--clr-forest);font-weight:600">Wartung</a>.</p>
+      </div>
+      <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
+      <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
+      <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.aemter}${t.vorlagen}${t.word}</div>
+      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
-    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) { console.warn('DbTools:', e); } } if (typeof Melden !== 'undefined') { try { Melden.renderCard(); } catch(e) { console.warn('Melden:', e); } } }, 50);
+    setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
+  },
+  einstTab(k, btn) {
+    try { App.uSet('einst_tab', k); } catch(e) {}
+    document.querySelectorAll('.einst-tab').forEach(e => { e.style.display = e.id === 'einstTab_' + k ? '' : 'none'; });
+    document.querySelectorAll('.tabs .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  },
+  // Wartung: alles, was die Datenbank und die Verbindung betrifft – getrennt von den persönlichen Einstellungen
+  wartung() {
+    const mc = document.getElementById('mainContent');
+    const t = this._einstellungenTeile();
+    mc.innerHTML = `<div class="fade-in">
+      <div class="page-header">
+        <h2>Wartung</h2>
+        <p>Verbindung, Sicherungen und Papierkorb, Datenbank-Tools, Logbuch und Import-Historie</p>
+      </div>
+      ${t.verbindung}${t.backups}${t.dbtools}${t.logbuch}${t.historie}${t.dupes}
+    </div>`;
+    setTimeout(() => { this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) {} } }, 0);
   },
 
   // ── Vorlagen-Editor ──
@@ -2225,7 +2226,7 @@ const Views = {
     const c = document.getElementById('mainContent');
     const version = '2.0';
     const buildDate = '27.04.2026';
-    const helpSections = ['Schnellstart','Ordnerstruktur','Startbildschirm','Dashboard','Stammdaten','IBYKUS-Import','Kontrollplanung','Kontrolldurchführung','KW-Raster & Bulk-Editing','Ausbildungsverlauf (Phasen)','Azubi-Akte','Wiedervorlagen','Berichte & Export','Jahresbericht PDF','Globale Filter','Globale Suche','Tastenkürzel (vollständig)','Undo/Redo','Multi-User & Sync','Datensicherung','Nacherfassung (Altdaten)','Einstellungen','Wartung & Administration','Datenschutz & Rechtskonformität','FAQ'];
+    const helpSections = ['Start und Anmeldung','Startseite (Dashboard)','Azubis und Stammdaten','Import und Nacherfassung','Termine planen','Kontrolltag: Durchsicht, Raster, Tastenkürzel, Undo','Wiedervorlagen','Berichte und Export','Filter und Suche','Zusammenarbeit und Sicherung','Einstellungen und Wartung','Datenschutz und FAQ'];
     c.innerHTML = `
     <div class="fade-in">
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -2250,13 +2251,39 @@ const Views = {
         <div style="flex:1;min-width:0;font-size:13px;line-height:1.7">
 
           <div id="help_0" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">Schnellstart</div>
+            <div class="card-header" style="font-size:15px">Start und Anmeldung</div>
             <p>Die Berichtsheftkontrolle ist ein lokales Arbeitsinstrument zur Planung, Durchführung und Dokumentation von Berichtsheft-Durchsichten in den Ausbildungsberufen des Gartenbaus. Die Anwendung läuft vollständig im Browser (Chrome/Edge) – sämtliche Daten verbleiben auf dem lokalen Rechner bzw. dem Netzlaufwerk des Regierungspräsidiums.</p>
             <p style="margin-top:8px"><strong>Typischer Arbeitsablauf:</strong></p>
             <p>1. <strong>IBYKUS-Import</strong> → Stammdaten der Auszubildenden aus dem BAV-System übernehmen</p>
             <p>2. <strong>Kontrollplanung</strong> → Durchsichtstermine anlegen und Berufsschulklassen zuweisen</p>
             <p>3. <strong>Kontrolldurchführung</strong> → Ausbildungsnachweise prüfen, Ergebnisse im KW-Raster dokumentieren</p>
             <p>4. <strong>Nachverfolgung</strong> → Wiedervorlagen bearbeiten, Durchsichtsbögen und Berichte exportieren</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Ordnerstruktur</h4>
+            <p>Die Anwendung erstellt beim ersten Start automatisch folgende Verzeichnisstruktur im gewählten Arbeitsordner:</p>
+            <div style="background:var(--clr-sand-light);padding:12px;border-radius:var(--radius);font-family:monospace;font-size:12px;margin:8px 0">
+              Berichtsheftkontrolle/<br>
+              ├── berichtsheftkontrolle.html &nbsp;&nbsp;← <em>Die App</em><br>
+              ├── <strong>Datenbanken/</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Alle .sqlite-Dateien</em><br>
+              │&nbsp;&nbsp; └── berichtsheftkontrolle.sqlite<br>
+              └── <strong>_bhk/</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>App-Daten (nicht anfassen!)</em><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;├── sync_berichtsheftkontrolle &nbsp;← <em>Sync-Marker</em><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;├── pos-Hannes_Pix.json &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Prüfer-Positionen</em><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;└── backups/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Automatische Backups</em>
+            </div>
+            <p><strong>Datenbanken/</strong> kann mehrere .sqlite-Dateien enthalten (z.B. für verschiedene Jahre). Bei Start wird die zuletzt geöffnete automatisch geladen.</p>
+          </div>
+
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">⌂ Startbildschirm</h4>
+            <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
+            <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
+            <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
+            <p>• <strong>Neue Datenbank erstellen</strong> – Leere DB mit wählbarem Namen anlegen</p>
+            <p>• <strong>Demo-Modus</strong> – Testdaten im Arbeitsspeicher, ohne Speicherung</p>
+            <p style="margin-top:8px;color:var(--clr-amber)">⚠︎ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
+          </div>
+
           </div>
 
           <div id="help_neu" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
@@ -2296,33 +2323,7 @@ const Views = {
           </div>
 
           <div id="help_1" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Ordnerstruktur</div>
-            <p>Die Anwendung erstellt beim ersten Start automatisch folgende Verzeichnisstruktur im gewählten Arbeitsordner:</p>
-            <div style="background:var(--clr-sand-light);padding:12px;border-radius:var(--radius);font-family:monospace;font-size:12px;margin:8px 0">
-              Berichtsheftkontrolle/<br>
-              ├── berichtsheftkontrolle.html &nbsp;&nbsp;← <em>Die App</em><br>
-              ├── <strong>Datenbanken/</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Alle .sqlite-Dateien</em><br>
-              │&nbsp;&nbsp; └── berichtsheftkontrolle.sqlite<br>
-              └── <strong>_bhk/</strong> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>App-Daten (nicht anfassen!)</em><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;├── sync_berichtsheftkontrolle &nbsp;← <em>Sync-Marker</em><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;├── pos-Hannes_Pix.json &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Prüfer-Positionen</em><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;└── backups/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← <em>Automatische Backups</em>
-            </div>
-            <p><strong>Datenbanken/</strong> kann mehrere .sqlite-Dateien enthalten (z.B. für verschiedene Jahre). Bei Start wird die zuletzt geöffnete automatisch geladen.</p>
-          </div>
-
-          <div id="help_2" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">⌂ Startbildschirm</div>
-            <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
-            <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
-            <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
-            <p>• <strong>Neue Datenbank erstellen</strong> – Leere DB mit wählbarem Namen anlegen</p>
-            <p>• <strong>Demo-Modus</strong> – Testdaten im Arbeitsspeicher, ohne Speicherung</p>
-            <p style="margin-top:8px;color:var(--clr-amber)">⚠︎ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
-          </div>
-
-          <div id="help_3" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Dashboard</div>
+            <div class="card-header" style="font-size:15px">Startseite (Dashboard)</div>
             <p>Das Dashboard zeigt eine Übersicht der wichtigsten Kennzahlen des aktuellen Datenbestands:</p>
             <p>• <strong>Kontrollstatus-Regler</strong> – Zeigt Auszubildende an, deren letzte Durchsicht länger als X Monate zurückliegt. Regler auf 0 = noch nie kontrollierte Auszubildende.</p>
             <p>• <strong>Anstehende Prüfungstermine</strong> – Auflistung der nächsten Abschlussprüfungen mit Anzahl der betroffenen Auszubildenden.</p>
@@ -2338,8 +2339,8 @@ const Views = {
             <p style="margin-top:6px">Alle Diagramme reagieren auf die <strong>globalen Filter</strong> (Jahrgang, Berufsgruppe, Amt, BAV-Status).</p>
           </div>
 
-          <div id="help_4" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">▤ Stammdaten</div>
+          <div id="help_2" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">Azubis und Stammdaten</div>
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
             <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Azubis für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
@@ -2349,10 +2350,30 @@ const Views = {
             <p><strong>Fachrichtungen</strong> – Fachrichtungen im Gartenbau (z.B. GaLaBau, Baumschule, Zierpflanzenbau) sowie Fachwerkerberufe.</p>
             <p><strong>Klassen</strong> – Automatisch generierte Berufsschulklassen (Schule + Jahrgang + Fachrichtung + Ausbildungsjahr).</p>
             <p><strong>Ausbildungsberater</strong> – Liste der Sachbearbeiter/Ausbildungsberater, die Durchsichten durchführen.</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">${svgIcon('dashboard', 15)} Ausbildungsverlauf (Phasen)</h4>
+            <p>Pro Azubi lassen sich Phasen der Ausbildung hinterlegen: Vollzeit, Teilzeit, Betriebswechsel, Unterbrechungen (Elternzeit, lange Krankheit). Erreichbar über das ${svgIcon('dashboard', 12)}-Symbol in Stammdaten, Azubi-Ansicht und Kontrolle sowie aus dem Bearbeiten-Fenster.</p>
+            <p>• Aus den Phasen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit</p>
+            <p>• Ohne Phasen gilt Ausbildungsbeginn und -ende aus den Stammdaten</p>
+            <p style="margin-top:8px"><strong>Phasentypen:</strong> <strong>Ausbildung</strong> (Betrieb, Teilzeit 25–100 %, pauschale Fehltage) und <strong>Unterbrechung</strong> (Mutterschutz, Elternzeit, Krankheit …, verschiebt das Vertragsende)</p>
+            <p>• „Standard-Phase aus Stammdaten erzeugen" legt eine Phase aus Ausbildungsbeginn und -ende an</p>
+            <p>• Überlappungen und Lücken werden erkannt; eine neue, überlappende Phase fragt, ob gekürzt, geteilt oder so übernommen wird</p>
+            <p>• Das Lehrjahr rechnet mit dem Vollzeit-Äquivalent, nicht mit der Kalenderzeit; Unterbrechungen erscheinen im KW-Raster als graue Wochen</p>
+            <p>• <strong>Import-Schutz:</strong> Würde ein IBYKUS-Re-Import Beginn oder Ende ändern, obwohl Phasen bestehen, bleiben die Datumsfelder stehen und ein Konflikt-Dialog fragt nach</p>
+            <p>• Tarife, Vergütung und Urlaub werden nicht mehr geführt – sie gehören nicht zur Berichtsheftkontrolle</p>
           </div>
 
-          <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">IBYKUS-Import</div>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">${svgIcon('akte', 15)} Azubi-Akte</h4>
+            <p>Pro Azubi können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
+            <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
+            <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
+          </div>
+
+          </div>
+
+          <div id="help_3" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+            <div class="card-header" style="font-size:15px">Import und Nacherfassung</div>
             <p>Der Import bildet die zentrale Schnittstelle zur Datenpflege. CSV-Exportdateien aus dem BAV-System IBYKUS werden eingelesen und mit dem lokalen Datenbestand abgeglichen.</p>
             <p style="margin-top:8px"><strong>Ablauf:</strong></p>
             <p>1. In IBYKUS: Datenexport als CSV-Datei (Semikolon-getrennt, Zeichenkodierung UTF-8)</p>
@@ -2376,260 +2397,8 @@ const Views = {
                       <p style="margin-top:8px">• <strong>Datumsformat:</strong> Der Import erkennt automatisch, ob die Datei deutsche (01.09.2024) oder US-Daten (9/1/07, häufig nach Excel-Bearbeitung) enthält, und zeigt die Erkennung im Dialog an. Bei mehrdeutigen Dateien bitte anhand der Beispielwerte prüfen – eine falsche Wahl vertauscht Tag und Monat.</p>
             <p>• <strong>Import-Historie:</strong> Jeder Lauf wird mit Datei, Bearbeiter, Zahlen und Fehlerliste protokolliert (oben in der Import-Ansicht). Die Fehlerliste lässt sich als Excel exportieren.</p>
 </div>
-
-          <div id="help_6" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Kontrollplanung</div>
-            <p>Unter <em>Planung</em> werden Durchsichtstermine (Kontrolltermine) angelegt und Berufsschulklassen zugewiesen.</p>
-            <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
-            <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
-            <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
-            <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
-          </div>
-
-          <div id="help_7" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">Kontrolldurchführung</div>
-            <p>Das Kernmodul der Anwendung. Unter <em>Kontrolle</em> wird die eigentliche Durchsicht der Ausbildungsnachweise (Berichtshefte) dokumentiert.</p>
-            <p style="margin-top:8px"><strong>Ablauf je Auszubildendem:</strong></p>
-            <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
-            <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
-            <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
-            <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften. Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
-            <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
-            <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
-            <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
-            <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
-            <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
-            <p>Über den Button <em>Nach FR gruppieren</em> können die Azubis in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
-            <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
-            <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
-          </div>
-
-          <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">KW-Raster & Bulk-Editing</div>
-            <p>Das KW-Raster bildet alle Kalenderwochen eines Ausbildungsjahres ab. Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
-              <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
-              <strong>B</strong><span>Unterschrift des Ausbildenden/Ausbilders fehlt</span>
-              <strong>C</strong><span>Berufsschulthemen fehlen oder sind unvollständig</span>
-              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig</span>
-              <strong>E</strong><span>Inhaltlich lückenhaft (Tätigkeitsbeschreibungen unzureichend)</span>
-              <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig</span>
-              <strong>G</strong><span>Datum- oder KW-Angabe fehlt</span>
-              <strong>H</strong><span>Fehltage (1–5 Tage pro KW)</span>
-              <strong>I</strong><span>Sonstiges (Bemerkung erforderlich)</span>
-            </div>
-            <p style="margin-top:8px"><strong>Tastaturkürzel im KW-Raster:</strong></p>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
-              <code>A–G</code><span>Mängelcode direkt togglen (an/aus)</span>
-              <code>H</code><span>Fehltage-Eingabe öffnen (Popover)</span>
-              <code>1–5</code><span>Fehltage-Schnelleingabe (setzt H + Anzahl)</span>
-              <code>0</code><span>Fehltage entfernen</span>
-              <code>I</code><span>Sonstiges-Dialog mit Bemerkung + Textbausteinen</span>
-              <code>O</code><span>Keine Beanstandungen (als geprüft markieren)</span>
-              <code>Entf / Backspace</code><span>Alle Codes entfernen (→ behoben)</span>
-              <code>Leertaste / Enter</code><span>Vollständiges Bearbeitungs-Modal öffnen</span>
-              <code>Pfeiltasten</code><span>Zwischen KW-Zellen navigieren</span>
-            </div>
-            <p style="margin-top:8px"><strong>Mehrfachauswahl (Bulk-Editing):</strong></p>
-            <p>• <strong>Shift+Klick</strong> – Alle KWs von der zuletzt fokussierten bis zur geklickten Zelle markieren (blauer Rahmen)</p>
-            <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
-            <p>• <strong>Escape</strong> – Selektion aufheben</p>
-            <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
-            <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
-            <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
-            <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
-          </div>
-
-          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Ausbildungsverlauf (Phasen)</div>
-            <p>Pro Azubi lassen sich Phasen der Ausbildung hinterlegen: Vollzeit, Teilzeit, Betriebswechsel, Unterbrechungen (Elternzeit, lange Krankheit). Erreichbar über das ${svgIcon('dashboard', 12)}-Symbol in Stammdaten, Azubi-Ansicht und Kontrolle sowie aus dem Bearbeiten-Fenster.</p>
-            <p>• Aus den Phasen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit</p>
-            <p>• Ohne Phasen gilt Ausbildungsbeginn und -ende aus den Stammdaten</p>
-            <p style="margin-top:8px"><strong>Phasentypen:</strong> <strong>Ausbildung</strong> (Betrieb, Teilzeit 25–100 %, pauschale Fehltage) und <strong>Unterbrechung</strong> (Mutterschutz, Elternzeit, Krankheit …, verschiebt das Vertragsende)</p>
-            <p>• „Standard-Phase aus Stammdaten erzeugen" legt eine Phase aus Ausbildungsbeginn und -ende an</p>
-            <p>• Überlappungen und Lücken werden erkannt; eine neue, überlappende Phase fragt, ob gekürzt, geteilt oder so übernommen wird</p>
-            <p>• Das Lehrjahr rechnet mit dem Vollzeit-Äquivalent, nicht mit der Kalenderzeit; Unterbrechungen erscheinen im KW-Raster als graue Wochen</p>
-            <p>• <strong>Import-Schutz:</strong> Würde ein IBYKUS-Re-Import Beginn oder Ende ändern, obwohl Phasen bestehen, bleiben die Datumsfelder stehen und ein Konflikt-Dialog fragt nach</p>
-            <p>• Tarife, Vergütung und Urlaub werden nicht mehr geführt – sie gehören nicht zur Berichtsheftkontrolle</p>
-          </div>
-
-          <div id="help_10" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Azubi-Akte</div>
-            <p>Pro Azubi können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
-            <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
-            <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
-          </div>
-
-          <div id="help_11" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">◷ Wiedervorlagen</div>
-            <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
-            <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
-            <p>• <strong>Manuelle Anlage</strong> – Zusätzliche Wiedervorlagen können je Auszubildendem manuell erstellt werden</p>
-            <p>• <strong>Statusverlauf:</strong> Offen → Überfällig (nach Ablauf der Frist) → Erledigt</p>
-            <p>• <strong>Bearbeitungsnotizen</strong> können je Wiedervorlage hinterlegt werden (z.B. Rückmeldungen des Betriebs)</p>
-            <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
-          </div>
-
-          <div id="help_12" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">▤ Berichte & Export</div>
-            <p>Folgende Exportfunktionen stehen zur Verfügung:</p>
-            <p>• <strong>Jahresbericht (PDF)</strong> – Zusammenfassende Statistik mit Mängelverteilung, Berufsschulübersicht, Fachrichtungsauswertung, Betriebsranking und detaillierter Aufschlüsselung nach Fachrichtung und zuständigem Amt</p>
-            <p>• <strong>Durchsichtsbogen (PDF)</strong> – Einzeldokument je Auszubildendem mit allen Prüfergebnissen, KW-Mängeln und Pflichtbestandteilen</p>
-            <p>• <strong>Serienbrief (Word)</strong> – Automatisierte Brieferzeugung über eigene .docx-Vorlage mit Platzhaltern (z.B. Aufforderungsschreiben an Ausbildungsbetriebe)</p>
-            <p>• <strong>CSV-Export</strong> – Tabellarischer Export für die Weiterverarbeitung in Microsoft Excel</p>
-            <p>• <strong>Snapshot-Archiv</strong> – Unveränderliche Momentaufnahme der Durchsichtsergebnisse eines Termins zur Dokumentation und Archivierung</p>
-            <p>• <strong>Datenqualität IBYKUS</strong> – Prüft den Datenbestand auf Fehler (fehlende IBYKUS-ID, unplausible Daten, Ende vor Beginn), Lücken (Klasse/Jahrgang/Kontakt fehlt) und Duplikate. Ergebnis sortier- und filterbar nach Schweregrad/Kategorie; Zeilen-Klick öffnet den Datensatz. Excel-Export als Abarbeitungsliste – Korrekturen an IBYKUS-Stammdaten immer <strong>in IBYKUS</strong> vornehmen (Einbahn-Datenfluss).</p>
-          </div>
-
-          <div id="help_13" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Jahresbericht (PDF)</div>
-            <p>Der Jahresbericht wird unter <em>Berichte → Jahresbericht generieren</em> erstellt und enthält:</p>
-            <p><strong>Seite 1 – Zusammenfassung:</strong></p>
-            <p>• Kennzahlen (Azubis, Kontrolliert, In Ordnung, Beanstandungen, Termine, Wiedervorlagen)</p>
-            <p>• Häufigste Mängelcodes als Balkendiagramm</p>
-            <p>• Ergebnisse pro Berufsschule (Tabelle)</p>
-            <p>• Ergebnisse pro Fachrichtung (Tabelle)</p>
-            <p>• Betriebe mit häufigsten Beanstandungen (Top 10)</p>
-            <p><strong>Seite 2+ – Berufsschul-Detail:</strong></p>
-            <p>• Pro Berufsschule: Zwei-Spalten-Aufschlüsselung</p>
-            <p>&nbsp;&nbsp;Links: Fachrichtungen mit Anzahl und %-Anteil</p>
-            <p>&nbsp;&nbsp;Rechts: Zuständige Ämter mit Anzahl und %-Anteil</p>
-            <p>• Gesamtübersicht nach Amt (alle Schulen zusammengefasst)</p>
-          </div>
-
-          <div id="help_14" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">Globale Filter</div>
-            <p>Die Filter in der Topbar wirken auf <strong>alle Ansichten</strong> gleichzeitig (Dashboard, Stammdaten, Kontrolle etc.):</p>
-            <p>• <strong>Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
-            <p>• <strong>Berufsgruppe</strong> (Mehrfachauswahl) – z.B. nur GaLaBau + Baumschule</p>
-            <p>• <strong>§ Zuständiges Amt</strong> (Mehrfachauswahl) – z.B. nur 93 RP Freiburg</p>
-            <p>• <strong>✎ Zwischenprüfung</strong> (Mehrfachauswahl) – Zwischenprüfungstermin (z.B. H2026, F2027)</p>
-            <p>• <strong>▤ BAV-Status</strong> – Aktive BAV / Alle BAV / Beendete BAV</p>
-            <p style="margin-top:6px">Ein aktiver Filter wird als <strong>Badge</strong> unter der Topbar angezeigt. Klick auf ✕ entfernt einzelne Filter, "Alle zurücksetzen" setzt alles zurück.</p>
-            <p style="margin-top:8px;font-weight:600;color:var(--clr-forest-dark)">Bezeichnungen Prüfungstermine:</p>
-            <div style="margin-top:4px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
-              <p><strong>Abschlussprüfung (AP)</strong> – Termin des Abschlussjahrgangs:</p>
-              <p style="margin-left:12px"><strong>S</strong> = <strong>S</strong>ommer (z.B. <strong>S2027</strong> = Sommerprüfung 2027, ca. Juni)</p>
-              <p style="margin-left:12px"><strong>W</strong> = <strong>W</strong>inter (z.B. <strong>W2027</strong> = Winterprüfung 2027, ca. Januar)</p>
-              <p style="margin-top:6px"><strong>Zwischenprüfung (ZP)</strong> – Termin der Zwischenprüfung:</p>
-              <p style="margin-left:12px"><strong>H</strong> = <strong>H</strong>erbst (z.B. <strong>H2026</strong> = Herbstprüfung 2026, ca. September/Oktober)</p>
-              <p style="margin-left:12px"><strong>F</strong> = <strong>F</strong>rühjahr (z.B. <strong>F2027</strong> = Frühjahrsprüfung 2027, ca. März/April)</p>
-              <p style="margin-top:6px;color:var(--clr-text-light)">AP und ZP nutzen unterschiedliche Bezeichner (S/W vs. H/F), weil die Prüfungszeiträume verschieden sind. Die Werte stammen aus dem IBYKUS-Export.</p>
-            </div>
-            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Erweiterte Filter (+ Filter):</p>
-            <p>Über den <strong>+ Filter</strong>-Button können zusätzliche dynamische Filter hinzugefügt werden. Diese sind in 5 Kategorien organisiert:</p>
-            <div style="margin-top:6px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
-              <p><strong>Ausbildung</strong> – Verkürzer, Landesfachklasse, Geschlecht, Schulabschluss, Lehrjahr, Ausbildungsbeginn/-ende</p>
-              <p><strong>Prüfungen</strong> – AP-Zulassung, AP bestanden, Prüfungserfolg, Zwischenprüfung</p>
-              <p><strong>Standort</strong> – Berufsschule, Klasse, PLZ-Bereich, Betrieb Ort, Betrieb</p>
-              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Azubi, Inaktiv-Grund</p>
-              <p><strong>Datenqualität</strong> – Ohne Betrieb, Ohne Klasse, Ohne E-Mail</p>
-            </div>
-            <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
-          </div>
-
-          <div id="help_15" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Globale Suche (Strg+K)</div>
-            <p>Die Suche durchsucht den <strong>gesamten Datenbestand in allen Feldern</strong> – Azubis (auch inaktive), Betriebe, Ausbilder, Schulen (inkl. Lehrer/Ansprechpartner) und Klassen: Namen, Adressen, Telefon, E-Mail, IBYKUS-ID, Betriebsnummer, Bemerkungen u.v.m.</p>
-            <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
-            <p>• <strong>Tippfehler-tolerant (fuzzy)</strong>: „maier" findet auch „Mayer", „muler" den „Müller"; Umlaute sind egal (mueller = müller = muller)</p>
-            <p>• Treffer sind nach Relevanz sortiert (exakter Name vor Teilstring vor Tippfehler-Treffer); inaktive Azubis erscheinen markiert weiter hinten</p>
-            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz</p>
-            <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
-          </div>
-
-          <div id="help_16" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
-            <div class="card-header" style="font-size:15px">⌨︎ Tastenkürzel (vollständig)</div>
-            <p><strong>Allgemein:</strong></p>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+K</kbd><span>Globale Suche öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+S</kbd><span>Sofort speichern</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F1 / ?</kbd><span>Tastenkürzel-Übersicht</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Escape</kbd><span>Dialog schließen / Selektion aufheben</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Alt+1–8</kbd><span>Schnellnavigation (Dashboard, Stammdaten, Import, Planung, Kontrolle, WV, Berichte, Einstellungen)</span>
-            </div>
-            <p><strong>In der Kontrolle:</strong></p>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">/</kbd><span>Azubi-Suche fokussieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F5</kbd><span>Von Datenträger neu laden</span>
-            </div>
-            <p><strong>Im KW-Raster:</strong></p>
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">A–G</kbd><span>Mängelcode togglen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">H</kbd><span>Fehltage-Popover öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">1–5</kbd><span>Fehltage-Schnelleingabe</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">0</kbd><span>Fehltage entfernen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">I</kbd><span>Sonstiges-Dialog (Bemerkung)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">O</kbd><span>Keine Beanstandungen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Entf / Backspace</kbd><span>Zelle leeren (→ behoben)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Leertaste / Enter</kbd><span>Bearbeitungs-Modal öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Pfeiltasten</kbd><span>Zwischen Zellen navigieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Klick</kbd><span>Bereich auswählen (Bulk)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Pfeiltaste</kbd><span>Selektion erweitern</span>
-            </div>
-          </div>
-
-          <div id="help_17" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">↩︎ Undo / Redo</div>
-            <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
-            <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
-            <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederherstellen (Redo)</p>
-            <p>• Der Undo-Verlauf ist session-lokal und wird beim Verlassen der Kontrolle zurückgesetzt</p>
-            <p>• Unterstützt: Code-Toggles, Fehltage-Änderungen, Zellen leeren</p>
-          </div>
-
-          <div id="help_18" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">Mehrbenutzer-Betrieb & Synchronisation</div>
-            <p>Mehrere Ausbildungsberater (2–3) können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
-            <p><strong>Funktionsweise:</strong></p>
-            <p>1. Alle Sachbearbeiter öffnen dieselbe HTML-Datei und wählen denselben Arbeitsordner</p>
-            <p>2. Jeder Sachbearbeiter wählt seinen Namen in der Benutzerauswahl (Topbar, rechts oben)</p>
-            <p>3. Jeder Rechner schreibt seine Änderungen NUR in sein eigenes Protokoll (<code>_bhk/oplog_*</code>) und liest alle 3 Sekunden die Protokolle der anderen – niemand überschreibt die Datenbankdatei im laufenden Betrieb</p>
-            <p>4. Die Datenbankdatei ist der gemeinsame „Schnappschuss“ und wird nur gelegentlich (gesperrt) zusammengefasst. Änderungen der Kollegen erscheinen nach 3–13 Sekunden – das ist normal</p>
-            <p>5. Ändern zwei Personen dieselbe Zeile, gewinnt die zeitlich spätere Änderung je Feld („Last Write Wins“) – auf allen Rechnern gleich</p>
-            <p><strong>Voraussetzungen am Netzlaufwerk (wichtig!):</strong></p>
-            <p>• Der Arbeitsordner liegt auf <strong>einem</strong> Dateiserver – keine DFS-Replikation, kein OneDrive-/SharePoint-Sync, keine Windows-<strong>Offlinedateien</strong> („Immer offline verfügbar“) für diese Freigabe. Sonst arbeiten die Rechner auf Kopien</p>
-            <p>• Virenscanner: Ausnahme für den Unterordner <code>_bhk/</code> (der Browser schreibt dort kurzlebige <code>.crswap</code>-Dateien)</p>
-            <p>• Rechneruhren per Domäne synchron; pro Datenbank nur <strong>ein</strong> Browser-Tab je Person</p>
-            <p>• Bei „Verbindung getrennt“: Änderungen bleiben lokal gepuffert (bis 7 Tage), „Erneut verbinden“ holt den Ordnerzugriff zurück. Nach einem IBYKUS-Import das Fenster offen lassen, bis der Status wieder grün ist</p>
-            <p><strong>Bearbeitungshinweis in der Kontrolle (kein hartes Sperren):</strong></p>
-            <p>• Öffnen zwei Prüfer denselben Azubi, sieht der später Hinzugekommene ein ⊘ mit Hinweis; Vorrang hat, wer zuerst da war (bei gleichzeitigem Einstieg entscheidet der Name – beide Seiten entscheiden gleich)</p>
-            <p>• Beim Öffnen eines Termins startet jeder Prüfer beim ersten offenen Azubi, an dem noch niemand arbeitet; „Nächster freier Azubi" springt weiter</p>
-            <p>• „Sperre aufheben" erlaubt das Bearbeiten trotzdem und bleibt für diesen Azubi gemerkt – gleichzeitige Änderungen löst dann „die spätere gewinnt" je Feld auf</p>
-            <p>• Der Hinweis verschwindet, sobald der Kollege weiterblättert oder „Speichern &amp; Freigeben" klickt; Positionen älter als 15 Minuten werden ignoriert, beim Schließen des Browsers wird die eigene Position gelöscht</p>
-            <p><strong>Netzlaufwerk weggebrochen (VPN getrennt, Laufwerk P: nicht mehr da):</strong></p>
-            <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
-            <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
-            <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
-            <p><strong>Große Bestände (mehrere tausend Azubis):</strong></p>
-            <p>• Die Anwendung rechnet auch mit 5000 Azubis schnell; teuer sind allein Vorgänge mit der ganzen Datenbankdatei. Deshalb: <strong>eine</strong> komprimierte Sicherung je Datenbank und Intervall (Einstellung, Standard 60 Minuten) statt alle 5 Minuten je Rechner; Kompaktierung erst ab 10 % der Dateigröße an Änderungen, frühestens alle 30 Minuten und nie von selbst über eine sehr langsame, langsame oder getaktete Leitung; Sicherungen nie über eine getaktete oder sehr langsame Leitung; kein Nachladen des Schnappschusses, wenn der eigene Stand ihn schon enthält; lokaler Offline-Stand nur auf Wunsch; große Änderungsschübe der Kollegen in einer Transaktion</p>
-            <p>• <strong>Dateiversionierung auf dem Server</strong> (Schattenkopien, Sicherungsagent): Jede geschriebene Sicherung und jeder Schnappschuss wird dort als eigene Version aufgehoben, und während der Versionsbildung stocken Schreibzugriffe kurz. Deshalb das Sicherungsintervall auf 120 bis 240 Minuten setzen und den Ordner <code>_bhk/</code> mit seinen <code>.crswap</code>-Tauschdateien vom Sicherungsagenten ausnehmen lassen</p>
-            <p>• Bestand klein halten: Einstellungen → Datenbank-Tools → alte Jahrgänge löschen, Aufräumen, Neuaufbau</p>
-            <p><strong>Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk):</strong></p>
-            <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
-            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Kompaktierung, Sperre, Sicherung) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt im Zustandsbild („▤ Zustandsbild kopieren“ unter Einstellungen → Verbindung, oder <code>bhk.kopieren()</code> in der Konsole) – das ist der Weg, ein Problem an die Entwicklung zu geben</p>
-            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
-            <p><strong>Verlustschutz – wo eine Änderung wann liegt:</strong></p>
-            <p>• Jede Eingabe steht sofort im <strong>Absturzpuffer</strong> dieses Rechners (Browser-Speicher, übersteht Tab-Absturz und Neustart, wird beim nächsten Start desselben Rechners eingespielt, 30 Tage lang) und wird gebündelt nach 1,5 s (langsame Leitung 10 s, getaktete Verbindung 60 s) an das <strong>Protokoll auf dem Netzlaufwerk</strong> angehängt – spätestens eine Sammelpause nach der ersten wartenden Änderung, auch wenn laufend weiter getippt wird. Beim Abschluss eines Berichtshefts („Freigeben“), beim Azubi-Wechsel, beim Terminwechsel und beim Verlassen der Kontrolle wird <strong>sofort</strong> angehängt</p>
-            <p>• Die Schnellnavigation zeigt Azubis mit noch nicht angehängten Änderungen mit einer orangen Unterkante; neben „Freigeben“ steht „✓ auf dem Netzlaufwerk“ oder „⏳ wird geschrieben…“. Ein Klick auf den Speicherstatus in der Kopfzeile (oder auf diese Anzeige) öffnet die Liste der wartenden Änderungen mit „Jetzt schreiben“ und „Änderungen als Datei“ als Notausgang</p>
-            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild. Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
-            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Der Abgleich setzt dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
-            <p><strong>Positionsanzeige:</strong></p>
-            <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
-          </div>
-
-          <div id="help_19" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">Datensicherung</div>
-            <p><strong>Automatisches Speichern:</strong> Jede Änderung wird nach 1,5 Sekunden automatisch in die Datenbankdatei geschrieben (verzögertes Speichern). Ein manuelles Speichern ist nicht erforderlich.</p>
-            <p><strong>Automatische Backups:</strong> Sicherungskopien der Datenbank werden regelmäßig in <code>_bhk/backups/</code> erstellt. Ältere Sicherungen werden automatisch bereinigt.</p>
-            <p><strong>Empfehlung:</strong> Der Arbeitsordner sollte auf einem regelmäßig gesicherten Netzlaufwerk liegen. Die SQLite-Datei im Unterordner <code>Datenbanken/</code> enthält den gesamten Datenbestand und kann zusätzlich manuell gesichert werden.</p>
-          </div>
-
-          <div id="help_20" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
-            <div class="card-header" style="font-size:15px">Nacherfassung (Übernahme von Altdaten)</div>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Nacherfassung (Übernahme von Altdaten)</h4>
             <p>Beim Umstieg von der bisherigen papiergestützten Dokumentation auf die Berichtsheftkontrolle müssen vergangene Durchsichten nicht vollständig nacherfasst werden. Empfohlen wird folgender pragmatischer Ansatz:</p>
 
             <p style="margin-top:10px;font-weight:700;color:var(--clr-forest-dark)">⌖ Was lohnt sich nachzuerfassen?</p>
@@ -2684,8 +2453,240 @@ const Views = {
             </div>
           </div>
 
-          <div id="help_21" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">⚙︎ Einstellungen</div>
+
+          <div id="help_4" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">Termine planen</div>
+            <p>Unter <em>Planung</em> werden Durchsichtstermine (Kontrolltermine) angelegt und Berufsschulklassen zugewiesen.</p>
+            <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
+            <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
+            <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
+            <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
+          </div>
+
+          <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
+            <div class="card-header" style="font-size:15px">Kontrolltag: Durchsicht, Raster, Tastenkürzel, Undo</div>
+            <p>Das Kernmodul der Anwendung. Unter <em>Kontrolle</em> wird die eigentliche Durchsicht der Ausbildungsnachweise (Berichtshefte) dokumentiert.</p>
+            <p style="margin-top:8px"><strong>Ablauf je Auszubildendem:</strong></p>
+            <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
+            <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
+            <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
+            <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften. Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
+            <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
+            <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
+            <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
+            <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
+            <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
+            <p>Über den Button <em>Nach FR gruppieren</em> können die Azubis in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
+            <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
+            <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">KW-Raster & Bulk-Editing</h4>
+            <p>Das KW-Raster bildet alle Kalenderwochen eines Ausbildungsjahres ab. Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
+              <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
+              <strong>B</strong><span>Unterschrift des Ausbildenden/Ausbilders fehlt</span>
+              <strong>C</strong><span>Berufsschulthemen fehlen oder sind unvollständig</span>
+              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig</span>
+              <strong>E</strong><span>Inhaltlich lückenhaft (Tätigkeitsbeschreibungen unzureichend)</span>
+              <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig</span>
+              <strong>G</strong><span>Datum- oder KW-Angabe fehlt</span>
+              <strong>H</strong><span>Fehltage (1–5 Tage pro KW)</span>
+              <strong>I</strong><span>Sonstiges (Bemerkung erforderlich)</span>
+            </div>
+            <p style="margin-top:8px"><strong>Tastaturkürzel im KW-Raster:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
+              <code>A–G</code><span>Mängelcode direkt togglen (an/aus)</span>
+              <code>H</code><span>Fehltage-Eingabe öffnen (Popover)</span>
+              <code>1–5</code><span>Fehltage-Schnelleingabe (setzt H + Anzahl)</span>
+              <code>0</code><span>Fehltage entfernen</span>
+              <code>I</code><span>Sonstiges-Dialog mit Bemerkung + Textbausteinen</span>
+              <code>O</code><span>Keine Beanstandungen (als geprüft markieren)</span>
+              <code>Entf / Backspace</code><span>Alle Codes entfernen (→ behoben)</span>
+              <code>Leertaste / Enter</code><span>Vollständiges Bearbeitungs-Modal öffnen</span>
+              <code>Pfeiltasten</code><span>Zwischen KW-Zellen navigieren</span>
+            </div>
+            <p style="margin-top:8px"><strong>Mehrfachauswahl (Bulk-Editing):</strong></p>
+            <p>• <strong>Shift+Klick</strong> – Alle KWs von der zuletzt fokussierten bis zur geklickten Zelle markieren (blauer Rahmen)</p>
+            <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
+            <p>• <strong>Escape</strong> – Selektion aufheben</p>
+            <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
+            <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
+            <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
+          </div>
+
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">⌨︎ Tastenkürzel (vollständig)</h4>
+            <p><strong>Allgemein:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+K</kbd><span>Globale Suche öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+S</kbd><span>Sofort speichern</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F1 / ?</kbd><span>Tastenkürzel-Übersicht</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Escape</kbd><span>Dialog schließen / Selektion aufheben</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Alt+1–8</kbd><span>Schnellnavigation (Dashboard, Stammdaten, Import, Planung, Kontrolle, WV, Berichte, Einstellungen)</span>
+            </div>
+            <p><strong>In der Kontrolle:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">/</kbd><span>Azubi-Suche fokussieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F5</kbd><span>Von Datenträger neu laden</span>
+            </div>
+            <p><strong>Im KW-Raster:</strong></p>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">A–G</kbd><span>Mängelcode togglen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">H</kbd><span>Fehltage-Popover öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">1–5</kbd><span>Fehltage-Schnelleingabe</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">0</kbd><span>Fehltage entfernen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">I</kbd><span>Sonstiges-Dialog (Bemerkung)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">O</kbd><span>Keine Beanstandungen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Entf / Backspace</kbd><span>Zelle leeren (→ behoben)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Leertaste / Enter</kbd><span>Bearbeitungs-Modal öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Pfeiltasten</kbd><span>Zwischen Zellen navigieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Klick</kbd><span>Bereich auswählen (Bulk)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Pfeiltaste</kbd><span>Selektion erweitern</span>
+            </div>
+          </div>
+
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">↩︎ Undo / Redo</h4>
+            <p>Im KW-Raster können Änderungen rückgängig gemacht werden:</p>
+            <p>• <strong>Strg+Z</strong> – Letzte Aktion rückgängig machen (Undo)</p>
+            <p>• <strong>Strg+Y</strong> oder <strong>Strg+Shift+Z</strong> – Wiederherstellen (Redo)</p>
+            <p>• Der Undo-Verlauf ist session-lokal und wird beim Verlassen der Kontrolle zurückgesetzt</p>
+            <p>• Unterstützt: Code-Toggles, Fehltage-Änderungen, Zellen leeren</p>
+          </div>
+
+          </div>
+
+          <div id="help_6" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">Wiedervorlagen</div>
+            <p>Wiedervorlagen dienen der Nachverfolgung offener Beanstandungen aus einer Berichtsheft-Durchsicht.</p>
+            <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
+            <p>• <strong>Manuelle Anlage</strong> – Zusätzliche Wiedervorlagen können je Auszubildendem manuell erstellt werden</p>
+            <p>• <strong>Statusverlauf:</strong> Offen → Überfällig (nach Ablauf der Frist) → Erledigt</p>
+            <p>• <strong>Bearbeitungsnotizen</strong> können je Wiedervorlage hinterlegt werden (z.B. Rückmeldungen des Betriebs)</p>
+            <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
+          </div>
+
+          <div id="help_7" class="card" style="margin-bottom:12px">
+            <div class="card-header" style="font-size:15px">Berichte und Export</div>
+            <p>Folgende Exportfunktionen stehen zur Verfügung:</p>
+            <p>• <strong>Jahresbericht (PDF)</strong> – Zusammenfassende Statistik mit Mängelverteilung, Berufsschulübersicht, Fachrichtungsauswertung, Betriebsranking und detaillierter Aufschlüsselung nach Fachrichtung und zuständigem Amt</p>
+            <p>• <strong>Durchsichtsbogen (PDF)</strong> – Einzeldokument je Auszubildendem mit allen Prüfergebnissen, KW-Mängeln und Pflichtbestandteilen</p>
+            <p>• <strong>Serienbrief (Word)</strong> – Automatisierte Brieferzeugung über eigene .docx-Vorlage mit Platzhaltern (z.B. Aufforderungsschreiben an Ausbildungsbetriebe)</p>
+            <p>• <strong>CSV-Export</strong> – Tabellarischer Export für die Weiterverarbeitung in Microsoft Excel</p>
+            <p>• <strong>Snapshot-Archiv</strong> – Unveränderliche Momentaufnahme der Durchsichtsergebnisse eines Termins zur Dokumentation und Archivierung</p>
+            <p>• <strong>Datenqualität IBYKUS</strong> – Prüft den Datenbestand auf Fehler (fehlende IBYKUS-ID, unplausible Daten, Ende vor Beginn), Lücken (Klasse/Jahrgang/Kontakt fehlt) und Duplikate. Ergebnis sortier- und filterbar nach Schweregrad/Kategorie; Zeilen-Klick öffnet den Datensatz. Excel-Export als Abarbeitungsliste – Korrekturen an IBYKUS-Stammdaten immer <strong>in IBYKUS</strong> vornehmen (Einbahn-Datenfluss).</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Jahresbericht (PDF)</h4>
+            <p>Der Jahresbericht wird unter <em>Berichte → Jahresbericht generieren</em> erstellt und enthält:</p>
+            <p><strong>Seite 1 – Zusammenfassung:</strong></p>
+            <p>• Kennzahlen (Azubis, Kontrolliert, In Ordnung, Beanstandungen, Termine, Wiedervorlagen)</p>
+            <p>• Häufigste Mängelcodes als Balkendiagramm</p>
+            <p>• Ergebnisse pro Berufsschule (Tabelle)</p>
+            <p>• Ergebnisse pro Fachrichtung (Tabelle)</p>
+            <p>• Betriebe mit häufigsten Beanstandungen (Top 10)</p>
+            <p><strong>Seite 2+ – Berufsschul-Detail:</strong></p>
+            <p>• Pro Berufsschule: Zwei-Spalten-Aufschlüsselung</p>
+            <p>&nbsp;&nbsp;Links: Fachrichtungen mit Anzahl und %-Anteil</p>
+            <p>&nbsp;&nbsp;Rechts: Zuständige Ämter mit Anzahl und %-Anteil</p>
+            <p>• Gesamtübersicht nach Amt (alle Schulen zusammengefasst)</p>
+          </div>
+
+          </div>
+
+          <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-blue)">
+            <div class="card-header" style="font-size:15px">Filter und Suche</div>
+            <p>Die Filter in der Topbar wirken auf <strong>alle Ansichten</strong> gleichzeitig (Dashboard, Stammdaten, Kontrolle etc.):</p>
+            <p>• <strong>Jahrgang</strong> (Mehrfachauswahl) – Abschlussprüfungstermin (z.B. S2027, W2027)</p>
+            <p>• <strong>Berufsgruppe</strong> (Mehrfachauswahl) – z.B. nur GaLaBau + Baumschule</p>
+            <p>• <strong>§ Zuständiges Amt</strong> (Mehrfachauswahl) – z.B. nur 93 RP Freiburg</p>
+            <p>• <strong>✎ Zwischenprüfung</strong> (Mehrfachauswahl) – Zwischenprüfungstermin (z.B. H2026, F2027)</p>
+            <p>• <strong>▤ BAV-Status</strong> – Aktive BAV / Alle BAV / Beendete BAV</p>
+            <p style="margin-top:6px">Ein aktiver Filter wird als <strong>Badge</strong> unter der Topbar angezeigt. Klick auf ✕ entfernt einzelne Filter, "Alle zurücksetzen" setzt alles zurück.</p>
+            <p style="margin-top:8px;font-weight:600;color:var(--clr-forest-dark)">Bezeichnungen Prüfungstermine:</p>
+            <div style="margin-top:4px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
+              <p><strong>Abschlussprüfung (AP)</strong> – Termin des Abschlussjahrgangs:</p>
+              <p style="margin-left:12px"><strong>S</strong> = <strong>S</strong>ommer (z.B. <strong>S2027</strong> = Sommerprüfung 2027, ca. Juni)</p>
+              <p style="margin-left:12px"><strong>W</strong> = <strong>W</strong>inter (z.B. <strong>W2027</strong> = Winterprüfung 2027, ca. Januar)</p>
+              <p style="margin-top:6px"><strong>Zwischenprüfung (ZP)</strong> – Termin der Zwischenprüfung:</p>
+              <p style="margin-left:12px"><strong>H</strong> = <strong>H</strong>erbst (z.B. <strong>H2026</strong> = Herbstprüfung 2026, ca. September/Oktober)</p>
+              <p style="margin-left:12px"><strong>F</strong> = <strong>F</strong>rühjahr (z.B. <strong>F2027</strong> = Frühjahrsprüfung 2027, ca. März/April)</p>
+              <p style="margin-top:6px;color:var(--clr-text-light)">AP und ZP nutzen unterschiedliche Bezeichner (S/W vs. H/F), weil die Prüfungszeiträume verschieden sind. Die Werte stammen aus dem IBYKUS-Export.</p>
+            </div>
+            <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">Erweiterte Filter (+ Filter):</p>
+            <p>Über den <strong>+ Filter</strong>-Button können zusätzliche dynamische Filter hinzugefügt werden. Diese sind in 5 Kategorien organisiert:</p>
+            <div style="margin-top:6px;padding:10px;background:var(--clr-sand-light);border-radius:var(--radius);font-size:12px">
+              <p><strong>Ausbildung</strong> – Verkürzer, Landesfachklasse, Geschlecht, Schulabschluss, Lehrjahr, Ausbildungsbeginn/-ende</p>
+              <p><strong>Prüfungen</strong> – AP-Zulassung, AP bestanden, Prüfungserfolg, Zwischenprüfung</p>
+              <p><strong>Standort</strong> – Berufsschule, Klasse, PLZ-Bereich, Betrieb Ort, Betrieb</p>
+              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Azubi, Inaktiv-Grund</p>
+              <p><strong>Datenqualität</strong> – Ohne Betrieb, Ohne Klasse, Ohne E-Mail</p>
+            </div>
+            <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Globale Suche (Strg+K)</h4>
+            <p>Die Suche durchsucht den <strong>gesamten Datenbestand in allen Feldern</strong> – Azubis (auch inaktive), Betriebe, Ausbilder, Schulen (inkl. Lehrer/Ansprechpartner) und Klassen: Namen, Adressen, Telefon, E-Mail, IBYKUS-ID, Betriebsnummer, Bemerkungen u.v.m.</p>
+            <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
+            <p>• <strong>Tippfehler-tolerant (fuzzy)</strong>: „maier" findet auch „Mayer", „muler" den „Müller"; Umlaute sind egal (mueller = müller = muller)</p>
+            <p>• Treffer sind nach Relevanz sortiert (exakter Name vor Teilstring vor Tippfehler-Treffer); inaktive Azubis erscheinen markiert weiter hinten</p>
+            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz</p>
+            <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
+          </div>
+
+          </div>
+
+          <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+            <div class="card-header" style="font-size:15px">Zusammenarbeit und Sicherung</div>
+            <p>Mehrere Ausbildungsberater (2–3) können <strong>gleichzeitig</strong> mit derselben Datenbank arbeiten (gemeinsames Netzlaufwerk).</p>
+            <p><strong>Funktionsweise:</strong></p>
+            <p>1. Alle Sachbearbeiter öffnen dieselbe HTML-Datei und wählen denselben Arbeitsordner</p>
+            <p>2. Jeder Sachbearbeiter wählt seinen Namen in der Benutzerauswahl (Topbar, rechts oben)</p>
+            <p>3. Jeder Rechner schreibt seine Änderungen NUR in sein eigenes Protokoll (<code>_bhk/oplog_*</code>) und liest alle 3 Sekunden die Protokolle der anderen – niemand überschreibt die Datenbankdatei im laufenden Betrieb</p>
+            <p>4. Die Datenbankdatei ist der gemeinsame „Schnappschuss“ und wird nur gelegentlich (gesperrt) zusammengefasst. Änderungen der Kollegen erscheinen nach 3–13 Sekunden – das ist normal</p>
+            <p>5. Ändern zwei Personen dieselbe Zeile, gewinnt die zeitlich spätere Änderung je Feld („Last Write Wins“) – auf allen Rechnern gleich</p>
+            <p><strong>Voraussetzungen am Netzlaufwerk (wichtig!):</strong></p>
+            <p>• Der Arbeitsordner liegt auf <strong>einem</strong> Dateiserver – keine DFS-Replikation, kein OneDrive-/SharePoint-Sync, keine Windows-<strong>Offlinedateien</strong> („Immer offline verfügbar“) für diese Freigabe. Sonst arbeiten die Rechner auf Kopien</p>
+            <p>• Virenscanner: Ausnahme für den Unterordner <code>_bhk/</code> (der Browser schreibt dort kurzlebige <code>.crswap</code>-Dateien)</p>
+            <p>• Rechneruhren per Domäne synchron; pro Datenbank nur <strong>ein</strong> Browser-Tab je Person</p>
+            <p>• Bei „Verbindung getrennt“: Änderungen bleiben lokal gepuffert (bis 7 Tage), „Erneut verbinden“ holt den Ordnerzugriff zurück. Nach einem IBYKUS-Import das Fenster offen lassen, bis der Status wieder grün ist</p>
+            <p><strong>Bearbeitungshinweis in der Kontrolle (kein hartes Sperren):</strong></p>
+            <p>• Öffnen zwei Prüfer denselben Azubi, sieht der später Hinzugekommene ein ⊘ mit Hinweis; Vorrang hat, wer zuerst da war (bei gleichzeitigem Einstieg entscheidet der Name – beide Seiten entscheiden gleich)</p>
+            <p>• Beim Öffnen eines Termins startet jeder Prüfer beim ersten offenen Azubi, an dem noch niemand arbeitet; „Nächster freier Azubi" springt weiter</p>
+            <p>• „Sperre aufheben" erlaubt das Bearbeiten trotzdem und bleibt für diesen Azubi gemerkt – gleichzeitige Änderungen löst dann „die spätere gewinnt" je Feld auf</p>
+            <p>• Der Hinweis verschwindet, sobald der Kollege weiterblättert oder „Speichern &amp; Freigeben" klickt; Positionen älter als 15 Minuten werden ignoriert, beim Schließen des Browsers wird die eigene Position gelöscht</p>
+            <p><strong>Netzlaufwerk weggebrochen (VPN getrennt, Laufwerk P: nicht mehr da):</strong></p>
+            <p>• Das Tool erkennt das nach dem zweiten Fehlversuch, pausiert Abgleich, Backups und Positionsdateien und prüft nur noch alle 30 Sekunden leicht, ob die Datenbankdatei wieder erreichbar ist. Änderungen bleiben lokal im Puffer (Zähler im roten Banner) und werden nach „Erneut verbinden" angehängt</p>
+            <p>• Dauert die Trennung länger: „Offline weiterarbeiten" im Banner – danach „Wiederverbinden &amp; zusammenführen"</p>
+            <p>• <strong>Safe-Browsing-Abbruch:</strong> Chrome/Edge prüfen jede geschriebene Datei online bei Google/Microsoft. Fehlt die Internet-Ausleitung (VPN ohne Internet), bricht der Browser den Schreibvorgang ab („Failed to perform Safe Browsing check"). Das Tool pausiert dann 30 Minuten die Backups und meldet es einmal. Abhilfe durch die IT: Richtlinie <code>SafeBrowsingProtectionLevel = 0</code> bzw. <code>SafeBrowsingEnabled = false</code> für diesen Browser oder eine Internet-Ausleitung im VPN</p>
+            <p><strong>Große Bestände (mehrere tausend Azubis):</strong></p>
+            <p>• Die Anwendung rechnet auch mit 5000 Azubis schnell; teuer sind allein Vorgänge mit der ganzen Datenbankdatei. Deshalb: <strong>eine</strong> komprimierte Sicherung je Datenbank und Intervall (Einstellung, Standard 60 Minuten) statt alle 5 Minuten je Rechner; Kompaktierung erst ab 10 % der Dateigröße an Änderungen, frühestens alle 30 Minuten und nie von selbst über eine sehr langsame, langsame oder getaktete Leitung; Sicherungen nie über eine getaktete oder sehr langsame Leitung; kein Nachladen des Schnappschusses, wenn der eigene Stand ihn schon enthält; lokaler Offline-Stand nur auf Wunsch; große Änderungsschübe der Kollegen in einer Transaktion</p>
+            <p>• <strong>Dateiversionierung auf dem Server</strong> (Schattenkopien, Sicherungsagent): Jede geschriebene Sicherung und jeder Schnappschuss wird dort als eigene Version aufgehoben, und während der Versionsbildung stocken Schreibzugriffe kurz. Deshalb das Sicherungsintervall auf 120 bis 240 Minuten setzen und den Ordner <code>_bhk/</code> mit seinen <code>.crswap</code>-Tauschdateien vom Sicherungsagenten ausnehmen lassen</p>
+            <p>• Bestand klein halten: Einstellungen → Datenbank-Tools → alte Jahrgänge löschen, Aufräumen, Neuaufbau</p>
+            <p><strong>Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk):</strong></p>
+            <p>• <strong>Verbindungstest</strong> unter Einstellungen → Verbindung: misst Auflisten, Lesen, eine Schreibprobe, den Uhrversatz zum Dateiserver und das Lebenszeichen und nennt Befunde in Klartext (z.B. „Schreiben blockiert durch Browser-Richtlinie“, „Uhrversatz 4 min“, „langsame Leitung“). Den Test auf jedem Zugangsweg ausführen und die Ergebnisse vergleichen</p>
+            <p>• <strong>Ereignisspur:</strong> Jeder Zugriff aufs Netzlaufwerk (Anhängen, Abgleich, Kompaktierung, Sperre, Sicherung) wird mit Dauer, Ergebnis und Fehlerart festgehalten, ebenso jeder ausgesetzte Abgleich-Takt mit Grund (verdecktes Fenster, laufendes Anhängen) und jeder Wechsel der Fenstersichtbarkeit. Die Spur steckt im Zustandsbild („▤ Zustandsbild kopieren“ unter Einstellungen → Verbindung, oder <code>bhk.kopieren()</code> in der Konsole) – das ist der Weg, ein Problem an die Entwicklung zu geben</p>
+            <p>• <strong>Browser-Konsole</strong> (Taste <strong>F12</strong>, Reiter „Konsole“): <code>bhk.hilfe()</code> zeigt die Diagnosebefehle – <code>bhk.status()</code> (Zustand als Tabelle), <code>bhk.spur()</code> (Ereignisspur), <code>bhk.dateien()</code> (Inhalt von <code>_bhk/</code> mit Alter), <code>bhk.test()</code> (Verbindungstest), <code>bhk.debug(true)</code> (jeden Vorgang sofort ausgeben), <code>bhk.kopieren()</code> (Zustandsbild in die Zwischenablage). Tipps: In den Konsolen-Einstellungen „Protokoll beibehalten“ einschalten, damit Meldungen ein Neuladen überleben; das Filterfeld mit <code>Spur</code> oder <code>SyncV3</code> füllen; Rechtsklick in die Konsole → „Speichern unter…“ sichert alles als Datei</p>
+            <p><strong>Verlustschutz – wo eine Änderung wann liegt:</strong></p>
+            <p>• Jede Eingabe steht sofort im <strong>Absturzpuffer</strong> dieses Rechners (Browser-Speicher, übersteht Tab-Absturz und Neustart, wird beim nächsten Start desselben Rechners eingespielt, 30 Tage lang) und wird gebündelt nach 1,5 s (langsame Leitung 10 s, getaktete Verbindung 60 s) an das <strong>Protokoll auf dem Netzlaufwerk</strong> angehängt – spätestens eine Sammelpause nach der ersten wartenden Änderung, auch wenn laufend weiter getippt wird. Beim Abschluss eines Berichtshefts („Freigeben“), beim Azubi-Wechsel, beim Terminwechsel und beim Verlassen der Kontrolle wird <strong>sofort</strong> angehängt</p>
+            <p>• Die Schnellnavigation zeigt Azubis mit noch nicht angehängten Änderungen mit einer orangen Unterkante; neben „Freigeben“ steht „✓ auf dem Netzlaufwerk“ oder „⏳ wird geschrieben…“. Ein Klick auf den Speicherstatus in der Kopfzeile (oder auf diese Anzeige) öffnet die Liste der wartenden Änderungen mit „Jetzt schreiben“ und „Änderungen als Datei“ als Notausgang</p>
+            <p>• Ein <strong>Wächter</strong> notiert, wenn die Oberfläche länger als 4 Sekunden stillstand, samt der letzten Bedienaktion – auch nach einem Abschuss des Tabs steht das im nächsten Zustandsbild. Steht das Tool, bitte nicht sofort den Tab schließen: Meist läuft es nach Sekunden weiter und schreibt dann alles</p>
+            <p>• <strong>Ein Fenster, das vollständig hinter einem anderen liegt</strong> (z.B. maximiertes Outlook), gilt für Chrome als verdeckt: Der Abgleich setzt dann aus, bis es wieder sichtbar ist. Die Spur zeigt das als „Fenster verdeckt“</p>
+            <p><strong>Positionsanzeige:</strong></p>
+            <p>• In der Kontrollansicht wird angezeigt, welcher Sachbearbeiter aktuell welchen Auszubildenden bearbeitet</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Datensicherung</h4>
+            <p><strong>Automatisches Speichern:</strong> Jede Änderung wird nach 1,5 Sekunden automatisch in die Datenbankdatei geschrieben (verzögertes Speichern). Ein manuelles Speichern ist nicht erforderlich.</p>
+            <p><strong>Automatische Backups:</strong> Sicherungskopien der Datenbank werden regelmäßig in <code>_bhk/backups/</code> erstellt. Ältere Sicherungen werden automatisch bereinigt.</p>
+            <p><strong>Empfehlung:</strong> Der Arbeitsordner sollte auf einem regelmäßig gesicherten Netzlaufwerk liegen. Die SQLite-Datei im Unterordner <code>Datenbanken/</code> enthält den gesamten Datenbestand und kann zusätzlich manuell gesichert werden.</p>
+          </div>
+
+          </div>
+
+          <div id="help_10" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+            <div class="card-header" style="font-size:15px">Einstellungen und Wartung</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
             <p>• <strong>Word-Vorlage</strong> – DOCX-Vorlage für Serienbriefe an Betriebe/Schulen hochladen</p>
@@ -2698,10 +2699,8 @@ const Views = {
             <p>• <strong>Backups wiederherstellen</strong> – Gesamten Datenstand auf einen Sicherungszeitpunkt zurücksetzen (gilt für alle Nutzer, aktueller Stand wird vorher gesichert)</p>
             <p>• <strong>Import-Verlauf</strong> – Letzte IBYKUS-Imports mit Datum, Anzahl und Status</p>
             <p>• <strong>Betrieb-Duplikate</strong> – Doppelte Betriebe erkennen und zusammenführen</p>
-          </div>
-
-          <div id="help_22" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
-            <div class="card-header" style="font-size:15px">⚙︎ Wartung & Administration</div>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">⚙︎ Wartung & Administration</h4>
             <p><strong>Architektur:</strong> Die gesamte Anwendung besteht aus einer einzigen HTML-Datei (~6 MB). Es wird kein Webserver und keine Installation benötigt. Sämtliche Abhängigkeiten – JavaScript-Bibliotheken (sql.js, Chart.js, jsPDF, PapaParse, SheetJS, PizZip, docxtemplater, FileSaver, pdf.js) und Schriftarten (BaWue Sans, BaWue Serif – Landes-CI) – sind direkt in die HTML-Datei eingebettet. Es werden keine externen Ressourcen nachgeladen.</p>
             <p style="margin-top:8px"><strong>Aktualisierung:</strong></p>
             <p>1. Neue Version der HTML-Datei in den Arbeitsordner kopieren (bestehende Datei überschreiben)</p>
@@ -2722,8 +2721,10 @@ const Views = {
             <p>• Auszubildende mit BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) verbleiben im Datenbestand, werden jedoch über den BAV-Status-Filter standardmäßig ausgeblendet</p>
           </div>
 
-          <div id="help_23" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
-            <div class="card-header" style="font-size:15px">⊘ Datenschutz & Rechtskonformität</div>
+          </div>
+
+          <div id="help_11" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-red)">
+            <div class="card-header" style="font-size:15px">Datenschutz und FAQ</div>
             <p style="font-weight:600;color:var(--clr-forest-dark)">Datenschutzrechtliche Einordnung für Führungskräfte, Datenschutzbeauftragte und behördliche Prüfungen</p>
 
             <p style="margin-top:12px;font-weight:600;color:var(--clr-forest-dark)">⌖ Zweck und Rechtsgrundlage</p>
@@ -2823,10 +2824,8 @@ const Views = {
                 <span><strong>TOM:</strong></span><span>Zugriffskontrolle über NTFS-Berechtigungen, Browser-Sandbox, verschlüsseltes Netzlaufwerk (Behördennetz), keine externe Datenübermittlung</span>
               </div>
             </div>
-          </div>
-
-          <div id="help_24" class="card" style="margin-bottom:12px">
-            <div class="card-header" style="font-size:15px">❓ Häufig gestellte Fragen (FAQ)</div>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">❓ Häufig gestellte Fragen (FAQ)</h4>
             <p><strong>Die Diagramme im Dashboard werden unscharf dargestellt.</strong><br>
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
@@ -2842,6 +2841,8 @@ const Views = {
             <p style="margin-top:8px"><strong>Können abgeschlossene Jahrgänge archiviert werden?</strong><br>
             Ja. Erstellen Sie über den Startbildschirm eine neue Datenbank und importieren Sie ausschließlich die aktuellen Jahrgänge. Die bisherige Datenbank verbleibt im Ordner <code>Datenbanken/</code> und kann jederzeit erneut geöffnet werden.</p>
           </div>
+          </div>
+
 
       </div>
       </div>

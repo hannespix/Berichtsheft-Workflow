@@ -237,26 +237,10 @@ body {
 .topbar-user-select:focus { outline: 2px solid var(--tb-fg); outline-offset: 2px; }
 .topbar-user-select option { background: #ffffff; color: #2A2623; font-size: 13px; padding: 4px 8px; }
 .topbar-user-select.has-user { border-color: var(--tb-fg); font-weight: 700; }
-.topbar-filter-toggle {
-  padding: 4px 12px;
-  font-size: 12px;
-  border: 1px solid var(--tb-border);
-  border-radius: 6px;
-  background: var(--tb-chip);
-  color: var(--tb-fg);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-  font-family: var(--font-body);
-}
-.topbar-filter-toggle:hover { background: var(--tb-chip-hover); }
-.topbar-filter-toggle.active { background: var(--tb-fg); color: var(--tb-bg); border-color: var(--tb-fg); font-weight: 700; }
 
 /* ── Filter Panel (below topbar) ── */
 .filter-panel {
-  display: none;
+  display: flex;   /* ein Filterbalken, immer sichtbar – kein Knopf, keine zweite Darstellung auf den Seiten */
   background: var(--fb-bg);
   padding: 8px 24px;
   gap: 8px;
@@ -267,6 +251,7 @@ body {
   color: var(--clr-text);
 }
 .filter-panel.open { display: flex; }
+#btnSwitchDB { display: none !important; }  /* Datenbankwechsel steht in der Seitenleiste */
 .fp-btn {
   padding: 5px 12px;
   font-size: 12px;
@@ -926,6 +911,9 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 }
 .kw-legend-show:hover { color: var(--clr-forest); }
 .kw-legend-sentinel { display: none; }
+.help-abschnitt { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--clr-sand); }
+.help-untertitel { font-family: var(--font-display); font-size: 15px; margin: 0 0 6px; color: var(--clr-forest-dark); }
+.einst-tab > .card:first-child { margin-top: 0 !important; }
 
 /* ── Zoom und Barrierefreiheit ──
    Bei hoher Zoomstufe (WCAG: bis 400 %) ist das Fenster in CSS-Pixeln klein.
