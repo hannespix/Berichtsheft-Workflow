@@ -151,7 +151,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
-  // / = Focus Schüler-Suche in Kontrolle Einzelansicht
+  // / = Focus Azubi-Suche in Kontrolle Einzelansicht
   if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') {
     const searchInput = document.getElementById('kontrolleSearch');
     if (searchInput && searchInput.offsetParent !== null) {
@@ -183,4 +183,4 @@ document.addEventListener('keydown', (e) => {
   KWNav.handleKeyDown(e);
 });
 
-// ── Bulk: Schüler-Liste ──
+// ── Bulk: Azubi-Liste ──

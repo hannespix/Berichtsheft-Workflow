@@ -342,8 +342,8 @@ const KWNav = {
   },
 
   // Persist codes to DB (kw_status = cumulative, kw_maengel = per-session backward compat)
-  // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
-  // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
+  // sidOpt: Azubi-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
+  // currentIndex schreibt nach "Nächster Azubi" + Undo auf den FALSCHEN Azubi.
   // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
   // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
   // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
@@ -431,7 +431,7 @@ const KWNav = {
   },
 
   // Track session KWs in kontrollergebnisse.geprueft_kws
-  // sidOpt optional – ohne Angabe wird der Schüler aus dem Kontrollergebnis
+  // sidOpt optional – ohne Angabe wird der Azubi aus dem Kontrollergebnis
   // abgeleitet. NIEMALS aus currentSchuelerList[currentIndex]: das ist der
   // gerade ANGEZEIGTE Azubi, nicht der bearbeitete (Undo nach Blättern
   // markierte sonst dutzende Wochen beim falschen Azubi als geprüft).

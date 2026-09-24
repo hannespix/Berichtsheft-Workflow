@@ -471,7 +471,7 @@ const ImportHandler = {
     // Zweit-Registerkarte kann den Snapshot nie schreiben – der Import bliebe
     // dauerhaft „nicht gespeichert“ und ginge beim Schließen verloren.
     if (!vorschau && App._tabIsPrimary === false) return App.toast('Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann nicht speichern. Bitte den Import in der zuerst geöffneten Registerkarte ausführen (oder alle anderen Tabs schließen und neu laden).', 'error');
-    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
+    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Azubi-Daten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
@@ -884,8 +884,8 @@ const ImportHandler = {
     }
 
     // ── Result Summary ──
-    let parts = [`<strong>${imported}</strong> Schüler importiert`];
-    if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Schüler aktualisiert (geänderte Daten aus Ibykus)`);
+    let parts = [`<strong>${imported}</strong> Azubi importiert`];
+    if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Azubis aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
     if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
     if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
@@ -898,7 +898,7 @@ const ImportHandler = {
     if (stats.bavReaktiviert) parts.push(`✓ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (stats.fehlende && stats.fehlende.length) parts.push(`⚠︎ <strong>${stats.fehlende.length}</strong> aktive Azubis (mit BAV-Ident, gleiche Fachrichtungen/Ämter) fehlen in diesem Export – siehe unten`);
     if (stats.neuvertraege && stats.neuvertraege.length) parts.push(`⚠︎ <strong>${stats.neuvertraege.length}</strong> Namenstreffer mit ANDERER BAV-Ident als neue Verträge angelegt (Betriebswechsel/Dublette prüfen)`);
-    if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
+    if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Azubis ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
     if (datumsFehler.length) parts.push(`⚠︎ <strong>${datumsFehler.length}</strong> Zeilen mit unlesbarem Datum – Datensätze wurden <strong>ohne Datum</strong> importiert (Datumsformat im Dialog prüfen!)`);
     if (errorRows.length) parts.push(`⚠︎ <strong>${errorRows.length}</strong> Zeilen übersprungen (Fehler)`);
@@ -1008,7 +1008,7 @@ const ImportHandler = {
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name`);
     const betriebe = App.query('SELECT * FROM betriebe ORDER BY name');
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
-    App.openModal('Schüler hinzufügen', `
+    App.openModal('Azubi hinzufügen', `
       <div class="form-row">
         <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach"></div>
         <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor"></div>
@@ -1064,7 +1064,7 @@ const ImportHandler = {
        (document.getElementById('mSAmt') && document.getElementById('mSAmt').value) || App.EIGENES_AMT]);
     App.closeModal();
     Views.importView();
-    App.toast('Schüler hinzugefügt', 'success');
+    App.toast('Azubi hinzugefügt', 'success');
   },
   editSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -1103,120 +1103,99 @@ const ImportHandler = {
         ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 
-      <div class="modal-tabs">
-        <button class="modal-tab-btn active" onclick="_switchModalTab('mSTab1',this)">Persönlich</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab2',this)">Ausbildung</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab3',this)">Prüfungen</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab4',this)">Status</button>
+      <!-- Ein Reiter: lokale Felder editierbar, IBYKUS-Felder nur lesend (auf Wunsch änderbar) -->
+      <div class="form-row">
+        <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
+        <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
+        <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
+          ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+        <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
+        <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+        </label></div>
+        <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
       </div>
 
-      <!-- Tab 1: Persönlich -->
-      <div id="mSTab1" class="modal-tab-content active">
-        <div class="form-row">
-          <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
-          <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
+      <div class="ibykus-block">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">Aus IBYKUS</strong>
+          <span style="font-size:11px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
+            <input type="checkbox" id="mSIbykusAendern" onchange="document.querySelectorAll('#modalOverlay .ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
+          </label>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
-            ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+          <div class="form-group"><label>Nachname *</label><input class="form-control ibykus-feld" id="mSNach" value="${esc(s.nachname)}" disabled></div>
+          <div class="form-group"><label>Vorname *</label><input class="form-control ibykus-feld" id="mSVor" value="${esc(s.vorname)}" disabled></div>
+          <div class="form-group"><label>BAV-Ident (IBYKUS)</label><input class="form-control ibykus-feld" id="mSIbykus" value="${esc(s.ibykus_id||'')}" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
-          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
-        </div>
-      </div>
-
-      <!-- Tab 2: Ausbildung -->
-      <div id="mSTab2" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
+          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control ibykus-feld" id="mSBetriebId" disabled>
             <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
+          <div class="form-group"><label>Ausbildungsstätte (Freitext)</label><input class="form-control ibykus-feld" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
+          <div class="form-group"><label>Fachrichtung</label><select class="form-control ibykus-feld" id="mSFR" disabled>
             <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Klasse / Schule</label><select class="form-control" id="mSKlasse">
+          <div class="form-group"><label>Klasse / Schule</label><select class="form-control ibykus-feld" id="mSKlasse" disabled>
             <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
           </select></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
+          <div class="form-group"><label>Jahrgang</label><select class="form-control ibykus-feld" id="mSJG" disabled>
             <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
-          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
-          <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control ibykus-feld" id="mSBeginn" value="${s.ausbildungsbeginn||''}" disabled></div>
+          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control ibykus-feld" id="mSEnde" value="${s.ausbildungsende||''}" disabled></div>
+          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control ibykus-feld" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
+          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control ibykus-feld" id="mSAmt" disabled>
             <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
+          <div class="form-group"><label>Landesfachklasse</label><input class="form-control ibykus-feld" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" disabled></div>
+          <div class="form-group"><label>BAV-Status</label><input class="form-control ibykus-feld" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
-          <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
-          <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
-          </label></div>
-        </div>
-        ${typeof Phasen!=='undefined'?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" style="font-size:11px">Ausbildungsverlauf (Phasen) öffnen</button></div>`:''}
-      </div>
-
-      <!-- Tab 3: Prüfungen -->
-      <div id="mSTab3" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026"></div>
-          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
-            </label>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-        </div>
-      </div>
-
-      <!-- Tab 4: Status -->
-      <div id="mSTab4" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
+          <div class="form-group"><label>Status</label><select class="form-control ibykus-feld" id="mSStatus" disabled>
             ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>BAV-Status (IBYKUS)</label><input class="form-control" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE"></div>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" class="ibykus-feld" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)" disabled> AP zugelassen
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" class="ibykus-feld" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)" disabled> AP bestanden
+            </label>
+          </div>
+          <div class="form-group"><label>Inaktiv seit / Grund</label><input type="date" class="form-control ibykus-feld" id="mSInaktivDatum" value="${s.inaktiv_datum||''}" disabled><input class="form-control ibykus-feld" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}" placeholder="Grund" disabled style="margin-top:4px"></div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
-          <div class="form-group"><label>Inaktiv-Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
-        </div>
-        <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
-        ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
+        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
+        ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Ausbildung beenden</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
   },
@@ -1273,7 +1252,7 @@ const ImportHandler = {
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
-    App.toast('Schüler aktualisiert', 'success');
+    App.toast('Azubi aktualisiert', 'success');
   },
   setInaktiv(id) {
     App.closeModal();
@@ -1331,7 +1310,7 @@ const ImportHandler = {
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
-    App.toast('Schüler reaktiviert', 'success');
+    App.toast('Azubi reaktiviert', 'success');
   },
   deleteSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -1438,7 +1417,7 @@ const ImportHandler = {
         <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">So funktioniert der LFK-Import:</strong>
           <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
-            <li>Schüler werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
+            <li>Azubi werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
             <li>Wenn <strong>Landesfachklasse ≠ Beschreibung Klasse</strong> → wird als LFK gespeichert</li>
             <li>Betroffene Fachrichtungen: Gemüse (3. AJ), Obst (2.+3. AJ), Baumschule (3. AJ), Stauden (3. AJ)</li>
             <li>Die <strong>aktuelle Schule</strong> wird dann je nach Ausbildungsjahr automatisch angezeigt</li>
@@ -1478,11 +1457,11 @@ const ImportHandler = {
       if (!nr) { skipped++; return; }
 
       // Landesfachklasse immer speichern wenn befüllt – das Feld in IBYKUS
-      // bedeutet: Schüler ist einer Landesfachklasse zugeordnet (auch wenn
+      // bedeutet: Azubi ist einer Landesfachklasse zugeordnet (auch wenn
       // die Schule zufällig dieselbe ist wie die reguläre Berufsschulklasse)
       const lfkValue = lfk ? lfk.replace(/^Berufsschule\s+/i, '').trim() : '';
 
-      // Finde Schüler: erst per ibykus_id, dann per Nr als allg. Match
+      // Finde Azubi: erst per ibykus_id, dann per Nr als allg. Match
       let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
       if (!schuelerId) {
         // Versuche numerischen Teil als BAV-Ident zu matchen
@@ -1507,14 +1486,14 @@ const ImportHandler = {
     App.hideLoading();
 
     let parts = [];
-    if (updated) parts.push(`<strong>${updated}</strong> Schüler mit Landesfachklasse aktualisiert`);
+    if (updated) parts.push(`<strong>${updated}</strong> Azubi mit Landesfachklasse aktualisiert`);
     if (cleared) parts.push(`${cleared} Landesfachklassen entfernt (wieder normale Klasse)`);
     if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
-    if (notFound) parts.push(`⚠︎ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
+    if (notFound) parts.push(`⚠︎ ${notFound} Azubis nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
 
     this._logImportHistorie({ typ: 'lfk', zeilen: data.length, aktualisiert: updated,
       uebersprungen: skipped + cleared, fehler: notFound,
-      details: notFound ? [{ fehler: notFound + ' Schüler nicht gefunden (Nr./BAV-Ident)', art: 'fehler' }] : [] });
+      details: notFound ? [{ fehler: notFound + ' Azubi nicht gefunden (Nr./BAV-Ident)', art: 'fehler' }] : [] });
     App.openModal('LFK-Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
@@ -1692,12 +1671,23 @@ const ImportHandler = {
   },
 
   deleteAllJahrgang() {
-    const jg = SchuelerView.filters.jahrgang;
-    if (!jg) return App.toast('Bitte zuerst einen Jahrgang im Filter wählen', 'warning');
+    const jahrgaenge = App.query('SELECT j.*, (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id) AS n FROM abschlussjahrgaenge j ORDER BY j.jahr DESC');
+    App.openModal('Jahrgang komplett löschen', `
+      <p style="font-size:13px;margin-bottom:12px">Alle Azubis eines Jahrgangs samt Kontrollergebnissen, Wiedervorlagen, Kalenderwochen, Phasen und Bemerkungen <strong>endgültig</strong> löschen – z.B. vor einem Neu-Import. Termine bleiben bestehen. Für ein Archiv mit Rückholung: Einstellungen → Datenbank-Tools → „Jahrgang mit Archiv löschen“.</p>
+      <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mDelJG">
+        ${jahrgaenge.map(j => `<option value="${j.id}">${esc(j.bezeichnung)} (${j.n} Azubis)</option>`).join('')}
+      </select></div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-danger" onclick="ImportHandler.doDeleteAllJahrgang()">Endgültig löschen</button>`);
+  },
+  doDeleteAllJahrgang() {
+    const jg = parseInt(document.getElementById('mDelJG')?.value);
+    if (!jg) return App.toast('Bitte einen Jahrgang wählen', 'warning');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jg]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
-    if (!count) return App.toast('Keine Schüler zum Löschen', 'warning');
-    if (!confirm(`Wirklich ALLE ${count} Schüler im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    if (!count) return App.toast('Keine Azubis zum Löschen', 'warning');
+    if (!confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    App.closeModal();
     // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
     // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
     // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
@@ -1706,7 +1696,7 @@ const ImportHandler = {
     // Die Azubi-Kaskade entfernt deren Ergebnisse und Einzel-Zuordnungen.
     App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
     App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
-    App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
+    App.toast(`${count} Azubis + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
     try { SchuelerView.render(); } catch(e) {}
   },
 };

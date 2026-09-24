@@ -63,7 +63,7 @@ const BerichteHandler = {
         <option value="">– Bitte wählen –</option>
         ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
       </select></div>
-      <div class="form-group"><label>Schüler</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
+      <div class="form-group"><label>Azubi</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="BerichteHandler.doExportEinzel()">PDF erstellen</button>`);
   },
@@ -76,7 +76,7 @@ const BerichteHandler = {
   doExportEinzel() {
     const tid = document.getElementById('mExpTermin')?.value;
     const sid = document.getElementById('mExpSchueler')?.value;
-    if (!tid || !sid) return App.toast('Bitte Termin und Schüler wählen', 'error');
+    if (!tid || !sid) return App.toast('Bitte Termin und Azubis wählen', 'error');
     PDFExport.generateSingle(parseInt(tid), parseInt(sid));
     App.closeModal();
   },
@@ -243,10 +243,10 @@ const BerichteHandler = {
     }).length;
 
     App.openModal('Gesamtpaket – ' + klassenStr, `
-      <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Schüler · ${mangelCount} beanstandet</p>
+      <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Azubis · ${mangelCount} beanstandet</p>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
+          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Azubis)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> Seriendruck-CSV für Betriebe (${mangelCount} Azubi(s) mit Beanstandung)
@@ -558,7 +558,7 @@ const BerichteHandler = {
     y += 8;
     if (y > 265) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
     doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
-    doc.text(`Noch geplante Termine: ${termineGeplant} · Abgeschlossene Prüflinge (AP bestanden): ${totalAbgeschlossen} · Inaktive Schüler: ${totalInaktiv}`, LM, y);
+    doc.text(`Noch geplante Termine: ${termineGeplant} · Abgeschlossene Prüflinge (AP bestanden): ${totalAbgeschlossen} · Inaktive Azubi: ${totalInaktiv}`, LM, y);
 
     drawFooter(doc, doc.internal.getNumberOfPages());
 

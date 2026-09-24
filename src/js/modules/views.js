@@ -28,7 +28,7 @@ const Views = {
         WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}
         ORDER BY s.nachname LIMIT 30`);
       const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}`) || 0;
-      countEl.textContent = total + ' Schüler noch nie kontrolliert';
+      countEl.textContent = total + ' Azubi noch nie kontrolliert';
       this._renderKontrollstatusTable(tableEl, rows, total);
     } else {
       // Letzte Kontrolle > X Monate her
@@ -48,14 +48,14 @@ const Views = {
             WHERE ke3.ergebnis != '' GROUP BY ke3.schueler_id HAVING MAX(kt3.geplant_datum) < ?))
         ORDER BY letzte_kontrolle ASC, s.nachname LIMIT 30`, [cutoffStr]);
       const total = rows.length >= 30 ? '30+' : rows.length;
-      countEl.textContent = total + ' Schüler';
+      countEl.textContent = total + ' Azubi';
       this._renderKontrollstatusTable(tableEl, rows, typeof total === 'number' ? total : 30, true);
     }
   },
 
   _renderKontrollstatusTable(el, rows, total, showDate) {
     if (!rows.length) {
-      el.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green);font-size:13px">✓ Alle Schüler im Zeitraum kontrolliert!</div>';
+      el.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green);font-size:13px">✓ Alle Azubis im Zeitraum kontrolliert!</div>';
       return;
     }
     el.innerHTML = `<table class="data-table"><thead><tr>
@@ -216,7 +216,7 @@ const Views = {
 
       <!-- Stat Cards (immer sichtbar) -->
       <div class="grid-4" style="margin-bottom:20px">
-        <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
+        <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('stammdaten')" title="Klick → Azubi-Import / Stammdaten">
           <div class="stat-label">Azubis gesamt</div>
           <div class="stat-value">${totalSchueler}</div>
           <div class="stat-sub">Aktive Auszubildende →</div>
@@ -241,7 +241,7 @@ const Views = {
       <!-- Datenpflege-Hinweise -->
       ${(ohneBetrieb || ohneEmail || betriebOhneEmail) ? `
       <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;font-size:12px">
-        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">${ohneBetrieb} Schüler ohne Betrieb-Verknüpfung</span>` : ''}
+        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">${ohneBetrieb} Azubis ohne Betrieb-Verknüpfung</span>` : ''}
         ${ohneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('schulen'),100)">✉︎ ${ohneEmail} Schulen ohne E-Mail</span>` : ''}
         ${betriebOhneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">✉︎ ${betriebOhneEmail} Betriebe ohne E-Mail</span>` : ''}
       </div>` : ''}
@@ -268,7 +268,7 @@ const Views = {
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Schüler)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -279,7 +279,7 @@ const Views = {
             Überfällige Wiedervorlagen
             <button class="btn btn-sm btn-secondary" onclick="App.navigate('wiedervorlagen')">Alle anzeigen</button>
           </div>
-          ${ueberfaelligeWV.length ? `<table class="data-table"><thead><tr><th>Schüler</th><th>Betrieb</th><th>Frist</th><th>Tage über</th></tr></thead><tbody>
+          ${ueberfaelligeWV.length ? `<table class="data-table"><thead><tr><th>Azubi</th><th>Betrieb</th><th>Frist</th><th>Tage über</th></tr></thead><tbody>
             ${ueberfaelligeWV.map(w => {
               const diff = Math.floor((new Date(today) - new Date(w.frist_datum)) / 86400000);
               return `<tr>
@@ -849,21 +849,19 @@ const Views = {
   // ════════════════════════════════════════════
   importView() {
     const mc = document.getElementById('mainContent');
-    // Initialize SchuelerView state if needed
-    if (!SchuelerView._initialized) SchuelerView.init();
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
         <h2>Import</h2>
-        <p>Auszubildende, Ausbilder und Landesfachklassen importieren und verwalten</p>
+        <p>IBYKUS-Export einlesen, Landesfachklassen und Ausbilder nachladen. Die Azubi-Liste steht unter <a href="#" onclick="event.preventDefault();App.navigate('stammdaten')" style="color:var(--clr-forest);font-weight:600">Stammdaten</a>.</p>
       </div>
       ${ImportHandler.historieHtml()}
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('csvSection').style.display=document.getElementById('csvSection').style.display==='none'?'':'none'">
-          CSV-Import ▾
+          IBYKUS-Import (CSV / Excel) ▾
         </div>
-        <div id="csvSection" style="display:none">
+        <div id="csvSection">
 
           <!-- IBYKUS Anleitung -->
           <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
@@ -915,7 +913,7 @@ const Views = {
                 <strong style="color:var(--clr-forest-dark)">Landesfachklassen aus IBYKUS importieren</strong>
                 <p style="margin:8px 0 0;line-height:1.7">
                   Bestimmte Fachrichtungen besuchen in höheren Ausbildungsjahren eine andere Berufsschule (Landesfachklasse).
-                  Dieser Import ordnet die Landesfachklassen den Schülern zu.
+                  Dieser Import ordnet die Landesfachklassen den Azubis zu.
                 </p>
                 <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px">
                   <span><strong>Gemüsebau:</strong> 3. AJ → Heidelberg</span>
@@ -980,9 +978,7 @@ const Views = {
         </div>
       </div>
 
-      <div id="schuelerViewContainer"></div>
     </div>`;
-    try { SchuelerView.render(); } catch(e) {}
   },
   // ════════════════════════════════════════════
   //  KONTROLLPLANUNG
@@ -1114,20 +1110,28 @@ const Views = {
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
             <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:10px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
-            <td class="btn-group" style="flex-wrap:wrap">
-              ${t.status === 'geplant' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)">Starten</button>` : ''}
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${t.id})" title="Betriebe anschreiben (Brief/CSV)">▤ Betriebe</button>
-              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">▤ PDF</button>
-              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${t.id})" title="Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)">§ Ämter</button>
-              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
-              ${t.status === 'durchgefuehrt' ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.nachholterminAnlegen(${t.id})" title="Nachholtermin für die am Kontrolltag abwesenden Azubis anlegen">↻ Nachholtermin</button>` : ''}
-              <button class="btn-icon btn-sm" onclick="PlanungHandler.editTermin(${t.id})" title="Bearbeiten">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-              </button>
-              <button class="btn-icon btn-sm" onclick="PlanungHandler.deleteTermin(${t.id})" title="Löschen">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-              </button>
+            <td style="white-space:nowrap">
+              ${(() => {
+                // Ein Hauptknopf je Termin, passend zum Status; alles Weitere im ⋯-Menü
+                const oeffnen = `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)`;
+                const abg = t.status === 'durchgefuehrt';
+                const haupt = t.status === 'geplant'
+                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Kontrolltag öffnen und mit der Durchsicht beginnen">Starten</button>`
+                  : abg && !t.nachbereitet_am
+                    ? `<button class="btn btn-sm btn-primary" onclick="${oeffnen}" title="Ergebnisse an Schule und Betriebe, PDFs, fremde Ämter">Nachbereiten</button>`
+                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchführung öffnen">Öffnen</button>`;
+                return haupt + ' ' + App.menue('⋯', [
+                  { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
+                  { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
+                  { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
+                  { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${t.id})` },
+                  { label: '§ Fremde Ämter', onclick: `PlanungHandler.fremdeAemter(${t.id})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)' },
+                  { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
+                  abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
+                  { trenner: true },
+                  { label: '✕ Termin löschen', onclick: `PlanungHandler.deleteTermin(${t.id})` },
+                ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
+              })()}
             </td>
           </tr>`;}).join('')}
         </tbody></table>` : '<div class="empty-state"><h3>Keine Termine geplant</h3><p>Legen Sie einen neuen Kontrolltermin an.</p></div>'}
@@ -1158,7 +1162,7 @@ const Views = {
       <div class="card" id="terminWahlCard">
         <div id="terminWahlKurz" style="display:none"></div>
         <div id="terminWahlVoll">
-        <div class="card-header">Kontrolltermin auswählen</div>
+        <div class="card-header">Termin auswählen</div>
         <div class="form-group">
           ${(() => {
             // Abgeschlossene und alte Termine nicht dauerhaft anbieten: Gruppen
@@ -1333,7 +1337,7 @@ const Views = {
         </div>
         ${wvs.length ? `<table class="data-table"><thead><tr>
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
-          <th>Schüler</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
+          <th>Azubi</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
           ${wvs.map(w => `<tr data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
             <td><input type="checkbox" class="chk-wv" value="${w.id}" onchange="BulkWV.updateBar()"></td>
@@ -1342,14 +1346,19 @@ const Views = {
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
             <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:10px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:10px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
-            <td class="btn-group" style="flex-wrap:wrap">
-              ${w.status !== 'erledigt' ? '<button class="btn btn-sm" style="background:var(--clr-warm);color:var(--clr-forest);border:1.5px solid var(--clr-sage);font-weight:600;font-size:11px" onclick="WiedervorlagenHandler.erledigen(' + w.id + ')" title="Durchsicht öffnen und als in Ordnung markieren">→ Durchsicht</button>' : ''}
-              ${w.kontrolltermin_id ? '<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(' + w.kontrolltermin_id + ',' + w.schueler_id + ')" title="Durchsichtsbogen PDF">▤</button>' : ''}
-              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${w.id})" title="E-Mail an Betrieb">✉︎</button>` : ''}
-              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.erledigenDirekt(${w.id})" title="Ohne Durchsicht als erledigt markieren (z.B. Nachweis per E-Mail eingegangen)">✓ Erledigt</button>` : ''}
-              <button class="btn-icon btn-sm" onclick="WiedervorlagenHandler.details(${w.id})" title="Details + History">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              </button>
+            <td style="white-space:nowrap">
+              ${(() => {
+                const offen = w.status !== 'erledigt';
+                const haupt = offen
+                  ? `<button class="btn btn-sm btn-success" onclick="WiedervorlagenHandler.erledigenDirekt(${w.id})" title="Nachweis eingegangen – Wiedervorlage als erledigt markieren">✓ Erledigt</button>`
+                  : `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})" title="Details und Verlauf">Details</button>`;
+                return haupt + ' ' + App.menue('⋯', [
+                  offen ? { label: '→ Durchsicht öffnen', onclick: `WiedervorlagenHandler.erledigen(${w.id})`, title: 'Berichtsheft erneut durchsehen und als in Ordnung markieren' } : null,
+                  offen ? { label: '✉︎ E-Mail an den Betrieb', onclick: `Workflows.emailBetriebWV(${w.id})` } : null,
+                  w.kontrolltermin_id ? { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${w.kontrolltermin_id},${w.schueler_id})` } : null,
+                  offen ? { label: 'ⓘ Details und Verlauf', onclick: `WiedervorlagenHandler.details(${w.id})` } : null,
+                ].filter(Boolean), 'Weitere Aktionen', 'klein');
+              })()}
             </td>
           </tr>`).join('')}
         </tbody></table>` : '<div class="empty-state"><h3>Keine Wiedervorlagen</h3><p>Wiedervorlagen werden automatisch bei mangelhaften Kontrollergebnissen erstellt.</p></div>'}
@@ -1405,7 +1414,7 @@ const Views = {
             <td>${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
             <td>${esc(schule)}</td>
             <td>${esc(klassenStr)}</td>
-            <td>${t.kontrolliert} Schüler</td>
+            <td>${t.kontrolliert} Azubis</td>
             <td>
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
               <button class="btn btn-sm btn-primary" onclick="PlanungHandler.exportTerminPDF(${t.id})">▤ Alle Bögen (PDF)</button>
@@ -1423,7 +1432,7 @@ const Views = {
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportEinzel()">
           <div class="card-header">Einzelner Durchsichtsbogen</div>
-          <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Schüler-Bogen als PDF.</p>
+          <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Azubi-Bogen als PDF.</p>
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportStatistik()">
           <div class="card-header">Excel-Dashboard</div>
@@ -2193,10 +2202,10 @@ const Views = {
 
       <div id="neSchuelerArea"></div>
 
-      <!-- Nicht erfasste Schüler -->
+      <!-- Nicht erfasste Azubi -->
       <div class="card" style="margin-top:16px" id="neNichtErfasst">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('neNichtErfasstBody').style.display=document.getElementById('neNichtErfasstBody').style.display==='none'?'':'none'">
-          ▤ Noch nicht kontrollierte Schüler <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
+          ▤ Noch nicht kontrollierte Azubis <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
           <span style="float:right;color:var(--clr-text-light)">▾</span>
         </div>
         <div id="neNichtErfasstBody" style="display:none"></div>
@@ -2328,7 +2337,7 @@ const Views = {
           <div id="help_4" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">▤ Stammdaten</div>
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
-            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
+            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Azubis für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
             <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern. Im Bearbeiten-Dialog lassen sich <em>weitere Schreibweisen (Aliase)</em> hinterlegen, die der Import automatisch dieser Schule zuordnet.</p>
             <p><strong>Dubletten prüfen</strong> (Schulen, Betriebe, Jahrgänge) – findet Einträge, die sich nur in der Schreibweise unterscheiden (Groß/Klein, Umlaute, „Berufsschule“/„BS“, „GmbH“, Leerzeichen, Tippfehler) und führt sie per Klick zusammen: Azubis, Klassen, Termine und Blockpläne wandern zum Ziel, gleiche Klassen werden verschmolzen, der alte Name bleibt als Alias erhalten.</p>
@@ -2386,9 +2395,9 @@ const Views = {
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
             <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
-            <p>Über den Button <em>Nach FR gruppieren</em> können die Schüler in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
+            <p>Über den Button <em>Nach FR gruppieren</em> können die Azubis in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
             <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
-            <p>Über Checkboxen können mehrere Schüler gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Schüler können per ✕-Button aus dem Termin entfernt werden.</p>
+            <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
           </div>
 
           <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
@@ -2442,7 +2451,7 @@ const Views = {
 
           <div id="help_10" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Azubi-Akte</div>
-            <p>Pro Schüler können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
+            <p>Pro Azubi können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
@@ -2509,7 +2518,7 @@ const Views = {
               <p><strong>Ausbildung</strong> – Verkürzer, Landesfachklasse, Geschlecht, Schulabschluss, Lehrjahr, Ausbildungsbeginn/-ende</p>
               <p><strong>Prüfungen</strong> – AP-Zulassung, AP bestanden, Prüfungserfolg, Zwischenprüfung</p>
               <p><strong>Standort</strong> – Berufsschule, Klasse, PLZ-Bereich, Betrieb Ort, Betrieb</p>
-              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Schüler, Inaktiv-Grund</p>
+              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Azubi, Inaktiv-Grund</p>
               <p><strong>Datenqualität</strong> – Ohne Betrieb, Ohne Klasse, Ohne E-Mail</p>
             </div>
             <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
@@ -2540,7 +2549,7 @@ const Views = {
             <p><strong>In der Kontrolle:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Schüler-Suche fokussieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Azubi-Suche fokussieren</span>
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F5</kbd><span>Von Datenträger neu laden</span>
             </div>
             <p><strong>Im KW-Raster:</strong></p>

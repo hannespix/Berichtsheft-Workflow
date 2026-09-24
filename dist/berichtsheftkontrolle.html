@@ -6663,6 +6663,15 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 .menue-liste button { text-align: left; background: none; border: none; padding: 7px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; color: var(--clr-text); font-family: inherit; white-space: nowrap; }
 .menue-liste button:hover { background: var(--clr-warm); color: var(--clr-forest-dark); }
 .menue-liste hr { border: 0; border-top: 1px solid var(--clr-sand); margin: 4px 0; }
+.aktionen-menue.klein > summary { padding: 2px 8px; font-size: 12px; line-height: 1.3; min-width: 28px; justify-content: center; }
+.data-table td .aktionen-menue { vertical-align: middle; }
+.azubi-pager { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px 2px; font-size: 12px; color: var(--clr-text-light); flex-wrap: wrap; gap: 6px; }
+.ibykus-block { margin-top: 14px; padding: 10px 12px; background: var(--clr-warm); border: 1px solid var(--clr-sand); border-radius: var(--radius); }
+.ibykus-block .form-control:disabled { background: transparent; border-color: transparent; color: var(--clr-text); padding-left: 0; opacity: 1; cursor: default; }
+.ibykus-block select.form-control:disabled { appearance: none; -webkit-appearance: none; }
+.ibykus-block input[type=checkbox]:disabled { opacity: 0.9; }
+.ibykus-block.offen { border-color: var(--clr-amber); background: var(--clr-amber-light); }
+.ibykus-block .form-group label { color: var(--clr-text-light); }
 .ke-leiste { position: sticky; bottom: 0; z-index: 22; margin: 12px -32px -28px; padding: 8px 32px 10px; background: var(--clr-white); border-top: 2px solid var(--clr-sand); box-shadow: 0 -4px 12px rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 6px; }
 .ke-ergebnis { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .ke-titel { font-weight: 700; color: var(--clr-forest-dark); margin-right: 4px; font-family: var(--font-display); }
@@ -7658,7 +7667,7 @@ const App = {
     offene_maengel:   { cat: 'Kontrolle', label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'},{v:'nein',l:'Ohne Mängel'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" : "s.id NOT IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" },
     offene_wv:        { cat: 'Kontrolle', label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit offener WV'},{v:'nein',l:'Ohne offene WV'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" : "s.id NOT IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" },
     bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.bav_status = '${safe}'`; } },
-    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
+    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Azubi', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
     inaktiv_grund:    { cat: 'Kontrolle', label: 'Inaktiv-Grund', type: 'select', optionsSql: "SELECT DISTINCT inaktiv_grund FROM schueler WHERE inaktiv_grund != '' AND inaktiv_grund IS NOT NULL ORDER BY inaktiv_grund", optionKey: 'inaktiv_grund', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.inaktiv_grund = '${safe}'`; } },
     // Kategorie: Datenqualität
     ohne_betrieb:     { cat: 'Datenqualität', label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sqlS: () => "(s.betrieb_id IS NULL OR s.betrieb_id = 0)" },
@@ -8497,7 +8506,7 @@ const App = {
       if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
       // Ein Termin bleibt sichtbar, wenn IRGENDEINE verknüpfte Klasse ODER
-      // IRGENDEIN einzeln verknüpfter Schüler zum Filter passt. Vorher liefen
+      // IRGENDEIN einzeln verknüpfter Azubi zum Filter passt. Vorher liefen
       // alle Klauseln nur über kontrolltermin_klassen – reine Einsendungs-
       // Termine (nur Einzelschüler, keine Klasse) verschwanden bei JEDEM
       // aktiven Filter komplett aus Planung und Kontrolle.
@@ -13950,7 +13959,7 @@ const App = {
     )`);
     try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
     run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
-    // Ausbildungsphasen + erweiterte Schüler-Felder
+    // Ausbildungsphasen + erweiterte Azubi-Felder
     run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       schueler_id INTEGER NOT NULL REFERENCES schueler(id),
@@ -14108,7 +14117,7 @@ const App = {
           const pi = this._paramIndexForColumn(op.sql, 'kontrollergebnis_id');
           if (pi >= 0 && pi < op.params.length && op.params[pi] === l.id) op.params[pi] = dId;
         });
-        console.log(`[Sync] KE-Id reconciled: lokal ${l.id} → Disk ${dId} (Termin ${l.kontrolltermin_id}, Schüler ${l.schueler_id})`);
+        console.log(`[Sync] KE-Id reconciled: lokal ${l.id} → Disk ${dId} (Termin ${l.kontrolltermin_id}, Azubi ${l.schueler_id})`);
       });
     } catch(e) { console.warn('KE-Reconcile:', e.message); }
   },
@@ -14566,7 +14575,7 @@ const App = {
     const countMap = {};
     counts.forEach(c => { countMap[c.klasse_id] = c.cnt; });
 
-    // 4) Build cache. Die Schülerzahl wird NICHT mehr aus den Klassen summiert
+    // 4) Build cache. Die Azubi-Zahl wird NICHT mehr aus den Klassen summiert
     // (Kampagnen-Termine mit Einzel-Zuordnung zeigten überall „0"), sondern
     // beim ersten Zugriff über getTerminSchueler berechnet und gemerkt.
     terminIds.forEach(tid => {
@@ -14592,7 +14601,7 @@ const App = {
     return legacy ? [legacy] : [];
   },
 
-  // Get all Schüler for a Termin (from all linked Klassen)
+  // Get all Azubi for a Termin (from all linked Klassen)
   getTerminSchueler(terminId) {
     const klassenIds = this.getTerminKlassenIds(terminId);
     // Students from linked classes – nur AKTIVE (konsistent mit der Zählung im
@@ -14605,7 +14614,7 @@ const App = {
     }
     // Students directly linked (Einsendungen / manuell hinzugefügt)
     const direkt = this.query(`SELECT s.* FROM schueler s JOIN kontrolltermin_schueler kts ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);
-    // Schüler mit vorhandenem Kontrollergebnis IMMER einbeziehen: sie wurden
+    // Azubi mit vorhandenem Kontrollergebnis IMMER einbeziehen: sie wurden
     // real kontrolliert (z.B. am Kontrolltag ad hoc hinzugefügte LFK-Gäste
     // oder inzwischen inaktive Azubis) – ohne diesen Zweig fehlten genau
     // ihre Bögen in sämtlichen Termin-Exporten.
@@ -14669,7 +14678,7 @@ const App = {
       ORDER BY bs.name, k.klassenbezeichnung`, klassenIds);
   },
 
-  // Get cached Schüler count for a Termin
+  // Get cached Azubi count for a Termin
   getTerminSchuelerCount(terminId) {
     const c = this._tkCache[terminId];
     if (c && c.schuelerCount != null) return c.schuelerCount;
@@ -14971,7 +14980,7 @@ const App = {
     return { aj, kw };
   },
 
-  // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
+  // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Azubi) ──
   // Nutzt getAJKWBounds: aktive KWs × 5 Werktage − Feiertage (BW)
   calcArbeitstage(beginn, ende, schuelerId) {
     // If schuelerId given → precise calculation from active KWs
@@ -15070,7 +15079,7 @@ const App = {
     return { schule: regulaereSchule, isLandesfachklasse: false };
   },
 
-  // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
+  // ── Standortgruppen: Azubi nach aktuellem Schulstandort gruppieren ──
   // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
   // opts: { jahrgangId, fachrichtungId, amt, zwischenpruefung, refDate }
   // Jeder Filter akzeptiert auch eine LISTE von Werten (Mehrfachauswahl).
@@ -15258,6 +15267,38 @@ const App = {
     k.mangelQuote = k.kontrolliert ? Math.round(k.mangel / k.kontrolliert * 100) : 0;
     k.ampel = !k.azubis ? 'grau' : (k.abdeckung >= 90 && k.mangelQuote < 25) ? 'gruen' : k.abdeckung >= 50 ? 'gelb' : 'rot';
     return k;
+  },
+
+  // ── Aufklappmenü für Listen und Kontrolltag ──
+  // <details> ohne eigene Zustandslogik: ein Klick auf einen Eintrag oder
+  // daneben schließt es, Scrollen ebenso. Die Liste wird beim Öffnen fest
+  // positioniert (position:fixed), damit sie in scrollenden Karten und am
+  // unteren Rand nicht abgeschnitten wird; Klasse „oben“ erzwingt nach oben,
+  // „klein“ macht den Knopf schmal (⋯ in Tabellenzeilen).
+  // Einträge: { label, onclick, title } oder { trenner: true }.
+  menue(titel, eintraege, title, klasse) {
+    if (!this._menueInit) {
+      this._menueInit = true;
+      try {
+        const zu = (e) => { document.querySelectorAll('details.aktionen-menue[open]').forEach(d => { if (!e || !d.contains(e.target)) d.removeAttribute('open'); }); };
+        document.addEventListener('click', zu);
+        document.addEventListener('scroll', () => zu(null), true);
+        window.addEventListener('resize', () => zu(null));
+      } catch(e) {}
+    }
+    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}" ontoggle="App._menuePosition(this)"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel}${klasse && klasse.includes('klein') ? '' : ' ▾'}</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
+  },
+  _menuePosition(d) {
+    try {
+      const l = d.querySelector('.menue-liste'); if (!l) return;
+      if (!d.open) { l.style.cssText = ''; return; }
+      const r = d.querySelector('summary').getBoundingClientRect();
+      l.style.position = 'fixed'; l.style.top = 'auto'; l.style.bottom = 'auto'; l.style.left = 'auto'; l.style.right = 'auto';
+      const h = l.offsetHeight, w = l.offsetWidth;
+      const oben = d.classList.contains('oben') || (r.bottom + h + 8 > window.innerHeight && r.top - h - 8 > 0);
+      l.style.top = (oben ? r.top - h - 4 : r.bottom + 4) + 'px';
+      l.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    } catch(e) {}
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
@@ -15738,7 +15779,7 @@ const App = {
     if (!this._kwBoundsLogged) this._kwBoundsLogged = {};
     if (!this._kwBoundsLogged[schuelerId]) {
       this._kwBoundsLogged[schuelerId] = true;
-      // console.log(`[KW-Bounds] Schüler ${schuelerId}: AV ${s.ausbildungsbeginn} → ${s.ausbildungsende}, d1=${d1?.toISOString()}, d2=${d2?.toISOString()}, startKW=${startKW}, endKW=${endKW}, AJs=[${ajs}]`);
+      // console.log(`[KW-Bounds] Azubi ${schuelerId}: AV ${s.ausbildungsbeginn} → ${s.ausbildungsende}, d1=${d1?.toISOString()}, d2=${d2?.toISOString()}, startKW=${startKW}, endKW=${endKW}, AJs=[${ajs}]`);
     }
 
     ajs.forEach((aj, idx) => {
@@ -15834,7 +15875,7 @@ const App = {
       [schuelerId, name, feld, String(alterWert ?? ''), String(neuerWert ?? ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
   },
 
-  // ── Ampel-System: Schüler-Status auf Basis der letzten Kontrolle ──
+  // ── Ampel-System: Azubi-Status auf Basis der letzten Kontrolle ──
   // Returns {color:'green'|'yellow'|'red'|'gray', icon:'<span style="color:var(--clr-green)">●</span>'|'<span style="color:var(--clr-amber)">◐</span>'|'<span style="color:var(--clr-red)">◆</span>'|'<span style="color:var(--clr-sage-light)">○</span>', label:'...', prevErgebnis:'...', wvOffen:bool}
   getSchuelerAmpel(schuelerId) {
     const lastKE = this.query(`SELECT ke.ergebnis, ke.kontrolltermin_id, kt.geplant_datum
@@ -16290,7 +16331,7 @@ Anlagen: {anlagen}` },
             }, 150);
           }, 100);
           restored = true;
-          console.log(`[Session] Kontrolle wiederhergestellt: Termin ${pos.terminId}, Schüler ${pos.schuelerId}`);
+          console.log(`[Session] Kontrolle wiederhergestellt: Termin ${pos.terminId}, Azubi ${pos.schuelerId}`);
         }
       } else if (lastView && validViews.includes(lastView)) {
         // Any other view → navigate directly
@@ -16744,7 +16785,7 @@ Anlagen: {anlagen}` },
       )`);
       // kw_maengel VOR dem COUNT anlegen: Auf einer Alt-DB ohne diese Tabelle
       // warf der COUNT und riss das ganze try mit – schueler_bemerkungen,
-      // schueler_dateien und ausbilder wurden dann nie angelegt (Schülerakte
+      // schueler_dateien und ausbilder wurden dann nie angelegt (Azubi-Akte
       // und Ausbilder-Verwaltung liefen still ins Leere).
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_maengel (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16820,7 +16861,7 @@ Anlagen: {anlagen}` },
       }
     } catch(e) { console.warn('Multi-Klassen-Migration:', e); }
 
-    // ── Ausbildungsphasen + erweiterte Schüler-Felder ──
+    // ── Ausbildungsphasen + erweiterte Azubi-Felder ──
     try {
       this.db.run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16868,7 +16909,7 @@ Anlagen: {anlagen}` },
           if (!b) b = this.query('SELECT id FROM betriebe WHERE name LIKE ?', [`%${name}%`])[0];
           if (b) { this.db.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [b.id, s.id]); linked++; }
         });
-        if (linked) console.log(`Auto-Link: ${linked} Schüler mit Betrieben verknüpft`);
+        if (linked) console.log(`Auto-Link: ${linked} Azubis mit Betrieben verknüpft`);
       }
     } catch(e) { console.warn('Auto-Link Betriebe:', e); }
   },
@@ -17174,11 +17215,11 @@ function svgIcon(name, size = 14) {
   const paths = {
     // Azubi-Dashboard: Übersichtskacheln
     dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
-    // Schüler-Akte: Ordner
+    // Azubi-Akte: Ordner
     akte: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
     // Zulassung / Abschluss / Prüfung: Doktorhut
     abschluss: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
-    // Dateitypen (Schüler-Akte)
+    // Dateitypen (Azubi-Akte)
     datei: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     bild: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
     tabelle: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>',
@@ -17356,7 +17397,7 @@ const Views = {
         WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}
         ORDER BY s.nachname LIMIT 30`);
       const total = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${_ak} AND s.id NOT IN (SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE ergebnis != '') ${gf}`) || 0;
-      countEl.textContent = total + ' Schüler noch nie kontrolliert';
+      countEl.textContent = total + ' Azubi noch nie kontrolliert';
       this._renderKontrollstatusTable(tableEl, rows, total);
     } else {
       // Letzte Kontrolle > X Monate her
@@ -17376,14 +17417,14 @@ const Views = {
             WHERE ke3.ergebnis != '' GROUP BY ke3.schueler_id HAVING MAX(kt3.geplant_datum) < ?))
         ORDER BY letzte_kontrolle ASC, s.nachname LIMIT 30`, [cutoffStr]);
       const total = rows.length >= 30 ? '30+' : rows.length;
-      countEl.textContent = total + ' Schüler';
+      countEl.textContent = total + ' Azubi';
       this._renderKontrollstatusTable(tableEl, rows, typeof total === 'number' ? total : 30, true);
     }
   },
 
   _renderKontrollstatusTable(el, rows, total, showDate) {
     if (!rows.length) {
-      el.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green);font-size:13px">✓ Alle Schüler im Zeitraum kontrolliert!</div>';
+      el.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green);font-size:13px">✓ Alle Azubis im Zeitraum kontrolliert!</div>';
       return;
     }
     el.innerHTML = `<table class="data-table"><thead><tr>
@@ -17544,7 +17585,7 @@ const Views = {
 
       <!-- Stat Cards (immer sichtbar) -->
       <div class="grid-4" style="margin-bottom:20px">
-        <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('import')" title="Klick → Azubi-Import / Stammdaten">
+        <div class="stat-card stat-info" style="cursor:pointer" onclick="App.navigate('stammdaten')" title="Klick → Azubi-Import / Stammdaten">
           <div class="stat-label">Azubis gesamt</div>
           <div class="stat-value">${totalSchueler}</div>
           <div class="stat-sub">Aktive Auszubildende →</div>
@@ -17569,7 +17610,7 @@ const Views = {
       <!-- Datenpflege-Hinweise -->
       ${(ohneBetrieb || ohneEmail || betriebOhneEmail) ? `
       <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;font-size:12px">
-        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">${ohneBetrieb} Schüler ohne Betrieb-Verknüpfung</span>` : ''}
+        ${ohneBetrieb ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">${ohneBetrieb} Azubis ohne Betrieb-Verknüpfung</span>` : ''}
         ${ohneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('schulen'),100)">✉︎ ${ohneEmail} Schulen ohne E-Mail</span>` : ''}
         ${betriebOhneEmail ? `<span style="padding:4px 10px;background:var(--clr-amber-light);border-radius:10px;cursor:pointer" onclick="App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('betriebe'),100)">✉︎ ${betriebOhneEmail} Betriebe ohne E-Mail</span>` : ''}
       </div>` : ''}
@@ -17596,7 +17637,7 @@ const Views = {
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Schüler)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -17607,7 +17648,7 @@ const Views = {
             Überfällige Wiedervorlagen
             <button class="btn btn-sm btn-secondary" onclick="App.navigate('wiedervorlagen')">Alle anzeigen</button>
           </div>
-          ${ueberfaelligeWV.length ? `<table class="data-table"><thead><tr><th>Schüler</th><th>Betrieb</th><th>Frist</th><th>Tage über</th></tr></thead><tbody>
+          ${ueberfaelligeWV.length ? `<table class="data-table"><thead><tr><th>Azubi</th><th>Betrieb</th><th>Frist</th><th>Tage über</th></tr></thead><tbody>
             ${ueberfaelligeWV.map(w => {
               const diff = Math.floor((new Date(today) - new Date(w.frist_datum)) / 86400000);
               return `<tr>
@@ -18177,21 +18218,19 @@ const Views = {
   // ════════════════════════════════════════════
   importView() {
     const mc = document.getElementById('mainContent');
-    // Initialize SchuelerView state if needed
-    if (!SchuelerView._initialized) SchuelerView.init();
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
         <h2>Import</h2>
-        <p>Auszubildende, Ausbilder und Landesfachklassen importieren und verwalten</p>
+        <p>IBYKUS-Export einlesen, Landesfachklassen und Ausbilder nachladen. Die Azubi-Liste steht unter <a href="#" onclick="event.preventDefault();App.navigate('stammdaten')" style="color:var(--clr-forest);font-weight:600">Stammdaten</a>.</p>
       </div>
       ${ImportHandler.historieHtml()}
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('csvSection').style.display=document.getElementById('csvSection').style.display==='none'?'':'none'">
-          CSV-Import ▾
+          IBYKUS-Import (CSV / Excel) ▾
         </div>
-        <div id="csvSection" style="display:none">
+        <div id="csvSection">
 
           <!-- IBYKUS Anleitung -->
           <div style="background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px">
@@ -18243,7 +18282,7 @@ const Views = {
                 <strong style="color:var(--clr-forest-dark)">Landesfachklassen aus IBYKUS importieren</strong>
                 <p style="margin:8px 0 0;line-height:1.7">
                   Bestimmte Fachrichtungen besuchen in höheren Ausbildungsjahren eine andere Berufsschule (Landesfachklasse).
-                  Dieser Import ordnet die Landesfachklassen den Schülern zu.
+                  Dieser Import ordnet die Landesfachklassen den Azubis zu.
                 </p>
                 <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px">
                   <span><strong>Gemüsebau:</strong> 3. AJ → Heidelberg</span>
@@ -18308,9 +18347,7 @@ const Views = {
         </div>
       </div>
 
-      <div id="schuelerViewContainer"></div>
     </div>`;
-    try { SchuelerView.render(); } catch(e) {}
   },
   // ════════════════════════════════════════════
   //  KONTROLLPLANUNG
@@ -18442,20 +18479,28 @@ const Views = {
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
             <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:10px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
-            <td class="btn-group" style="flex-wrap:wrap">
-              ${t.status === 'geplant' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)">Starten</button>` : ''}
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.emailSchule(${t.id})" title="E-Mail an Schule (Terminankündigung)">✉︎ Schule</button>
-              <button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${t.id})" title="Betriebe anschreiben (Brief/CSV)">▤ Betriebe</button>
-              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.exportTerminPDF(${t.id})" title="Alle Durchsichtsbögen als PDF">▤ PDF</button>
-              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${t.id})" title="Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)">§ Ämter</button>
-              <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
-              ${t.status === 'durchgefuehrt' ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.nachholterminAnlegen(${t.id})" title="Nachholtermin für die am Kontrolltag abwesenden Azubis anlegen">↻ Nachholtermin</button>` : ''}
-              <button class="btn-icon btn-sm" onclick="PlanungHandler.editTermin(${t.id})" title="Bearbeiten">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-              </button>
-              <button class="btn-icon btn-sm" onclick="PlanungHandler.deleteTermin(${t.id})" title="Löschen">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-              </button>
+            <td style="white-space:nowrap">
+              ${(() => {
+                // Ein Hauptknopf je Termin, passend zum Status; alles Weitere im ⋯-Menü
+                const oeffnen = `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)`;
+                const abg = t.status === 'durchgefuehrt';
+                const haupt = t.status === 'geplant'
+                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Kontrolltag öffnen und mit der Durchsicht beginnen">Starten</button>`
+                  : abg && !t.nachbereitet_am
+                    ? `<button class="btn btn-sm btn-primary" onclick="${oeffnen}" title="Ergebnisse an Schule und Betriebe, PDFs, fremde Ämter">Nachbereiten</button>`
+                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchführung öffnen">Öffnen</button>`;
+                return haupt + ' ' + App.menue('⋯', [
+                  { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
+                  { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
+                  { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
+                  { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${t.id})` },
+                  { label: '§ Fremde Ämter', onclick: `PlanungHandler.fremdeAemter(${t.id})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)' },
+                  { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
+                  abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
+                  { trenner: true },
+                  { label: '✕ Termin löschen', onclick: `PlanungHandler.deleteTermin(${t.id})` },
+                ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
+              })()}
             </td>
           </tr>`;}).join('')}
         </tbody></table>` : '<div class="empty-state"><h3>Keine Termine geplant</h3><p>Legen Sie einen neuen Kontrolltermin an.</p></div>'}
@@ -18486,7 +18531,7 @@ const Views = {
       <div class="card" id="terminWahlCard">
         <div id="terminWahlKurz" style="display:none"></div>
         <div id="terminWahlVoll">
-        <div class="card-header">Kontrolltermin auswählen</div>
+        <div class="card-header">Termin auswählen</div>
         <div class="form-group">
           ${(() => {
             // Abgeschlossene und alte Termine nicht dauerhaft anbieten: Gruppen
@@ -18661,7 +18706,7 @@ const Views = {
         </div>
         ${wvs.length ? `<table class="data-table"><thead><tr>
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
-          <th>Schüler</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
+          <th>Azubi</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
           ${wvs.map(w => `<tr data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
             <td><input type="checkbox" class="chk-wv" value="${w.id}" onchange="BulkWV.updateBar()"></td>
@@ -18670,14 +18715,19 @@ const Views = {
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
             <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:10px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:10px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
-            <td class="btn-group" style="flex-wrap:wrap">
-              ${w.status !== 'erledigt' ? '<button class="btn btn-sm" style="background:var(--clr-warm);color:var(--clr-forest);border:1.5px solid var(--clr-sage);font-weight:600;font-size:11px" onclick="WiedervorlagenHandler.erledigen(' + w.id + ')" title="Durchsicht öffnen und als in Ordnung markieren">→ Durchsicht</button>' : ''}
-              ${w.kontrolltermin_id ? '<button class="btn btn-sm btn-secondary" onclick="PDFExport.generateSingle(' + w.kontrolltermin_id + ',' + w.schueler_id + ')" title="Durchsichtsbogen PDF">▤</button>' : ''}
-              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailBetriebWV(${w.id})" title="E-Mail an Betrieb">✉︎</button>` : ''}
-              ${w.status !== 'erledigt' ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.erledigenDirekt(${w.id})" title="Ohne Durchsicht als erledigt markieren (z.B. Nachweis per E-Mail eingegangen)">✓ Erledigt</button>` : ''}
-              <button class="btn-icon btn-sm" onclick="WiedervorlagenHandler.details(${w.id})" title="Details + History">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              </button>
+            <td style="white-space:nowrap">
+              ${(() => {
+                const offen = w.status !== 'erledigt';
+                const haupt = offen
+                  ? `<button class="btn btn-sm btn-success" onclick="WiedervorlagenHandler.erledigenDirekt(${w.id})" title="Nachweis eingegangen – Wiedervorlage als erledigt markieren">✓ Erledigt</button>`
+                  : `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})" title="Details und Verlauf">Details</button>`;
+                return haupt + ' ' + App.menue('⋯', [
+                  offen ? { label: '→ Durchsicht öffnen', onclick: `WiedervorlagenHandler.erledigen(${w.id})`, title: 'Berichtsheft erneut durchsehen und als in Ordnung markieren' } : null,
+                  offen ? { label: '✉︎ E-Mail an den Betrieb', onclick: `Workflows.emailBetriebWV(${w.id})` } : null,
+                  w.kontrolltermin_id ? { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${w.kontrolltermin_id},${w.schueler_id})` } : null,
+                  offen ? { label: 'ⓘ Details und Verlauf', onclick: `WiedervorlagenHandler.details(${w.id})` } : null,
+                ].filter(Boolean), 'Weitere Aktionen', 'klein');
+              })()}
             </td>
           </tr>`).join('')}
         </tbody></table>` : '<div class="empty-state"><h3>Keine Wiedervorlagen</h3><p>Wiedervorlagen werden automatisch bei mangelhaften Kontrollergebnissen erstellt.</p></div>'}
@@ -18733,7 +18783,7 @@ const Views = {
             <td>${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
             <td>${esc(schule)}</td>
             <td>${esc(klassenStr)}</td>
-            <td>${t.kontrolliert} Schüler</td>
+            <td>${t.kontrolliert} Azubis</td>
             <td>
               <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.printUebersicht(${t.id})" title="Übersichtsliste drucken">⎙</button>
               <button class="btn btn-sm btn-primary" onclick="PlanungHandler.exportTerminPDF(${t.id})">▤ Alle Bögen (PDF)</button>
@@ -18751,7 +18801,7 @@ const Views = {
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportEinzel()">
           <div class="card-header">Einzelner Durchsichtsbogen</div>
-          <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Schüler-Bogen als PDF.</p>
+          <p style="font-size:13px;color:var(--clr-text-light)">Einen einzelnen Azubi-Bogen als PDF.</p>
         </div>
         <div class="card" style="cursor:pointer" onclick="BerichteHandler.exportStatistik()">
           <div class="card-header">Excel-Dashboard</div>
@@ -19521,10 +19571,10 @@ const Views = {
 
       <div id="neSchuelerArea"></div>
 
-      <!-- Nicht erfasste Schüler -->
+      <!-- Nicht erfasste Azubi -->
       <div class="card" style="margin-top:16px" id="neNichtErfasst">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('neNichtErfasstBody').style.display=document.getElementById('neNichtErfasstBody').style.display==='none'?'':'none'">
-          ▤ Noch nicht kontrollierte Schüler <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
+          ▤ Noch nicht kontrollierte Azubis <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
           <span style="float:right;color:var(--clr-text-light)">▾</span>
         </div>
         <div id="neNichtErfasstBody" style="display:none"></div>
@@ -19656,7 +19706,7 @@ const Views = {
           <div id="help_4" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">▤ Stammdaten</div>
             <p>Die Stammdatenverwaltung gliedert sich in folgende Bereiche:</p>
-            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Schüler für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
+            <p><strong>Auszubildende</strong> – Durchsuchbare Liste aller Auszubildenden mit Ampelstatus (Kontrollstand), Ausbildungsbetrieb und Kontrollenhistorie. Über Checkboxen können mehrere Azubis für <strong>Bulk-Aktionen</strong> ausgewählt werden: Klasse/Jahrgang/Fachrichtung zuweisen, als inaktiv setzen, oder löschen (mit Sicherheitsabfrage). Export als Excel oder in die Zwischenablage möglich.</p>
             <p><strong>Jahrgänge</strong> – Abschlussjahrgänge verwalten. Die Bezeichnung entspricht dem Prüfungszeitraum der Abschlussprüfung: <strong>S</strong> = Sommer, <strong>W</strong> = Winter. Beispiel: S2027 = Sommerprüfung 2027, W2027 = Winterprüfung 2027.</p>
             <p><strong>Berufsschulen</strong> – Schulen mit Kontaktdaten, E-Mail-CC-Adressen und Ansprechpartnern. Im Bearbeiten-Dialog lassen sich <em>weitere Schreibweisen (Aliase)</em> hinterlegen, die der Import automatisch dieser Schule zuordnet.</p>
             <p><strong>Dubletten prüfen</strong> (Schulen, Betriebe, Jahrgänge) – findet Einträge, die sich nur in der Schreibweise unterscheiden (Groß/Klein, Umlaute, „Berufsschule“/„BS“, „GmbH“, Leerzeichen, Tippfehler) und führt sie per Klick zusammen: Azubis, Klassen, Termine und Blockpläne wandern zum Ziel, gleiche Klassen werden verschmolzen, der alte Name bleibt als Alias erhalten.</p>
@@ -19714,9 +19764,9 @@ const Views = {
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
             <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
-            <p>Über den Button <em>Nach FR gruppieren</em> können die Schüler in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
+            <p>Über den Button <em>Nach FR gruppieren</em> können die Azubis in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
             <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
-            <p>Über Checkboxen können mehrere Schüler gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Schüler können per ✕-Button aus dem Termin entfernt werden.</p>
+            <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
           </div>
 
           <div id="help_8" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
@@ -19770,7 +19820,7 @@ const Views = {
 
           <div id="help_10" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Azubi-Akte</div>
-            <p>Pro Schüler können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
+            <p>Pro Azubi können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
@@ -19837,7 +19887,7 @@ const Views = {
               <p><strong>Ausbildung</strong> – Verkürzer, Landesfachklasse, Geschlecht, Schulabschluss, Lehrjahr, Ausbildungsbeginn/-ende</p>
               <p><strong>Prüfungen</strong> – AP-Zulassung, AP bestanden, Prüfungserfolg, Zwischenprüfung</p>
               <p><strong>Standort</strong> – Berufsschule, Klasse, PLZ-Bereich, Betrieb Ort, Betrieb</p>
-              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Schüler, Inaktiv-Grund</p>
+              <p><strong>Kontrolle</strong> – Offene Mängel, Offene Wiedervorlage, BAV-Status, Inaktive Azubi, Inaktiv-Grund</p>
               <p><strong>Datenqualität</strong> – Ohne Betrieb, Ohne Klasse, Ohne E-Mail</p>
             </div>
             <p style="margin-top:6px">Jeder Extra-Filter erscheint als <strong>Chip</strong> unter der Topbar und kann einzeln per ✕ entfernt werden. Mehrere Extra-Filter werden mit UND verknüpft.</p>
@@ -19868,7 +19918,7 @@ const Views = {
             <p><strong>In der Kontrolle:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Schüler-Suche fokussieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Azubi-Suche fokussieren</span>
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F5</kbd><span>Von Datenträger neu laden</span>
             </div>
             <p><strong>Im KW-Raster:</strong></p>
@@ -20545,6 +20595,13 @@ const StammdatenTab = {
   _azubiSearch: '',
   _azubiFilter: {},
   _azubiPage: 0,
+  AZUBI_SEITE: 50,
+  _azubiSeite(n) {
+    this._azubiPage = Math.max(0, n | 0);
+    const c = document.getElementById('stammdatenContent');
+    if (c) this._renderAzubiTable(c);
+    try { const t = document.getElementById('azubiTableContainer'); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch(e) {}
+  },
   _azubiDebounce: null,
   // Extra filters are now global (App.extraFilters) - no local definitions needed
 
@@ -20595,9 +20652,15 @@ const StammdatenTab = {
       ${globalBadge}
       ${fil.drillDown ? `<span style="font-size:11px;padding:3px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:6px;display:flex;align-items:center;gap:4px">${esc(fil.drillDown.label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="StammdatenTab._azubiFilter.drillDown=null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">✕</span></span>` : ''}
       <span id="azubiCount" style="font-size:12px;color:var(--clr-text-light)"></span>
-      <div style="margin-left:auto;display:flex;gap:4px">
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._exportAzubiExcel()" title="Gefilterte Liste als Excel exportieren" style="font-size:11px;padding:4px 8px">Excel</button>
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._copyAzubiTable()" title="Tabelle in Zwischenablage kopieren" style="font-size:11px;padding:4px 8px">▤ Kopieren</button>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm btn-secondary" onclick="ImportHandler.addManually()" title="Azubi von Hand anlegen (nicht aus IBYKUS)">+ Azubi</button>
+        ${App.menue('Liste', [
+          { label: '▤ Als Excel exportieren', onclick: 'StammdatenTab._exportAzubiExcel()', title: 'Gefilterte Liste als Excel' },
+          { label: '▤ Tabelle kopieren', onclick: 'StammdatenTab._copyAzubiTable()', title: 'In die Zwischenablage' },
+          { trenner: true },
+          { label: '⚑ Jahrgang abschließen…', onclick: 'SchuelerView.abschliessenJahrgang()', title: 'Alle Azubis eines Jahrgangs als AP bestanden markieren und inaktiv setzen' },
+          { label: '✕ Jahrgang komplett löschen…', onclick: 'ImportHandler.deleteAllJahrgang()', title: 'Alle Azubis eines Jahrgangs samt Ergebnissen entfernen (z.B. vor einem Neu-Import)' },
+        ], 'Export, Jahrgang abschließen oder löschen')}
       </div>
     </div>
     <div id="azubiTableContainer"></div>`;
@@ -20723,7 +20786,7 @@ const StammdatenTab = {
     if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
     // Drill-down filter (from dashboard clicks)
     if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
-    // If global "Inaktive Schüler" extra filter is active, remove the s.aktiv=1 constraint
+    // If global "Inaktive Azubi" extra filter is active, remove the s.aktiv=1 constraint
     const ef = App._extraFilterSql();
     if (ef.overrideAktiv) { where = where.replace('s.aktiv=1', '1=1'); }
     // Store for export
@@ -20731,9 +20794,21 @@ const StammdatenTab = {
     this._lastAzubiParams = [...params];
     const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
 
+    // Seiten à AZUBI_SEITE Zeilen: bei 4000 Azubis rechnete die Liste sonst
+    // je Zeile vier Abfragen und wurde 16.000 px hoch
+    const seiten = Math.max(1, Math.ceil(azubis.length / this.AZUBI_SEITE));
+    if (!(this._azubiPage >= 0)) this._azubiPage = 0;
+    if (this._azubiPage >= seiten) this._azubiPage = seiten - 1;
+    const sichtbar = azubis.slice(this._azubiPage * this.AZUBI_SEITE, (this._azubiPage + 1) * this.AZUBI_SEITE);
+    const pager = seiten > 1 ? `<div class="azubi-pager"><span>Seite ${this._azubiPage + 1} von ${seiten} · ${azubis.length} Azubis</span><div class="btn-group">
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage <= 0 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(0)" title="Erste Seite">«</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage <= 0 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${this._azubiPage - 1})" title="Vorherige Seite">‹</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage >= seiten - 1 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${this._azubiPage + 1})" title="Nächste Seite">›</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage >= seiten - 1 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${seiten - 1})" title="Letzte Seite">»</button>
+      </div></div>` : '';
     // Update count label
     const countEl = document.getElementById('azubiCount');
-    if (countEl) countEl.textContent = `${azubis.length} Treffer`;
+    if (countEl) countEl.textContent = `${azubis.length} Treffer${seiten > 1 ? ` · Seite ${this._azubiPage + 1}/${seiten}` : ''}`;
 
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
@@ -20751,7 +20826,7 @@ const StammdatenTab = {
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
       ${azubis.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
-      ${azubis.map(s => {
+      ${sichtbar.map(s => {
         const ktrls = App.query('SELECT ke.*, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != "" ORDER BY kt.geplant_datum DESC', [s.id]);
         const snpCnt = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE schueler_id=?', [s.id])||0;
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id])||0;
@@ -20766,7 +20841,7 @@ const StammdatenTab = {
             ${wvO?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:8px" title="Offene oder überfällige Wiedervorlage vorhanden">WV</span>':''}
             <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ibykus_id||'')}${s.zustaendiges_amt && s.zustaendiges_amt !== '93' ? ' <span style="padding:0 3px;background:var(--clr-blue-light);border-radius:4px;font-weight:600">'+esc(App.amtLabel(s.zustaendiges_amt))+'</span>' : ''}</div></td>
           <td>${s.betrieb_id ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${s.betrieb_id});return false" style="color:var(--clr-forest);font-weight:600;font-size:12px;text-decoration:underline" title="Alle Azubis dieses Betriebs">${esc(s.b_name||s.ausbildungsstaette||'')}</a>` : `<strong style="font-size:12px">${esc(s.b_name||s.ausbildungsstaette||'')}</strong>`}${s.b_ort?'<div style="font-size:10px;color:var(--clr-text-light)">'+esc(s.b_ort)+'</div>':''}</td>
-          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
+          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Azubis dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
           <td style="font-size:12px">${esc(s.jahrgang||'')}</td>
           <td style="font-size:11px">${s.fr_typ==='Fachwerker'?'FW ':''}${esc(s.fachrichtung||'')}</td>
           <td style="font-size:11px;white-space:nowrap">
@@ -20781,10 +20856,17 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="Phasen.editor(${s.id})" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 13)}</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen">${svgIcon('akte', 13)}</button></td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">Bearbeiten</button> ${App.menue('⋯', [
+            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `Phasen.editor(${s.id})`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
+            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `SchuelerAkte.open(${s.id})` },
+            { label: '▤ Einzelprüfung anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung)' },
+            snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
+            { trenner: true },
+            { label: '✕ Azubi löschen', onclick: `ImportHandler.deleteSchueler(${s.id})` },
+          ].filter(Boolean), 'Weitere Aktionen', 'klein')}</td>
         </tr>`;
       }).join('')}
-    </tbody></table></div>`;
+    </tbody></table>${pager}</div>`;
   },
 
   // ── Bulk operations for Azubi table ──
@@ -20798,7 +20880,7 @@ const StammdatenTab = {
     if (cnt) cnt.textContent = ids.length;
     if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
     // (kein Override von BulkSchueler.getSelected mehr – der Standard-Selektor
-    // deckt beide Listen ab; der Override machte die Leiste der Schülerliste tot)
+    // deckt beide Listen ab; der Override machte die Leiste der Azubi-Liste tot)
   },
 
   _bulkDeleteAzubis() {
@@ -20999,7 +21081,7 @@ const StammdatenTab = {
         <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('jahrgang')" title="Ähnliche Jahrgangsbezeichnungen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addJahrgang()">+ Neuer Abschlussjahrgang</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Schüler</th><th>Aktionen</th></tr></thead><tbody>
+      <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Azubi</th><th>Aktionen</th></tr></thead><tbody>
         ${rows.map(r => {
           const bgFR = App.filterFachrichtungen.length ? ` AND fachrichtung_id IN (${App.filterFachrichtungen.join(',')})` : '';
           const cnt = App.scalar(`SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?${bgFR}`, [r.id]) || 0;
@@ -21116,7 +21198,7 @@ const StammdatenTab = {
     if (!ids.length) return;
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
     // NUR die Kaskade: sie löst jede Klasse der Schule einzeln über
-    // deleteKlasseKaskade auf (Schüler-Zuordnung, Termin-Klassen usw.).
+    // deleteKlasseKaskade auf (Azubi-Zuordnung, Termin-Klassen usw.).
     // Ein direktes DELETE FROM klassen davor machte die Kaskade zum No-Op
     // und hinterließ verwaiste klasse_id-Verweise.
     ids.forEach(id => App.deleteSchuleKaskade(id));
@@ -21128,7 +21210,7 @@ const StammdatenTab = {
     if (ids.length < 2) return App.toast('Mindestens 2 Schulen zum Zusammenführen auswählen', 'warning');
     const schulen = ids.map(id => App.query('SELECT * FROM berufsschulen WHERE id=?',[id])[0]).filter(Boolean);
     App.openModal('Schulen zusammenführen', `
-      <p style="font-size:13px;margin-bottom:12px">Alle Klassen und Schüler der ausgewählten Schulen werden auf <strong>eine Ziel-Schule</strong> übertragen. Die anderen werden gelöscht.</p>
+      <p style="font-size:13px;margin-bottom:12px">Alle Klassen und Azubis der ausgewählten Schulen werden auf <strong>eine Ziel-Schule</strong> übertragen. Die anderen werden gelöscht.</p>
       <div class="form-group"><label>Ziel-Schule (bleibt bestehen)</label><select class="form-control" id="mMergeTarget">
         ${schulen.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
       </select></div>
@@ -21328,7 +21410,7 @@ const StammdatenTab = {
       </div>
       <div class="card"><table class="data-table"><thead><tr>
         <th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkKlassen()"></th>
-        <th>Berufsschule</th><th>Jahrgang</th><th>LJ</th><th>Fachrichtung</th><th>Bezeichnung</th><th>Schüler</th><th>Aktionen</th>
+        <th>Berufsschule</th><th>Jahrgang</th><th>LJ</th><th>Fachrichtung</th><th>Bezeichnung</th><th>Azubi</th><th>Aktionen</th>
       </tr></thead><tbody>
         ${rows.map(r => {
           const cnt = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [r.id]) || 0;
@@ -21339,7 +21421,7 @@ const StammdatenTab = {
             <td>${r.lehrjahr || '–'}</td>
             <td>${esc(r.fachrichtung || '–')}</td>
             <td>${esc(r.klassenbezeichnung)}</td>
-            <td>${cnt > 0 ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Schüler anzeigen">${cnt}</a>` : '0'}</td>
+            <td>${cnt > 0 ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubi anzeigen">${cnt}</a>` : '0'}</td>
             <td class="btn-group">
               <button class="btn-icon btn-sm" onclick="StammdatenTab.editKlasse(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
               <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteKlasse(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
@@ -21357,7 +21439,7 @@ const StammdatenTab = {
     const ids = [...document.querySelectorAll('.chk-kl:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
     const total = ids.reduce((s,id) => s + (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?',[id])||0), 0);
-    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Schüler werden entkoppelt.` : ''}`)) return;
+    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`)) return;
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
@@ -21574,7 +21656,7 @@ const StammdatenTab = {
       </div></div>
       <div class="card" style="padding:12px">
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-          Klicken Sie auf eine Kalenderwoche um die Anwesenheit zu markieren (grün = Schüler anwesend). Halten Sie die Maus gedrückt um mehrere KWs zu markieren.
+          Klicken Sie auf eine Kalenderwoche um die Anwesenheit zu markieren (grün = Azubi anwesend). Halten Sie die Maus gedrückt um mehrere KWs zu markieren.
         </p>
         <div id="blockplanGrid"></div>
       </div>
@@ -21794,7 +21876,7 @@ const StammdatenTab = {
   _autoLinkBetriebe(showToast) {
     // Find schueler without betrieb_id but with ausbildungsstaette text
     const unlinked = App.query("SELECT id, ausbildungsstaette FROM schueler WHERE betrieb_id IS NULL AND ausbildungsstaette != '' AND aktiv=1");
-    if (!unlinked.length) { if (showToast) App.toast('Alle Schüler sind bereits verknüpft', 'success'); return; }
+    if (!unlinked.length) { if (showToast) App.toast('Alle Azubis sind bereits verknüpft', 'success'); return; }
 
     let linked = 0, created = 0, fehler = 0;
     unlinked.forEach(s => {
@@ -22045,7 +22127,7 @@ const StammdatenTab = {
     App.openModal(`${esc(bs.name)} – ${klassen.length} Klassen`, `
       ${bs.email ? `<div style="margin-bottom:8px;font-size:12px">✉︎ <a href="mailto:${esc(bs.email)}" style="color:var(--clr-forest)">${esc(bs.email)}</a>${bs.telefon ? ` · ☎︎ <a href="tel:${esc(bs.telefon)}" style="color:var(--clr-forest)">${esc(bs.telefon)}</a>` : ''}</div>` : ''}
       <table class="data-table">
-        <thead><tr><th>Klasse</th><th>Jahrgang</th><th>Fachrichtung</th><th>Schüler</th><th></th></tr></thead>
+        <thead><tr><th>Klasse</th><th>Jahrgang</th><th>Fachrichtung</th><th>Azubi</th><th></th></tr></thead>
         <tbody>${klassen.map(k => `<tr>
           <td><strong>${esc(k.klassenbezeichnung)}</strong></td>
           <td>${esc(k.jahrgang||'–')}</td>
@@ -22055,10 +22137,10 @@ const StammdatenTab = {
         </tr>`).join('')}</tbody>
       </table>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">Alle Schüler</button>`);
+       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">Alle Azubis</button>`);
   },
 
-  // ── Modal: Schüler einer Klasse ──
+  // ── Modal: Azubi einer Klasse ──
   showKlasseAzubis(klasseId) {
     const kl = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jahrgang,
       CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung
@@ -22080,7 +22162,7 @@ const StammdatenTab = {
     App.openModal(`${esc(kl.klassenbezeichnung)} – ${esc(kl.schule)}`, `
       <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:180px;font-size:12px;color:var(--clr-text-light)">
-          ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Schüler
+          ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Azubis
           ${bs.telefon ? '<br>☎︎ <a href="tel:' + esc(bs.telefon) + '" style="color:var(--clr-forest)">' + esc(bs.telefon) + '</a>' : ''}
           ${bs.email ? '<br>✉︎ <a href="mailto:' + esc(bs.email) + '" style="color:var(--clr-forest)">' + esc(bs.email) + '</a>' : ''}
         </div>
@@ -22134,7 +22216,7 @@ const StammdatenTab = {
     const eLbl = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
     const ampelIcon = (erg) => !erg ? '<span style="color:var(--clr-sage-light)">○</span>' : erg === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
 
-    App.openModal(`${azubis.length} Schüler – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
+    App.openModal(`${azubis.length} Azubis – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>Klasse</th><th>Betrieb</th><th>Letzte Kontrolle</th><th>Kontakt</th><th></th></tr></thead>
         <tbody>
@@ -22699,7 +22781,7 @@ const ImportHandler = {
     // Zweit-Registerkarte kann den Snapshot nie schreiben – der Import bliebe
     // dauerhaft „nicht gespeichert“ und ginge beim Schließen verloren.
     if (!vorschau && App._tabIsPrimary === false) return App.toast('Diese Registerkarte ist eine Zweit-Registerkarte dieser Datenbank und kann nicht speichern. Bitte den Import in der zuerst geöffneten Registerkarte ausführen (oder alle anderen Tabs schließen und neu laden).', 'error');
-    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Schülerdaten…');
+    App.showLoading(vorschau ? 'Import wird geprüft…' : 'Importiere Azubi-Daten…');
     const savedAutoSaveTimer = App.autoSaveTimer;
     App._bulkImport = true;
     if (App.autoSaveTimer) clearTimeout(App.autoSaveTimer);
@@ -23112,8 +23194,8 @@ const ImportHandler = {
     }
 
     // ── Result Summary ──
-    let parts = [`<strong>${imported}</strong> Schüler importiert`];
-    if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Schüler aktualisiert (geänderte Daten aus Ibykus)`);
+    let parts = [`<strong>${imported}</strong> Azubi importiert`];
+    if (stats.updated) parts.push(`<strong>${stats.updated}</strong> bestehende Azubis aktualisiert (geänderte Daten aus Ibykus)`);
     if (skipped) parts.push(`${skipped - (stats.updated||0)} übersprungen (unveränderte Duplikate)`);
     if (stats.schulen.size) parts.push(`<strong>${stats.schulen.size}</strong> Schulen angelegt: ${[...stats.schulen].join(', ')}`);
     if (stats.betriebe && stats.betriebe.size) parts.push(`<strong>${stats.betriebe.size}</strong> Betriebe angelegt`);
@@ -23126,7 +23208,7 @@ const ImportHandler = {
     if (stats.bavReaktiviert) parts.push(`✓ <strong>${stats.bavReaktiviert}</strong> Auszubildende reaktiviert (BAV-Status wieder aktiv)`);
     if (stats.fehlende && stats.fehlende.length) parts.push(`⚠︎ <strong>${stats.fehlende.length}</strong> aktive Azubis (mit BAV-Ident, gleiche Fachrichtungen/Ämter) fehlen in diesem Export – siehe unten`);
     if (stats.neuvertraege && stats.neuvertraege.length) parts.push(`⚠︎ <strong>${stats.neuvertraege.length}</strong> Namenstreffer mit ANDERER BAV-Ident als neue Verträge angelegt (Betriebswechsel/Dublette prüfen)`);
-    if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Schüler ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
+    if (noKlasseCount > 0) parts.push(`⚠︎ ${noKlasseCount} Azubis ohne Klassenzuordnung (fehlende Daten: Schule/Beruf/AV-Beginn)`);
 
     if (datumsFehler.length) parts.push(`⚠︎ <strong>${datumsFehler.length}</strong> Zeilen mit unlesbarem Datum – Datensätze wurden <strong>ohne Datum</strong> importiert (Datumsformat im Dialog prüfen!)`);
     if (errorRows.length) parts.push(`⚠︎ <strong>${errorRows.length}</strong> Zeilen übersprungen (Fehler)`);
@@ -23236,7 +23318,7 @@ const ImportHandler = {
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name`);
     const betriebe = App.query('SELECT * FROM betriebe ORDER BY name');
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
-    App.openModal('Schüler hinzufügen', `
+    App.openModal('Azubi hinzufügen', `
       <div class="form-row">
         <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach"></div>
         <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor"></div>
@@ -23292,7 +23374,7 @@ const ImportHandler = {
        (document.getElementById('mSAmt') && document.getElementById('mSAmt').value) || App.EIGENES_AMT]);
     App.closeModal();
     Views.importView();
-    App.toast('Schüler hinzugefügt', 'success');
+    App.toast('Azubi hinzugefügt', 'success');
   },
   editSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -23331,120 +23413,99 @@ const ImportHandler = {
         ${betrieb?.email ? `<span style="padding:3px 8px;background:var(--clr-warm);border-radius:10px">${esc(betrieb.email)}</span>` : ''}
       </div>
 
-      <div class="modal-tabs">
-        <button class="modal-tab-btn active" onclick="_switchModalTab('mSTab1',this)">Persönlich</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab2',this)">Ausbildung</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab3',this)">Prüfungen</button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mSTab4',this)">Status</button>
+      <!-- Ein Reiter: lokale Felder editierbar, IBYKUS-Felder nur lesend (auf Wunsch änderbar) -->
+      <div class="form-row">
+        <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
+        <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
+        <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
+          ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+        <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
+        <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
+        </label></div>
+        <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
+          ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
       </div>
 
-      <!-- Tab 1: Persönlich -->
-      <div id="mSTab1" class="modal-tab-content active">
-        <div class="form-row">
-          <div class="form-group"><label>Nachname *</label><input class="form-control" id="mSNach" value="${esc(s.nachname)}"></div>
-          <div class="form-group"><label>Vorname *</label><input class="form-control" id="mSVor" value="${esc(s.vorname)}"></div>
+      <div class="ibykus-block">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <strong style="font-size:13px;color:var(--clr-forest-dark)">Aus IBYKUS</strong>
+          <span style="font-size:11px;color:var(--clr-text-light)">wird beim nächsten Import überschrieben${s.import_datum ? ` · zuletzt ${esc(s.import_datum)}` : ''}</span>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;color:var(--clr-text-light)" title="Nur für Korrekturen oder Azubis, die nicht in IBYKUS stehen – der nächste Import setzt die Felder wieder">
+            <input type="checkbox" id="mSIbykusAendern" onchange="document.querySelectorAll('#modalOverlay .ibykus-feld').forEach(e=>e.disabled=!this.checked);this.closest('.ibykus-block').classList.toggle('offen',this.checked)" style="accent-color:var(--clr-forest)"> trotzdem ändern
+          </label>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
-            ${Object.entries(geschlechtLabels).map(([v,l])=>`<option value="${v}" ${(s.geschlecht||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Schulabschluss</label><input class="form-control" id="mSSchulabschluss" value="${esc(s.schulabschluss||'')}"></div>
+          <div class="form-group"><label>Nachname *</label><input class="form-control ibykus-feld" id="mSNach" value="${esc(s.nachname)}" disabled></div>
+          <div class="form-group"><label>Vorname *</label><input class="form-control ibykus-feld" id="mSVor" value="${esc(s.vorname)}" disabled></div>
+          <div class="form-group"><label>BAV-Ident (IBYKUS)</label><input class="form-control ibykus-feld" id="mSIbykus" value="${esc(s.ibykus_id||'')}" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
-          <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
-        </div>
-      </div>
-
-      <!-- Tab 2: Ausbildung -->
-      <div id="mSTab2" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control" id="mSBetriebId">
+          <div class="form-group"><label>Betrieb (verknüpft)</label><select class="form-control ibykus-feld" id="mSBetriebId" disabled>
             <option value="">– Kein Betrieb –</option>${betriebe.map(b=>`<option value="${b.id}" ${b.id===s.betrieb_id?'selected':''}>${esc(b.name)}${b.ort?' ('+esc(b.ort)+')':''}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Ausb.stätte (Freitext)</label><input class="form-control" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" style="font-size:11px"></div>
+          <div class="form-group"><label>Ausbildungsstätte (Freitext)</label><input class="form-control ibykus-feld" id="mSBetrieb" value="${esc(s.ausbildungsstaette)}" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mSFR">
+          <div class="form-group"><label>Fachrichtung</label><select class="form-control ibykus-feld" id="mSFR" disabled>
             <option value="">–</option>${frs.map(f=>`<option value="${f.id}" ${f.id===s.fachrichtung_id?'selected':''}>${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Klasse / Schule</label><select class="form-control" id="mSKlasse">
+          <div class="form-group"><label>Klasse / Schule</label><select class="form-control ibykus-feld" id="mSKlasse" disabled>
             <option value="">–</option>${klassen.map(k=>`<option value="${k.id}" ${k.id===s.klasse_id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
           </select></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mSJG">
+          <div class="form-group"><label>Jahrgang</label><select class="form-control ibykus-feld" id="mSJG" disabled>
             <option value="">–</option>${jahrgaenge.map(j=>`<option value="${j.id}" ${j.id===s.jahrgang_id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>iBykus-Ident</label><input class="form-control" id="mSIbykus" value="${esc(s.ibykus_id||'')}" style="font-size:12px"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control" id="mSBeginn" value="${s.ausbildungsbeginn||''}"></div>
-          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control" id="mSEnde" value="${s.ausbildungsende||''}"></div>
-          <div class="form-group"><label>Lehrjahr (berechnet)</label><input class="form-control" value="${lehrjahrInfo}" disabled style="background:var(--clr-warm);font-weight:600"></div>
+          <div class="form-group"><label>Ausbildungsbeginn</label><input type="date" class="form-control ibykus-feld" id="mSBeginn" value="${s.ausbildungsbeginn||''}" disabled></div>
+          <div class="form-group"><label>Ausbildungsende</label><input type="date" class="form-control ibykus-feld" id="mSEnde" value="${s.ausbildungsende||''}" disabled></div>
+          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control ibykus-feld" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control" id="mSAmt">
+          <div class="form-group"><label>Zuständiges Amt</label><select class="form-control ibykus-feld" id="mSAmt" disabled>
             <option value="">–</option>${Object.entries(App.AEMTER).map(([code,name])=>`<option value="${code}" ${s.zustaendiges_amt===code?'selected':''}>${code} ${esc(name)}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
+          <div class="form-group"><label>Landesfachklasse</label><input class="form-control ibykus-feld" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" disabled></div>
+          <div class="form-group"><label>BAV-Status</label><input class="form-control ibykus-feld" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE" disabled></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Reguläre Dauer (Monate)</label><input type="number" class="form-control" id="mSDauer" value="${s.regulaer_dauer_monate||36}" min="6" max="48"></div>
-          <div class="form-group"><label>Verkürzung (Monate)</label><input type="number" class="form-control" id="mSVerk" value="${s.verkuerzung_monate||0}" min="0" max="18"></div>
-          <div class="form-group"><label style="display:flex;align-items:center;gap:6px;padding-top:20px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
-          </label></div>
-        </div>
-        ${typeof Phasen!=='undefined'?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" style="font-size:11px">Ausbildungsverlauf (Phasen) öffnen</button></div>`:''}
-      </div>
-
-      <!-- Tab 3: Prüfungen -->
-      <div id="mSTab3" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Zwischenprüfung</label><input class="form-control" id="mSZP" value="${esc(s.zwischenpruefung||'')}" placeholder="z.B. S2026"></div>
-          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="checkbox" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> AP zugelassen
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="checkbox" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)"> AP bestanden
-            </label>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Prüfungserfolg</label><select class="form-control" id="mSPE">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Wiederholung 1</label><select class="form-control" id="mSPEW1">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh1||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-          <div class="form-group"><label>Wiederholung 2</label><select class="form-control" id="mSPEW2">
-            ${Object.entries(peLabels).map(([v,l])=>`<option value="${v}" ${(s.pruefungserfolg_wdh2||'')===v?'selected':''}>${l}</option>`).join('')}
-          </select></div>
-        </div>
-      </div>
-
-      <!-- Tab 4: Status -->
-      <div id="mSTab4" class="modal-tab-content">
-        <div class="form-row">
-          <div class="form-group"><label>Status</label><select class="form-control" id="mSStatus">
+          <div class="form-group"><label>Status</label><select class="form-control ibykus-feld" id="mSStatus" disabled>
             ${Object.entries(statusLabels).map(([v,l])=>`<option value="${v}" ${(s.status||'aktiv')===v?'selected':''}>${l}</option>`).join('')}
           </select></div>
-          <div class="form-group"><label>BAV-Status (IBYKUS)</label><input class="form-control" id="mSBAV" value="${esc(s.bav_status||'')}" placeholder="z.B. BESTAET, BEARB, ENDE"></div>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:6px;padding-top:20px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" class="ibykus-feld" id="mSAPZu" ${s.ap_zugelassen?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)" disabled> AP zugelassen
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" class="ibykus-feld" id="mSAPBe" ${s.ap_bestanden?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-green)" disabled> AP bestanden
+            </label>
+          </div>
+          <div class="form-group"><label>Inaktiv seit / Grund</label><input type="date" class="form-control ibykus-feld" id="mSInaktivDatum" value="${s.inaktiv_datum||''}" disabled><input class="form-control ibykus-feld" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}" placeholder="Grund" disabled style="margin-top:4px"></div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>Inaktiv seit</label><input type="date" class="form-control" id="mSInaktivDatum" value="${s.inaktiv_datum||''}"></div>
-          <div class="form-group"><label>Inaktiv-Grund</label><input class="form-control" id="mSInaktivGrund" value="${esc(s.inaktiv_grund||'')}"></div>
-        </div>
-        <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
-        ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
+        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
+        ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Ausbildung beenden</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
   },
@@ -23501,7 +23562,7 @@ const ImportHandler = {
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
-    App.toast('Schüler aktualisiert', 'success');
+    App.toast('Azubi aktualisiert', 'success');
   },
   setInaktiv(id) {
     App.closeModal();
@@ -23559,7 +23620,7 @@ const ImportHandler = {
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
-    App.toast('Schüler reaktiviert', 'success');
+    App.toast('Azubi reaktiviert', 'success');
   },
   deleteSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
@@ -23666,7 +23727,7 @@ const ImportHandler = {
         <div class="card" style="margin-bottom:12px;padding:12px 16px;background:var(--clr-leaf-light);border-color:var(--clr-sage-light)">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">So funktioniert der LFK-Import:</strong>
           <ul style="font-size:12px;color:var(--clr-text);margin:6px 0 0 16px;line-height:1.8">
-            <li>Schüler werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
+            <li>Azubi werden anhand <strong>Nr./BAV-Ident</strong> oder <strong>Name</strong> zugeordnet</li>
             <li>Wenn <strong>Landesfachklasse ≠ Beschreibung Klasse</strong> → wird als LFK gespeichert</li>
             <li>Betroffene Fachrichtungen: Gemüse (3. AJ), Obst (2.+3. AJ), Baumschule (3. AJ), Stauden (3. AJ)</li>
             <li>Die <strong>aktuelle Schule</strong> wird dann je nach Ausbildungsjahr automatisch angezeigt</li>
@@ -23706,11 +23767,11 @@ const ImportHandler = {
       if (!nr) { skipped++; return; }
 
       // Landesfachklasse immer speichern wenn befüllt – das Feld in IBYKUS
-      // bedeutet: Schüler ist einer Landesfachklasse zugeordnet (auch wenn
+      // bedeutet: Azubi ist einer Landesfachklasse zugeordnet (auch wenn
       // die Schule zufällig dieselbe ist wie die reguläre Berufsschulklasse)
       const lfkValue = lfk ? lfk.replace(/^Berufsschule\s+/i, '').trim() : '';
 
-      // Finde Schüler: erst per ibykus_id, dann per Nr als allg. Match
+      // Finde Azubi: erst per ibykus_id, dann per Nr als allg. Match
       let schuelerId = App.scalar('SELECT id FROM schueler WHERE ibykus_id=? AND ibykus_id != "" AND aktiv=1', [nr]);
       if (!schuelerId) {
         // Versuche numerischen Teil als BAV-Ident zu matchen
@@ -23735,14 +23796,14 @@ const ImportHandler = {
     App.hideLoading();
 
     let parts = [];
-    if (updated) parts.push(`<strong>${updated}</strong> Schüler mit Landesfachklasse aktualisiert`);
+    if (updated) parts.push(`<strong>${updated}</strong> Azubi mit Landesfachklasse aktualisiert`);
     if (cleared) parts.push(`${cleared} Landesfachklassen entfernt (wieder normale Klasse)`);
     if (skipped) parts.push(`${skipped} unverändert/übersprungen`);
-    if (notFound) parts.push(`⚠︎ ${notFound} Schüler nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
+    if (notFound) parts.push(`⚠︎ ${notFound} Azubis nicht gefunden (Nr./BAV-Ident stimmt nicht überein)`);
 
     this._logImportHistorie({ typ: 'lfk', zeilen: data.length, aktualisiert: updated,
       uebersprungen: skipped + cleared, fehler: notFound,
-      details: notFound ? [{ fehler: notFound + ' Schüler nicht gefunden (Nr./BAV-Ident)', art: 'fehler' }] : [] });
+      details: notFound ? [{ fehler: notFound + ' Azubi nicht gefunden (Nr./BAV-Ident)', art: 'fehler' }] : [] });
     App.openModal('LFK-Import abgeschlossen', `
       <div style="font-size:14px;line-height:2">${parts.map(s => `<div>✓ ${s}</div>`).join('')}</div>
     `, `<button class="btn btn-primary" onclick="App.closeModal();Views.importView()">OK</button>`);
@@ -23920,12 +23981,23 @@ const ImportHandler = {
   },
 
   deleteAllJahrgang() {
-    const jg = SchuelerView.filters.jahrgang;
-    if (!jg) return App.toast('Bitte zuerst einen Jahrgang im Filter wählen', 'warning');
+    const jahrgaenge = App.query('SELECT j.*, (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id) AS n FROM abschlussjahrgaenge j ORDER BY j.jahr DESC');
+    App.openModal('Jahrgang komplett löschen', `
+      <p style="font-size:13px;margin-bottom:12px">Alle Azubis eines Jahrgangs samt Kontrollergebnissen, Wiedervorlagen, Kalenderwochen, Phasen und Bemerkungen <strong>endgültig</strong> löschen – z.B. vor einem Neu-Import. Termine bleiben bestehen. Für ein Archiv mit Rückholung: Einstellungen → Datenbank-Tools → „Jahrgang mit Archiv löschen“.</p>
+      <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mDelJG">
+        ${jahrgaenge.map(j => `<option value="${j.id}">${esc(j.bezeichnung)} (${j.n} Azubis)</option>`).join('')}
+      </select></div>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-danger" onclick="ImportHandler.doDeleteAllJahrgang()">Endgültig löschen</button>`);
+  },
+  doDeleteAllJahrgang() {
+    const jg = parseInt(document.getElementById('mDelJG')?.value);
+    if (!jg) return App.toast('Bitte einen Jahrgang wählen', 'warning');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jg]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
-    if (!count) return App.toast('Keine Schüler zum Löschen', 'warning');
-    if (!confirm(`Wirklich ALLE ${count} Schüler im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    if (!count) return App.toast('Keine Azubis zum Löschen', 'warning');
+    if (!confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    App.closeModal();
     // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
     // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
     // diese verfälschten anschließend die Mängelcode-Statistik im Jahresbericht.
@@ -23934,7 +24006,7 @@ const ImportHandler = {
     // Die Azubi-Kaskade entfernt deren Ergebnisse und Einzel-Zuordnungen.
     App.query('SELECT id FROM schueler WHERE jahrgang_id=?', [jg]).forEach(x => App.deleteSchuelerKaskade(x.id));
     App.query('SELECT id FROM klassen WHERE jahrgang_id=?', [jg]).forEach(k => App.deleteKlasseKaskade(k.id));
-    App.toast(`${count} Schüler + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
+    App.toast(`${count} Azubis + zugehörige Daten gelöscht. CSV kann neu importiert werden.`, 'success');
     try { SchuelerView.render(); } catch(e) {}
   },
 };
@@ -24190,7 +24262,7 @@ const PlanungHandler = {
         <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
-      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Schüler manuell hinzufügen -->
+      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
       <div id="sectionEinsendungExtra" style="margin-top:12px;padding:12px 16px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius)">
         <div class="form-group" style="margin-bottom:8px">
           <label style="font-weight:600;color:var(--clr-forest)">Einzelne Azubis hinzufügen (z.B. LFK-Gäste, fremde Ämter)</label>
@@ -24379,7 +24451,7 @@ const PlanungHandler = {
     // "Keine"-Auswahl in einer Dimension → leere Menge, gar nicht erst suchen
     if ([jg, zp, bs, amt, fr, lj].some(sel => sel[0] === '∅')) {
       box.style.display = '';
-      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Azubis für diese Filterauswahl gefunden.</div>';
       return;
     }
 
@@ -24409,7 +24481,7 @@ const PlanungHandler = {
     const gruppen = App.getStandortgruppen(opts);
     if (!gruppen.length) {
       box.style.display = '';
-      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Azubis für diese Filterauswahl gefunden.</div>';
       return;
     }
 
@@ -24417,7 +24489,7 @@ const PlanungHandler = {
     const filtered = bs.length ? gruppen.filter(g => bs.some(b => g.schule.toLowerCase().includes(b.toLowerCase()))) : gruppen;
     this._standortGruppen = filtered;
 
-    // Check ob es LFK-Schüler gibt
+    // Check ob es LFK-Azubis gibt
     const hasAnyLFK = filtered.some(g => g.hasLFK);
 
     // Filter-Label für Anzeige
@@ -24431,14 +24503,14 @@ const PlanungHandler = {
 
     box.style.display = '';
     content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
-        Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Schüler an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
+        Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Azubis an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
       </div>`
     + filtered.map((g, gi) => {
       const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s, terminDatum || undefined).isLandesfachklasse).length;
       const regCount = g.schueler.length - lfkCount;
       const klasseIds = [...g.klasse_ids];
 
-      // Schüler-Details für Tooltip
+      // Azubi-Details für Tooltip
       const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
       const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
 
@@ -24450,7 +24522,7 @@ const PlanungHandler = {
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
           <div style="font-size:11px;color:var(--clr-text-light)">
-            ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
+            ${g.schueler.length} Azubis${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
           </div>
         </div>
         ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
@@ -24458,7 +24530,7 @@ const PlanungHandler = {
       </div>`;
     }).join('')
     + (hasAnyLFK ? `<div style="font-size:10px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
-      <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
+      <strong>LFK</strong> = Azubi an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
 
@@ -24520,7 +24592,7 @@ const PlanungHandler = {
       }
     });
     this._renderEinsendSelected();
-    App.toast(`${added} Schüler aus "${label}" hinzugefügt`, 'success');
+    App.toast(`${added} Azubis aus "${label}" hinzugefügt`, 'success');
   },
 
   _renderEinsendSelected() {
@@ -24541,7 +24613,7 @@ const PlanungHandler = {
         <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
       </span>`;
     }).join('');
-    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Schüler ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
+    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Azubi ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
   },
 
   _einsendSchuelerIds: [],
@@ -24688,13 +24760,13 @@ const PlanungHandler = {
     
     // Get selected class IDs (Schulkontrolle)
     const selectedKlassen = [...document.querySelectorAll('.chk-termin-kl:checked')].map(c => parseInt(c.value));
-    // Get selected students (Einsendung) + Smart-Standort LFK-Schüler
+    // Get selected students (Einsendung) + Smart-Standort LFK-Azubis
     const selectedSchueler = this._einsendSchuelerIds || [];
     const standortSchueler = this._standortSchuelerIds || [];
 
     if (!dt) return App.toast('Datum ist Pflicht', 'error');
     if (!pr) return App.toast('Mindestens ein Prüfer muss ausgewählt werden', 'error');
-    if (!selectedKlassen.length && !selectedSchueler.length && !standortSchueler.length) return App.toast('Mindestens eine Klasse oder einen Schüler auswählen', 'error');
+    if (!selectedKlassen.length && !selectedSchueler.length && !standortSchueler.length) return App.toast('Mindestens eine Klasse oder einen Azubi auswählen', 'error');
     
     // Get jahrgang from first selected class
     const firstChecked = document.querySelector('.chk-termin-kl:checked');
@@ -24719,23 +24791,23 @@ const PlanungHandler = {
       // Legacy klasse_id IMMER setzen – auch auf NULL: sonst holte der
       // Fallback in getTerminKlassenIds eine abgewählte Klasse zurück
       App.run('UPDATE kontrolltermine SET klasse_id=? WHERE id=?', [selectedKlassen[0] || null, id]);
-      // Update individual student links (Einsendung + Smart-Standort LFK-Schüler)
+      // Update individual student links (Einsendung + Smart-Standort LFK-Azubis)
       App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]);
       const allExtraSchuelerEdit = [...new Set([...selectedSchueler, ...standortSchueler])];
       allExtraSchuelerEdit.forEach(sid => {
         App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [id, sid]);
       });
 
-      // Verwaiste Kontrollergebnisse aufräumen: Schüler, die nicht mehr zum Termin gehören
+      // Verwaiste Kontrollergebnisse aufräumen: Azubi, die nicht mehr zum Termin gehören
       // (weder über Klassen noch über Einzel-Zuordnung), deren KE-Daten aber noch existieren
       const validSchuelerIds = new Set();
-      // Schüler aus verknüpften Klassen
+      // Azubi aus verknüpften Klassen
       if (selectedKlassen.length) {
         const klPh = selectedKlassen.map(() => '?').join(',');
         App.query(`SELECT id FROM schueler WHERE klasse_id IN (${klPh}) AND aktiv=1`, selectedKlassen)
           .forEach(s => validSchuelerIds.add(s.id));
       }
-      // Einzeln verknüpfte Schüler
+      // Einzeln verknüpfte Azubi
       allExtraSchuelerEdit.forEach(sid => validSchuelerIds.add(sid));
       // Verwaiste KEs: NUR leere Bögen löschen. Bögen MIT Inhalt (am
       // Kontrolltag ad hoc hinzugefügte Gäste, inzwischen inaktive Azubis)
@@ -24766,7 +24838,7 @@ const PlanungHandler = {
         selectedKlassen.forEach(klId => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [newId, klId]);
         });
-        // Link individual students (Einsendung + Smart-Standort LFK-Schüler)
+        // Link individual students (Einsendung + Smart-Standort LFK-Azubis)
         const allExtraSchueler = [...new Set([...selectedSchueler, ...standortSchueler])];
         allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
@@ -24880,7 +24952,7 @@ const PlanungHandler = {
         <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
-      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Schüler manuell hinzufügen -->
+      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
       <div id="sectionEinsendungExtra" style="margin-top:12px;padding:12px 16px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius)">
         <div class="form-group" style="margin-bottom:8px">
           <label style="font-weight:600;color:var(--clr-forest)">Einzelne Azubis hinzufügen (z.B. LFK-Gäste, fremde Ämter)</label>
@@ -25034,7 +25106,7 @@ const PlanungHandler = {
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
-  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Schüler")
+  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Azubis")
   exportTerminPDF(terminId, nurIds) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
@@ -25053,7 +25125,7 @@ const PlanungHandler = {
       const ids = nurIds.map(Number).filter(Boolean);
       schuelerList = ids.length ? App.query(`SELECT * FROM schueler WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY nachname, vorname`, ids) : [];
     }
-    if (!schuelerList.length) return App.toast('Keine Schüler für diesen Termin', 'warning');
+    if (!schuelerList.length) return App.toast('Keine Azubis für diesen Termin', 'warning');
     PDFExport.generateBatch(doc => doc, termin, terminId, schuelerList);
   },
 
@@ -25465,7 +25537,7 @@ const NacherfassungHandler = {
       ORDER BY s.nachname, s.vorname`, params);
 
     if (!schueler.length) {
-      area.innerHTML = '<div class="card"><div class="empty-state"><p>Keine Schüler für diese Auswahl gefunden</p></div></div>';
+      area.innerHTML = '<div class="card"><div class="empty-state"><p>Keine Azubis für diese Auswahl gefunden</p></div></div>';
       return;
     }
 
@@ -25482,7 +25554,7 @@ const NacherfassungHandler = {
     area.innerHTML = `
     <div class="card">
       <div class="card-header" style="justify-content:space-between">
-        <span>2. Ergebnisse erfassen – ${schueler.length} Schüler</span>
+        <span>2. Ergebnisse erfassen – ${schueler.length} Azubis</span>
         <span id="neProgress" style="font-size:11px;color:var(--clr-sage)">0/${schueler.length} erfasst</span>
       </div>
       <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;line-height:1.7;margin-bottom:8px">
@@ -25757,10 +25829,10 @@ const NacherfassungHandler = {
       WHERE ${where} AND s.id NOT IN (SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke WHERE ke.ergebnis != '')
       ORDER BY bs.name, j.bezeichnung, s.nachname`, params);
 
-    if (countEl) countEl.textContent = nichtErfasst.length > 0 ? `(${nichtErfasst.length} Schüler)` : '(alle erfasst ✓)';
+    if (countEl) countEl.textContent = nichtErfasst.length > 0 ? `(${nichtErfasst.length} Azubis)` : '(alle erfasst ✓)';
 
     if (!nichtErfasst.length) {
-      body.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green)">✓ Alle Schüler wurden mindestens einmal kontrolliert!</div>';
+      body.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green)">✓ Alle Azubis wurden mindestens einmal kontrolliert!</div>';
       return;
     }
 
@@ -26312,7 +26384,7 @@ const KontrolleHandler = {
     this.loadTermin(terminId);
   },
 
-  // Zentrale Navigation: Kontrolle öffnen und direkt zu einem bestimmten Schüler springen
+  // Zentrale Navigation: Kontrolle öffnen und direkt zu einem bestimmten Azubi springen
   goToKontrolle(terminId, schuelerId) {
     App.closeModal();
     App.navigate('kontrolle');
@@ -26373,7 +26445,7 @@ const KontrolleHandler = {
     this.currentSchuelerList = App.getTerminSchueler(terminId);
 
     // Also include students from OTHER classes who have a kontrollergebnis for this termin
-    // (manually added via "+ Schüler hinzufügen")
+    // (manually added via "+ Azubi hinzufügen")
     const extraIds = App.query(`SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE kontrolltermin_id=?`, [terminId]).map(r => r.schueler_id);
     const currentIds = new Set(this.currentSchuelerList.map(s => s.id));
     const missingIds = extraIds.filter(id => !currentIds.has(id));
@@ -26438,16 +26510,8 @@ const KontrolleHandler = {
       { label: '⎙ Übersichtstabelle drucken', onclick: `KontrolleHandler.printUebersicht(${tid})` },
     ].filter(Boolean);
   },
-  // Aufklappmenü ohne eigene Zustandslogik: <details>; ein Klick auf einen
-  // Eintrag oder daneben schließt es. Einträge: { label, onclick, title }
-  // oder { trenner: true }. Klasse „oben“ öffnet nach oben (Fußleiste).
-  _menue(titel, eintraege, title, klasse) {
-    if (!this._menueInit) {
-      this._menueInit = true;
-      try { document.addEventListener('click', (e) => { document.querySelectorAll('details.aktionen-menue[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); }); }); } catch(e) {}
-    }
-    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel} ▾</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
-  },
+  // Aufklappmenü – gemeinsamer Helfer im Kern (App.menue), hier nur die Kurzform
+  _menue(titel, eintraege, title, klasse) { return App.menue(titel, eintraege, title, klasse); },
   // Kürzel-Leiste (Mängelcodes + Tasten) ein-/ausblenden – Vorgabe: aus
   legendeUmschalten(an) {
     const bar = document.getElementById('kwLegendBar');
@@ -26608,7 +26672,7 @@ const KontrolleHandler = {
         </td>
         <td>
           <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht">→</button>
-          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Schüler aus dieser Kontrolle entfernen">✕</button>
+          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Kontrolle entfernen">✕</button>
         </td>
       </tr>`;
     });
@@ -27121,32 +27185,32 @@ const KontrolleHandler = {
     const fachrichtungen = App.query(`SELECT * FROM fachrichtungen ORDER BY bezeichnung`);
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
 
-    App.openModal('Schüler zur Kontrolle hinzufügen', `
+    App.openModal('Azubi zur Kontrolle hinzufügen', `
       <!-- Tab buttons -->
       <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--clr-sand);padding-bottom:8px">
         <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:var(--clr-white)" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
-          Vorhandener Schüler
+          Vorhandener Azubi
         </button>
         <button class="btn btn-sm" id="tabNew" style="background:var(--clr-warm);color:var(--clr-text)" onclick="document.getElementById('panelNew').style.display='';document.getElementById('panelExisting').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabExisting').style.background='var(--clr-warm)';document.getElementById('tabExisting').style.color='var(--clr-text)'">
-          Neuer Schüler (manuell)
+          Neuer Azubi (manuell)
         </button>
       </div>
 
-      <!-- Panel 1: Vorhandener Schüler suchen -->
+      <!-- Panel 1: Vorhandener Azubi suchen -->
       <div id="panelExisting">
         <div class="form-group">
-          <label>Schüler suchen (Name, Betrieb, Klasse, Jahrgang)</label>
+          <label>Azubi suchen (Name, Betrieb, Klasse, Jahrgang)</label>
           <input class="form-control" id="addSchuelerSearch" type="text" placeholder="Mind. 2 Buchstaben eingeben…" oninput="KontrolleHandler._liveSearchSchueler(this.value)" autofocus>
         </div>
         <div id="addSchuelerResults" style="max-height:250px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius)">
           <p style="padding:16px;color:var(--clr-text-light);text-align:center;font-size:13px">Suchbegriff eingeben um in <strong>allen ${available.length} verfügbaren Azubis</strong> zu suchen</p>
         </div>
-        <p id="addSchuelerCount" style="font-size:11px;color:var(--clr-text-light);margin-top:6px">${available.length} Schüler verfügbar (nicht in dieser Kontrolle)</p>
+        <p id="addSchuelerCount" style="font-size:11px;color:var(--clr-text-light);margin-top:6px">${available.length} Azubis verfügbar (nicht in dieser Kontrolle)</p>
       </div>
 
-      <!-- Panel 2: Neuer Schüler manuell anlegen -->
+      <!-- Panel 2: Neuer Azubi manuell anlegen -->
       <div id="panelNew" style="display:none">
-        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠︎ Der Schüler wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
+        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠︎ Der Azubi wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
         <div class="form-row">
           <div class="form-group"><label>Nachname *</label><input class="form-control" id="newSchNachname" required></div>
           <div class="form-group"><label>Vorname *</label><input class="form-control" id="newSchVorname" required></div>
@@ -27188,7 +27252,7 @@ const KontrolleHandler = {
         </div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="KontrolleHandler.doAddNewSchueler()">Neuen Schüler anlegen + hinzufügen</button>`);
+        <button class="btn btn-primary" onclick="KontrolleHandler.doAddNewSchueler()">Neuen Azubi anlegen + hinzufügen</button>`);
   },
 
   _liveSearchSchueler(query) {
@@ -27239,7 +27303,7 @@ const KontrolleHandler = {
   addExistingSchueler(schuelerId) {
     // Check not already added
     if (this.currentSchuelerList.find(s => s.id === schuelerId)) {
-      return App.toast('Schüler ist bereits in dieser Kontrolle', 'warning');
+      return App.toast('Azubi ist bereits in dieser Kontrolle', 'warning');
     }
     // Create kontrollergebnis for this student + termin
     const existing = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
@@ -27283,7 +27347,7 @@ const KontrolleHandler = {
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     const hasDaten = ke && ke.ergebnis && ke.ergebnis !== '';
     const msg = hasDaten
-      ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Schüler liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
+      ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
       : `${name} aus dieser Kontrolle entfernen?`;
     if (!confirm(msg)) return;
     // Delete kontrollergebnis for this termin+student
@@ -27316,7 +27380,7 @@ const KontrolleHandler = {
     // Check for duplicates
     const dup = App.query('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname, vorname, jgId]);
     if (dup.length) {
-      if (!confirm(`Ein Schüler "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
+      if (!confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
     }
 
     // Insert into schueler table
@@ -27520,10 +27584,10 @@ const KontrolleHandler = {
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
           <span style="font-size:24px">⊘</span>
           <div>
-            <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Schüler!</strong>
-            <div style="font-size:12px;color:var(--clr-text)">Dieser Schüler ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Schüler wechselt.</div>
+            <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Azubi!</strong>
+            <div style="font-size:12px;color:var(--clr-text)">Dieser Azubi ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Azubi wechselt.</div>
             <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
-              Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Schüler bearbeiten.
+              Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Azubi bearbeiten.
               <button class="btn btn-sm btn-primary" style="margin-left:12px;font-size:11px;padding:2px 8px" onclick="KontrolleHandler.nextOffen()">→ Nächster freier Azubi</button>
               <button class="btn btn-sm" style="margin-left:6px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
             </div>
@@ -27532,7 +27596,7 @@ const KontrolleHandler = {
       </div>` : `<div id="lockWarning" style="display:none" class="card" style="margin-bottom:8px;border-left:4px solid var(--clr-red);background:var(--clr-red-light)">
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
           <span style="font-size:24px">⊘</span>
-          <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Schüler!</strong>
+          <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Azubi!</strong>
             <div style="font-size:11px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben</button></div>
           </div>
         </div>
@@ -27663,7 +27727,7 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC`, [s.id, this.currentTerminId]);
         if (!prevKEs.length && durchsichtNr <= 1) {
-          return '<div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px;font-size:12px;color:var(--clr-forest-dark)"><strong>Erste Durchsicht</strong> für diesen Schüler – noch keine Vorgänger-Daten vorhanden.</div>';
+          return '<div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px;font-size:12px;color:var(--clr-forest-dark)"><strong>Erste Durchsicht</strong> für diesen Azubi – noch keine Vorgänger-Daten vorhanden.</div>';
         }
         if (!prevKEs.length) return '';
         const lastPrev = prevKEs[0];
@@ -28276,7 +28340,7 @@ const KontrolleHandler = {
     this.renderSchueler(); // re-render to show unlocked state
     // Abschluss des Berichtshefts: sofort anhängen, Ergebnis zurückmelden
     App.sofortSpeichern('Freigeben').then(ok => {
-      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
+      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Azubi'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
       this._gesichertAnzeigen();
     });
   },
@@ -28538,7 +28602,7 @@ const KontrolleHandler = {
     const progEl = document.querySelector('[data-sync-progress]');
     if (progEl) {
       const open = total - done;
-      progEl.innerHTML = `${done} von ${total} Schülern kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}`;
+      progEl.innerHTML = `${done} von ${total} Azubis kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}`;
     }
     const progBar = document.querySelector('[data-sync-progress-bar]');
     if (progBar) progBar.style.width = `${total ? Math.round(done/total*100) : 0}%`;
@@ -28691,7 +28755,7 @@ const KontrolleHandler = {
     }
   },
 
-  // ── Schülersuche innerhalb Kontrolle ──
+  // ── Azubi-Suche innerhalb Kontrolle ──
   _searchHighlightIdx: -1,
 
   searchSchueler(query) {
@@ -28814,7 +28878,7 @@ const KontrolleHandler = {
   // ── Ausgewählte als "In Ordnung" markieren ──
   bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
-    if (!ids.length) return App.toast('Bitte Schüler auswählen', 'warning');
+    if (!ids.length) return App.toast('Bitte Azubi auswählen', 'warning');
     if (!this._pruefeAbgeschlossen()) return;
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
     if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`)) return;
@@ -28911,7 +28975,7 @@ const KontrolleHandler = {
         <strong style="font-size:13px;color:var(--clr-forest)">Nachbereitung</strong>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> ▤ PDFs für mangelhafte Schüler generieren (${mangelhafte.length})
+            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> ▤ PDFs für mangelhafte Azubis generieren (${mangelhafte.length})
           </label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="wizEmailSchule" style="accent-color:var(--clr-forest)"> ✉︎ Ergebnis-Zusammenfassung an Schule senden
@@ -29668,8 +29732,8 @@ const KWNav = {
   },
 
   // Persist codes to DB (kw_status = cumulative, kw_maengel = per-session backward compat)
-  // sidOpt: Schüler-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
-  // currentIndex schreibt nach "Nächster Schüler" + Undo auf den FALSCHEN Schüler.
+  // sidOpt: Azubi-ID explizit übergeben (aus cell.dataset.sid)! Der Fallback über
+  // currentIndex schreibt nach "Nächster Azubi" + Undo auf den FALSCHEN Azubi.
   // keepGeprueft: bei leeren Codes Zeile mit geprueft=1 behalten statt löschen (O-Taste)
   // behobenOverride: setzt behobene_codes exakt auf diesen Wert (für Undo, das
   // den eingefrorenen Vorzustand wiederherstellt). Ohne Angabe werden entfernte
@@ -29757,7 +29821,7 @@ const KWNav = {
   },
 
   // Track session KWs in kontrollergebnisse.geprueft_kws
-  // sidOpt optional – ohne Angabe wird der Schüler aus dem Kontrollergebnis
+  // sidOpt optional – ohne Angabe wird der Azubi aus dem Kontrollergebnis
   // abgeleitet. NIEMALS aus currentSchuelerList[currentIndex]: das ist der
   // gerade ANGEZEIGTE Azubi, nicht der bearbeitete (Undo nach Blättern
   // markierte sonst dutzende Wochen beim falschen Azubi als geprüft).
@@ -30499,12 +30563,12 @@ const GlobalSearch = {
         <strong style="color:var(--clr-forest)">Ctrl+K</strong><span>Globale Suche</span>
         <strong style="color:var(--clr-forest)">Ctrl+S</strong><span>Datenbank speichern</span>
         <strong style="color:var(--clr-forest)">Ctrl+Z / Y</strong><span>Undo / Redo</span>
-        <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Schüler</span>
+        <strong style="color:var(--clr-forest)">Ctrl+← / →</strong><span>Vorh. / Nächster Azubi</span>
         <strong style="color:var(--clr-forest)">Alt+1–8</strong><span>Navigation (Dashboard…Einstellungen)</span>
         <strong style="color:var(--clr-forest)">F1 oder ?</strong><span>Diese Hilfe anzeigen</span>
         <strong style="color:var(--clr-forest)">F5</strong><span>Datenbank von Disk neu laden</span>
         <strong style="color:var(--clr-forest)">Escape</strong><span>Modal / Sidebar schließen</span>
-        <strong style="color:var(--clr-forest)">/</strong><span>Schüler suchen (Kontrolle)</span>
+        <strong style="color:var(--clr-forest)">/</strong><span>Azubi suchen (Kontrolle)</span>
         <div style="grid-column:span 2;border-top:1px solid var(--clr-sand);margin:6px 0;padding-top:6px;font-weight:600;color:var(--clr-forest)">KW-Grid (Kontrolle)</div>
         <strong style="color:var(--clr-forest)">A–I</strong><span>Mängelcode setzen</span>
         <strong style="color:var(--clr-forest)">0–5</strong><span>Fehltage setzen</span>
@@ -30670,7 +30734,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
-  // / = Focus Schüler-Suche in Kontrolle Einzelansicht
+  // / = Focus Azubi-Suche in Kontrolle Einzelansicht
   if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') {
     const searchInput = document.getElementById('kontrolleSearch');
     if (searchInput && searchInput.offsetParent !== null) {
@@ -30702,11 +30766,11 @@ document.addEventListener('keydown', (e) => {
   KWNav.handleKeyDown(e);
 });
 
-// ── Bulk: Schüler-Liste ──
+// ── Bulk: Azubi-Liste ──
 
 // ── bulk-schueler.js ──
 const BulkSchueler = {
-  // Löschen aus der Bulk-Leiste der Schülerliste. Der Knopf rief bisher eine
+  // Löschen aus der Bulk-Leiste der Azubi-Liste. Der Knopf rief bisher eine
   // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
   deleteSelected() {
     const ids = this.getSelected();
@@ -30739,7 +30803,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name, k.klassenbezeichnung`);
-    App.openModal(`${ids.length} Schüler → Klasse zuordnen`, `
+    App.openModal(`${ids.length} Azubis → Klasse zuordnen`, `
       <div class="form-group"><label>Klasse</label><select class="form-control" id="mBulkKlasse">
         <option value="">– Keine Klasse –</option>
         ${klassen.map(k => `<option value="${k.id}">${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
@@ -30752,7 +30816,7 @@ const BulkSchueler = {
     const klId = document.getElementById('mBulkKlasse').value || null;
     ids.forEach(id => App.run('UPDATE schueler SET klasse_id=? WHERE id=?', [klId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler zugeordnet`, 'success');
+    App.toast(`${ids.length} Azubis zugeordnet`, 'success');
     this.deselectAll();
     this._refresh();
   },
@@ -30760,7 +30824,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const jgs = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ');
-    App.openModal(`${ids.length} Schüler → Jahrgang ändern`, `
+    App.openModal(`${ids.length} Azubis → Jahrgang ändern`, `
       <div class="form-group"><label>Abschlussjahrgang</label><select class="form-control" id="mBulkJG">
         ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)}${j.typ ? ' ('+j.typ+' '+j.jahr+')' : ''}</option>`).join('')}
       </select></div>
@@ -30772,7 +30836,7 @@ const BulkSchueler = {
     const jgId = document.getElementById('mBulkJG').value;
     ids.forEach(id => App.run('UPDATE schueler SET jahrgang_id=? WHERE id=?', [jgId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler verschoben`, 'success');
+    App.toast(`${ids.length} Azubis verschoben`, 'success');
     this.deselectAll();
     this._refresh();
   },
@@ -30780,7 +30844,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const frs = App.query('SELECT * FROM fachrichtungen ORDER BY typ, bezeichnung');
-    App.openModal(`${ids.length} Schüler → Fachrichtung ändern`, `
+    App.openModal(`${ids.length} Azubis → Fachrichtung ändern`, `
       <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mBulkFR">
         <option value="">– Keine –</option>
         ${frs.map(f => `<option value="${f.id}">${esc(f.typ)}: ${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
@@ -30793,7 +30857,7 @@ const BulkSchueler = {
     const frId = document.getElementById('mBulkFR').value || null;
     ids.forEach(id => App.run('UPDATE schueler SET fachrichtung_id=? WHERE id=?', [frId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler aktualisiert`, 'success');
+    App.toast(`${ids.length} Azubis aktualisiert`, 'success');
     this.deselectAll();
     this._refresh();
   },
@@ -31933,7 +31997,7 @@ const BerichteHandler = {
         <option value="">– Bitte wählen –</option>
         ${termine.map(t => `<option value="${t.id}">${esc(App.formatTerminLabel(t))}</option>`).join('')}
       </select></div>
-      <div class="form-group"><label>Schüler</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
+      <div class="form-group"><label>Azubi</label><select class="form-control" id="mExpSchueler"><option value="">– Termin wählen –</option></select></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="BerichteHandler.doExportEinzel()">PDF erstellen</button>`);
   },
@@ -31946,7 +32010,7 @@ const BerichteHandler = {
   doExportEinzel() {
     const tid = document.getElementById('mExpTermin')?.value;
     const sid = document.getElementById('mExpSchueler')?.value;
-    if (!tid || !sid) return App.toast('Bitte Termin und Schüler wählen', 'error');
+    if (!tid || !sid) return App.toast('Bitte Termin und Azubis wählen', 'error');
     PDFExport.generateSingle(parseInt(tid), parseInt(sid));
     App.closeModal();
   },
@@ -32113,10 +32177,10 @@ const BerichteHandler = {
     }).length;
 
     App.openModal('Gesamtpaket – ' + klassenStr, `
-      <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Schüler · ${mangelCount} beanstandet</p>
+      <p style="font-size:13px;margin-bottom:12px">${formatDate(termin.geplant_datum)} · ${esc(schule)} · ${schueler.length} Azubis · ${mangelCount} beanstandet</p>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Schüler)
+          <input type="checkbox" id="gpPDF" checked style="accent-color:var(--clr-forest)"> ▤ Durchsichtsbögen als PDF (alle ${schueler.length} Azubis)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" id="gpCSV" ${mangelCount?'checked':''} style="accent-color:var(--clr-forest)"> Seriendruck-CSV für Betriebe (${mangelCount} Azubi(s) mit Beanstandung)
@@ -32428,7 +32492,7 @@ const BerichteHandler = {
     y += 8;
     if (y > 265) { drawFooter(doc, doc.internal.getNumberOfPages()); doc.addPage(); y = drawHeader(doc, 12); }
     doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(80);
-    doc.text(`Noch geplante Termine: ${termineGeplant} · Abgeschlossene Prüflinge (AP bestanden): ${totalAbgeschlossen} · Inaktive Schüler: ${totalInaktiv}`, LM, y);
+    doc.text(`Noch geplante Termine: ${termineGeplant} · Abgeschlossene Prüflinge (AP bestanden): ${totalAbgeschlossen} · Inaktive Azubi: ${totalInaktiv}`, LM, y);
 
     drawFooter(doc, doc.internal.getNumberOfPages());
 
@@ -33499,126 +33563,26 @@ const Phasen = {
 };
 
 // ── schueler-view.js ──
+// Ehemals zweite Azubi-Liste auf der Import-Seite. Die Liste gibt es nur noch
+// unter Stammdaten; hier bleibt der Dialog „Jahrgang abschließen“ und ein
+// render(), das die Stammdaten-Liste auffrischt (Aufrufer aus Import und Bulk).
 const SchuelerView = {
-  _initialized: false,
-  filters: { search:'', jahrgang:'', schule:'', fachrichtung:'', klasse:'', betrieb:'', lehrjahr:'' },
-  sortCol: 'nachname',
-  sortDir: 'asc',
-  page: 0,
-  pageSize: 50,
-
-  init() {
-    this._initialized = true;
-    this.filters = { search:'', jahrgang:'', schule:'', fachrichtung:'', klasse:'', betrieb:'', lehrjahr:'' };
-    this.sortCol = 'nachname';
-    this.sortDir = 'asc';
-    this.page = 0;
-  },
-
-  getFilteredData() {
-    let sql = `SELECT s.*,
-      CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung,
-      f.code as fr_code,
-      k.klassenbezeichnung, k.lehrjahr,
-      bs.name as schule,
-      j.bezeichnung as jahrgang,
-      s.landesfachklasse
-      FROM schueler s
-      LEFT JOIN fachrichtungen f ON s.fachrichtung_id=f.id
-      LEFT JOIN klassen k ON s.klasse_id=k.id
-      LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
-      LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
-      WHERE 1=1`;
-    if (!this.showInaktive) sql += ' AND s.aktiv=1';
-    // Apply global BG filter
-    sql += App.gf('schueler');
-    const params = [];
-
-    if (this.filters.search) {
-      sql += ` AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR s.ibykus_id LIKE ?)`;
-      const q = `%${this.filters.search}%`;
-      params.push(q, q, q, q);
-    }
-    if (this.filters.jahrgang) { sql += ' AND s.jahrgang_id = ?'; params.push(parseInt(this.filters.jahrgang)); }
-    if (this.filters.schule) { sql += ' AND bs.name = ?'; params.push(this.filters.schule); }
-    if (this.filters.fachrichtung) { sql += ' AND s.fachrichtung_id = ?'; params.push(parseInt(this.filters.fachrichtung)); }
-    if (this.filters.klasse) { sql += ' AND s.klasse_id = ?'; params.push(parseInt(this.filters.klasse)); }
-    if (this.filters.betrieb) { sql += ' AND s.ausbildungsstaette LIKE ?'; params.push(`%${this.filters.betrieb}%`); }
-
-    // Sort
-    const sortMap = {
-      nachname: 's.nachname', vorname: 's.vorname', betrieb: 's.ausbildungsstaette',
-      fachrichtung: 'f.bezeichnung', schule: 'bs.name', klasse: 'k.klassenbezeichnung',
-      lehrjahr: 'k.lehrjahr', jahrgang: 'j.bezeichnung'
-    };
-    const sortField = sortMap[this.sortCol] || 's.nachname';
-    sql += ` ORDER BY ${sortField} ${this.sortDir === 'desc' ? 'DESC' : 'ASC'}, s.nachname ASC`;
-
-    let rows = App.query(sql, params);
-    // Lehrjahr-Fallback: wenn die Klasse kein Lehrjahr gepflegt hat,
-    // aus dem Ausbildungsbeginn berechnen (phasen-aware via getCurrentAJ)
-    rows.forEach(s => {
-      // Berechnung VOR Klassen-Lehrjahr: das statische Feld veraltet jedes Schuljahr
-      s.eff_lehrjahr = (s.ausbildungsbeginn ? App.getCurrentAJ(s.ausbildungsbeginn, s.id) : null) || s.lehrjahr || null;
-      s.lj_berechnet = false;
-    });
-    if (this.filters.lehrjahr) rows = rows.filter(s => s.eff_lehrjahr === parseInt(this.filters.lehrjahr));
-    if (this.sortCol === 'lehrjahr') {
-      const dir = this.sortDir === 'desc' ? -1 : 1;
-      rows.sort((a, b) => ((a.eff_lehrjahr || 0) - (b.eff_lehrjahr || 0)) * dir || (a.nachname || '').localeCompare(b.nachname || ''));
-    }
-    return rows;
-  },
-
-  getFilterOptions() {
-    const aktiv = this.showInaktive ? '' : 'AND s.aktiv=1';
-    const gf = App.gf('schueler');
-    return {
-      jahrgaenge: App.query(`SELECT DISTINCT j.id, j.bezeichnung FROM schueler s JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id WHERE 1=1 ${aktiv}${gf} ORDER BY j.jahr DESC`),
-      schulen: App.query(`SELECT DISTINCT bs.name FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE 1=1 ${aktiv}${gf} ORDER BY bs.name`).map(r => r.name),
-      fachrichtungen: App.query(`SELECT DISTINCT f.id, CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || f.bezeichnung as label FROM schueler s JOIN fachrichtungen f ON s.fachrichtung_id=f.id WHERE 1=1 ${aktiv}${gf} ORDER BY f.typ, f.bezeichnung`),
-      klassen: App.query(`SELECT DISTINCT k.id, k.klassenbezeichnung, bs.name as schule FROM schueler s JOIN klassen k ON s.klasse_id=k.id JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE 1=1 ${aktiv}${gf} ORDER BY bs.name, k.klassenbezeichnung`),
-      betriebe: App.query(`SELECT DISTINCT s.ausbildungsstaette FROM schueler s WHERE s.ausbildungsstaette != '' ${aktiv} ORDER BY s.ausbildungsstaette`).map(r => r.ausbildungsstaette),
-    };
-  },
-
-  setFilter(key, value) {
-    this.filters[key] = value;
-    this.page = 0;
-    this.render();
-  },
-
-  setSort(col) {
-    if (this.sortCol === col) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
-    else { this.sortCol = col; this.sortDir = 'asc'; }
-    this.render();
-  },
-
-  clearFilters() {
-    this.filters = { search:'', jahrgang:'', schule:'', fachrichtung:'', klasse:'', betrieb:'', lehrjahr:'' };
-    this.page = 0;
-    this.render();
-  },
-
-  showInaktive: false,
-  toggleInaktive() {
-    this.showInaktive = !this.showInaktive;
-    this.page = 0;
-    this.render();
-  },
+  _initialized: true,
+  filters: {},
+  init() { this._initialized = true; },
 
   abschliessenJahrgang() {
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
     App.openModal('⚑ Jahrgang abschließen', `
-      <p style="font-size:13px;margin-bottom:12px">Alle Schüler eines Jahrgangs als <strong>"AP bestanden"</strong> markieren und <strong>inaktiv</strong> setzen. Die Daten bleiben für Statistiken erhalten.</p>
+      <p style="font-size:13px;margin-bottom:12px">Alle Azubis eines Jahrgangs als <strong>"AP bestanden"</strong> markieren und <strong>inaktiv</strong> setzen. Die Daten bleiben für Statistiken erhalten.</p>
       <div class="form-group"><label>Jahrgang auswählen</label><select class="form-control" id="mAbschlJG">
         ${jahrgaenge.map(j => {
           const cnt = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND aktiv=1', [j.id]) || 0;
-          return `<option value="${j.id}">${esc(j.bezeichnung)} (${cnt} aktive Schüler)</option>`;
+          return `<option value="${j.id}">${esc(j.bezeichnung)} (${cnt} aktive Azubis)</option>`;
         }).join('')}
       </select></div>
       <div style="padding:8px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px;margin-bottom:8px">
-        ⚠︎ Schüler mit offenen Wiedervorlagen oder unvollständigen Pflichtteilen werden markiert aber trotzdem abgeschlossen. Prüfen Sie vorher die Übersicht.
+        ⚠︎ Azubi mit offenen Wiedervorlagen oder unvollständigen Pflichtteilen werden markiert aber trotzdem abgeschlossen. Prüfen Sie vorher die Übersicht.
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-success" onclick="SchuelerView.doAbschliessen()">⚑ Jahrgang abschließen</button>`);
@@ -33630,7 +33594,7 @@ const SchuelerView = {
     if (!jgId) return App.toast('Kein Jahrgang ausgewählt', 'error');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jgId]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND aktiv=1', [jgId]) || 0;
-    if (!count) return App.toast('Keine aktiven Schüler in diesem Jahrgang', 'warning');
+    if (!count) return App.toast('Keine aktiven Azubis in diesem Jahrgang', 'warning');
 
     // Nicht pauschal: der gemeinsame Dialog zeigt jeden Azubi mit Prüfungs-
     // erfolg und offenen Wiedervorlagen; "nicht bestanden" wird abgewählt
@@ -33654,146 +33618,10 @@ const SchuelerView = {
   },
 
   render() {
-    const c = document.getElementById('schuelerViewContainer');
-    if (!c) return;
-    const allData = this.getFilteredData();
-    const opts = this.getFilterOptions();
-    // Gesamtzahl auf DERSELBEN Basis wie die Tabelle (inkl. globaler Filter):
-    // sonst stand im Kopf "612", während die Liste 47 Zeilen zeigte.
-    const gfS = App.gf('schueler');
-    const totalAll = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE ${this.showInaktive ? '1=1' : 's.aktiv=1'}${gfS}`) || 0;
-    const totalInaktive = App.scalar(`SELECT COUNT(*) FROM schueler s WHERE s.aktiv=0${gfS}`) || 0;
-    const filtered = allData.length;
-    const isFiltered = Object.values(this.filters).some(v => v) || filtered !== totalAll;
-
-    // Pagination
-    const totalPages = Math.ceil(filtered / this.pageSize) || 1;
-    if (this.page >= totalPages) this.page = totalPages - 1;
-    const pageData = allData.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
-
-    // Jahrgang buttons
-    const jgCounts = App.query(`SELECT j.bezeichnung, j.id, COUNT(s.id) as cnt
-      FROM abschlussjahrgaenge j LEFT JOIN schueler s ON s.jahrgang_id=j.id AND s.aktiv=1
-      GROUP BY j.id HAVING cnt > 0 ORDER BY j.jahr DESC`);
-
-    const sortIcon = (col) => this.sortCol === col ? (this.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
-    const thSort = (col, label) => `<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="SchuelerView.setSort('${col}')">${label}${sortIcon(col)}</th>`;
-
-    c.innerHTML = `
-
-      <div class="card">
-        <div class="card-header">
-          Schüler (${isFiltered ? `${filtered} von ${totalAll}` : totalAll})
-          <div class="btn-group">
-            <button class="btn btn-sm btn-secondary" onclick="ImportHandler.addManually()">+ Manuell</button>
-            <button class="btn btn-sm btn-secondary" onclick="SchuelerView.abschliessenJahrgang()" title="Alle Schüler eines Jahrgangs als AP-bestanden markieren + inaktiv setzen">⚑ Jahrgang abschließen</button>
-            ${totalAll ? `<button class="btn btn-sm" style="background:transparent;color:var(--clr-red);border:1px solid var(--clr-red)" onclick="ImportHandler.deleteAllJahrgang()">Alle löschen</button>` : ''}
-          </div>
-        </div>
-
-        <!-- Filter Bar -->
-        <div style="display:flex;gap:6px;padding:8px 0;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--clr-sand);margin-bottom:8px">
-          <div class="search-box" style="flex:1;min-width:180px">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="form-control" placeholder="Suche (Name, Betrieb, ID...)" value="${esc(this.filters.search)}" oninput="SchuelerView.setFilter('search',this.value)" style="font-size:12px;padding-left:32px">
-          </div>
-          <select class="form-control" style="width:auto;font-size:12px;padding:5px 8px" onchange="SchuelerView.setFilter('jahrgang',this.value)">
-            <option value="">Alle Jahrgänge</option>
-            ${opts.jahrgaenge.map(j => `<option value="${j.id}" ${this.filters.jahrgang==j.id?'selected':''}>${esc(j.bezeichnung)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:12px;padding:5px 8px" onchange="SchuelerView.setFilter('schule',this.value)">
-            <option value="">Alle Schulen</option>
-            ${opts.schulen.map(s => `<option value="${esc(s)}" ${this.filters.schule===s?'selected':''}>${esc(s)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:12px;padding:5px 8px" onchange="SchuelerView.setFilter('fachrichtung',this.value)">
-            <option value="">Alle Fachrichtungen</option>
-            ${opts.fachrichtungen.map(f => `<option value="${f.id}" ${this.filters.fachrichtung==f.id?'selected':''}>${esc(f.label)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:12px;padding:5px 8px" onchange="SchuelerView.setFilter('klasse',this.value)">
-            <option value="">Alle Klassen</option>
-            ${opts.klassen.map(k => `<option value="${k.id}" ${this.filters.klasse==k.id?'selected':''}>${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
-          </select>
-          <select class="form-control" style="width:auto;font-size:12px;padding:5px 8px" onchange="SchuelerView.setFilter('lehrjahr',this.value)">
-            <option value="">Alle LJ</option>
-            <option value="1" ${this.filters.lehrjahr==='1'?'selected':''}>1. LJ</option>
-            <option value="2" ${this.filters.lehrjahr==='2'?'selected':''}>2. LJ</option>
-            <option value="3" ${this.filters.lehrjahr==='3'?'selected':''}>3. LJ</option>
-          </select>
-          ${isFiltered ? `<button class="btn btn-sm" style="font-size:11px;padding:4px 8px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="SchuelerView.clearFilters()">✕ Filter zurücksetzen</button>` : ''}
-          <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;margin-left:auto;color:var(--clr-text-light)">
-            <input type="checkbox" ${this.showInaktive?'checked':''} onchange="SchuelerView.toggleInaktive()"> Inaktive zeigen${totalInaktive ? ` (${totalInaktive})` : ''}
-          </label>
-        </div>
-
-        <!-- Bulk Action Bar -->
-        <div id="bulkBarSchueler" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
-          <strong><span id="bulkCountS">0</span> ausgewählt</strong>
-          <span style="opacity:0.4">│</span>
-          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
-          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
-          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung</button>
-          <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(BulkSchueler.getSelected())">▤ Einzelprüfung</button>
-          <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkSchueler.deleteSelected()">Löschen</button>
-          <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkSchueler.deselectAll()">✕ Abwählen</span>
-        </div>
-
-        <!-- Table -->
-        ${filtered > 0 ? `
-        <div style="overflow-x:auto">
-        <table class="data-table table-sticky-name"><thead><tr>
-          <th style="width:30px"><input type="checkbox" id="chkAllS" onchange="BulkSchueler.toggleAll(this.checked)"></th>
-          ${thSort('nachname','Name')}
-          ${thSort('vorname','Vorname')}
-          ${thSort('betrieb','Betrieb')}
-          <th>Kontakt</th>
-          ${thSort('fachrichtung','Fachrichtung')}
-          ${thSort('schule','Schule')}
-          ${thSort('klasse','Klasse')}
-          ${thSort('lehrjahr','LJ')}
-          ${thSort('jahrgang','Jahrgang')}
-          <th>Status</th>
-          <th>Aktionen</th>
-        </tr></thead><tbody>
-          ${pageData.map(s => {
-            const statusLabels = {aktiv:'Aktiv',ap_zugelassen:'AP zug.',ap_bestanden:'Bestanden',abgebrochen:'Abgebr.',verlaengert:'Verl.'};
-            const statusCls = (s.status||'aktiv') === 'aktiv' ? '' : ((s.status === 'ap_bestanden') ? 'badge-ok' : (s.status === 'abgebrochen' ? 'badge-overdue' : 'badge-open'));
-            return `<tr style="${s.aktiv ? '' : 'opacity:0.6;background:var(--clr-warm)'}">
-            <td><input type="checkbox" class="chk-s" value="${s.id}" onchange="BulkSchueler.updateBar()"></td>
-            <td><strong>${esc(s.nachname)}</strong></td>
-            <td>${esc(s.vorname)}</td>
-            <td title="${esc(s.ausbildungsstaette)}">${esc((s.ausbildungsstaette||'').substring(0,30))}</td>
-            <td style="font-size:10px">${s.email ? `<a href="mailto:${esc(s.email)}" style="color:var(--clr-forest)">${esc(s.email)}</a>` : ''}${s.email && s.telefon ? '<br>' : ''}${s.telefon ? `<a href="tel:${esc(s.telefon)}" style="color:var(--clr-text-light)">${esc(s.telefon)}</a>` : ''}${!s.email && !s.telefon ? '<span style="color:var(--clr-sand)">–</span>' : ''}</td>
-            <td><small>${esc(s.fachrichtung||'–')}</small></td>
-            <td><small>${(() => { const ak = App.getAktuelleSchule(s); return esc(ak.schule||'–') + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'–')+')">LFK</span>' : ''); })()}</small></td>
-            <td><small>${esc(s.klassenbezeichnung||'–')}</small></td>
-            <td>${s.eff_lehrjahr ? (s.lj_berechnet ? `<span style="opacity:0.75" title="Aus Ausbildungsbeginn berechnet (Klasse ohne Lehrjahr-Angabe)">${s.eff_lehrjahr}</span>` : s.eff_lehrjahr) : '–'}</td>
-            <td><small>${esc(s.jahrgang||'–')}</small></td>
-            <td>${statusCls ? `<span class="badge-status ${statusCls}" style="font-size:10px">${statusLabels[s.status]||s.status||'Aktiv'}</span>` : '<span style="font-size:10px;color:var(--clr-text-light)">Aktiv</span>'}</td>
-            <td class="btn-group">
-              <button class="btn-icon btn-sm" title="Bearbeiten" onclick="ImportHandler.editSchueler(${s.id})">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-              </button>
-              ${typeof Phasen!=='undefined'?`<button class="btn-icon btn-sm" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)" onclick="Phasen.editor(${s.id})">${svgIcon('dashboard')}</button>`:''}
-              <button class="btn-icon btn-sm" title="Akte: Bemerkungen" onclick="SchuelerAkte.open(${s.id})">${svgIcon('akte')}</button>
-              <button class="btn-icon btn-sm" title="Löschen" onclick="ImportHandler.deleteSchueler(${s.id})">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-              </button>
-            </td>
-          </tr>`;}).join('')}
-        </tbody></table>
-        </div>
-        <!-- Pagination -->
-        ${totalPages > 1 ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;font-size:12px;color:var(--clr-text-light)">
-          <span>Seite ${this.page+1} von ${totalPages} (${filtered} Schüler${isFiltered?' gefiltert':''})</span>
-          <div class="btn-group">
-            <button class="btn btn-sm btn-secondary" ${this.page<=0?'disabled':''} onclick="SchuelerView.page=0;SchuelerView.render()">«</button>
-            <button class="btn btn-sm btn-secondary" ${this.page<=0?'disabled':''} onclick="SchuelerView.page--;SchuelerView.render()">‹</button>
-            <button class="btn btn-sm btn-secondary" ${this.page>=totalPages-1?'disabled':''} onclick="SchuelerView.page++;SchuelerView.render()">›</button>
-            <button class="btn btn-sm btn-secondary" ${this.page>=totalPages-1?'disabled':''} onclick="SchuelerView.page=${totalPages-1};SchuelerView.render()">»</button>
-          </div>
-        </div>` : `<div style="padding:4px;font-size:12px;color:var(--clr-text-light)">${filtered} Schüler</div>`}
-        ` : `<div class="empty-state"><h3>Keine Schüler gefunden</h3><p>Keine Treffer.<br><button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="SchuelerView.clearFilters()">Filter zurücksetzen</button></p></div>`}
-      </div>`;
+    const c = document.getElementById('stammdatenContent');
+    if (c && typeof StammdatenTab !== 'undefined' && StammdatenTab._renderAzubiTable && c.querySelector('#azubiTableContainer')) {
+      try { StammdatenTab._renderAzubiTable(c); } catch(e) {}
+    }
   }
 };
 
