@@ -721,7 +721,6 @@ const DbTools = {
         <div>Letzter Grund: <strong>${esc(grund || '–')}</strong></div>
         <div>Sperrdatei <code>${esc(App._lockName())}</code>: ${!s ? 'nicht lesbar' : s.frei ? '<span style="color:var(--clr-green)">frei</span>' : `belegt von <strong>${esc(s.von)}</strong> seit ${s.alterS} s`}</div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Eine Sperre älter als 150 s gilt automatisch als verwaist und wird beim nächsten Versuch übernommen. Nur wenn die Nachholung trotzdem minutenlang hängt und sicher kein Kollege gerade kompaktiert (Kopfzeile „online“), die Sperre von Hand freigeben.</div>
-        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Gerade online: ${esc(App.onlineNutzerText ? (App.onlineNutzerText() || 'niemand sonst') : '–')}</div>
       </div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-secondary" onclick="App._nachholenBulk().then(ok=>App.toast(ok?'Gespeichert':'Weiterhin nicht möglich: '+(App._compactGrund||'?'),ok?'success':'warning'))">Jetzt erneut versuchen</button>

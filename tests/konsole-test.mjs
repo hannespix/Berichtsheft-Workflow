@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Diagnose: Ereignisspur (BhkSpur), Fehlerarten, Drosselung übersprungener
-//  Takte, Instrumentierung von Präsenz/Chat/Netz, Konsolenbefehle (bhk.*),
+//  Takte, Instrumentierung von Netz/Anhängen, Konsolenbefehle (bhk.*),
 //  Verbindungstest mit Schreibsperre und Uhrversatz, Zustandsbild
 //  Ausführen:  node tests/konsole-test.mjs
 // ═══════════════════════════════════════════════════════════════════
@@ -16,7 +16,6 @@ const initSqlJs = require(path.join(ROOT, 'libs/sql-wasm.js'));
 const SQL = await initSqlJs({ locateFile: f => path.join(ROOT, 'libs', f) });
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const APP_SRC = read('src/js/app-core.js');
-const CHAT_SRC = read('src/js/modules/chat.js');
 const KONSOLE_SRC = read('src/js/modules/konsole.js');
 
 // ── Fake-Netzlaufwerk: Schreibfehler und Uhrversatz einstellbar ──
@@ -67,14 +66,13 @@ const sandbox = {
   confirm: () => false, esc: (x) => String(x ?? ''), todayStr: () => new Date().toISOString().slice(0, 10), dateStr: (d) => d.toISOString().slice(0, 10),
   formatDate: (d) => d ? String(d).split('-').reverse().join('.') : '', svgIcon: () => '', Papa: {}, XLSX: {},
   Views: {}, SchuelerView: {}, SchuelerAkte: { getCount: () => 0 }, StammdatenTab: {}, GlobalSearch: {}, KontrolleHandler: { activePruefer: 'Anna' },
-  Melden: { oeffnen() { sandbox.__meldenGeoeffnet = true; } }, _makeModalWide: () => {},
+  _makeModalWide: () => {},
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(APP_SRC + '\n;globalThis.__App = App; globalThis.__Spur = BhkSpur;', sandbox, { filename: 'app-core.js' });
-vm.runInContext(CHAT_SRC + '\n;globalThis.Chat = Chat;', sandbox, { filename: 'chat.js' });
 vm.runInContext(KONSOLE_SRC + '\n;globalThis.Konsole = Konsole;', sandbox, { filename: 'konsole.js' });
-const { __App: App, __Spur: Spur, Chat: C, Konsole: K } = sandbox;
+const { __App: App, __Spur: Spur, Konsole: K } = sandbox;
 App.db = new SQL.Database(); App.db.run(APP_SRC.match(/SCHEMA: `([\s\S]*?)`,/)[1]);
 App.toast = () => {}; App.markDirty = () => {}; App.scheduleAutoSave = () => {}; App.showLoading = () => {}; App.hideLoading = () => {};
 App.openModal = (t, html, footer) => { modalHtml = String(t) + String(html) + String(footer || ''); }; App.closeModal = () => {};
@@ -83,7 +81,6 @@ App.kopieren = async (t) => { kopiert = String(t); return true; };
 App.dirHandle = fakeDir; App.bhkDirHandle = fakeDir; App.autoLoadedDbName = 'test.sqlite'; App._clientIdCache = 'client-AAAA';
 App.currentView = 'planung'; App.currentUser = 'Anna';
 App.dbFileHandle = { name: 'test.sqlite', async getFile() { return { size: 4096, lastModified: Date.now() }; } };
-App.db.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige','1')"); // Präsenz und Chat für diese Suite einschalten
 
 let failed = 0, passed = 0;
 const check = (c, m) => { if (c) { passed++; console.log('  ✓ ' + m); } else { failed++; console.error('  ✗ FEHLER: ' + m); } };
@@ -170,40 +167,29 @@ console.log('══ Sichtbarkeit und übersprungene Takte ══');
   try { if (App.pollInterval) sandbox.clearTimeout(App.pollInterval); } catch(e) {}
 }
 
-console.log('══ Instrumentierung: Präsenz, Netz, Chat ══');
+console.log('══ Instrumentierung: Netz und Schreibwege ══');
 {
-  store.set('praesenz_test_client-BBBB.json', { data: JSON.stringify({ c: 'client-BBBB', p: 'Bernd', v: 'kontrolle', ts: Date.now() - 5000, seit: Date.now() - 60000 }), mtime: Date.now() - 5000 });
-  check(await App._praesenzTakt(true) === true, 'Lebenszeichen geschrieben');
-  check(App._praesenzLetzteOk > 0 && App._praesenzFehler === 0 && Spur.stat.praesenz && Spur.stat.praesenz.n >= 2 && Spur.stat.praesenz.fehler === 0, 'Präsenz: Schreiben und Lesen gezählt, letzter Erfolg gemerkt');
+  App.currentView = 'kontrolle';
+  await App._writePositionFile('Anna', 10, 1, 'X', Date.now(), null);
+  check(store.has('pos-Anna.json'), 'Positionsdatei geschrieben');
   schreibFehler = err('AbortError', 'Failed to perform Safe Browsing check.');
-  App._praesenzLetzte = 0; App._verbFehler = 0;
-  check(await App._praesenzTakt(true) === false, 'Blockiertes Schreiben: Takt scheitert');
-  const p = Spur.liste('praesenz').at(-1);
-  check(p && !p.ok && p.art === 'safebrowsing' && /1\. Fehler in Folge/.test(p.info) && App._praesenzFehler === 1, 'Fehlerart Safe Browsing mit Zähler in der Spur');
-  const n = Spur.liste('netz').at(-1);
-  check(n && !n.ok && /praesenz/.test(n.info) && n.art === 'safebrowsing', 'Netz: Verbindungsfehler mit Quelle gezählt');
-  App._verbFehler = 0; App._netzWeg = false; App._safeBrowsingBis = 0; App._lastSaveDurationMs = 0;
+  App._verbFehler = 0;
+  await App._writePositionFile('Anna', 10, 2, 'X', Date.now(), null);
+  const p = Spur.liste('position').at(-1);
+  check(p && !p.ok && p.art === 'safebrowsing', 'Fehlerart Safe Browsing in der Spur (Positionsdatei)');
   schreibFehler = null;
-  check(await C.senden('Hallo') === true && Spur.liste('chat').at(-1).was === 'Nachricht anhängen' && Spur.liste('chat').at(-1).ok, 'Chat: Anhängen notiert');
-  schreibFehler = err('InvalidStateError', 'state had changed since it was read from disk');
-  App._handlesNeuHolen = async () => false;
-  check(await C.senden('Zwei') === false, 'Chat: Senden scheitert bei Zustandsfehler');
-  const c = Spur.liste('chat').at(-1);
-  check(c && !c.ok && c.art === 'zustand', 'Chat: Zustandsfehler in der Spur');
-  schreibFehler = null; App._verbFehler = 0; App._netzWeg = false;
-  store.set('chat_test_client-BBBB.jsonl', { data: JSON.stringify({ id: 'b1', c: 'client-BBBB', von: 'Bernd', an: '', text: 'Moin', ts: Date.now() }) + '\n', mtime: Date.now() });
-  check(await C.abholen() === 1 && Spur.liste('chat').at(-1).was === 'Nachrichten abholen' && /1 neu/.test(Spur.liste('chat').at(-1).info), 'Chat: Abholen mit neuer Nachricht notiert');
-  const vorher = Spur.eintraege.length;
-  await C.abholen();
-  check(Spur.eintraege.length === vorher && Spur.stat.chat.n >= 4, 'Chat: Abholen ohne Neues nur gezählt');
+  App._verbFehlerZaehlen('probe', err('AbortError', 'Failed to perform Safe Browsing check.'));
+  const n = Spur.liste('netz').at(-1);
+  check(n && !n.ok && /probe/.test(n.info) && n.art === 'safebrowsing', 'Netz: Verbindungsfehler mit Quelle gezählt');
+  App._verbFehler = 0; App._netzWeg = false; App._safeBrowsingBis = 0; App._lastSaveDurationMs = 0;
 }
 
 console.log('══ Zustandsbild ══');
 {
   const d = App.diagnose();
-  check(d.sitzung.fensterVerdeckt === false && 'lebenszeichenZuletztOk' in d.verbindung && d.verbindung.lebenszeichenFehlerInFolge === 1 && 'letztesAnhaengenMs' in d.verbindung, 'Diagnose: Fenster, Lebenszeichen, Anhängen');
+  check(d.sitzung.fensterVerdeckt === false && 'letztesAnhaengenMs' in d.verbindung && 'schreibenBlockiertBis' in d.verbindung, 'Diagnose: Fenster, Anhängen, Schreibsperre');
   const t = App.diagnoseText({ zeilen: 5 });
-  check(/Netz- und Dateivorgänge je Bereich/.test(t) && /Ereignisspur/.test(t) && /praesenz: /.test(t), 'Zustandsbild enthält Spur und Zusammenfassung');
+  check(/Netz- und Dateivorgänge je Bereich/.test(t) && /Ereignisspur/.test(t) && /netz: /.test(t), 'Zustandsbild enthält Spur und Zusammenfassung');
   check(!/Ereignisspur/.test(App.diagnoseText({ spur: false })), 'Spur abschaltbar');
 }
 
@@ -214,45 +200,40 @@ console.log('══ Konsolenbefehle ══');
   const h = K.hilfe();
   check(Array.isArray(h) && h.includes('bhk.test()') && konsole.tabellen.at(-1).some(z => /bhk\.status/.test(z.Befehl)), 'hilfe(): Tabelle der Befehle');
   const st = K.status();
-  check(st.zustand && st.zustand.verbindung && Array.isArray(st.bereiche) && st.bereiche.some(b => b.bereich === 'praesenz'), 'status(): Zustand und Bereiche');
-  check(konsole.tabellen.at(-2).some(z => z.Angabe === 'gesehen' && /Bernd/.test(z.Wert)), 'status(): gesehene Kollegen in der Tabelle');
-  const sp = K.spur('chat', 2);
-  check(sp.length === 2 && konsole.tabellen.at(-1).length === 2 && konsole.tabellen.at(-1)[0].Bereich === 'chat', 'spur(bereich, n): gefilterte Tabelle');
+  check(st.zustand && st.zustand.verbindung && Array.isArray(st.bereiche) && st.bereiche.some(b => b.bereich === 'netz'), 'status(): Zustand und Bereiche');
+  check(konsole.tabellen.at(-2).some(z => z.Angabe === 'anhaengenLaeuft'), 'status(): Synchronisationszeilen in der Tabelle');
+  const sp = K.spur('netz', 1);
+  check(sp.length === 1 && konsole.tabellen.at(-1).length === 1 && konsole.tabellen.at(-1)[0].Bereich === 'netz', 'spur(bereich, n): gefilterte Tabelle');
   check(K.spur(3).length === 3, 'spur(n): Zahl allein gilt als Anzahl');
   check(K.spur('gibtsnicht').length === 0 && /Keine Einträge/.test(konsole.logs.at(-1)), 'spur(): leerer Bereich gemeldet');
-  const pr = K.praesenz();
-  check(pr.length === 1 && konsole.tabellen.at(-1)[0].Wer === 'Bernd' && /online/.test(konsole.tabellen.at(-1)[0].Status), 'praesenz(): Tabelle der Kollegen');
-  const ch = K.chat();
-  check(ch.length >= 2 && konsole.tabellen.at(-1).some(z => z.Text === 'Moin'), 'chat(): Verlauf als Tabelle');
   store.set('oplog_test_client-BBBB_g0.jsonl.crswap', { data: '', mtime: Date.now() });
   store.set('meldungen', { data: '', mtime: Date.now(), kind: 'directory' });
   const dl = await K.dateien();
   const arten = Object.fromEntries(dl.map(z => [z.Name, z.Art]));
-  check(arten['praesenz_test_client-BBBB.json'] === 'Lebenszeichen' && arten['chat_test_client-BBBB.jsonl'] === 'Chat' && arten['oplog_test_client-BBBB_g0.jsonl.crswap'] === 'Tauschdatei (Browser)' && arten['meldungen/'] === 'Ordner', 'dateien(): Einträge nach Art benannt');
+  check(arten['pos-Anna.json'] === 'Position' && arten['oplog_test_client-BBBB_g0.jsonl.crswap'] === 'Tauschdatei (Browser)' && arten['meldungen/'] === 'Ordner', 'dateien(): Einträge nach Art benannt');
   check(dl.every(z => 'Alter' in z) && Spur.liste('probe').at(-1).was.startsWith('Ordner auflisten'), 'dateien(): Alter je Datei, Vorgang in der Spur');
   store.delete('meldungen');
   Spur.setDebug(true); K.debug(false); check(Spur.debug === false && K.debug(true) === true && Spur.debug === true, 'debug(): schaltet um'); K.debug(false);
   await K.kopieren();
   check(/Ereignisspur/.test(kopiert) && /Konsolenprotokoll/.test(kopiert), 'kopieren(): Zustandsbild samt Spur und Protokoll');
-  K.melden(); check(sandbox.__meldenGeoeffnet === true, 'melden(): öffnet das Melde-Fenster');
   const j = await K.jetzt();
-  check(j.praesenz === true && typeof j.nachrichten === 'number', 'jetzt(): Lebenszeichen und Nachrichten sofort');
+  check(typeof j.abgleichMs === 'number', 'jetzt(): Abgleich sofort');
 }
 
 console.log('══ Verbindungstest ══');
 {
   App._v3Ready = false;
   // Fehler der vorigen Abschnitte zurücksetzen – sie wären ein eigener Befund
-  ['praesenz', 'chat', 'anhaengen'].forEach(k => { if (Spur.stat[k]) { Spur.stat[k].fehler = 0; Spur.stat[k].letzteArt = ''; } });
+  ['anhaengen', 'abgleich', 'backup'].forEach(k => { if (Spur.stat[k]) { Spur.stat[k].fehler = 0; Spur.stat[k].letzteArt = ''; } });
   const r = await K.test();
-  check(r.schritte.length === 5 && r.schritte.every(s => s.Ergebnis === 'OK'), 'Alle fünf Schritte OK: ' + r.schritte.map(s => s.Schritt.split(' ')[0]).join(', '));
+  check(r.schritte.length === 4 && r.schritte.every(s => s.Ergebnis === 'OK'), 'Alle vier Schritte OK: ' + r.schritte.map(s => s.Schritt.split(' ')[0]).join(', '));
   check(r.befunde.length === 1 && /Keine Auffälligkeiten/.test(r.befunde[0]), 'Befund: keine Auffälligkeiten');
   check(![...store.keys()].some(n => n.startsWith('probe_')), 'Probedatei wieder gelöscht');
   check(typeof r.versatzMs === 'number' && Math.abs(r.versatzMs) < 2000, 'Uhrversatz geschätzt (hier ≈ 0)');
   schreibFehler = err('AbortError', 'Failed to perform Safe Browsing check.');
   App._verbFehler = 0;
   const r2 = await K.test();
-  check(r2.schritte.find(s => /Schreibprobe/.test(s.Schritt)).Ergebnis === 'FEHLER' && /Schreiben blockiert/.test(r2.befunde[0]) && /Lebenszeichen/.test(r2.befunde[0]), 'Schreibsperre: Befund nennt Browser-Richtlinie und Folgen für die Kollegen');
+  check(r2.schritte.find(s => /Schreibprobe/.test(s.Schritt)).Ergebnis === 'FEHLER' && /Schreiben blockiert/.test(r2.befunde[0]) && /Kollegen/.test(r2.befunde[0]), 'Schreibsperre: Befund nennt Browser-Richtlinie und Folgen für die Kollegen');
   check(r2.schritte.find(s => /Ordner/.test(s.Schritt)).Ergebnis === 'OK', 'Lesen bleibt im Test OK');
   check(![...store.keys()].some(n => n.startsWith('probe_')), 'Keine Probedatei zurückgelassen');
   schreibFehler = null; App._verbFehler = 0; App._netzWeg = false; App._safeBrowsingBis = 0; App._lastSaveDurationMs = 0;
@@ -264,7 +245,6 @@ console.log('══ Verbindungstest ══');
   const r4 = await K.test();
   check(r4.befunde.some(b => /Zweit-Registerkarte/.test(b)), 'Zweit-Registerkarte als Befund');
   App._tabIsPrimary = true;
-  App._praesenzFehler = 0; Spur.stat.praesenz.fehler = 0; Spur.stat.praesenz.letzteArt = '';
   const r5 = await K.testDialog();
   check(r5 && /Verbindungstest/.test(modalHtml) && /Befunde/.test(modalHtml) && /Schreibprobe/.test(modalHtml) && /bhk\.hilfe/.test(modalHtml), 'Dialog zeigt Schritte, Befunde und den Konsolenhinweis');
   check(/Verbindungstest/.test(K._letzterTest) && /Befunde:/.test(K._letzterTest), 'Ergebnis als Text zum Kopieren');

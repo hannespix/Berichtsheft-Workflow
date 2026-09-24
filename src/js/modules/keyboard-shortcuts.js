@@ -1,17 +1,5 @@
 
 document.addEventListener('keydown', (e) => {
-  // F2 = Problem melden (Zustandsbild + Protokoll werden mitgesammelt)
-  if (e.key === 'F2' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault();
-    if (typeof Melden !== 'undefined') Melden.oeffnen();
-    return;
-  }
-  // Ctrl+M = Nachrichten an die Kolleginnen und Kollegen
-  if ((e.ctrlKey || e.metaKey) && e.key === 'm' && !e.shiftKey) {
-    e.preventDefault();
-    if (typeof Chat !== 'undefined') Chat.oeffnen();
-    return;
-  }
   // Ctrl+Z = Undo
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     // Don't intercept in text inputs/textareas (let browser handle native undo)
