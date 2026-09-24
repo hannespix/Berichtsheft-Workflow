@@ -368,8 +368,8 @@ const Phasen = {
     this.openPhasenEditor(schuelerId);
   },
 
-  confirmDeletePhase(schuelerId, phaseId) {
-    if (!confirm('Phase wirklich löschen?')) return;
+  async confirmDeletePhase(schuelerId, phaseId) {
+    if (!(await App.confirm('Phase wirklich löschen?', { titel: 'Phase löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     Phasen.deletePhase(phaseId);
     App.toast('Phase gelöscht', 'success');
     this.openPhasenEditor(schuelerId);

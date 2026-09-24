@@ -90,8 +90,43 @@ console.log('\n══ Feinschliff Durchsicht: eine haftende Zeile ══');
   check(/class="ke-zeile2"/.test(K) && !/class="ke-bemerkung"/.test(K) && !/class="ke-fuss"/.test(K) && /\.ke-zeile2 textarea \{ flex: 1 1 260px;/.test(CSS), 'Ergebnisleiste hat zwei Zeilen: Ergebnis · Bemerkung mit Navigation');
   check(!/Auto-Weiter<\/label>/.test(K) && /Auto-Weiter nach „In Ordnung“/.test(K) && /autoWeiterUmschalten\(\) \{/.test(K) && /textbausteinEinfuegen\(i\) \{/.test(K), 'Auto-Weiter im ⋯-Menü, Textbausteine als Menü statt Auswahlfeld');
   check(/id="keGesichert" class="as-gesichert/.test(K) && /<i class="punkt"><\/i><span class="sr-only">/.test(K) && /el\.classList\.toggle\('offen', offen\);/.test(K) && /\.azubi-sticky \.as-gesichert\.offen \.punkt/.test(CSS), 'Speicherstatus als Punkt im Azubi-Kopf mit Text für Vorleseprogramme');
-  check(/<div class="kw-legend-anker"><div class="kw-legend/.test(K) && /role="dialog" aria-label="Mängelcodes und Tastenkürzel"/.test(K) && /\.kw-legend-anker \{\n  position: sticky;\n  top: 33px;/.test(CSS) && /\.kw-legend \{\n  position: absolute;/.test(CSS) && /_legendeZuHandler/.test(K), 'Kürzel als Popover unter dem Azubi-Kopf, Klick daneben schließt');
+  check(/<div class="kw-legend\$\{legendHidden\?' hidden':''\}" id="kwLegendBar" role="region" aria-label="Mängelcodes und Tastenkürzel">/.test(K) && /\.kw-legend \{\n  position: sticky;\n  top: 33px;/.test(CSS) && !/kw-legend-anker/.test(K) && !/kw-legend-anker/.test(CSS), 'Kürzel-Leiste ist eine schmale, mitlaufende Zeile unter dem Azubi-Kopf (kein Popover mehr)');
   check(/\.page-header\.kompakt \{/.test(CSS) && /page-header'\)\?\.classList\.add\('kompakt'\)/.test(K) && /page-header'\)\?\.classList\.remove\('kompakt'\)/.test(K), 'Seitenkopf der Durchsicht wird mit geladenem Termin kompakt');
+}
+
+console.log('\n══ Rückfragen: eigene Dialoge statt window.confirm/prompt ══');
+{
+  const module = fs.readdirSync(path.join(ROOT, 'src/js/modules')).filter(f => f.endsWith('.js')).map(f => [f, read('src/js/modules/' + f)]);
+  // kw-nav hat eine lokale Funktion confirm(); der Sandkasten-Rückfall in kontrolle.js prüft typeof confirm
+  const rest = module.filter(([f, src]) => f !== 'kw-nav.js' && /(^|[^.\w])confirm\(/.test(src.replace(/typeof confirm === 'function' && !confirm\(text\)/g, '').replace(/App\.confirm\(/g, '')));
+  check(rest.length === 0, `Kein window.confirm mehr in den Modulen (${rest.map(x => x[0]).join(', ') || 'keins'})`);
+  const restPrompt = module.filter(([, src]) => /(^|[^.\w])prompt\(/.test(src.replace(/App\.prompt\(/g, '')));
+  check(restPrompt.length === 0, `Kein window.prompt mehr in den Modulen (${restPrompt.map(x => x[0]).join(', ') || 'keins'})`);
+  check(/_dlgOverlay\(\)/.test(APP) && /id = 'dlgOverlay'/.test(APP) && /role', 'alertdialog'/.test(APP), 'Rückfragen liegen auf einer eigenen Ebene (#dlgOverlay, role=alertdialog)');
+  check(/\.dlg-overlay \{[^}]*z-index: 1100/.test(CSS) && /\.modal-overlay \{[^}]*z-index: 1000/.test(CSS), 'Die Rückfrage-Ebene liegt über dem normalen Dialog (z-index 1100 > 1000)');
+  check(/e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); this\._dialogEnde\(this\._dialogAbbruchWert\)/.test(APP) && /e\.key === 'Enter'/.test(APP), 'Esc = Abbrechen, Enter = OK im Dialog selbst');
+  const KS = read('src/js/modules/keyboard-shortcuts.js');
+  check(/dlgOverlay/.test(KS) && /App\._dialogEnde\(App\._dialogAbbruchWert\)/.test(KS), 'Globales Escape schließt zuerst die Rückfrage, dann den Dialog');
+  check(!/if \(this\._dialogResolve\) \{ const r = this\._dialogResolve; this\._dialogResolve = null; try \{ r\(this\._dialogAbbruchWert\)/.test(APP.split('closeModal(fromPopstate = false) {')[1].split('\n  },')[0]), 'closeModal() beendet die Rückfrage nicht mehr (sie steht darüber, der Dialog bleibt)');
+  check(/btn-gefaehrlich/.test(APP) && /\.btn-primary\.btn-gefaehrlich \{ background: var\(--clr-red\)/.test(CSS), 'Gefährliche Aktionen (Löschen) haben einen roten Hauptknopf');
+  check(/_dialogVorherFokus = document\.activeElement/.test(APP) && /z\.focus\(\{ preventScroll: true \}\)/.test(APP), 'Fokus kehrt nach der Rückfrage zum auslösenden Element zurück');
+  check(/dialogeImDom\(\)/.test(APP) && /typeof confirm === 'function'\) v = confirm\(text\)/.test(APP), 'Ohne DOM greift der globale confirm (Test-Sandkasten)');
+  // Verhalten ohne DOM: Promise, Antwort aus dem globalen confirm
+  const vm = await import('node:vm');
+  const sb = { console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, setInterval, clearInterval, Date, Math, JSON, Promise, Set, Map, TextEncoder, TextDecoder, Uint8Array,
+    document: { getElementById: () => null, createElement: () => ({}), addEventListener() {}, body: { classList: { add() {}, remove() {}, contains: () => false } } },
+    navigator: {}, localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, confirm: () => false, prompt: () => 'Antwort' };
+  sb.window = sb; sb.globalThis = sb; vm.createContext(sb);
+  vm.runInContext(APP + '\n;globalThis.__App = App;', sb, { filename: 'app-core.js' });
+  const A = sb.__App;
+  check(A.dialogeImDom() === false, 'Sandkasten ohne DOM erkannt');
+  check((await A.confirm('x')) === false && (await A.prompt('y')) === 'Antwort', 'Rückfall liefert die Antwort des globalen confirm/prompt als Promise');
+  // Abgeschlossene Kontrolle: Rückfrage nur einmal, Weiterlauf nach Ja
+  const K2 = read('src/js/modules/kontrolle.js');
+  check(/_pruefeAbgeschlossen\(weiter\)/.test(K2) && /if \(ok\) \{ this\._abgeschlossenBestaetigt = tid; if \(weiter\) weiter\(\); \}/.test(K2), 'Abgeschlossene Kontrolle: nach „Trotzdem ändern“ läuft die abgebrochene Aktion erneut');
+  check(/_pruefeAbgeschlossen\(\(\) => this\.saveField\(field, value\)\)/.test(K2) && /_pruefeAbgeschlossen\(\(\) => this\.quickMarkOK\(schuelerId\)\)/.test(K2), 'saveField und Schnell-i.O. übergeben ihre Fortsetzung');
+  check((K2.match(/\n  async (removeSchueler|doAddNewSchueler|reopenKontrolle|markOffeneOK|bulkMarkOK)\(/g) || []).length === 5, 'Betroffene Kontroll-Aktionen sind async');
+  check(/async saveTermin\(/.test(read('src/js/modules/planung.js')) && /async _kampAnlegen\(/.test(read('src/js/modules/planung.js')) && /async confirmDeletePhase\(/.test(read('src/js/modules/phasen.js')) && /async deleteBemerkung\(/.test(read('src/js/modules/schueler-akte.js')), 'Rückfragen aus offenen Dialogen (Termin, Kampagne, Phase, Bemerkung) sind async und lassen den Dialog stehen');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

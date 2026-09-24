@@ -575,7 +575,7 @@ const StammdatenTab = {
     StammdatenTab.show('jahrgaenge');
     App.toast('Jahrgang angelegt', 'success');
   },
-  deleteJahrgang(id) {
+  async deleteJahrgang(id) {
     const jg = App.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [id])[0];
     if (!jg) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [id]) || 0;
@@ -583,7 +583,7 @@ const StammdatenTab = {
     const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE jahrgang_id=?', [id]) || 0;
     let text = `Jahrgang „${jg.bezeichnung}" löschen?`;
     if (nS || nK || nT) text += `\n\nDie Zuordnung wird entfernt bei:\n• ${nS} Azubi(s)\n• ${nK} Klasse(n)\n• ${nT} Kontrolltermin(en)\n\nDie Datensätze selbst bleiben erhalten, verlieren aber ihren Jahrgang (Filter!).`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Jahrgang löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteJahrgangKaskade(id);
     App.toast(`Jahrgang „${jg.bezeichnung}" gelöscht`, 'success');
     // (jahrgang refresh no longer needed)
@@ -638,10 +638,10 @@ const StammdatenTab = {
     document.getElementById('bulkCntSch').textContent = ids.length;
     bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
-  bulkDeleteSchulen() {
+  async bulkDeleteSchulen() {
     const ids = [...document.querySelectorAll('.chk-sch:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
-    if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
+    if (!(await App.confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`, { titel: 'Schulen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     // NUR die Kaskade: sie löst jede Klasse der Schule einzeln über
     // deleteKlasseKaskade auf (Azubi-Zuordnung, Termin-Klassen usw.).
     // Ein direktes DELETE FROM klassen davor machte die Kaskade zum No-Op
@@ -815,7 +815,7 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="StammdatenTab.saveSchule(${id})">Speichern</button>`);
     _makeModalWide();
   },
-  deleteSchule(id) {
+  async deleteSchule(id) {
     const bs = App.query('SELECT * FROM berufsschulen WHERE id=?', [id])[0];
     if (!bs) return;
     const nK = App.scalar('SELECT COUNT(*) FROM klassen WHERE berufsschule_id=?', [id]) || 0;
@@ -823,7 +823,7 @@ const StammdatenTab = {
     const nB = App.scalar('SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=?', [id]) || 0;
     let text = `Berufsschule „${bs.name}" löschen?`;
     if (nK || nS || nB) text += `\n\nMit gelöscht werden:\n• ${nK} Klasse(n) – ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nB} Blockplan-Einträge`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Berufsschule löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteSchuleKaskade(id);
     App.toast(`Berufsschule „${bs.name}" gelöscht`, 'success');
     StammdatenTab.show('schulen');
@@ -880,11 +880,11 @@ const StammdatenTab = {
     document.getElementById('bulkCntKl').textContent = ids.length;
     bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
-  bulkDeleteKlassen() {
+  async bulkDeleteKlassen() {
     const ids = [...document.querySelectorAll('.chk-kl:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
     const total = ids.reduce((s,id) => s + (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?',[id])||0), 0);
-    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`)) return;
+    if (!(await App.confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`, { titel: 'Klassen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
@@ -1019,14 +1019,14 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.saveKlasse(${id})">Speichern</button>`);
   },
-  deleteKlasse(id) {
+  async deleteKlasse(id) {
     const kl = App.query('SELECT * FROM klassen WHERE id=?', [id])[0];
     if (!kl) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [id]) || 0;
     const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermin_klassen WHERE klasse_id=?', [id]) || 0;
     let text = `Klasse „${kl.klassenbezeichnung}" löschen?`;
     if (nS || nT) text += `\n\n• ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nT} Kontrolltermin(e) verlieren die Klassen-Verknüpfung (bereits erfasste Ergebnisse bleiben erhalten)`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Klasse löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
     App.deleteKlasseKaskade(id);
     App.toast(`Klasse „${kl.klassenbezeichnung}" gelöscht`, 'success');
@@ -1063,13 +1063,13 @@ const StammdatenTab = {
     App.closeModal();
     StammdatenTab.show('pruefer');
   },
-  deletePruefer(id) {
+  async deletePruefer(id) {
     const pr = App.query('SELECT * FROM pruefer WHERE id=?', [id])[0];
     if (!pr) return;
     const nT = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE pruefer=? OR pruefer LIKE ? OR pruefer LIKE ?", [pr.name, pr.name + ',%', '%, ' + pr.name]) || 0;
     let text = `Prüfer „${pr.name}" löschen?`;
     if (nT) text += `\n\n${nT} Kontrolltermin(e) tragen diesen Namen – sie bleiben unverändert, der Name kann aber nicht mehr ausgewählt werden.`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Prüfer löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM pruefer WHERE id=?', [id]);
     App.toast(`Prüfer „${pr.name}" gelöscht`, 'success');
     StammdatenTab.show('pruefer');
@@ -1212,10 +1212,10 @@ const StammdatenTab = {
       `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
        <button class="btn btn-primary" onclick="const n=App.blockplanAusText(${bsId},'${sj}',document.getElementById('bpImportText').value);App.closeModal();App.toast(n+' Blockwochen übernommen','success');StammdatenTab._renderBlockplanGrid()">Übernehmen</button>`);
   },
-  _clearBlockplan() {
+  async _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
     const sj = document.getElementById('bpSJ')?.value || '';
-    if (!confirm('Blockplan für diese Schule/Schuljahr komplett löschen?')) return;
+    if (!(await App.confirm('Blockplan für diese Schule/Schuljahr komplett löschen?', { titel: 'Blockplan löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM blockplan WHERE berufsschule_id=? AND schuljahr=?', [bsId, sj]);
     this._renderBlockplanGrid();
     App.toast('Blockplan zurückgesetzt', 'success');
@@ -1545,14 +1545,14 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">Bearbeiten</button>`);
   },
-  deleteBetrieb(id) {
+  async deleteBetrieb(id) {
     const b = App.query('SELECT * FROM betriebe WHERE id=?', [id])[0];
     if (!b) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [id]) || 0;
     const nA = App.scalar('SELECT COUNT(*) FROM ausbilder WHERE betrieb_id=?', [id]) || 0;
     let text = `Betrieb „${b.name}" löschen?`;
     if (nS || nA) text += `\n\n• ${nS} Azubi(s) verlieren die Betriebszuordnung (Anschreiben an den Betrieb sind dann nicht mehr möglich)\n• ${nA} Ausbilder-Kontakt(e) werden mit gelöscht`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Betrieb löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteBetriebKaskade(id);
     App.toast(`Betrieb „${b.name}" gelöscht`, 'success');
     StammdatenTab.show('betriebe');

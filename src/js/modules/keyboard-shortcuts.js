@@ -40,6 +40,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const search = document.getElementById('globalSearchOverlay');
     if (search && search.style.display !== 'none') { search.style.display = 'none'; return; }
+    const dlg = document.getElementById('dlgOverlay');
+    if (dlg && dlg.classList.contains('active')) { App._dialogEnde(App._dialogAbbruchWert); return; }
     const modal = document.getElementById('modalOverlay');
     if (modal && modal.classList.contains('active')) {
       App.closeModal();
@@ -79,7 +81,11 @@ document.addEventListener('keydown', (e) => {
   // F5 = Reload from disk (not browser refresh)
   if (e.key === 'F5' && App.dbFileHandle && !App.demoMode) {
     e.preventDefault();
-    if (App.unsavedChanges && !confirm('Es gibt noch nicht gespeicherte Änderungen. Trotzdem von der Platte neu laden?\n(Eigene Änderungen werden vorher weggeschrieben, sofern möglich.)')) return;
+    if (App.unsavedChanges) {
+      App.confirm('Es gibt noch nicht gespeicherte Änderungen. Trotzdem von der Platte neu laden?\n(Eigene Änderungen werden vorher weggeschrieben, sofern möglich.)', { titel: 'Neu laden', ok: 'Neu laden' })
+        .then(ok => { if (ok) App.reloadFromFile(); });
+      return;
+    }
     App.reloadFromFile();
     return;
   }

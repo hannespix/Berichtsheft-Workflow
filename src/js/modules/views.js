@@ -1670,7 +1670,7 @@ const Views = {
           <input type="file" id="wordTemplateUpload" accept=".docx" style="display:none" onchange="Views.uploadWordTemplate(this.files[0])">
           <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">Vorlage hochladen (.docx)</button>
           ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") ? `<span style="font-size:12px;color:var(--clr-green)">✓ ${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") || '')}</span>
-          <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.')){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
+          <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.',{titel:'Word-Vorlage entfernen',ok:'Entfernen',gefaehrlich:true}).then(ok=>{if(ok){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}})">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
         </div>
         <details>
           <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600">Verfügbare Platzhalter anzeigen</summary>
@@ -1810,11 +1810,11 @@ const Views = {
     Views.einstellungen();
     setTimeout(() => { const sel = document.getElementById('vorlTyp'); if (sel) { sel.value = typ; Views._vorlageLaden(); } }, 80);
   },
-  resetVorlage() {
+  async resetVorlage() {
     const typ = document.getElementById('vorlTyp')?.value;
     if (!typ) return;
     if (!App.getVorlage(typ).angepasst) return App.toast('Diese Vorlage ist bereits der Standardtext', 'info');
-    if (!confirm('Eigene Änderungen an dieser Vorlage verwerfen und den Standardtext wiederherstellen?')) return;
+    if (!(await App.confirm('Eigene Änderungen an dieser Vorlage verwerfen und den Standardtext wiederherstellen?', { titel: 'Vorlage zurücksetzen', ok: 'Standardtext wiederherstellen' }))) return;
     App.resetVorlage(typ);
     App.toast('Standardtext wiederhergestellt', 'success');
     Views.einstellungen();
@@ -1863,10 +1863,10 @@ const Views = {
         <td>${esc(e.geloescht_von || '–')}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm btn-primary" onclick="Views.papierkorbRestore(${e.id})">⟲ Wiederherstellen</button>
-          <button class="btn btn-sm" style="background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Diesen Papierkorb-Eintrag endgültig löschen?')){App.papierkorbEintragLoeschen(${e.id});Views._papierkorbRefresh()}">✕</button>
+          <button class="btn btn-sm" style="background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.confirm('Diesen Papierkorb-Eintrag endgültig löschen?',{titel:'Endgültig löschen',ok:'Löschen',gefaehrlich:true}).then(ok=>{if(ok){App.papierkorbEintragLoeschen(${e.id});Views._papierkorbRefresh()}})">✕</button>
         </td></tr>`).join('')}
     </tbody></table>
-    <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="if(confirm('Papierkorb komplett leeren? Die Einträge sind danach nicht mehr wiederherstellbar.')){App.papierkorbLeeren();Views._papierkorbRefresh();App.toast('Papierkorb geleert','success')}">Papierkorb leeren (${liste.length})</button></div>`;
+    <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="App.confirm('Papierkorb komplett leeren? Die Einträge sind danach nicht mehr wiederherstellbar.',{titel:'Papierkorb leeren',ok:'Leeren',gefaehrlich:true}).then(ok=>{if(ok){App.papierkorbLeeren();Views._papierkorbRefresh();App.toast('Papierkorb geleert','success')}})">Papierkorb leeren (${liste.length})</button></div>`;
   },
   _papierkorbRefresh() { const b = document.getElementById('papierkorbBox'); if (b) b.innerHTML = this._papierkorbHtml(); },
   papierkorbRestore(pkId) {
@@ -1898,17 +1898,17 @@ const Views = {
   },
   async backupRestore(name) {
     const text = `Backup „${name}" wiederherstellen?\n\nDer gemeinsame Datenstand wird FÜR ALLE NUTZER auf diesen Zeitpunkt zurückgesetzt. Alles, was seitdem erfasst wurde (Kontrollen, Wiedervorlagen, Importe), geht verloren.\n\nDer aktuelle Stand wird vorher als Backup „vor-wiederherstellung" gesichert.`;
-    if (!confirm(text)) return;
-    if (prompt('Zur Sicherheit bitte WIEDERHERSTELLEN eingeben:') !== 'WIEDERHERSTELLEN') return App.toast('Abgebrochen', 'info');
+    if (!(await App.confirm(text, { titel: 'Sicherung wiederherstellen', ok: 'Weiter', gefaehrlich: true }))) return;
+    if ((await App.prompt('Zur Sicherheit bitte WIEDERHERSTELLEN eingeben:', { titel: 'Sicherung wiederherstellen', ok: 'Wiederherstellen', platzhalter: 'WIEDERHERSTELLEN' })) !== 'WIEDERHERSTELLEN') return App.toast('Abgebrochen', 'info');
     await App.restoreBackup(name);
   },
 
-  _pinClicked() {
+  async _pinClicked() {
     if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
-    const pw = prompt('Passwort:');
+    const pw = await App.prompt('Passwort:', { titel: 'Statistik freischalten' });
     if (pw === 'dienstweg') {
       App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
@@ -1985,9 +1985,9 @@ const Views = {
     App.toast('Textbaustein hinzugefügt', 'success');
   },
 
-  editTextbaustein(idx) {
+  async editTextbaustein(idx) {
     const items = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
-    const newText = prompt('Textbaustein bearbeiten:', items[idx]);
+    const newText = await App.prompt('Textbaustein bearbeiten:', { titel: 'Textbaustein', wert: items[idx] || '', ok: 'Speichern' });
     if (newText === null) return;
     if (!newText.trim()) { this.removeTextbaustein(idx); return; }
     items[idx] = newText.trim();
@@ -2094,10 +2094,10 @@ const Views = {
   // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
   // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
   // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
-  mergeBetriebe(keepId, removeId) {
+  async mergeBetriebe(keepId, removeId) {
     const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
     const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
-    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`)) return;
+    if (!(await App.confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`, { titel: 'Betriebe zusammenführen', ok: 'Zusammenführen' }))) return;
     // Eine Logik für alle Wege (Stammdaten, Datenqualität, Import-Wächter)
     let r;
     try { r = App.mergeBetriebe(keepId, [removeId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }

@@ -9722,35 +9722,104 @@ Anlagen: {anlagen}` },
     }
     setTimeout(() => TableSort.initAll(), 50);
   },
-  // Promise-Dialoge statt window.confirm/prompt: gleiches Aussehen wie die
-  // übrigen Dialoge, Enter = OK, Esc/X = Abbrechen, Fokus auf der Aktion
+  // ── Bestätigung und Eingabe als eigene Dialoge ──
+  //  Kein window.confirm/prompt mehr: die Browser-Dialoge sehen fremd aus,
+  //  lassen sich nicht gestalten, sind bei Zoom winzig und blockieren den
+  //  ganzen Tab. App.confirm/App.prompt liefern Promises und liegen auf einer
+  //  EIGENEN Ebene über dem normalen Dialog (#dlgOverlay über #modalOverlay):
+  //  eine Rückfrage aus einem offenen Dialog heraus (Termin speichern, Phase
+  //  löschen, Bemerkung löschen) lässt den Dialog darunter stehen. Enter = OK,
+  //  Esc/X = Abbrechen, Fokus auf der Aktion, Tab läuft im Kreis, danach zurück.
+  //  Ohne DOM (Test-Sandkasten) greift der globale confirm/prompt, falls vorhanden.
+  dialogeImDom() {
+    // Echter Browser: document.body ist ein HTMLElement. Test-Sandkästen stellen
+    // nur Attrappen (ohne addEventListener) – dort greift der globale confirm.
+    try { return typeof HTMLElement === 'function' && typeof document !== 'undefined' && document.body instanceof HTMLElement; }
+    catch(e) { return false; }
+  },
+  _dlgOverlay() {
+    let ov = document.getElementById('dlgOverlay');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'dlgOverlay'; ov.className = 'dlg-overlay';
+    ov.setAttribute('role', 'alertdialog'); ov.setAttribute('aria-modal', 'true');
+    ov.innerHTML = '<div class="modal dlg-box" id="dlgBox"></div>';
+    ov.addEventListener('keydown', (e) => {
+      if (!ov.classList.contains('active')) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this._dialogEnde(this._dialogAbbruchWert); return; }
+      if (e.key === 'Enter' && !(e.target && e.target.tagName === 'TEXTAREA')) {
+        e.preventDefault(); e.stopPropagation();
+        const w = document.getElementById('dlgWert');
+        this._dialogEnde(w ? w.value : true); return;
+      }
+      if (e.key === 'Tab') {
+        const f = [...ov.querySelectorAll('button,input,select,textarea,[href]')].filter(x => !x.disabled);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      e.stopPropagation(); // Tastenkürzel der Seite (Pfeile, Ziffern) nicht auslösen
+    });
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) { e.preventDefault(); } }); // Klick daneben schließt NICHT (Rückfragen brauchen eine Antwort)
+    document.body.appendChild(ov);
+    return ov;
+  },
+  _dialogZeigen(titel, bodyHtml, footerHtml, abbruchWert, resolve, fokusId) {
+    // Ein offener Dialog wird als Abbruch beendet, bevor der nächste kommt
+    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
+    const ov = this._dlgOverlay();
+    const box = document.getElementById('dlgBox');
+    this._dialogVorherFokus = document.activeElement;
+    this._dialogAbbruchWert = abbruchWert;
+    this._dialogResolve = (v) => {
+      this._dialogResolve = null;
+      ov.classList.remove('active');
+      box.innerHTML = '';
+      const z = this._dialogVorherFokus; this._dialogVorherFokus = null;
+      if (z && z.focus && document.contains(z)) { try { z.focus({ preventScroll: true }); } catch(e) {} }
+      resolve(v);
+    };
+    ov.setAttribute('aria-label', String(titel || '').replace(/<[^>]*>/g, ''));
+    box.innerHTML = `
+      <div class="modal-header"><h3>${titel}</h3>
+        <button class="btn-icon" aria-label="Abbrechen" onclick="App._dialogEnde(App._dialogAbbruchWert)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="modal-body">${bodyHtml}</div>
+      <div class="modal-footer">${footerHtml}</div>`;
+    ov.classList.add('active');
+    setTimeout(() => { const f = document.getElementById(fokusId); if (f) { try { f.focus({ preventScroll: true }); } catch(e) { f.focus(); } if (f.select) f.select(); } }, 30);
+  },
   confirm(text, opts = {}) {
+    if (!this.dialogeImDom()) {
+      // Sandkasten ohne DOM: globaler confirm, falls vorhanden (Tests stellen ihn)
+      let v = true; try { if (typeof confirm === 'function') v = confirm(text); } catch(e) {}
+      return Promise.resolve(!!v);
+    }
     return new Promise(resolve => {
-      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(!!v); };
-      this._dialogAbbruchWert = false;
-      this.openModal(esc(opts.titel || 'Bestätigung'), `<div style="font-size:13px;white-space:pre-wrap">${esc(text)}</div>`,
+      this._dialogZeigen(esc(opts.titel || 'Bestätigung'), `<div class="dlg-text">${esc(text)}</div>`,
         `<button class="btn btn-secondary" onclick="App._dialogEnde(false)">${esc(opts.abbrechen || 'Abbrechen')}</button>
-         <button class="btn btn-primary" id="dlgOk" ${opts.gefaehrlich ? 'style="background:var(--clr-red);border-color:var(--clr-red)"' : ''} onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`);
-      setTimeout(() => document.getElementById('dlgOk')?.focus(), 50);
+         <button class="btn btn-primary${opts.gefaehrlich ? ' btn-gefaehrlich' : ''}" id="dlgOk" onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`,
+        false, resolve, 'dlgOk');
     });
   },
   prompt(text, opts = {}) {
+    if (!this.dialogeImDom()) {
+      let v = null; try { if (typeof prompt === 'function') v = prompt(text, opts.wert || ''); } catch(e) {}
+      return Promise.resolve(v);
+    }
     return new Promise(resolve => {
-      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(v); };
-      this._dialogAbbruchWert = null;
-      this.openModal(esc(opts.titel || 'Eingabe'), `<div style="font-size:13px;margin-bottom:8px;white-space:pre-wrap">${esc(text)}</div>
-        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();App._dialogEnde(this.value)}">`,
+      this._dialogZeigen(esc(opts.titel || 'Eingabe'), `<div class="dlg-text" style="margin-bottom:8px">${esc(text)}</div>
+        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" aria-label="${esc(opts.titel || 'Eingabe')}">`,
         `<button class="btn btn-secondary" onclick="App._dialogEnde(null)">Abbrechen</button>
-         <button class="btn btn-primary" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`);
-      setTimeout(() => { const i = document.getElementById('dlgWert'); if (i) { i.focus(); i.select(); } }, 50);
+         <button class="btn btn-primary" id="dlgOk" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`,
+        null, resolve, 'dlgWert');
     });
   },
   _dialogEnde(v) { const r = this._dialogResolve; if (r) r(v); },
 
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
-    // Offener Promise-Dialog per X/Esc/Zurück geschlossen → als Abbruch auflösen
-    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
     // Fokus zurück zum auslösenden Element
     this._modalHatFokus = false;
     const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;

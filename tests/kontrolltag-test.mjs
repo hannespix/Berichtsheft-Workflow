@@ -355,6 +355,15 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   // Archiv und PDF
   check(/g_1_1: ke\.p_1_1_gefuehrt/.test(K_SRC) && /g_1_1: ke\.p_1_1_gefuehrt/.test(NE_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest');
   check(/nicht geführt/.test(read('src/js/modules/pdf-export.js')) && /p_1_1_gefuehrt/.test(read('src/js/modules/pdf-export.js')), 'Der Durchsichtsbogen (PDF) zeigt „geführt / nicht geführt“');
+  // „nicht geführt“ zählt in der Zulassung als nicht erfüllt
+  const voll = { p_1_1_ausbildungsplan: 'ja', p_1_4_auszubildende: 'ja', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_1_gefuehrt: '', p_1_5_gefuehrt: '' };
+  check(KH.pflichtteileOK(voll, 2) === true, 'Pflichtteile erfüllt: alle vorhanden, ÜBA erreicht');
+  check(KH.pflichtteileOK({ ...voll, p_1_1_gefuehrt: 'nein' }, 2) === false, '1.1 „nicht geführt“ → Pflichtteile nicht erfüllt');
+  check(KH.pflichtteileOK({ ...voll, p_1_5_gefuehrt: 'nein' }, 2) === false, '1.5 „nicht geführt“ → Pflichtteile nicht erfüllt');
+  check(KH.pflichtteileOK({ ...voll, p_1_1_gefuehrt: 'ja', p_1_5_gefuehrt: 'ja' }, 2) === true, '„geführt“ ändert nichts am erfüllten Stand');
+  check(KH.pflichtteileOK({ ...voll, bescheinigungen_anzahl: 1 }, 2) === false, 'Zu wenig ÜBA → nicht erfüllt');
+  const KSRC = read('src/js/modules/kontrolle.js');
+  check((KSRC.match(/this\.pflichtteileOK\(ke, reqUBA2?\)/g) || []).length === 2 && !/p_1_5_bescheinigungen === 'ja' && \(ke\.bescheinigungen_anzahl\|\|0\) >= reqUBA/.test(KSRC), 'Übersicht und Druck nutzen denselben Helfer (keine zweite Formel)');
   check(/data-field="\$\{name\}"/.test(K_SRC) && /gefuehrtOptHtml\('p_1_1_gefuehrt'/.test(K_SRC) && /gefuehrtOptHtml\('p_1_5_gefuehrt'/.test(K_SRC), 'Beide Auswahlfelder stehen in der Eingabemaske');
   KH.currentIndex = 0;
 }
@@ -371,7 +380,7 @@ console.log('\n══ UI-Paket 1: Kontrolltag ══');
   check(!/Nach FR gruppieren<\/button>/.test(K_SRC) && /Nach Fachrichtung gruppieren/.test(K_SRC), 'FR-Gruppierung als Menüeintrag statt Kopfknopf');
   check((K_SRC.match(/KontrolleHandler\.abschliessen\(\)/g) || []).length === 2 && !/▤ Alle als PDF<\/button>/.test(K_SRC), 'Abschließen bleibt der Hauptknopf (Übersicht und Fortschritt), PDF-Knopf daneben entfällt');
   check(!/<!-- Prüfer \+ Suche \+ Live-Sync -->/.test(K_SRC) && !/← Topbar<\/span>/.test(K_SRC) && /id="kontrolleSearch"/.test(K_SRC) && /id="livePrueferBar"/.test(K_SRC) && /id="syncPulse"/.test(K_SRC), 'Prüfer-Karte entfällt (Prüfer steht in der Kopfzeile); Suche, Live-Anzeige und Kollegen-Positionen bleiben');
-  check(/App\.uGet\('legend_hidden', '1'\) !== '0'/.test(K_SRC) && /legendeUmschalten\(an\) \{/.test(K_SRC) && /onclick="KontrolleHandler\.legendeUmschalten\(\)" title="Mängelcodes und Tastenkürzel ein-\/ausblenden"[^>]*>\?<\/button>/.test(K_SRC) && !/kwLegendShow/.test(K_SRC), 'Kürzel-Leiste standardmäßig aus, „?“ im Azubi-Kopf blendet sie ein');
+  check(/App\.uGet\('legend_hidden', '0'\) !== '0'/.test(K_SRC) && /legendeUmschalten\(an\) \{/.test(K_SRC) && /onclick="KontrolleHandler\.legendeUmschalten\(\)" title="Mängelcodes und Tastenkürzel ein-\/ausblenden"[^>]*>\?<\/button>/.test(K_SRC) && !/kwLegendShow/.test(K_SRC), 'Kürzel-Leiste standardmäßig aus, „?“ im Azubi-Kopf blendet sie ein');
   check(/aspect-ratio: 2 \/ 1;/.test(CSS) && /\.kw-cell \{\n  aspect-ratio: 2 \/ 1;/.test(CSS), 'Rasterzellen halb so hoch wie breit');
   check(/const kuenftig = ajJetzt && aj > ajJetzt && !geprueftCount && !maengelCount;/.test(K_SRC) && /\|\| kuenftig\)/.test(K_SRC) && /class="card-header aj-kopf"[^>]*onclick="KontrolleHandler\.toggleAJ\(\$\{aj\}, \$\{zu \? 'true' : 'false'\}\)"/.test(K_SRC) && /Künftiges Ausbildungsjahr – noch keine geprüfte Woche\./.test(K_SRC), 'Künftige Jahre ohne geprüfte Woche eingeklappt, Kopf klickbar');
   check(/onclick="event\.stopPropagation\(\)"/.test(K_SRC) && /display:\$\{zu \? 'none' : 'flex'\}/.test(K_SRC), 'Bereichsauswahl nur im aufgeklappten Jahr, Klick darauf klappt nicht zu');

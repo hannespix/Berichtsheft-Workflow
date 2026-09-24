@@ -41,8 +41,8 @@ const SchuelerAkte = {
     this.open(schuelerId);
   },
 
-  deleteBemerkung(id, schuelerId) {
-    if (!confirm('Bemerkung löschen?')) return;
+  async deleteBemerkung(id, schuelerId) {
+    if (!(await App.confirm('Bemerkung löschen?', { titel: 'Bemerkung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM schueler_bemerkungen WHERE id=?', [id]);
     this.open(schuelerId);
   },
