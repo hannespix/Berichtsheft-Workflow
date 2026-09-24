@@ -783,7 +783,7 @@ const ImportHandler = {
         if (changes.length) diff.geaendert.push({ id: existingId, name: `${ex.nachname}, ${ex.vorname}`, felder: changes.map(([f, n, o]) => ({ f, neu: n, alt: o })) });
         // Phasen-Schutz: Wenn Ausbildungsdaten sich ändern und Phasen existieren → Konflikt sammeln
         let hatPhasen = false;
-        try { hatPhasen = typeof AzubiRechner !== 'undefined' && AzubiRechner.getPhasen(existingId).length > 0; } catch(e) {}
+        try { hatPhasen = typeof Phasen !== 'undefined' && Phasen.getPhasen(existingId).length > 0; } catch(e) {}
         const datumsAenderung = changes.some(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
         if (hatPhasen && datumsAenderung) {
           const konfliktChanges = changes.filter(([f]) => f === 'ausbildungsbeginn' || f === 'ausbildungsende');
@@ -985,7 +985,7 @@ const ImportHandler = {
       changes.forEach(([field, newVal]) => {
         App.run(`UPDATE schueler SET ${field}=? WHERE id=?`, [newVal, schuelerId]);
       });
-      const phasen = typeof AzubiRechner !== 'undefined' ? AzubiRechner.getPhasen(schuelerId) : [];
+      const phasen = typeof Phasen !== 'undefined' ? Phasen.getPhasen(schuelerId) : [];
       if (phasen.length) {
         const s = App.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
         const first = phasen[0];
@@ -1162,9 +1162,6 @@ const ImportHandler = {
           <div class="form-group"><label>Landesfachklasse</label><input class="form-control" id="mSLFK" value="${esc(s.landesfachklasse||'')}" placeholder="Gemüse, Obst, Baumschule, Stauden" style="font-size:11px"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Beruf (Tarif)</label><select class="form-control" id="mSBerufId">
-            <option value="">–</option>${(typeof AzubiRechner!=='undefined'?AzubiRechner.BERUFE:[]).map(b=>`<option value="${b.id}" ${(s.beruf_id||'')===b.id?'selected':''}>${esc(b.label)}</option>`).join('')}
-          </select></div>
           <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
         </div>
         <div class="form-row">
@@ -1174,7 +1171,7 @@ const ImportHandler = {
             <input type="checkbox" id="mSVorzeitig" ${s.vorzeitige_zulassung?'checked':''} style="width:18px;height:18px;accent-color:var(--clr-forest)"> Vorzeitige Zulassung (§45)
           </label></div>
         </div>
-        ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();AzubiDashboard.open(${id})" style="font-size:11px">Azubi-Dashboard öffnen</button></div>`:''}
+        ${typeof Phasen!=='undefined'?`<div style="text-align:right;margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" style="font-size:11px">Ausbildungsverlauf (Phasen) öffnen</button></div>`:''}
       </div>
 
       <!-- Tab 3: Prüfungen -->
@@ -1218,7 +1215,7 @@ const ImportHandler = {
         <div class="form-group"><label>Import-Datum</label><input class="form-control" value="${s.import_datum||'–'}" disabled style="background:var(--clr-warm)"></div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen & Dateien">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Inaktiv setzen</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
     _makeModalWide();
@@ -1237,7 +1234,7 @@ const ImportHandler = {
       status=?,aktiv=?,ap_zugelassen=?,ap_bestanden=?,inaktiv_grund=?,inaktiv_datum=?,
       geschlecht=?,schulabschluss=?,pruefungserfolg=?,pruefungserfolg_wdh1=?,pruefungserfolg_wdh2=?,
       bav_status=?,zwischenpruefung=?,
-      beruf_id=?,geburtsdatum=?,regulaer_dauer_monate=?,verkuerzung_monate=?,vorzeitige_zulassung=? WHERE id=?`,
+      geburtsdatum=?,regulaer_dauer_monate=?,verkuerzung_monate=?,vorzeitige_zulassung=? WHERE id=?`,
       [n, v, document.getElementById('mSBetrieb').value.trim(),
        document.getElementById('mSFR').value || null,
        document.getElementById('mSKlasse').value || null,
@@ -1262,7 +1259,6 @@ const ImportHandler = {
        document.getElementById('mSPEW2')?.value || '',
        document.getElementById('mSBAV')?.value?.trim() || '',
        document.getElementById('mSZP')?.value?.trim() || '',
-       document.getElementById('mSBerufId')?.value || '',
        document.getElementById('mSGeburt')?.value || '',
        parseInt(document.getElementById('mSDauer')?.value) || 36,
        parseInt(document.getElementById('mSVerk')?.value) || 0,

@@ -500,6 +500,9 @@ const App = {
     sel.classList.toggle('has-user', !!u);
   },
 
+  // Statistiken & Jahresbericht (Einstellungen → Darstellung) – Leseschalter,
+  // erzeugt keine Daten
+  statsEnabled() { try { return this.scalar("SELECT wert FROM einstellungen WHERE schluessel='azubi_dashboard_enabled'") === '1'; } catch(e) { return false; } },
   // ── Anmeldung: Wer arbeitet an diesem Rechner? ──
   //  Vor der Arbeit wählt man sich aus der Prüferliste. Die Wahl bleibt im
   //  Browser dieses Rechners (localStorage) und ist beim nächsten Start
@@ -7145,12 +7148,12 @@ const App = {
 
     // Effektives Ende: Phasen → berechnetes Vertragsende, sonst DB-Feld
     let d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
-    if (typeof AzubiRechner !== 'undefined') {
+    if (typeof Phasen !== 'undefined') {
       try {
-        const phasen = AzubiRechner.getPhasen(schuelerId);
+        const phasen = Phasen.getPhasen(schuelerId);
         if (phasen.length) {
-          const phasenMit = AzubiRechner.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0);
-          const berechnetesEnde = AzubiRechner.vertragsendeAusPhasen(phasenMit);
+          const phasenMit = Phasen.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0);
+          const berechnetesEnde = Phasen.vertragsendeAusPhasen(phasenMit);
           if (berechnetesEnde) d2 = berechnetesEnde;
         }
       } catch(e) {}
@@ -7241,11 +7244,11 @@ const App = {
   // ── Aktuelles Ausbildungsjahr berechnen (phasen-aware wenn verfügbar) ──
   getCurrentAJ(beginn, schuelerId) {
     if (!beginn) return null;
-    if (schuelerId && typeof AzubiRechner !== 'undefined') {
-      const phasen = AzubiRechner.getPhasen(schuelerId);
+    if (schuelerId && typeof Phasen !== 'undefined') {
+      const phasen = Phasen.getPhasen(schuelerId);
       if (phasen.length) {
         const s = this.query('SELECT regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
-        const R = AzubiRechner;
+        const R = Phasen;
         const phasenMit = R.phasenMitEnden(phasen, s?.regulaer_dauer_monate || 36, s?.verkuerzung_monate || 0);
         const heute = new Date();
         const erbrachtVZ = phasenMit
@@ -8104,15 +8107,15 @@ const App = {
       }
 
       // Unterbrechungs-Phasen als inaktive KWs markieren
-      if (typeof AzubiRechner !== 'undefined') {
-        const phasen = AzubiRechner.getPhasen(schuelerId);
+      if (typeof Phasen !== 'undefined') {
+        const phasen = Phasen.getPhasen(schuelerId);
         const unterbrechungen = phasen.filter(p => p.typ === 'unterbrechung' && p.von && p.bis);
         const sy = firstSY !== null ? firstSY + idx : null;
         const syStart = sy ? new Date(sy, 8, 1) : null; // Sep 1
         const syEnd = sy ? new Date(sy + 1, 7, 31) : null; // Aug 31
         unterbrechungen.forEach(u => {
-          const uVon = AzubiRechner.parseISO(u.von);
-          const uBis = AzubiRechner.parseISO(u.bis);
+          const uVon = Phasen.parseISO(u.von);
+          const uBis = Phasen.parseISO(u.bis);
           if (!syStart || !syEnd) return;
           if (uBis < syStart || uVon > syEnd) return;
           const effVon = uVon < syStart ? syStart : uVon;
@@ -8562,7 +8565,6 @@ Anlagen: {anlagen}` },
     }
     // ── Migrate old kw_maengel → kw_status if needed ──
     this.migrateDB();
-    try { if (typeof AzubiRechner !== 'undefined') AzubiRechner._loadCustomTarife(); } catch(e) {}
     this.startPolling();
 
     // Mark sync as ready after a short delay (file handle needs to stabilize after F5)

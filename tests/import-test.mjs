@@ -25,7 +25,7 @@ const sandbox = { console, Date, Math, JSON, Set, Map,
   App: { query: () => [], scalar: () => null, run() {}, toast() {}, openModal() {}, closeModal() {} },
   Papa: {}, XLSX: {}, FileReader: class {}, KontrolleHandler: { activePruefer: 't' },
   esc: (x) => String(x ?? ''), todayStr: () => '2026-08-14', formatDate: (d) => String(d || ''),
-  SchuelerView: {}, Views: {}, AzubiRechner: { getPhasen: () => [] }, setTimeout: (f) => f, localStorage: { getItem: () => null, setItem() {} } };
+  SchuelerView: {}, Views: {}, Phasen: { getPhasen: () => [] }, setTimeout: (f) => f, localStorage: { getItem: () => null, setItem() {} } };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(IMP_SRC + '\n;globalThis.__IH = ImportHandler;', sandbox, { filename: 'import-handler.js' });

@@ -217,7 +217,7 @@ const KontrolleHandler = {
           ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`<a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Dashboard">${svgIcon('dashboard', 12)}</a>`:''}</div>
+          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof Phasen!=='undefined'?`<a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
         <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
@@ -1219,7 +1219,7 @@ const KontrolleHandler = {
               ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:var(--clr-purple);font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
-              ${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isEnabled()?`· <a href="#" onclick="event.preventDefault();AzubiDashboard.open(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
+              ${typeof Phasen!=='undefined'?`· <a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none;font-weight:600">${svgIcon('dashboard', 12)} Dashboard</a>`:''}
             </div>
             ${!isLocked && this.activePruefer ? `<div style="font-size:11px;margin-top:2px;padding:2px 10px;display:inline-block;border-radius:10px;background:var(--clr-leaf-light);color:var(--clr-forest)">
               ✎ <strong>${esc(this.activePruefer)}</strong> bearbeitet · <span style="opacity:0.7">andere können diesen Schüler nicht bearbeiten</span>

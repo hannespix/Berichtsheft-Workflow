@@ -33,7 +33,7 @@ vm.createContext(sandbox);
 vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
 // const-Deklarationen landen im Modul-Scope, nicht auf globalThis –
 // deshalb pro Modul explizit durchreichen.
-for (const [f, name] of [['src/js/modules/azubi-rechner.js', 'AzubiRechner'],
+for (const [f, name] of [['src/js/modules/phasen.js', 'Phasen'],
                          ['src/js/modules/kontrolle.js', 'KontrolleHandler'],
                          ['src/js/modules/kw-nav.js', 'KWNav']]) {
   vm.runInContext(read(f) + `\n;globalThis.${name} = ${name};`, sandbox, { filename: path.basename(f) });

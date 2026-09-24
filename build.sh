@@ -33,11 +33,9 @@ LIBS=(
   "libs/pizzip.js"
   "libs/docxtemplater.js"
   "libs/FileSaver.min.js"
-  "libs/pdf.min.js"
   "libs/chart.umd.min.js"
 )
 WASM_FILE="libs/sql-wasm.wasm"
-PDF_WORKER="libs/pdf.worker.min.js"
 FONT_FILES=(
   "fonts/BaWueSansWeb-Regular.woff2"
   "fonts/BaWueSansWeb-RegularItalic.woff2"
@@ -62,8 +60,6 @@ APP_MODULES=(
   "src/js/modules/kontrolle.js"
   "src/js/modules/kw-nav.js"
   "src/js/modules/undo-manager.js"
-  "src/js/modules/llm-helper.js"
-  "src/js/modules/blockplan-analyzer.js"
   "src/js/modules/global-search.js"
   "src/js/modules/keyboard-shortcuts.js"
   "src/js/modules/bulk-schueler.js"
@@ -72,8 +68,7 @@ APP_MODULES=(
   "src/js/modules/wiedervorlagen.js"
   "src/js/modules/berichte.js"
   "src/js/modules/table-sort.js"
-  "src/js/modules/azubi-rechner.js"
-  "src/js/modules/azubi-dashboard.js"
+  "src/js/modules/phasen.js"
   "src/js/modules/schueler-view.js"
   "src/js/modules/schueler-akte.js"
   "src/js/modules/db-tools.js"
@@ -82,7 +77,7 @@ APP_MODULES=(
 
 # Prüfe ob alle Dateien existieren
 MISSING=0
-for f in "$CSS_FILE" "${LIBS[@]}" "$WASM_FILE" "$PDF_WORKER" "${FONT_FILES[@]}" "${LOGO_FILES[@]}" "${APP_MODULES[@]}"; do
+for f in "$CSS_FILE" "${LIBS[@]}" "$WASM_FILE" "${FONT_FILES[@]}" "${LOGO_FILES[@]}" "${APP_MODULES[@]}"; do
   if [ ! -f "$f" ]; then
     echo "  FEHLT: $f"
     MISSING=1
@@ -97,7 +92,7 @@ fi
 echo "  Libraries:  ${#LIBS[@]} Dateien"
 echo "  App-Module: ${#APP_MODULES[@]} Dateien"
 echo "  WASM:       $(du -h "$WASM_FILE" | cut -f1)"
-echo "  PDF-Worker: $(du -h "$PDF_WORKER" | cut -f1)"
+echo "  PDF-Worker: $(du -h | cut -f1)"
 echo ""
 
 {
@@ -141,16 +136,6 @@ HTMLHEAD
 </script>
 INITSCRIPT
 
-  # ── Embed PDF Worker inline (base64 to avoid backtick issues) ──
-  echo "<script>"
-  echo "if(window.pdfjsLib){"
-  echo -n '  const _pdfWorkerCode=atob("'
-  base64 -w0 "$PDF_WORKER"
-  echo '");'
-  echo "  const _pdfWorkerBlob=new Blob([_pdfWorkerCode],{type:'application/javascript'});"
-  echo "  pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(_pdfWorkerBlob);"
-  echo "}"
-  echo "</script>"
 
   # ── Fonts (base64-eingebettet) – BaWue Sans/Serif, Landes-CI ──
   B64_SANS_R=$(base64 -w0 "fonts/BaWueSansWeb-Regular.woff2")

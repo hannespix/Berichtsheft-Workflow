@@ -42,11 +42,9 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 │           ├── schueler-view.js     ← Einzelschüler-Ansicht
 │           ├── nacherfassung.js     ← Nacherfassung
 │           ├── wiedervorlagen.js    ← Wiedervorlagen-Handler
-│           ├── blockplan-analyzer.js ← Blockplan-PDF-Analyse
 │           ├── global-search.js     ← Ctrl+K Suche
 │           ├── keyboard-shortcuts.js ← Tastaturkürzel
 │           ├── bulk-schueler.js     ← Bulk-Operationen Schüler
-│           ├── llm-helper.js        ← KI-Integration
 │           ├── bulk-wv.js           ← Bulk-Operationen WV
 │           ├── table-sort.js        ← Tabellen-Sortierung
 │           └── undo-manager.js      ← Undo/Redo
@@ -58,7 +56,6 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 │   ├── jspdf.plugin.autotable.min.js
 │   ├── pizzip.js + docxtemplater.js ← DOCX-Erzeugung
 │   ├── FileSaver.min.js             ← Datei-Download
-│   ├── pdf.min.js + pdf.worker.min.js ← PDF-Lesen (Blockplan)
 │   └── chart.umd.min.js            ← Diagramme
 ├── fonts/                           ← Schriften BaWue Sans/Serif (Landes-CI, lizenzpflichtig – fonts/LIZENZ.md)
 ├── assets/logo/                     ← RPF-Logo (geschützt – assets/logo/LIZENZ.md)
@@ -86,11 +83,8 @@ Diese Datei kann direkt auf das Netzlaufwerk kopiert werden – fertig.
 | nacherfassung.js | `NacherfassungHandler` | Nacherfassung von Kontrollen |
 | global-search.js | `GlobalSearch` | Ctrl+K Suche + Tastenkürzel-Hilfe |
 | keyboard-shortcuts.js | – | Globale Tastaturkürzel |
-| blockplan-analyzer.js | `BlockplanAnalyzer` | Blockplan-PDF-Analyse |
-| llm-helper.js | `LLMHelper` | KI-Integration |
-| azubi-rechner.js | `AzubiRechner` | Phasen-Mathematik, Tarife, Vergütungsperioden |
-| azubi-dashboard.js | `AzubiDashboard` | Per-Azubi-Dashboard, Phasen-Editor |
-| schueler-akte.js | `SchuelerAkte` | Bemerkungen, Dateianhänge, Aktenvermerk |
+| phasen.js | `Phasen` | Ausbildungsverlauf je Azubi: Phasen-Mathematik (Enden, Vertragsende, Unterbrechungen, pauschale Fehltage) und Phasen-Editor |
+| schueler-akte.js | `SchuelerAkte` | Bemerkungen je Azubi, Aktenvermerk als PDF (Datei-Upload entfernt) |
 | db-tools.js | `DbTools` | Datenbank-Tools: Bestand, Verdichten, Jahrgang mit Archiv löschen/zurückholen, Aufräumen, VACUUM-Neuaufbau, Einstieg Stammdaten heilen |
 | konsole.js | `Konsole` (= `window.bhk`) | Diagnosebefehle für die Browser-Konsole: Zustand, Ereignisspur, Ordnerinhalt, Verbindungstest (auch als Dialog unter Einstellungen → Verbindung), Zustandsbild kopieren |
 
@@ -134,7 +128,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 | `berichte-test.mjs` | Abdeckung, Erfolgsquote, Klassenübersicht, Diagramme |
 | `import-test.mjs` | Datumsformate, Spaltenzuordnung, Betriebsanlage |
 | `integritaet-test.mjs` | Lösch-Kaskaden, Migrations-Parität |
-| `rechner-test.mjs` | Vergütungsperioden, Mindestvergütung |
+| `phasen-test.mjs` | Ausbildungsverlauf: Phasen-Mathematik (Enden, Vertragsende, Teilzeit, Konflikte, Validierung), Speicherung, Editor-Fenster; Kern, index.html und build.sh ohne Tarife, Vergütung, Dashboard, Datei-Upload und pdf.js |
 | `search-test.mjs` | Fuzzy-Suche, Mehrwortsuche, Ranking |
 | `dq-test.mjs` | Datenqualitäts-Regeln |
 | `filter-test.mjs` | Globale Filter: Mehrfachauswahl, AP∪ZP-Vereinigung, Standortgruppen |
@@ -190,6 +184,8 @@ hält Log-Offsets und Snapshot-Generation. Details: `TECHSTACK.md`.
 **Schlanke Datei – was die Datenbank wirklich füllt (gemessen mit 4300 Azubis):** kw_status 33 MB, `durchsicht_snapshots` bis zu 120 MB (vorher: je Durchsicht das komplette Wochenraster als JSON), `bhk_stamps` 16 MB (50.000 JSON-Stempel), `aenderungslog` 13 MB (jede Import-Überschreibung). Deshalb: Snapshots schreiben `App.snapshotKompakt(kwRows)` = `{v:2,n,z:[[aj,kw,codes,fehltage,behoben,bemerkung?],…]}` nur mit Wochen, die Inhalt haben; `App.snapshotZeilen(snap|json)` liefert daraus (oder aus der alten Array-Fassung) kw_status-artige Zeilen – **Snapshots nie direkt mit `JSON.parse` lesen**. Aufräumen-Option `snapshots` (`DbTools._snapshotsVerdichten`) bringt alte Snapshots in die neue Fassung. Stempel liegen als Text `spalte=ts,client,seq;…` (`_stampText/_stampAusText`, JSON wird weiter gelesen), höchstens `STAMPS_MAX` (20.000) je Snapshot. Der Import loggt Überschreibungen nur, wenn das Feld vorher von Hand geändert wurde (`_logUeberschrieben`).
 
 **Verlustschutz:** Jede Op geht über `markDirty()` → `_persistBald()` SOFORT in den Absturzpuffer (IndexedDB; parallele Läufe werden zu genau einem Nachlauf gebündelt) – nicht mehr erst nach 5 s. `App.sofortSpeichern(quelle)` löscht die Auto-Save-Wartezeit, schreibt den Puffer und hängt sofort an (Rückgabe true = nichts mehr offen); aufgerufen von `KontrolleHandler.saveAndReleaseExplicit` („Freigeben“), `microSave` (Azubi-Wechsel), `loadTermin` (Terminwechsel) und `stopLiveSync` (Kontrolle verlassen). Jede eigene Op trägt `sid` (`_azubiAusOp`), `App._ungesichertAzubis` hält die Azubis mit noch nicht angehängten Ops (`azubiGesichert(sid)`); `_saveV3` räumt sie nach dem Anhängen aus, `KontrolleHandler._gesichertAnzeigen()` färbt die Schnellnavigation (`.qn-ungesichert`) und `#keGesichert`. `App.wartendeAenderungenDialog()` (Klick auf `#dbStatusIndicator` oder `#keGesichert`) listet wartende Ops je Tabelle und Azubi mit „Jetzt schreiben“ und „Änderungen als Datei“. **Wächter:** `BhkSpur._waechterStarten()` misst einen Sekundentakt; Drift ≥ `HAENGER_MS` (4 s) bei sichtbarem Fenster → `BhkSpur.haenger(ms)` mit der letzten Bedienaktion (`_aktionMerken`: Element + `onclick`, bei Tasten nur der Tastenname, nie Feldinhalte) in der Spur, in localStorage `bhk_haenger` (max. 10, überlebt den Tab) und im Zustandsbild.
+
+**Entfernt (nicht Teil der Berichtsheftkontrolle):** Tarife, Vergütung, Urlaub, Azubi-Rechner und Azubi-Dashboard (`azubi-rechner.js`, `azubi-dashboard.js`, Tarif-Karte, Spalten `beruf_id`/`brutto_lohn` bleiben leer), Datei-Upload der Akte (`schueler_dateien` bleibt als Tabelle, alte Dateien unter `_bhk/dateien/` liegen weiter), Nachweis-Dateien an Wiedervorlagen, die leeren Hüllen `blockplan-analyzer.js`/`llm-helper.js` und pdf.js. Die Phasen-Mathematik lebt in `phasen.js` (`Phasen.getPhasen/phasenMitEnden/vertragsendeAusPhasen/parseISO`, Editor `Phasen.editor(id)` aus Stammdaten, Azubi-Ansicht, Kontrolle und Bearbeiten-Fenster). Statistiken und Jahresbericht bleiben (`App.statsEnabled()`).
 
 **Anmeldung:** `App.anmeldung()` (aus `showApp()`, nicht im Demo-Modus) zeigt vor der Arbeit die aktiven Prüfer aus `pruefer` als Knöpfe, hebt die im Browser gemerkte Person (`localStorage bhk_current_user`) hervor und bietet „Weiter als …“; `anmelden(name)` → `switchUser` (Einstellungen, Filter und letzte Ansicht sind personenbezogen über `App.uGet/uSet`), `anmeldenNeu()` legt einen Prüfer an. Wechsel jederzeit über `#topbarUserSelect`. **Präsenz („Wer ist online“), Chat und „Problem melden“ (F2) wurden entfernt** – der Weg zur Entwicklung ist das Zustandsbild (`bhk.kopieren()` oder Einstellungen → Verbindung → „Zustandsbild kopieren“).
 
