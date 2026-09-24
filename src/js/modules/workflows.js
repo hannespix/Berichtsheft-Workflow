@@ -330,8 +330,8 @@ const Workflows = {
       '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>' +
       (withEmail > 1 ? '<button class="btn btn-success" onclick="Workflows._openAllIndividualEmails()">✉︎ Alle ' + withEmail + ' nacheinander öffnen</button>' : ''));
   },
-  _betriebEmailNachtragen(betriebId, terminId) {
-    const adr = prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):');
+  async _betriebEmailNachtragen(betriebId, terminId) {
+    const adr = await App.prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):', { titel: 'E-Mail-Adresse nachtragen', ok: 'Speichern', platzhalter: 'name@betrieb.de' });
     if (!adr) return;
     App.run('UPDATE betriebe SET email=? WHERE id=?', [adr.trim(), betriebId]);
     App.toast('E-Mail-Adresse gespeichert', 'success');
@@ -555,8 +555,8 @@ const Workflows = {
     App.closeModal();
     if (p.fristNeu) { App.toast('Neue Frist gespeichert', 'success'); try { Views.wiedervorlagen(); } catch(e) {} }
   },
-  _betriebEmailNachtragenWV(betriebId, wvId) {
-    const adr = prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):');
+  async _betriebEmailNachtragenWV(betriebId, wvId) {
+    const adr = await App.prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):', { titel: 'E-Mail-Adresse nachtragen', ok: 'Speichern', platzhalter: 'name@betrieb.de' });
     if (!adr) return;
     App.run('UPDATE betriebe SET email=? WHERE id=?', [adr.trim(), betriebId]);
     this.emailBetriebWV(wvId);

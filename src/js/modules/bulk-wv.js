@@ -43,13 +43,13 @@ const BulkWV = {
     App.toast(`Frist für ${ids.length} Wiedervorlagen gesetzt`, 'success');
     Views.wiedervorlagen();
   },
-  deleteSelected() {
+  async deleteSelected() {
     const ids = this.getSelected();
     if (!ids.length) return;
     const ph = ids.map(() => '?').join(',');
     const nNot = App.scalar(`SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (${ph})`, ids) || 0;
     const nOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE id IN (${ph}) AND status!='erledigt'`, ids) || 0;
-    if (!confirm(`Wirklich ${ids.length} Wiedervorlage(n) löschen?${nOffen ? `\n• davon ${nOffen} noch offen` : ''}${nNot ? `\n• inkl. ${nNot} Notiz(en)` : ''}\n\nDie Mängel im KW-Raster bleiben bestehen. Erledigte Wiedervorlagen dienen als Nachweis – im Zweifel lieber behalten.`)) return;
+    if (!(await App.confirm(`Wirklich ${ids.length} Wiedervorlage(n) löschen?${nOffen ? `\n• davon ${nOffen} noch offen` : ''}${nNot ? `\n• inkl. ${nNot} Notiz(en)` : ''}\n\nDie Mängel im KW-Raster bleiben bestehen. Erledigte Wiedervorlagen dienen als Nachweis – im Zweifel lieber behalten.`, { titel: 'Wiedervorlagen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => { App.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=?', [id]); App.run('DELETE FROM wiedervorlagen WHERE id=?', [id]); });
     App.toast(`${ids.length} Wiedervorlage(n) gelöscht${nNot ? ` (inkl. ${nNot} Notizen)` : ''}`, 'success');
     Views.wiedervorlagen();

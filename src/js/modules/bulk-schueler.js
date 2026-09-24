@@ -1,10 +1,10 @@
 const BulkSchueler = {
   // Löschen aus der Bulk-Leiste der Azubi-Liste. Der Knopf rief bisher eine
   // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
-  deleteSelected() {
+  async deleteSelected() {
     const ids = this.getSelected();
     if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
-    if (!confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`)) return;
+    if (!(await App.confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`, { titel: 'Azubis löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => App.deleteSchuelerKaskade(id));
     App.toast(`${ids.length} Azubi(s) und alle verknüpften Daten gelöscht`, 'success');
     this.deselectAll();

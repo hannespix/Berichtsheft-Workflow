@@ -150,11 +150,6 @@ const KontrolleHandler = {
     const zeigen = an == null ? bar.classList.contains('hidden') : !!an;
     bar.classList.toggle('hidden', !zeigen);
     App.uSet('legend_hidden', zeigen ? '0' : '1');
-    // Popover: ein Klick außerhalb schließt es wieder
-    if (zeigen && !this._legendeZuHandler) {
-      this._legendeZuHandler = (e) => { const b = document.getElementById('kwLegendBar'); if (b && !b.classList.contains('hidden') && !b.contains(e.target) && !(e.target.closest && e.target.closest('[aria-controls="kwLegendBar"]'))) this.legendeUmschalten(false); };
-      setTimeout(() => document.addEventListener('click', this._legendeZuHandler), 0);
-    }
   },
   // Textbaustein aus dem Menü an die Bemerkung anhängen (Index statt Text: kein Anführungszeichen-Problem)
   textbausteinEinfuegen(i) {
@@ -186,6 +181,15 @@ const KontrolleHandler = {
   // ══════════════════════════════════════
   //  ÜBERSICHTSTABELLE
   // ══════════════════════════════════════
+  // Pflichtteile für die AP-Zulassung: 1.1, 1.4 und 1.5 vorhanden, ÜBA-Zahl
+  // erreicht – UND 1.1/1.5 nicht als „nicht geführt“ markiert. Ein vorhandener,
+  // aber nicht geführter Ausbildungsplan oder Nachweis zählt nicht als erfüllt.
+  pflichtteileOK(ke, reqUBA) {
+    return ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja'
+      && (ke.bescheinigungen_anzahl || 0) >= (reqUBA || 0)
+      && ke.p_1_1_gefuehrt !== 'nein' && ke.p_1_5_gefuehrt !== 'nein';
+  },
+
   renderUebersicht() {
     // Clean up our position when leaving Einzelansicht
     this.stopLiveSync();
@@ -255,7 +259,7 @@ const KontrolleHandler = {
       const fehlProzent = arbeitstage > 0 ? (fehlGesamt / arbeitstage * 100) : 0;
       const fehlWarn = fehlProzent >= 10;
       const reqUBA = App.getRequiredUBA(s.fachrichtung_id);
-      const pflichtOK = ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja' && (ke.bescheinigungen_anzahl||0) >= reqUBA;
+      const pflichtOK = this.pflichtteileOK(ke, reqUBA);
       const offeneMaengel = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id]) || 0;
       const wvOffen = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) > 0;
       const ampel = App.getSchuelerAmpel(s.id);
@@ -466,15 +470,15 @@ const KontrolleHandler = {
 
   // Einen Azubi direkt aus der Übersicht als "In Ordnung" markieren
   quickMarkOK(schuelerId) {
-    if (!this._pruefeAbgeschlossen()) return;
+    if (!this._pruefeAbgeschlossen(() => this.quickMarkOK(schuelerId))) return;
     const r = this._markOK([schuelerId]);
     const s = this.currentSchuelerList.find(x => x.id === schuelerId);
     App.toast(`${s ? s.nachname : 'Azubi'}: In Ordnung${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderUebersicht();
   },
   // Alle anwesenden Azubis ohne Ergebnis auf "In Ordnung"
-  markOffeneOK() {
-    if (!this._pruefeAbgeschlossen()) return;
+  async markOffeneOK() {
+    if (!this._pruefeAbgeschlossen(() => this.markOffeneOK())) return;
     const tid = this.currentTerminId;
     const ids = this.currentSchuelerList.filter(s => {
       const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
@@ -482,7 +486,7 @@ const KontrolleHandler = {
     }).map(s => s.id);
     if (!ids.length) return App.toast('Keine offenen anwesenden Azubis', 'info');
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
-    if (!confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`)) return;
+    if (!(await App.confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`, { titel: 'Offene als „In Ordnung“', ok: 'Markieren' }))) return;
     const r = this._markOK(ids);
     App.toast(`${r.count} Azubis als „In Ordnung" markiert${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderUebersicht();
@@ -624,14 +628,31 @@ const KontrolleHandler = {
     this._ajZustand.set(aj, !!auf);
     this.renderSchueler();
   },
-  // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen
-  _pruefeAbgeschlossen() {
+  // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen.
+  // Liefert sofort true, wenn nichts zu fragen ist. Sonst öffnet sich die
+  // Rückfrage, die Funktion liefert false, und nach „Trotzdem ändern“ läuft
+  // `weiter()` (die abgebrochene Aktion) erneut; bei Abbruch wird die
+  // Einzelansicht neu gezeichnet, damit verworfene Eingaben verschwinden.
+  _pruefeAbgeschlossen(weiter) {
     const t = App.query('SELECT status, durchgefuehrt_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     if (!t || t.status !== 'durchgefuehrt') return true;
     if (this._abgeschlossenBestaetigt === this.currentTerminId) return true;
-    if (!confirm(`Diese Kontrolle ist abgeschlossen (Archiv-Bögen vom ${formatDate(t.durchgefuehrt_datum) || '–'} vorhanden).\nÄnderungen wirken ab jetzt vom archivierten Stand ab. Trotzdem ändern?`)) return false;
-    this._abgeschlossenBestaetigt = this.currentTerminId;
-    return true;
+    const tid = this.currentTerminId;
+    const text = `Diese Kontrolle ist abgeschlossen (Archiv-Bögen vom ${formatDate(t.durchgefuehrt_datum) || '–'} vorhanden).\nÄnderungen wirken ab jetzt vom archivierten Stand ab. Trotzdem ändern?`;
+    if (!App.dialogeImDom()) {
+      // Sandkasten ohne DOM: synchron entscheiden (Tests stellen confirm)
+      if (typeof confirm === 'function' && !confirm(text)) return false;
+      this._abgeschlossenBestaetigt = tid;
+      return true;
+    }
+    if (this._abgeschlossenFrage) return false; // Rückfrage steht schon
+    this._abgeschlossenFrage = App.confirm(text, { titel: 'Abgeschlossene Kontrolle', ok: 'Trotzdem ändern' }).then(ok => {
+      this._abgeschlossenFrage = null;
+      if (this.currentTerminId !== tid) return;
+      if (ok) { this._abgeschlossenBestaetigt = tid; if (weiter) weiter(); }
+      else if (this._viewMode === 'einzeln') this.renderSchueler();
+    });
+    return false;
   },
   // Nächsten Azubi ohne Ergebnis (und anwesend) öffnen
   nextOffen(vonUebersicht) {
@@ -749,7 +770,7 @@ const KontrolleHandler = {
       const fehlPct = at > 0 ? (fehl / at * 100) : 0;
       const fehlWarn = fehlPct >= 10;
       const reqUBA2 = App.getRequiredUBA(s.fachrichtung_id);
-      const pflOK = ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja' && (ke.bescheinigungen_anzahl||0) >= reqUBA2;
+      const pflOK = this.pflichtteileOK(ke, reqUBA2);
       const bg = isPA ? '#fde0dc' : !isAnw ? '#f5f0eb' : isDone && ke.ergebnis !== 'in_ordnung' ? '#fde8e6' : isDone && ke.ergebnis === 'in_ordnung' ? '#e8f5e9' : '#fff';
       return `<tr style="background:${bg}${isPA ? ';border-left:3px solid #c0392b' : ''}">
         <td style="text-align:center">${i+1}</td>
@@ -987,7 +1008,7 @@ const KontrolleHandler = {
   },
 
   // Remove a student from this kontrolle
-  removeSchueler(schuelerId) {
+  async removeSchueler(schuelerId) {
     const s = this.currentSchuelerList.find(s => s.id === schuelerId);
     if (!s) return;
     const name = `${s.nachname}, ${s.vorname}`;
@@ -996,7 +1017,7 @@ const KontrolleHandler = {
     const msg = hasDaten
       ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
       : `${name} aus dieser Kontrolle entfernen?`;
-    if (!confirm(msg)) return;
+    if (!(await App.confirm(msg, { titel: 'Azubi entfernen', ok: 'Entfernen', gefaehrlich: true }))) return;
     // Delete kontrollergebnis for this termin+student
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
@@ -1009,7 +1030,7 @@ const KontrolleHandler = {
   },
 
   // Create new student and add to this kontrolle
-  doAddNewSchueler() {
+  async doAddNewSchueler() {
     const nachname = document.getElementById('newSchNachname')?.value?.trim();
     const vorname = document.getElementById('newSchVorname')?.value?.trim();
     if (!nachname || !vorname) return App.toast('Nachname und Vorname sind Pflichtfelder', 'error');
@@ -1027,7 +1048,7 @@ const KontrolleHandler = {
     // Check for duplicates
     const dup = App.query('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname, vorname, jgId]);
     if (dup.length) {
-      if (!confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
+      if (!(await App.confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`, { titel: 'Azubi anlegen', ok: 'Trotzdem anlegen' }))) return;
     }
 
     // Insert into schueler table
@@ -1180,8 +1201,9 @@ const KontrolleHandler = {
       </div>`;
     };
 
-    const legendHidden = App.uGet('legend_hidden', '1') !== '0';
-    const kwLegendHtml = `<div class="kw-legend-anker"><div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar" role="dialog" aria-label="Mängelcodes und Tastenkürzel">
+    // Schmale, mitlaufende Kürzel-Leiste unter dem Azubi-Kopf (Vorgabe: sichtbar; ✕ merkt sich das Ausblenden je Person, „?“ holt sie zurück)
+    const legendHidden = App.uGet('legend_hidden', '0') !== '0';
+    const kwLegendHtml = `<div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar" role="region" aria-label="Mängelcodes und Tastenkürzel">
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
@@ -1199,7 +1221,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>J</kbd>heutige KW</span>
       <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
       <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden" aria-label="Kürzel ausblenden">✕</button>
-    </div></div>`;
+    </div>`;
 
     const c = document.getElementById('kontrolleContent');
     // Get other active prüfer (from position files)
@@ -1631,7 +1653,7 @@ const KontrolleHandler = {
     }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
-    if (!this._pruefeAbgeschlossen()) { this.renderSchueler(); return; }
+    if (!this._pruefeAbgeschlossen(() => this.saveField(field, value))) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -2519,12 +2541,12 @@ const KontrolleHandler = {
   },
 
   // ── Ausgewählte als "In Ordnung" markieren ──
-  bulkMarkOK() {
+  async bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
     if (!ids.length) return App.toast('Bitte Azubi auswählen', 'warning');
-    if (!this._pruefeAbgeschlossen()) return;
+    if (!this._pruefeAbgeschlossen(() => this.bulkMarkOK())) return;
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
-    if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`)) return;
+    if (!(await App.confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`, { titel: 'Als „In Ordnung“ markieren', ok: 'Markieren' }))) return;
     const r = this._markOK(ids);
     App.toast(`${r.count} Azubis als „In Ordnung" markiert (inkl. Pflichtteile ✓)${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderSchueler();
@@ -2738,8 +2760,8 @@ const KontrolleHandler = {
     this.renderUebersicht();
   },
 
-  reopenKontrolle() {
-    if (!confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).')) return;
+  async reopenKontrolle() {
+    if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
     this.renderSchueler();

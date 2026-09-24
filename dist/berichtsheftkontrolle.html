@@ -6382,6 +6382,18 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   transition: opacity 0.2s;
 }
 .modal-overlay.active { opacity: 1; pointer-events: auto; }
+/* Rückfrage-Ebene über dem Dialog (App.confirm/App.prompt) */
+.dlg-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1100; opacity: 0; pointer-events: none; transition: opacity 0.15s;
+  padding: var(--gutter, 24px);
+}
+.dlg-overlay.active { opacity: 1; pointer-events: auto; }
+.dlg-overlay .dlg-box { max-width: 520px; width: 100%; transform: none; }
+.dlg-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.btn-primary.btn-gefaehrlich { background: var(--clr-red); border-color: var(--clr-red); }
+.btn-primary.btn-gefaehrlich:hover { background: #8a1c14; border-color: #8a1c14; }
 .modal {
   background: var(--clr-white);
   border-radius: var(--radius-gross);
@@ -6601,27 +6613,24 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .azubi-sticky .as-gesichert .punkt { width: 10px; height: 10px; border-radius: 50%; background: var(--clr-green); box-shadow: 0 0 0 2px var(--clr-green-light); }
 .azubi-sticky .as-gesichert.offen .punkt { background: var(--clr-amber); box-shadow: 0 0 0 2px var(--clr-amber-light); }
 body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color: var(--clr-sand); }
-.kw-legend-anker {
+/* Kürzel-Leiste: schmale, mitlaufende Zeile direkt unter dem Azubi-Kopf –
+   Mängelcodes und Tastenkürzel bleiben beim Scrollen im Raster sichtbar
+   (das Popover aus dem Feinschliff verdeckte das Raster und war nach jedem
+   Klick wieder weg) */
+.kw-legend {
   position: sticky;
   top: 33px; /* unter dem Azubi-Kopf */
   z-index: 20;
-  height: 0;
-  overflow: visible;
-}
-.kw-legend {
-  position: absolute;
-  top: 6px;
-  right: 0;
-  max-width: 620px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  padding: 10px 14px;
-  background: var(--clr-white);
+  gap: 2px 10px;
+  padding: 3px var(--gutter);
+  margin: 0 calc(-1 * var(--gutter)) 0;
+  background: var(--clr-warm);
   font-size: 12px;
-  border: 1px solid var(--clr-sand);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+  line-height: 1.3;
+  border-bottom: 1px solid var(--clr-sand);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   align-items: center;
 }
 .kw-legend.hidden { display: none; }
@@ -6663,7 +6672,6 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
    Azubi-Kopf, Kürzel-Leiste und Ergebnisleiste normal mit. */
 @media (max-height: 720px), (max-width: 720px) {
   .azubi-sticky, .kw-legend, .ke-leiste { position: static; margin-bottom: 0; }
-  .kw-legend-anker { position: static; height: auto; }
   .kw-legend { max-width: none; box-shadow: none; }
   .ke-leiste { bottom: auto; box-shadow: none; border-top: 2px solid var(--clr-sand); margin-top: 12px; border-radius: var(--radius); }
 }
@@ -17124,35 +17132,104 @@ Anlagen: {anlagen}` },
     }
     setTimeout(() => TableSort.initAll(), 50);
   },
-  // Promise-Dialoge statt window.confirm/prompt: gleiches Aussehen wie die
-  // übrigen Dialoge, Enter = OK, Esc/X = Abbrechen, Fokus auf der Aktion
+  // ── Bestätigung und Eingabe als eigene Dialoge ──
+  //  Kein window.confirm/prompt mehr: die Browser-Dialoge sehen fremd aus,
+  //  lassen sich nicht gestalten, sind bei Zoom winzig und blockieren den
+  //  ganzen Tab. App.confirm/App.prompt liefern Promises und liegen auf einer
+  //  EIGENEN Ebene über dem normalen Dialog (#dlgOverlay über #modalOverlay):
+  //  eine Rückfrage aus einem offenen Dialog heraus (Termin speichern, Phase
+  //  löschen, Bemerkung löschen) lässt den Dialog darunter stehen. Enter = OK,
+  //  Esc/X = Abbrechen, Fokus auf der Aktion, Tab läuft im Kreis, danach zurück.
+  //  Ohne DOM (Test-Sandkasten) greift der globale confirm/prompt, falls vorhanden.
+  dialogeImDom() {
+    // Echter Browser: document.body ist ein HTMLElement. Test-Sandkästen stellen
+    // nur Attrappen (ohne addEventListener) – dort greift der globale confirm.
+    try { return typeof HTMLElement === 'function' && typeof document !== 'undefined' && document.body instanceof HTMLElement; }
+    catch(e) { return false; }
+  },
+  _dlgOverlay() {
+    let ov = document.getElementById('dlgOverlay');
+    if (ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'dlgOverlay'; ov.className = 'dlg-overlay';
+    ov.setAttribute('role', 'alertdialog'); ov.setAttribute('aria-modal', 'true');
+    ov.innerHTML = '<div class="modal dlg-box" id="dlgBox"></div>';
+    ov.addEventListener('keydown', (e) => {
+      if (!ov.classList.contains('active')) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this._dialogEnde(this._dialogAbbruchWert); return; }
+      if (e.key === 'Enter' && !(e.target && e.target.tagName === 'TEXTAREA')) {
+        e.preventDefault(); e.stopPropagation();
+        const w = document.getElementById('dlgWert');
+        this._dialogEnde(w ? w.value : true); return;
+      }
+      if (e.key === 'Tab') {
+        const f = [...ov.querySelectorAll('button,input,select,textarea,[href]')].filter(x => !x.disabled);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      e.stopPropagation(); // Tastenkürzel der Seite (Pfeile, Ziffern) nicht auslösen
+    });
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) { e.preventDefault(); } }); // Klick daneben schließt NICHT (Rückfragen brauchen eine Antwort)
+    document.body.appendChild(ov);
+    return ov;
+  },
+  _dialogZeigen(titel, bodyHtml, footerHtml, abbruchWert, resolve, fokusId) {
+    // Ein offener Dialog wird als Abbruch beendet, bevor der nächste kommt
+    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
+    const ov = this._dlgOverlay();
+    const box = document.getElementById('dlgBox');
+    this._dialogVorherFokus = document.activeElement;
+    this._dialogAbbruchWert = abbruchWert;
+    this._dialogResolve = (v) => {
+      this._dialogResolve = null;
+      ov.classList.remove('active');
+      box.innerHTML = '';
+      const z = this._dialogVorherFokus; this._dialogVorherFokus = null;
+      if (z && z.focus && document.contains(z)) { try { z.focus({ preventScroll: true }); } catch(e) {} }
+      resolve(v);
+    };
+    ov.setAttribute('aria-label', String(titel || '').replace(/<[^>]*>/g, ''));
+    box.innerHTML = `
+      <div class="modal-header"><h3>${titel}</h3>
+        <button class="btn-icon" aria-label="Abbrechen" onclick="App._dialogEnde(App._dialogAbbruchWert)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="modal-body">${bodyHtml}</div>
+      <div class="modal-footer">${footerHtml}</div>`;
+    ov.classList.add('active');
+    setTimeout(() => { const f = document.getElementById(fokusId); if (f) { try { f.focus({ preventScroll: true }); } catch(e) { f.focus(); } if (f.select) f.select(); } }, 30);
+  },
   confirm(text, opts = {}) {
+    if (!this.dialogeImDom()) {
+      // Sandkasten ohne DOM: globaler confirm, falls vorhanden (Tests stellen ihn)
+      let v = true; try { if (typeof confirm === 'function') v = confirm(text); } catch(e) {}
+      return Promise.resolve(!!v);
+    }
     return new Promise(resolve => {
-      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(!!v); };
-      this._dialogAbbruchWert = false;
-      this.openModal(esc(opts.titel || 'Bestätigung'), `<div style="font-size:13px;white-space:pre-wrap">${esc(text)}</div>`,
+      this._dialogZeigen(esc(opts.titel || 'Bestätigung'), `<div class="dlg-text">${esc(text)}</div>`,
         `<button class="btn btn-secondary" onclick="App._dialogEnde(false)">${esc(opts.abbrechen || 'Abbrechen')}</button>
-         <button class="btn btn-primary" id="dlgOk" ${opts.gefaehrlich ? 'style="background:var(--clr-red);border-color:var(--clr-red)"' : ''} onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`);
-      setTimeout(() => document.getElementById('dlgOk')?.focus(), 50);
+         <button class="btn btn-primary${opts.gefaehrlich ? ' btn-gefaehrlich' : ''}" id="dlgOk" onclick="App._dialogEnde(true)">${esc(opts.ok || 'OK')}</button>`,
+        false, resolve, 'dlgOk');
     });
   },
   prompt(text, opts = {}) {
+    if (!this.dialogeImDom()) {
+      let v = null; try { if (typeof prompt === 'function') v = prompt(text, opts.wert || ''); } catch(e) {}
+      return Promise.resolve(v);
+    }
     return new Promise(resolve => {
-      this._dialogResolve = (v) => { this._dialogResolve = null; this.closeModal(); resolve(v); };
-      this._dialogAbbruchWert = null;
-      this.openModal(esc(opts.titel || 'Eingabe'), `<div style="font-size:13px;margin-bottom:8px;white-space:pre-wrap">${esc(text)}</div>
-        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();App._dialogEnde(this.value)}">`,
+      this._dialogZeigen(esc(opts.titel || 'Eingabe'), `<div class="dlg-text" style="margin-bottom:8px">${esc(text)}</div>
+        <input class="form-control" id="dlgWert" value="${esc(opts.wert || '')}" placeholder="${esc(opts.platzhalter || '')}" aria-label="${esc(opts.titel || 'Eingabe')}">`,
         `<button class="btn btn-secondary" onclick="App._dialogEnde(null)">Abbrechen</button>
-         <button class="btn btn-primary" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`);
-      setTimeout(() => { const i = document.getElementById('dlgWert'); if (i) { i.focus(); i.select(); } }, 50);
+         <button class="btn btn-primary" id="dlgOk" onclick="App._dialogEnde(document.getElementById('dlgWert').value)">${esc(opts.ok || 'OK')}</button>`,
+        null, resolve, 'dlgWert');
     });
   },
   _dialogEnde(v) { const r = this._dialogResolve; if (r) r(v); },
 
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
-    // Offener Promise-Dialog per X/Esc/Zurück geschlossen → als Abbruch auflösen
-    if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
     // Fokus zurück zum auslösenden Element
     this._modalHatFokus = false;
     const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;
@@ -19045,7 +19122,7 @@ const Views = {
           <input type="file" id="wordTemplateUpload" accept=".docx" style="display:none" onchange="Views.uploadWordTemplate(this.files[0])">
           <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">Vorlage hochladen (.docx)</button>
           ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") ? `<span style="font-size:12px;color:var(--clr-green)">✓ ${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") || '')}</span>
-          <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.')){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
+          <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.',{titel:'Word-Vorlage entfernen',ok:'Entfernen',gefaehrlich:true}).then(ok=>{if(ok){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}})">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
         </div>
         <details>
           <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600">Verfügbare Platzhalter anzeigen</summary>
@@ -19185,11 +19262,11 @@ const Views = {
     Views.einstellungen();
     setTimeout(() => { const sel = document.getElementById('vorlTyp'); if (sel) { sel.value = typ; Views._vorlageLaden(); } }, 80);
   },
-  resetVorlage() {
+  async resetVorlage() {
     const typ = document.getElementById('vorlTyp')?.value;
     if (!typ) return;
     if (!App.getVorlage(typ).angepasst) return App.toast('Diese Vorlage ist bereits der Standardtext', 'info');
-    if (!confirm('Eigene Änderungen an dieser Vorlage verwerfen und den Standardtext wiederherstellen?')) return;
+    if (!(await App.confirm('Eigene Änderungen an dieser Vorlage verwerfen und den Standardtext wiederherstellen?', { titel: 'Vorlage zurücksetzen', ok: 'Standardtext wiederherstellen' }))) return;
     App.resetVorlage(typ);
     App.toast('Standardtext wiederhergestellt', 'success');
     Views.einstellungen();
@@ -19238,10 +19315,10 @@ const Views = {
         <td>${esc(e.geloescht_von || '–')}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm btn-primary" onclick="Views.papierkorbRestore(${e.id})">⟲ Wiederherstellen</button>
-          <button class="btn btn-sm" style="background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Diesen Papierkorb-Eintrag endgültig löschen?')){App.papierkorbEintragLoeschen(${e.id});Views._papierkorbRefresh()}">✕</button>
+          <button class="btn btn-sm" style="background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="App.confirm('Diesen Papierkorb-Eintrag endgültig löschen?',{titel:'Endgültig löschen',ok:'Löschen',gefaehrlich:true}).then(ok=>{if(ok){App.papierkorbEintragLoeschen(${e.id});Views._papierkorbRefresh()}})">✕</button>
         </td></tr>`).join('')}
     </tbody></table>
-    <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="if(confirm('Papierkorb komplett leeren? Die Einträge sind danach nicht mehr wiederherstellbar.')){App.papierkorbLeeren();Views._papierkorbRefresh();App.toast('Papierkorb geleert','success')}">Papierkorb leeren (${liste.length})</button></div>`;
+    <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="App.confirm('Papierkorb komplett leeren? Die Einträge sind danach nicht mehr wiederherstellbar.',{titel:'Papierkorb leeren',ok:'Leeren',gefaehrlich:true}).then(ok=>{if(ok){App.papierkorbLeeren();Views._papierkorbRefresh();App.toast('Papierkorb geleert','success')}})">Papierkorb leeren (${liste.length})</button></div>`;
   },
   _papierkorbRefresh() { const b = document.getElementById('papierkorbBox'); if (b) b.innerHTML = this._papierkorbHtml(); },
   papierkorbRestore(pkId) {
@@ -19273,17 +19350,17 @@ const Views = {
   },
   async backupRestore(name) {
     const text = `Backup „${name}" wiederherstellen?\n\nDer gemeinsame Datenstand wird FÜR ALLE NUTZER auf diesen Zeitpunkt zurückgesetzt. Alles, was seitdem erfasst wurde (Kontrollen, Wiedervorlagen, Importe), geht verloren.\n\nDer aktuelle Stand wird vorher als Backup „vor-wiederherstellung" gesichert.`;
-    if (!confirm(text)) return;
-    if (prompt('Zur Sicherheit bitte WIEDERHERSTELLEN eingeben:') !== 'WIEDERHERSTELLEN') return App.toast('Abgebrochen', 'info');
+    if (!(await App.confirm(text, { titel: 'Sicherung wiederherstellen', ok: 'Weiter', gefaehrlich: true }))) return;
+    if ((await App.prompt('Zur Sicherheit bitte WIEDERHERSTELLEN eingeben:', { titel: 'Sicherung wiederherstellen', ok: 'Wiederherstellen', platzhalter: 'WIEDERHERSTELLEN' })) !== 'WIEDERHERSTELLEN') return App.toast('Abgebrochen', 'info');
     await App.restoreBackup(name);
   },
 
-  _pinClicked() {
+  async _pinClicked() {
     if (App.lsGet('bhk_stats_unlocked') === '1') {
       document.getElementById('dashboardToggle').style.display = '';
       return;
     }
-    const pw = prompt('Passwort:');
+    const pw = await App.prompt('Passwort:', { titel: 'Statistik freischalten' });
     if (pw === 'dienstweg') {
       App.lsSet('bhk_stats_unlocked', '1');
       document.getElementById('dashboardToggle').style.display = '';
@@ -19360,9 +19437,9 @@ const Views = {
     App.toast('Textbaustein hinzugefügt', 'success');
   },
 
-  editTextbaustein(idx) {
+  async editTextbaustein(idx) {
     const items = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
-    const newText = prompt('Textbaustein bearbeiten:', items[idx]);
+    const newText = await App.prompt('Textbaustein bearbeiten:', { titel: 'Textbaustein', wert: items[idx] || '', ok: 'Speichern' });
     if (newText === null) return;
     if (!newText.trim()) { this.removeTextbaustein(idx); return; }
     items[idx] = newText.trim();
@@ -19469,10 +19546,10 @@ const Views = {
   // Namen werden aus der Datenbank geholt statt durchs onclick-Attribut
   // gereicht: esc() wandelt Apostrophe in &#39; um, was der HTML-Parser
   // zurückverwandelte – das JS-Literal brach auf und der Knopf tat nichts.
-  mergeBetriebe(keepId, removeId) {
+  async mergeBetriebe(keepId, removeId) {
     const keepName = App.scalar('SELECT name FROM betriebe WHERE id=?', [keepId]) || ('#' + keepId);
     const removeName = App.scalar('SELECT name FROM betriebe WHERE id=?', [removeId]) || ('#' + removeId);
-    if (!confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`)) return;
+    if (!(await App.confirm(`Betriebe zusammenführen?\n\nBehalten: "${keepName}" (#${keepId})\nLöschen: "${removeName}" (#${removeId})\n\nAzubis, Termine und Ausbilder von #${removeId} werden auf #${keepId} umgehängt, der alte Name bleibt als Alias.`, { titel: 'Betriebe zusammenführen', ok: 'Zusammenführen' }))) return;
     // Eine Logik für alle Wege (Stammdaten, Datenqualität, Import-Wächter)
     let r;
     try { r = App.mergeBetriebe(keepId, [removeId]); } catch(e) { return App.toast('Zusammenführen: ' + e.message, 'error'); }
@@ -21141,7 +21218,7 @@ const StammdatenTab = {
     StammdatenTab.show('jahrgaenge');
     App.toast('Jahrgang angelegt', 'success');
   },
-  deleteJahrgang(id) {
+  async deleteJahrgang(id) {
     const jg = App.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [id])[0];
     if (!jg) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [id]) || 0;
@@ -21149,7 +21226,7 @@ const StammdatenTab = {
     const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermine WHERE jahrgang_id=?', [id]) || 0;
     let text = `Jahrgang „${jg.bezeichnung}" löschen?`;
     if (nS || nK || nT) text += `\n\nDie Zuordnung wird entfernt bei:\n• ${nS} Azubi(s)\n• ${nK} Klasse(n)\n• ${nT} Kontrolltermin(en)\n\nDie Datensätze selbst bleiben erhalten, verlieren aber ihren Jahrgang (Filter!).`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Jahrgang löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteJahrgangKaskade(id);
     App.toast(`Jahrgang „${jg.bezeichnung}" gelöscht`, 'success');
     // (jahrgang refresh no longer needed)
@@ -21204,10 +21281,10 @@ const StammdatenTab = {
     document.getElementById('bulkCntSch').textContent = ids.length;
     bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
-  bulkDeleteSchulen() {
+  async bulkDeleteSchulen() {
     const ids = [...document.querySelectorAll('.chk-sch:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
-    if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
+    if (!(await App.confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`, { titel: 'Schulen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     // NUR die Kaskade: sie löst jede Klasse der Schule einzeln über
     // deleteKlasseKaskade auf (Azubi-Zuordnung, Termin-Klassen usw.).
     // Ein direktes DELETE FROM klassen davor machte die Kaskade zum No-Op
@@ -21381,7 +21458,7 @@ const StammdatenTab = {
         <button class="btn btn-primary" onclick="StammdatenTab.saveSchule(${id})">Speichern</button>`);
     _makeModalWide();
   },
-  deleteSchule(id) {
+  async deleteSchule(id) {
     const bs = App.query('SELECT * FROM berufsschulen WHERE id=?', [id])[0];
     if (!bs) return;
     const nK = App.scalar('SELECT COUNT(*) FROM klassen WHERE berufsschule_id=?', [id]) || 0;
@@ -21389,7 +21466,7 @@ const StammdatenTab = {
     const nB = App.scalar('SELECT COUNT(*) FROM blockplan WHERE berufsschule_id=?', [id]) || 0;
     let text = `Berufsschule „${bs.name}" löschen?`;
     if (nK || nS || nB) text += `\n\nMit gelöscht werden:\n• ${nK} Klasse(n) – ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nB} Blockplan-Einträge`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Berufsschule löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteSchuleKaskade(id);
     App.toast(`Berufsschule „${bs.name}" gelöscht`, 'success');
     StammdatenTab.show('schulen');
@@ -21446,11 +21523,11 @@ const StammdatenTab = {
     document.getElementById('bulkCntKl').textContent = ids.length;
     bar.style.display = ids.length > 0 ? 'flex' : 'none';
   },
-  bulkDeleteKlassen() {
+  async bulkDeleteKlassen() {
     const ids = [...document.querySelectorAll('.chk-kl:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
     const total = ids.reduce((s,id) => s + (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?',[id])||0), 0);
-    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`)) return;
+    if (!(await App.confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`, { titel: 'Klassen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
@@ -21585,14 +21662,14 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.saveKlasse(${id})">Speichern</button>`);
   },
-  deleteKlasse(id) {
+  async deleteKlasse(id) {
     const kl = App.query('SELECT * FROM klassen WHERE id=?', [id])[0];
     if (!kl) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [id]) || 0;
     const nT = App.scalar('SELECT COUNT(*) FROM kontrolltermin_klassen WHERE klasse_id=?', [id]) || 0;
     let text = `Klasse „${kl.klassenbezeichnung}" löschen?`;
     if (nS || nT) text += `\n\n• ${nS} Azubi(s) verlieren ihre Klassenzuordnung\n• ${nT} Kontrolltermin(e) verlieren die Klassen-Verknüpfung (bereits erfasste Ergebnisse bleiben erhalten)`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Klasse löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
     App.deleteKlasseKaskade(id);
     App.toast(`Klasse „${kl.klassenbezeichnung}" gelöscht`, 'success');
@@ -21629,13 +21706,13 @@ const StammdatenTab = {
     App.closeModal();
     StammdatenTab.show('pruefer');
   },
-  deletePruefer(id) {
+  async deletePruefer(id) {
     const pr = App.query('SELECT * FROM pruefer WHERE id=?', [id])[0];
     if (!pr) return;
     const nT = App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE pruefer=? OR pruefer LIKE ? OR pruefer LIKE ?", [pr.name, pr.name + ',%', '%, ' + pr.name]) || 0;
     let text = `Prüfer „${pr.name}" löschen?`;
     if (nT) text += `\n\n${nT} Kontrolltermin(e) tragen diesen Namen – sie bleiben unverändert, der Name kann aber nicht mehr ausgewählt werden.`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Prüfer löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM pruefer WHERE id=?', [id]);
     App.toast(`Prüfer „${pr.name}" gelöscht`, 'success');
     StammdatenTab.show('pruefer');
@@ -21778,10 +21855,10 @@ const StammdatenTab = {
       `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
        <button class="btn btn-primary" onclick="const n=App.blockplanAusText(${bsId},'${sj}',document.getElementById('bpImportText').value);App.closeModal();App.toast(n+' Blockwochen übernommen','success');StammdatenTab._renderBlockplanGrid()">Übernehmen</button>`);
   },
-  _clearBlockplan() {
+  async _clearBlockplan() {
     const bsId = parseInt(document.getElementById('bpSchule')?.value);
     const sj = document.getElementById('bpSJ')?.value || '';
-    if (!confirm('Blockplan für diese Schule/Schuljahr komplett löschen?')) return;
+    if (!(await App.confirm('Blockplan für diese Schule/Schuljahr komplett löschen?', { titel: 'Blockplan löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM blockplan WHERE berufsschule_id=? AND schuljahr=?', [bsId, sj]);
     this._renderBlockplanGrid();
     App.toast('Blockplan zurückgesetzt', 'success');
@@ -22111,14 +22188,14 @@ const StammdatenTab = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="App.closeModal();StammdatenTab.editBetrieb(${betriebId})">Bearbeiten</button>`);
   },
-  deleteBetrieb(id) {
+  async deleteBetrieb(id) {
     const b = App.query('SELECT * FROM betriebe WHERE id=?', [id])[0];
     if (!b) return;
     const nS = App.scalar('SELECT COUNT(*) FROM schueler WHERE betrieb_id=?', [id]) || 0;
     const nA = App.scalar('SELECT COUNT(*) FROM ausbilder WHERE betrieb_id=?', [id]) || 0;
     let text = `Betrieb „${b.name}" löschen?`;
     if (nS || nA) text += `\n\n• ${nS} Azubi(s) verlieren die Betriebszuordnung (Anschreiben an den Betrieb sind dann nicht mehr möglich)\n• ${nA} Ausbilder-Kontakt(e) werden mit gelöscht`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Betrieb löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteBetriebKaskade(id);
     App.toast(`Betrieb „${b.name}" gelöscht`, 'success');
     StammdatenTab.show('betriebe');
@@ -23193,7 +23270,7 @@ const ImportHandler = {
         // ließ die Kollegen sonst plötzlich in der falschen Kohorte arbeiten.
         const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [parseInt(mostUsedJgId)]);
         const nImp = jgCounter[mostUsedJgId];
-        if (confirm(`${nImp} der importierten Azubis gehören zum Jahrgang „${jgName}".\n\nDiesen Jahrgang jetzt als aktiven Jahrgang setzen (gilt für alle Nutzer)?` + (aktivJg ? `\nAktuell aktiv: „${aktivJg.bezeichnung}"` : ''))) {
+        if (await App.confirm(`${nImp} der importierten Azubis gehören zum Jahrgang „${jgName}".\n\nDiesen Jahrgang jetzt als aktiven Jahrgang setzen (gilt für alle Nutzer)?` + (aktivJg ? `\nAktuell aktiv: „${aktivJg.bezeichnung}"` : ''), { titel: 'Aktiver Jahrgang', ok: 'Jahrgang setzen', abbrechen: 'Nicht ändern' })) {
           // Set as active (MUST use App.run for dirty-tracking + auto-save!)
           App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
           App.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
@@ -23633,7 +23710,7 @@ const ImportHandler = {
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
     App.toast('Azubi reaktiviert', 'success');
   },
-  deleteSchueler(id) {
+  async deleteSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
     if (!s) return;
     const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=?', [id]) || 0;
@@ -23643,7 +23720,7 @@ const ImportHandler = {
     text += `\n\nMit gelöscht werden: ${nKe} Kontrollergebnis(se), ${nKw} Wochen mit Mängeln, ${nWv} offene Wiedervorlage(n), Phasen, Bemerkungen und Dateien.`;
     text += `\n\nDer Datensatz landet 90 Tage im Papierkorb (Einstellungen) und kann von dort wiederhergestellt werden.`;
     if (s.aktiv) text += `\n\nHinweis: Für beendete Ausbildungen ist „Ausbildung beenden" (Status inaktiv) meist die bessere Wahl – der Verlauf bleibt dann auswertbar.`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Azubi löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteSchuelerKaskade(id);
     App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Wartung → Papierkorb`, 'success');
     try { App.navigate('stammdaten'); } catch(e) {}
@@ -24001,13 +24078,13 @@ const ImportHandler = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-danger" onclick="ImportHandler.doDeleteAllJahrgang()">Endgültig löschen</button>`);
   },
-  doDeleteAllJahrgang() {
+  async doDeleteAllJahrgang() {
     const jg = parseInt(document.getElementById('mDelJG')?.value);
     if (!jg) return App.toast('Bitte einen Jahrgang wählen', 'warning');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jg]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
     if (!count) return App.toast('Keine Azubis zum Löschen', 'warning');
-    if (!confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    if (!(await App.confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`, { titel: 'Jahrgang löschen', ok: 'Alle löschen', gefaehrlich: true }))) return;
     App.closeModal();
     // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
     // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
@@ -24763,7 +24840,7 @@ const PlanungHandler = {
     });
   },
 
-  saveTermin(id) {
+  async saveTermin(id) {
     const dt = document.getElementById('mKtDatum').value;
     const pr = [...document.querySelectorAll('.chk-pruefer:checked')].map(c => c.value).join(', ');
     const bem = document.getElementById('mKtBem').value.trim();
@@ -24786,11 +24863,11 @@ const PlanungHandler = {
     // (data-bs am Checkbox-Input trägt die berufsschule_id)
     const ortId = parseInt(document.getElementById('mKtOrt')?.value) || parseInt(firstChecked?.dataset?.bs) || null;
     if (!selectedKlassen.length && !ortId) {
-      if (!confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?')) return;
+      if (!(await App.confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?', { titel: 'Termin ohne Ort', ok: 'Trotzdem speichern' }))) return;
     }
     // Doppeltermin: gleiche Schule ±14 Tage
     const koll = App.terminKollisionen(ortId, dt, 14, id || null);
-    if (koll.length && !confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`)) return;
+    if (koll.length && !(await App.confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`, { titel: 'Doppeltermin', ok: 'Trotzdem speichern' }))) return;
 
     if (id) {
       App.run('UPDATE kontrolltermine SET geplant_datum=?,pruefer=?,bemerkung=?,jahrgang_id=?,typ=?,berufsschule_id=? WHERE id=?', [dt,pr,bem,jgId,typ,ortId,id]);
@@ -25017,7 +25094,7 @@ const PlanungHandler = {
     if (linkedSchuelerIds.length) this._renderEinsendSelected();
     setTimeout(() => { PlanungHandler._updateKwHighlight(); PlanungHandler.updateBpHint(); }, 50);
   },
-  deleteTermin(id) {
+  async deleteTermin(id) {
     const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [id])[0];
     if (!t) return;
     const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]) || 0;
@@ -25034,7 +25111,7 @@ const PlanungHandler = {
     } else if (nKe) {
       text += `\n\n${nKe} Azubi-Zeile(n) ohne erfasstes Ergebnis werden mit entfernt.`;
     }
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Termin löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
@@ -25110,8 +25187,8 @@ const PlanungHandler = {
     App.toast('Zusage der Schule vermerkt', 'success');
     Views.planung();
   },
-  terminAnfrageZuruecksetzen(id) {
-    if (!confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?')) return;
+  async terminAnfrageZuruecksetzen(id) {
+    if (!(await App.confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?', { titel: 'Vermerke zurücksetzen', ok: 'Zurücksetzen' }))) return;
     App.terminSchritt(id, 'anfrage_zurueck');
     Views.planung();
   },
@@ -25327,7 +25404,7 @@ const PlanungHandler = {
     }
     cell.textContent = 'KW ' + kw + bp;
   },
-  _kampAnlegen() {
+  async _kampAnlegen() {
     const key = document.getElementById('kampVorlage')?.value;
     const v = key !== 'lehrjahre' ? this._kontrollVorlagen().find(x => x.key === key) : null;
     const pr = [...document.querySelectorAll('.chk-kamp-pr:checked')].map(c => c.value).join(', ');
@@ -25344,7 +25421,7 @@ const PlanungHandler = {
       const koll = bsId ? App.terminKollisionen(bsId, datum, 14) : [];
       if (koll.length) doppelt.push(`${g.schule}: ${koll.map(t => formatDate(t.geplant_datum) + (t.status === 'durchgefuehrt' ? ' (durchgeführt)' : '')).join(', ')}`);
     });
-    if (doppelt.length && !confirm(`An diesen Schulen gibt es bereits Termine im Umkreis von 14 Tagen:\n\n${doppelt.join('\n')}\n\nTrotzdem zusätzlich anlegen?`)) return;
+    if (doppelt.length && !(await App.confirm(`An diesen Schulen gibt es bereits Termine im Umkreis von 14 Tagen:\n\n${doppelt.join('\n')}\n\nTrotzdem zusätzlich anlegen?`, { titel: 'Doppeltermine', ok: 'Trotzdem anlegen' }))) return;
     let angelegt = 0;
     daten.forEach(({ idx, datum }) => {
       const g = this._kampGruppen[idx];
@@ -26532,11 +26609,6 @@ const KontrolleHandler = {
     const zeigen = an == null ? bar.classList.contains('hidden') : !!an;
     bar.classList.toggle('hidden', !zeigen);
     App.uSet('legend_hidden', zeigen ? '0' : '1');
-    // Popover: ein Klick außerhalb schließt es wieder
-    if (zeigen && !this._legendeZuHandler) {
-      this._legendeZuHandler = (e) => { const b = document.getElementById('kwLegendBar'); if (b && !b.classList.contains('hidden') && !b.contains(e.target) && !(e.target.closest && e.target.closest('[aria-controls="kwLegendBar"]'))) this.legendeUmschalten(false); };
-      setTimeout(() => document.addEventListener('click', this._legendeZuHandler), 0);
-    }
   },
   // Textbaustein aus dem Menü an die Bemerkung anhängen (Index statt Text: kein Anführungszeichen-Problem)
   textbausteinEinfuegen(i) {
@@ -26568,6 +26640,15 @@ const KontrolleHandler = {
   // ══════════════════════════════════════
   //  ÜBERSICHTSTABELLE
   // ══════════════════════════════════════
+  // Pflichtteile für die AP-Zulassung: 1.1, 1.4 und 1.5 vorhanden, ÜBA-Zahl
+  // erreicht – UND 1.1/1.5 nicht als „nicht geführt“ markiert. Ein vorhandener,
+  // aber nicht geführter Ausbildungsplan oder Nachweis zählt nicht als erfüllt.
+  pflichtteileOK(ke, reqUBA) {
+    return ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja'
+      && (ke.bescheinigungen_anzahl || 0) >= (reqUBA || 0)
+      && ke.p_1_1_gefuehrt !== 'nein' && ke.p_1_5_gefuehrt !== 'nein';
+  },
+
   renderUebersicht() {
     // Clean up our position when leaving Einzelansicht
     this.stopLiveSync();
@@ -26637,7 +26718,7 @@ const KontrolleHandler = {
       const fehlProzent = arbeitstage > 0 ? (fehlGesamt / arbeitstage * 100) : 0;
       const fehlWarn = fehlProzent >= 10;
       const reqUBA = App.getRequiredUBA(s.fachrichtung_id);
-      const pflichtOK = ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja' && (ke.bescheinigungen_anzahl||0) >= reqUBA;
+      const pflichtOK = this.pflichtteileOK(ke, reqUBA);
       const offeneMaengel = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id]) || 0;
       const wvOffen = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) > 0;
       const ampel = App.getSchuelerAmpel(s.id);
@@ -26848,15 +26929,15 @@ const KontrolleHandler = {
 
   // Einen Azubi direkt aus der Übersicht als "In Ordnung" markieren
   quickMarkOK(schuelerId) {
-    if (!this._pruefeAbgeschlossen()) return;
+    if (!this._pruefeAbgeschlossen(() => this.quickMarkOK(schuelerId))) return;
     const r = this._markOK([schuelerId]);
     const s = this.currentSchuelerList.find(x => x.id === schuelerId);
     App.toast(`${s ? s.nachname : 'Azubi'}: In Ordnung${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderUebersicht();
   },
   // Alle anwesenden Azubis ohne Ergebnis auf "In Ordnung"
-  markOffeneOK() {
-    if (!this._pruefeAbgeschlossen()) return;
+  async markOffeneOK() {
+    if (!this._pruefeAbgeschlossen(() => this.markOffeneOK())) return;
     const tid = this.currentTerminId;
     const ids = this.currentSchuelerList.filter(s => {
       const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
@@ -26864,7 +26945,7 @@ const KontrolleHandler = {
     }).map(s => s.id);
     if (!ids.length) return App.toast('Keine offenen anwesenden Azubis', 'info');
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
-    if (!confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`)) return;
+    if (!(await App.confirm(`${ids.length} anwesende Azubis ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.\nMängel oder Bemerkungen bitte vorher in der Einzelansicht erfassen.`, { titel: 'Offene als „In Ordnung“', ok: 'Markieren' }))) return;
     const r = this._markOK(ids);
     App.toast(`${r.count} Azubis als „In Ordnung" markiert${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderUebersicht();
@@ -27006,14 +27087,31 @@ const KontrolleHandler = {
     this._ajZustand.set(aj, !!auf);
     this.renderSchueler();
   },
-  // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen
-  _pruefeAbgeschlossen() {
+  // Abgeschlossene Kontrolle: vor Änderungen einmalig bestätigen lassen.
+  // Liefert sofort true, wenn nichts zu fragen ist. Sonst öffnet sich die
+  // Rückfrage, die Funktion liefert false, und nach „Trotzdem ändern“ läuft
+  // `weiter()` (die abgebrochene Aktion) erneut; bei Abbruch wird die
+  // Einzelansicht neu gezeichnet, damit verworfene Eingaben verschwinden.
+  _pruefeAbgeschlossen(weiter) {
     const t = App.query('SELECT status, durchgefuehrt_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     if (!t || t.status !== 'durchgefuehrt') return true;
     if (this._abgeschlossenBestaetigt === this.currentTerminId) return true;
-    if (!confirm(`Diese Kontrolle ist abgeschlossen (Archiv-Bögen vom ${formatDate(t.durchgefuehrt_datum) || '–'} vorhanden).\nÄnderungen wirken ab jetzt vom archivierten Stand ab. Trotzdem ändern?`)) return false;
-    this._abgeschlossenBestaetigt = this.currentTerminId;
-    return true;
+    const tid = this.currentTerminId;
+    const text = `Diese Kontrolle ist abgeschlossen (Archiv-Bögen vom ${formatDate(t.durchgefuehrt_datum) || '–'} vorhanden).\nÄnderungen wirken ab jetzt vom archivierten Stand ab. Trotzdem ändern?`;
+    if (!App.dialogeImDom()) {
+      // Sandkasten ohne DOM: synchron entscheiden (Tests stellen confirm)
+      if (typeof confirm === 'function' && !confirm(text)) return false;
+      this._abgeschlossenBestaetigt = tid;
+      return true;
+    }
+    if (this._abgeschlossenFrage) return false; // Rückfrage steht schon
+    this._abgeschlossenFrage = App.confirm(text, { titel: 'Abgeschlossene Kontrolle', ok: 'Trotzdem ändern' }).then(ok => {
+      this._abgeschlossenFrage = null;
+      if (this.currentTerminId !== tid) return;
+      if (ok) { this._abgeschlossenBestaetigt = tid; if (weiter) weiter(); }
+      else if (this._viewMode === 'einzeln') this.renderSchueler();
+    });
+    return false;
   },
   // Nächsten Azubi ohne Ergebnis (und anwesend) öffnen
   nextOffen(vonUebersicht) {
@@ -27131,7 +27229,7 @@ const KontrolleHandler = {
       const fehlPct = at > 0 ? (fehl / at * 100) : 0;
       const fehlWarn = fehlPct >= 10;
       const reqUBA2 = App.getRequiredUBA(s.fachrichtung_id);
-      const pflOK = ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja' && (ke.bescheinigungen_anzahl||0) >= reqUBA2;
+      const pflOK = this.pflichtteileOK(ke, reqUBA2);
       const bg = isPA ? '#fde0dc' : !isAnw ? '#f5f0eb' : isDone && ke.ergebnis !== 'in_ordnung' ? '#fde8e6' : isDone && ke.ergebnis === 'in_ordnung' ? '#e8f5e9' : '#fff';
       return `<tr style="background:${bg}${isPA ? ';border-left:3px solid #c0392b' : ''}">
         <td style="text-align:center">${i+1}</td>
@@ -27369,7 +27467,7 @@ const KontrolleHandler = {
   },
 
   // Remove a student from this kontrolle
-  removeSchueler(schuelerId) {
+  async removeSchueler(schuelerId) {
     const s = this.currentSchuelerList.find(s => s.id === schuelerId);
     if (!s) return;
     const name = `${s.nachname}, ${s.vorname}`;
@@ -27378,7 +27476,7 @@ const KontrolleHandler = {
     const msg = hasDaten
       ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
       : `${name} aus dieser Kontrolle entfernen?`;
-    if (!confirm(msg)) return;
+    if (!(await App.confirm(msg, { titel: 'Azubi entfernen', ok: 'Entfernen', gefaehrlich: true }))) return;
     // Delete kontrollergebnis for this termin+student
     App.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
     // Also remove from kontrolltermin_schueler (if individually linked)
@@ -27391,7 +27489,7 @@ const KontrolleHandler = {
   },
 
   // Create new student and add to this kontrolle
-  doAddNewSchueler() {
+  async doAddNewSchueler() {
     const nachname = document.getElementById('newSchNachname')?.value?.trim();
     const vorname = document.getElementById('newSchVorname')?.value?.trim();
     if (!nachname || !vorname) return App.toast('Nachname und Vorname sind Pflichtfelder', 'error');
@@ -27409,7 +27507,7 @@ const KontrolleHandler = {
     // Check for duplicates
     const dup = App.query('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname, vorname, jgId]);
     if (dup.length) {
-      if (!confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
+      if (!(await App.confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`, { titel: 'Azubi anlegen', ok: 'Trotzdem anlegen' }))) return;
     }
 
     // Insert into schueler table
@@ -27562,8 +27660,9 @@ const KontrolleHandler = {
       </div>`;
     };
 
-    const legendHidden = App.uGet('legend_hidden', '1') !== '0';
-    const kwLegendHtml = `<div class="kw-legend-anker"><div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar" role="dialog" aria-label="Mängelcodes und Tastenkürzel">
+    // Schmale, mitlaufende Kürzel-Leiste unter dem Azubi-Kopf (Vorgabe: sichtbar; ✕ merkt sich das Ausblenden je Person, „?“ holt sie zurück)
+    const legendHidden = App.uGet('legend_hidden', '0') !== '0';
+    const kwLegendHtml = `<div class="kw-legend${legendHidden?' hidden':''}" id="kwLegendBar" role="region" aria-label="Mängelcodes und Tastenkürzel">
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
@@ -27581,7 +27680,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>J</kbd>heutige KW</span>
       <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
       <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden" aria-label="Kürzel ausblenden">✕</button>
-    </div></div>`;
+    </div>`;
 
     const c = document.getElementById('kontrolleContent');
     // Get other active prüfer (from position files)
@@ -28013,7 +28112,7 @@ const KontrolleHandler = {
     }
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
-    if (!this._pruefeAbgeschlossen()) { this.renderSchueler(); return; }
+    if (!this._pruefeAbgeschlossen(() => this.saveField(field, value))) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
     const oldVal = ke[field] || '';
@@ -28901,12 +29000,12 @@ const KontrolleHandler = {
   },
 
   // ── Ausgewählte als "In Ordnung" markieren ──
-  bulkMarkOK() {
+  async bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
     if (!ids.length) return App.toast('Bitte Azubi auswählen', 'warning');
-    if (!this._pruefeAbgeschlossen()) return;
+    if (!this._pruefeAbgeschlossen(() => this.bulkMarkOK())) return;
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
-    if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`)) return;
+    if (!(await App.confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`, { titel: 'Als „In Ordnung“ markieren', ok: 'Markieren' }))) return;
     const r = this._markOK(ids);
     App.toast(`${r.count} Azubis als „In Ordnung" markiert (inkl. Pflichtteile ✓)${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
     this.renderSchueler();
@@ -29120,8 +29219,8 @@ const KontrolleHandler = {
     this.renderUebersicht();
   },
 
-  reopenKontrolle() {
-    if (!confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).')) return;
+  async reopenKontrolle() {
+    if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
     this.renderSchueler();
@@ -30648,6 +30747,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const search = document.getElementById('globalSearchOverlay');
     if (search && search.style.display !== 'none') { search.style.display = 'none'; return; }
+    const dlg = document.getElementById('dlgOverlay');
+    if (dlg && dlg.classList.contains('active')) { App._dialogEnde(App._dialogAbbruchWert); return; }
     const modal = document.getElementById('modalOverlay');
     if (modal && modal.classList.contains('active')) {
       App.closeModal();
@@ -30687,7 +30788,11 @@ document.addEventListener('keydown', (e) => {
   // F5 = Reload from disk (not browser refresh)
   if (e.key === 'F5' && App.dbFileHandle && !App.demoMode) {
     e.preventDefault();
-    if (App.unsavedChanges && !confirm('Es gibt noch nicht gespeicherte Änderungen. Trotzdem von der Platte neu laden?\n(Eigene Änderungen werden vorher weggeschrieben, sofern möglich.)')) return;
+    if (App.unsavedChanges) {
+      App.confirm('Es gibt noch nicht gespeicherte Änderungen. Trotzdem von der Platte neu laden?\n(Eigene Änderungen werden vorher weggeschrieben, sofern möglich.)', { titel: 'Neu laden', ok: 'Neu laden' })
+        .then(ok => { if (ok) App.reloadFromFile(); });
+      return;
+    }
     App.reloadFromFile();
     return;
   }
@@ -30797,10 +30902,10 @@ document.addEventListener('keydown', (e) => {
 const BulkSchueler = {
   // Löschen aus der Bulk-Leiste der Azubi-Liste. Der Knopf rief bisher eine
   // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
-  deleteSelected() {
+  async deleteSelected() {
     const ids = this.getSelected();
     if (!ids.length) return App.toast('Keine Azubis ausgewählt', 'warning');
-    if (!confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`)) return;
+    if (!(await App.confirm(`${ids.length} Azubi(s) wirklich löschen?\n\nAlle zugehörigen Kontrollergebnisse, Kalenderwochen, Wiedervorlagen, Phasen, Bemerkungen und Dateien werden mit gelöscht.`, { titel: 'Azubis löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => App.deleteSchuelerKaskade(id));
     App.toast(`${ids.length} Azubi(s) und alle verknüpften Daten gelöscht`, 'success');
     this.deselectAll();
@@ -30934,13 +31039,13 @@ const BulkWV = {
     App.toast(`Frist für ${ids.length} Wiedervorlagen gesetzt`, 'success');
     Views.wiedervorlagen();
   },
-  deleteSelected() {
+  async deleteSelected() {
     const ids = this.getSelected();
     if (!ids.length) return;
     const ph = ids.map(() => '?').join(',');
     const nNot = App.scalar(`SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (${ph})`, ids) || 0;
     const nOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE id IN (${ph}) AND status!='erledigt'`, ids) || 0;
-    if (!confirm(`Wirklich ${ids.length} Wiedervorlage(n) löschen?${nOffen ? `\n• davon ${nOffen} noch offen` : ''}${nNot ? `\n• inkl. ${nNot} Notiz(en)` : ''}\n\nDie Mängel im KW-Raster bleiben bestehen. Erledigte Wiedervorlagen dienen als Nachweis – im Zweifel lieber behalten.`)) return;
+    if (!(await App.confirm(`Wirklich ${ids.length} Wiedervorlage(n) löschen?${nOffen ? `\n• davon ${nOffen} noch offen` : ''}${nNot ? `\n• inkl. ${nNot} Notiz(en)` : ''}\n\nDie Mängel im KW-Raster bleiben bestehen. Erledigte Wiedervorlagen dienen als Nachweis – im Zweifel lieber behalten.`, { titel: 'Wiedervorlagen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     ids.forEach(id => { App.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=?', [id]); App.run('DELETE FROM wiedervorlagen WHERE id=?', [id]); });
     App.toast(`${ids.length} Wiedervorlage(n) gelöscht${nNot ? ` (inkl. ${nNot} Notizen)` : ''}`, 'success');
     Views.wiedervorlagen();
@@ -31280,8 +31385,8 @@ const Workflows = {
       '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>' +
       (withEmail > 1 ? '<button class="btn btn-success" onclick="Workflows._openAllIndividualEmails()">✉︎ Alle ' + withEmail + ' nacheinander öffnen</button>' : ''));
   },
-  _betriebEmailNachtragen(betriebId, terminId) {
-    const adr = prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):');
+  async _betriebEmailNachtragen(betriebId, terminId) {
+    const adr = await App.prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):', { titel: 'E-Mail-Adresse nachtragen', ok: 'Speichern', platzhalter: 'name@betrieb.de' });
     if (!adr) return;
     App.run('UPDATE betriebe SET email=? WHERE id=?', [adr.trim(), betriebId]);
     App.toast('E-Mail-Adresse gespeichert', 'success');
@@ -31505,8 +31610,8 @@ const Workflows = {
     App.closeModal();
     if (p.fristNeu) { App.toast('Neue Frist gespeichert', 'success'); try { Views.wiedervorlagen(); } catch(e) {} }
   },
-  _betriebEmailNachtragenWV(betriebId, wvId) {
-    const adr = prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):');
+  async _betriebEmailNachtragenWV(betriebId, wvId) {
+    const adr = await App.prompt('E-Mail-Adresse des Betriebs (wird in den Stammdaten gespeichert):', { titel: 'E-Mail-Adresse nachtragen', ok: 'Speichern', platzhalter: 'name@betrieb.de' });
     if (!adr) return;
     App.run('UPDATE betriebe SET email=? WHERE id=?', [adr.trim(), betriebId]);
     this.emailBetriebWV(wvId);
@@ -33579,8 +33684,8 @@ const Phasen = {
     this.openPhasenEditor(schuelerId);
   },
 
-  confirmDeletePhase(schuelerId, phaseId) {
-    if (!confirm('Phase wirklich löschen?')) return;
+  async confirmDeletePhase(schuelerId, phaseId) {
+    if (!(await App.confirm('Phase wirklich löschen?', { titel: 'Phase löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     Phasen.deletePhase(phaseId);
     App.toast('Phase gelöscht', 'success');
     this.openPhasenEditor(schuelerId);
@@ -33694,8 +33799,8 @@ const SchuelerAkte = {
     this.open(schuelerId);
   },
 
-  deleteBemerkung(id, schuelerId) {
-    if (!confirm('Bemerkung löschen?')) return;
+  async deleteBemerkung(id, schuelerId) {
+    if (!(await App.confirm('Bemerkung löschen?', { titel: 'Bemerkung löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.run('DELETE FROM schueler_bemerkungen WHERE id=?', [id]);
     this.open(schuelerId);
   },

@@ -738,7 +738,7 @@ const PlanungHandler = {
     });
   },
 
-  saveTermin(id) {
+  async saveTermin(id) {
     const dt = document.getElementById('mKtDatum').value;
     const pr = [...document.querySelectorAll('.chk-pruefer:checked')].map(c => c.value).join(', ');
     const bem = document.getElementById('mKtBem').value.trim();
@@ -761,11 +761,11 @@ const PlanungHandler = {
     // (data-bs am Checkbox-Input trägt die berufsschule_id)
     const ortId = parseInt(document.getElementById('mKtOrt')?.value) || parseInt(firstChecked?.dataset?.bs) || null;
     if (!selectedKlassen.length && !ortId) {
-      if (!confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?')) return;
+      if (!(await App.confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?', { titel: 'Termin ohne Ort', ok: 'Trotzdem speichern' }))) return;
     }
     // Doppeltermin: gleiche Schule ±14 Tage
     const koll = App.terminKollisionen(ortId, dt, 14, id || null);
-    if (koll.length && !confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`)) return;
+    if (koll.length && !(await App.confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`, { titel: 'Doppeltermin', ok: 'Trotzdem speichern' }))) return;
 
     if (id) {
       App.run('UPDATE kontrolltermine SET geplant_datum=?,pruefer=?,bemerkung=?,jahrgang_id=?,typ=?,berufsschule_id=? WHERE id=?', [dt,pr,bem,jgId,typ,ortId,id]);
@@ -992,7 +992,7 @@ const PlanungHandler = {
     if (linkedSchuelerIds.length) this._renderEinsendSelected();
     setTimeout(() => { PlanungHandler._updateKwHighlight(); PlanungHandler.updateBpHint(); }, 50);
   },
-  deleteTermin(id) {
+  async deleteTermin(id) {
     const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [id])[0];
     if (!t) return;
     const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]) || 0;
@@ -1009,7 +1009,7 @@ const PlanungHandler = {
     } else if (nKe) {
       text += `\n\n${nKe} Azubi-Zeile(n) ohne erfasstes Ergebnis werden mit entfernt.`;
     }
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Termin löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
     Views.planung();
@@ -1085,8 +1085,8 @@ const PlanungHandler = {
     App.toast('Zusage der Schule vermerkt', 'success');
     Views.planung();
   },
-  terminAnfrageZuruecksetzen(id) {
-    if (!confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?')) return;
+  async terminAnfrageZuruecksetzen(id) {
+    if (!(await App.confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?', { titel: 'Vermerke zurücksetzen', ok: 'Zurücksetzen' }))) return;
     App.terminSchritt(id, 'anfrage_zurueck');
     Views.planung();
   },
@@ -1302,7 +1302,7 @@ const PlanungHandler = {
     }
     cell.textContent = 'KW ' + kw + bp;
   },
-  _kampAnlegen() {
+  async _kampAnlegen() {
     const key = document.getElementById('kampVorlage')?.value;
     const v = key !== 'lehrjahre' ? this._kontrollVorlagen().find(x => x.key === key) : null;
     const pr = [...document.querySelectorAll('.chk-kamp-pr:checked')].map(c => c.value).join(', ');
@@ -1319,7 +1319,7 @@ const PlanungHandler = {
       const koll = bsId ? App.terminKollisionen(bsId, datum, 14) : [];
       if (koll.length) doppelt.push(`${g.schule}: ${koll.map(t => formatDate(t.geplant_datum) + (t.status === 'durchgefuehrt' ? ' (durchgeführt)' : '')).join(', ')}`);
     });
-    if (doppelt.length && !confirm(`An diesen Schulen gibt es bereits Termine im Umkreis von 14 Tagen:\n\n${doppelt.join('\n')}\n\nTrotzdem zusätzlich anlegen?`)) return;
+    if (doppelt.length && !(await App.confirm(`An diesen Schulen gibt es bereits Termine im Umkreis von 14 Tagen:\n\n${doppelt.join('\n')}\n\nTrotzdem zusätzlich anlegen?`, { titel: 'Doppeltermine', ok: 'Trotzdem anlegen' }))) return;
     let angelegt = 0;
     daten.forEach(({ idx, datum }) => {
       const g = this._kampGruppen[idx];

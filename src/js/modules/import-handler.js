@@ -872,7 +872,7 @@ const ImportHandler = {
         // ließ die Kollegen sonst plötzlich in der falschen Kohorte arbeiten.
         const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [parseInt(mostUsedJgId)]);
         const nImp = jgCounter[mostUsedJgId];
-        if (confirm(`${nImp} der importierten Azubis gehören zum Jahrgang „${jgName}".\n\nDiesen Jahrgang jetzt als aktiven Jahrgang setzen (gilt für alle Nutzer)?` + (aktivJg ? `\nAktuell aktiv: „${aktivJg.bezeichnung}"` : ''))) {
+        if (await App.confirm(`${nImp} der importierten Azubis gehören zum Jahrgang „${jgName}".\n\nDiesen Jahrgang jetzt als aktiven Jahrgang setzen (gilt für alle Nutzer)?` + (aktivJg ? `\nAktuell aktiv: „${aktivJg.bezeichnung}"` : ''), { titel: 'Aktiver Jahrgang', ok: 'Jahrgang setzen', abbrechen: 'Nicht ändern' })) {
           // Set as active (MUST use App.run for dirty-tracking + auto-save!)
           App.run('UPDATE abschlussjahrgaenge SET aktiv=0');
           App.run('UPDATE abschlussjahrgaenge SET aktiv=1 WHERE id=?', [parseInt(mostUsedJgId)]);
@@ -1312,7 +1312,7 @@ const ImportHandler = {
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
     App.toast('Azubi reaktiviert', 'success');
   },
-  deleteSchueler(id) {
+  async deleteSchueler(id) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [id])[0];
     if (!s) return;
     const nKe = App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=?', [id]) || 0;
@@ -1322,7 +1322,7 @@ const ImportHandler = {
     text += `\n\nMit gelöscht werden: ${nKe} Kontrollergebnis(se), ${nKw} Wochen mit Mängeln, ${nWv} offene Wiedervorlage(n), Phasen, Bemerkungen und Dateien.`;
     text += `\n\nDer Datensatz landet 90 Tage im Papierkorb (Einstellungen) und kann von dort wiederhergestellt werden.`;
     if (s.aktiv) text += `\n\nHinweis: Für beendete Ausbildungen ist „Ausbildung beenden" (Status inaktiv) meist die bessere Wahl – der Verlauf bleibt dann auswertbar.`;
-    if (!confirm(text)) return;
+    if (!(await App.confirm(text, { titel: 'Azubi löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteSchuelerKaskade(id);
     App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Wartung → Papierkorb`, 'success');
     try { App.navigate('stammdaten'); } catch(e) {}
@@ -1680,13 +1680,13 @@ const ImportHandler = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-danger" onclick="ImportHandler.doDeleteAllJahrgang()">Endgültig löschen</button>`);
   },
-  doDeleteAllJahrgang() {
+  async doDeleteAllJahrgang() {
     const jg = parseInt(document.getElementById('mDelJG')?.value);
     if (!jg) return App.toast('Bitte einen Jahrgang wählen', 'warning');
     const jgName = App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [jg]);
     const count = App.scalar('SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?', [jg]) || 0;
     if (!count) return App.toast('Keine Azubis zum Löschen', 'warning');
-    if (!confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`)) return;
+    if (!(await App.confirm(`Wirklich ALLE ${count} Azubis im Jahrgang "${jgName}" löschen?\n\nDies löscht auch zugehörige Kontrollergebnisse und Wiedervorlagen.\n\nDanach kann die CSV neu importiert werden.`, { titel: 'Jahrgang löschen', ok: 'Alle löschen', gefaehrlich: true }))) return;
     App.closeModal();
     // Über die zentralen Kaskaden löschen: die frühere Aufzählung ließ
     // kw_status, Snapshots, Phasen, Bemerkungen und Dateien verwaist zurück –
