@@ -2633,10 +2633,10 @@ const KontrolleHandler = {
       const vorhanden = App.query('SELECT id FROM durchsicht_snapshots WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [ke.id])[0];
       if (vorhanden) {
         App.run(`UPDATE durchsicht_snapshots SET snapshot_datum=?, kw_daten_json=?, geprueft_kws_json=?, pflichtteile_json=?, ergebnis=?, bemerkung=?, pruefer=? WHERE id=?`,
-          [datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
+          [datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
       } else {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '']);
+          [ke.id, s.id, datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '']);
       }
     });
 
@@ -2822,7 +2822,7 @@ const KontrolleHandler = {
     const snap = App.query('SELECT * FROM durchsicht_snapshots WHERE id=?', [snapId])[0];
     if (!snap) return App.toast('Snapshot nicht gefunden', 'error');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [snap.schueler_id])[0];
-    let kwData = []; try { kwData = JSON.parse(snap.kw_daten_json || '[]'); } catch(e) {}
+    const kwData = App.snapshotZeilen(snap);
     let pflicht = {}; try { pflicht = JSON.parse(snap.pflichtteile_json || '{}'); } catch(e) {}
     let geprueftKWs = {}; try { geprueftKWs = JSON.parse(snap.geprueft_kws_json || '{}'); } catch(e) {}
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'Sachberichte (E-Mail)',berichte_bis_termin_email:'Berichte (E-Mail)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
@@ -2865,7 +2865,7 @@ const KontrolleHandler = {
     if (!snap) return App.toast('Snapshot nicht gefunden', 'error');
     const s = App.query('SELECT s.*, bs.name as schule, k.klassenbezeichnung FROM schueler s LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE s.id=?', [snap.schueler_id])[0];
     if (!s) return;
-    let kwRows = []; try { kwRows = JSON.parse(snap.kw_daten_json || '[]'); } catch(e) {}
+    const kwRows = App.snapshotZeilen(snap);
     let pflicht = {}; try { pflicht = JSON.parse(snap.pflichtteile_json || '{}'); } catch(e) {}
     let geprueftKWs = {}; try { geprueftKWs = JSON.parse(snap.geprueft_kws_json || '{}'); } catch(e) {}
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung bis nächste Durchsicht',sachberichte_wetter_email:'Sachberichte (Wetter) per E-Mail',berichte_bis_termin_email:'Berichte per E-Mail bis Termin',persoenliche_vorlage_rp:'Persönliche Vorlage im RP',post_an_rp:'Per Post ans RP'};

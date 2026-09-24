@@ -329,7 +329,7 @@ const NacherfassungHandler = {
       const snapDa = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [keId]);
       if (!snapDa) {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [keId, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', pruefer]);
+          [keId, s.id, datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', pruefer]);
       }
     } catch(e) { console.warn('Nacherfassung Snapshot:', e.message); }
     return keId;

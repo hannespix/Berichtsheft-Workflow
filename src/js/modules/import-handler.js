@@ -1352,10 +1352,16 @@ const ImportHandler = {
     App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Einstellungen → Papierkorb`, 'success');
     try { App.navigate('stammdaten'); } catch(e) {}
   },
-  // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – bisher
-  // verschwand der alte Wert spurlos (z.B. eine manuell korrigierte E-Mail).
+  // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – aber
+  // NUR, wenn der alte Wert von Hand gesetzt worden war (dann verschwände die
+  // Korrektur sonst spurlos). Jede Überschreibung zu loggen füllte das
+  // Logbuch mit zehntausenden Zeilen je Import (13 MB bei 4300 Azubis), ohne
+  // dass jemand sie je brauchte: Die Werte kommen ja aus IBYKUS selbst.
   _logUeberschrieben(schuelerId, field, oldVal, newVal) {
-    try { App.logChange(schuelerId, field, oldVal, newVal, 'import_ueberschrieben'); } catch(e) {}
+    try {
+      const vonHand = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE schueler_id=? AND feld=? AND aktion IN ('stammdaten_bearbeitet','dashboard_bearbeitet','status_gesetzt')", [schuelerId, field]);
+      if (vonHand) App.logChange(schuelerId, field, oldVal, newVal, 'import_ueberschrieben');
+    } catch(e) {}
   },
   // ═══════════════════════════════════════════
   //  LANDESFACHKLASSE-IMPORT

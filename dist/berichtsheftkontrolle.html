@@ -12179,7 +12179,7 @@ const App = {
       const sig = this._opSignatur(sql, params);
       if (!sig) return;
       if (!this._rowStamps) this._rowStamps = new Map();
-      if (this._rowStamps.size > 50000) this._rowStamps.clear();
+      if (this._rowStamps.size > this.STAMPS_MAX * 2) this._rowStamps.clear();
       const k = sig.table + '|' + sig.key;
       const eintrag = this._rowStamps.get(k) || {};
       const st = { ts, c: c || '', seq: seq || 0 };
@@ -12192,14 +12192,39 @@ const App = {
   // oder Neustart nichts über die Aktualität der Zeilen im Snapshot – seine
   // eigenen, älteren Nachzügler-Ops überschrieben dann neuere Werte der
   // Kollegen. Lokale Tabelle, nie als Op geloggt.
+  // Kompakte Ablage „spalte=ts,client,seq;…“ statt JSON: 50.000 Stempel
+  // belegten als JSON 16 MB in jedem Snapshot und jeder Sicherung.
+  STAMPS_MAX: 20000,
+  _stampText(v) {
+    return Object.entries(v).map(([col, s]) => `${col}=${s.ts || 0},${s.c || ''},${s.seq || 0}`).join(';');
+  },
+  _stampAusText(t) {
+    if (!t) return null;
+    if (t[0] === '{') { try { return JSON.parse(t); } catch(e) { return null; } } // alte JSON-Fassung
+    const v = {};
+    t.split(';').forEach(teil => {
+      const i = teil.indexOf('=');
+      if (i < 0) return;
+      const [ts, c, seq] = teil.slice(i + 1).split(',');
+      v[teil.slice(0, i)] = { ts: Number(ts) || 0, c: c || '', seq: Number(seq) || 0 };
+    });
+    return v;
+  },
   _stampsSpeichern() {
     try {
       this.db.run('CREATE TABLE IF NOT EXISTS bhk_stamps (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
       this.db.run('DELETE FROM bhk_stamps');
       if (!this._rowStamps || !this._rowStamps.size) return;
+      // Nur die jüngsten STAMPS_MAX Zeilen mitschreiben (älteste Stempel zuerst verwerfen)
+      let eintraege = [...this._rowStamps];
+      if (eintraege.length > this.STAMPS_MAX) {
+        const juengster = (v) => Math.max(0, ...Object.values(v).map(s => s.ts || 0));
+        eintraege.sort((a, b) => juengster(b[1]) - juengster(a[1]));
+        eintraege = eintraege.slice(0, this.STAMPS_MAX);
+      }
       const st = this.db.prepare('INSERT INTO bhk_stamps (k,v) VALUES (?,?)');
       this.db.run('BEGIN');
-      try { for (const [k, v] of this._rowStamps) { st.run([k, JSON.stringify(v)]); } this.db.run('COMMIT'); }
+      try { for (const [k, v] of eintraege) { st.run([k, this._stampText(v)]); } this.db.run('COMMIT'); }
       catch(e) { try { this.db.run('ROLLBACK'); } catch(_) {} }
       st.free();
     } catch(e) { console.warn('[SyncV3] Stempel speichern:', e.message); }
@@ -12211,13 +12236,43 @@ const App = {
       if (!this._rowStamps) this._rowStamps = new Map();
       let n = 0;
       rows.forEach(r => {
-        let v; try { v = JSON.parse(r.v); } catch(e) { return; }
+        const v = this._stampAusText(r.v);
+        if (!v) return;
         const eintrag = this._rowStamps.get(r.k) || {};
         Object.keys(v).forEach(col => { if (!eintrag[col] || this._stampNeuer(v[col], eintrag[col])) eintrag[col] = v[col]; });
         this._rowStamps.set(r.k, eintrag); n++;
       });
       return n;
     } catch(e) { return 0; }
+  },
+
+  // ── Durchsichts-Snapshots kompakt ──
+  //  Beim Abschluss eines Termins wurde je Azubi das KOMPLETTE Wochenraster
+  //  aller Ausbildungsjahre mit allen Spalten als JSON in den Snapshot
+  //  kopiert – rund 28 KB je Durchsicht, bei 4300 Azubis 120 MB, das
+  //  Vierfache des Rasters selbst. Archiv-Ansicht und PDF brauchen nur die
+  //  Wochen mit Inhalt. Neue Fassung: {v:2, n:<Zeilen>, z:[[aj,kw,codes,
+  //  fehltage,behoben,bemerkung?],…]}; Leser verstehen beide Fassungen.
+  snapshotKompakt(kwRows) {
+    const z = [];
+    (kwRows || []).forEach(r => {
+      const codes = r.maengel_codes || '', beh = r.behobene_codes || '', bem = r.bemerkung || '', ft = Number(r.fehltage) || 0;
+      if (!codes && !beh && !bem && !ft) return;
+      const t = [r.ausbildungsjahr, r.kalenderwoche, codes, ft, beh];
+      if (bem) t.push(bem);
+      z.push(t);
+    });
+    return JSON.stringify({ v: 2, n: (kwRows || []).length, z });
+  },
+  snapshotIstAlt(json) { return typeof json === 'string' && /^\s*\[/.test(json); },
+  // Zeilen eines Snapshots wie kw_status-Zeilen – aus alter (volle Zeilen)
+  // oder neuer (kompakte Tupel) Fassung
+  snapshotZeilen(snapOderJson) {
+    const json = typeof snapOderJson === 'string' ? snapOderJson : ((snapOderJson && snapOderJson.kw_daten_json) || '[]');
+    let d; try { d = JSON.parse(json || '[]'); } catch(e) { return []; }
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.z)) return d.z.map(t => ({ ausbildungsjahr: t[0], kalenderwoche: t[1], maengel_codes: t[2] || '', fehltage: t[3] || 0, behobene_codes: t[4] || '', bemerkung: t[5] || '', geprueft: 1 }));
+    return [];
   },
   // Kompatibilität: alter Name (kontrollergebnisse-spezifisch)
   _notiereKeSpalten(sql, params, ts) { this._notiereStamp(sql, params, ts, '', 0); },
@@ -23447,10 +23502,16 @@ const ImportHandler = {
     App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Einstellungen → Papierkorb`, 'success');
     try { App.navigate('stammdaten'); } catch(e) {}
   },
-  // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – bisher
-  // verschwand der alte Wert spurlos (z.B. eine manuell korrigierte E-Mail).
+  // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – aber
+  // NUR, wenn der alte Wert von Hand gesetzt worden war (dann verschwände die
+  // Korrektur sonst spurlos). Jede Überschreibung zu loggen füllte das
+  // Logbuch mit zehntausenden Zeilen je Import (13 MB bei 4300 Azubis), ohne
+  // dass jemand sie je brauchte: Die Werte kommen ja aus IBYKUS selbst.
   _logUeberschrieben(schuelerId, field, oldVal, newVal) {
-    try { App.logChange(schuelerId, field, oldVal, newVal, 'import_ueberschrieben'); } catch(e) {}
+    try {
+      const vonHand = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE schueler_id=? AND feld=? AND aktion IN ('stammdaten_bearbeitet','dashboard_bearbeitet','status_gesetzt')", [schuelerId, field]);
+      if (vonHand) App.logChange(schuelerId, field, oldVal, newVal, 'import_ueberschrieben');
+    } catch(e) {}
   },
   // ═══════════════════════════════════════════
   //  LANDESFACHKLASSE-IMPORT
@@ -25559,7 +25620,7 @@ const NacherfassungHandler = {
       const snapDa = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [keId]);
       if (!snapDa) {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [keId, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', pruefer]);
+          [keId, s.id, datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', pruefer]);
       }
     } catch(e) { console.warn('Nacherfassung Snapshot:', e.message); }
     return keId;
@@ -28797,10 +28858,10 @@ const KontrolleHandler = {
       const vorhanden = App.query('SELECT id FROM durchsicht_snapshots WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [ke.id])[0];
       if (vorhanden) {
         App.run(`UPDATE durchsicht_snapshots SET snapshot_datum=?, kw_daten_json=?, geprueft_kws_json=?, pflichtteile_json=?, ergebnis=?, bemerkung=?, pruefer=? WHERE id=?`,
-          [datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
+          [datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '', vorhanden.id]);
       } else {
         App.run(`INSERT INTO durchsicht_snapshots (kontrollergebnis_id, schueler_id, snapshot_datum, kw_daten_json, geprueft_kws_json, pflichtteile_json, ergebnis, bemerkung, pruefer) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [ke.id, s.id, datum, JSON.stringify(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '']);
+          [ke.id, s.id, datum, App.snapshotKompakt(kwRows), ke.geprueft_kws || '{}', JSON.stringify(pflicht), ke.ergebnis || '', ke.bemerkung || '', ke.pruefer || ke.geaendert_von || termin?.pruefer || '']);
       }
     });
 
@@ -28986,7 +29047,7 @@ const KontrolleHandler = {
     const snap = App.query('SELECT * FROM durchsicht_snapshots WHERE id=?', [snapId])[0];
     if (!snap) return App.toast('Snapshot nicht gefunden', 'error');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [snap.schueler_id])[0];
-    let kwData = []; try { kwData = JSON.parse(snap.kw_daten_json || '[]'); } catch(e) {}
+    const kwData = App.snapshotZeilen(snap);
     let pflicht = {}; try { pflicht = JSON.parse(snap.pflichtteile_json || '{}'); } catch(e) {}
     let geprueftKWs = {}; try { geprueftKWs = JSON.parse(snap.geprueft_kws_json || '{}'); } catch(e) {}
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'Sachberichte (E-Mail)',berichte_bis_termin_email:'Berichte (E-Mail)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
@@ -29029,7 +29090,7 @@ const KontrolleHandler = {
     if (!snap) return App.toast('Snapshot nicht gefunden', 'error');
     const s = App.query('SELECT s.*, bs.name as schule, k.klassenbezeichnung FROM schueler s LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE s.id=?', [snap.schueler_id])[0];
     if (!s) return;
-    let kwRows = []; try { kwRows = JSON.parse(snap.kw_daten_json || '[]'); } catch(e) {}
+    const kwRows = App.snapshotZeilen(snap);
     let pflicht = {}; try { pflicht = JSON.parse(snap.pflichtteile_json || '{}'); } catch(e) {}
     let geprueftKWs = {}; try { geprueftKWs = JSON.parse(snap.geprueft_kws_json || '{}'); } catch(e) {}
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung bis nächste Durchsicht',sachberichte_wetter_email:'Sachberichte (Wetter) per E-Mail',berichte_bis_termin_email:'Berichte per E-Mail bis Termin',persoenliche_vorlage_rp:'Persönliche Vorlage im RP',post_an_rp:'Per Post ans RP'};
@@ -35380,6 +35441,7 @@ const DbTools = {
     log: { label: 'Änderungslog älter als 24 Monate (Lösch-Logbuch bleibt)', standard: true },
     importDetails: { label: 'Import-Details älter als 12 Monate (Zusammenfassung bleibt)', standard: true },
     stamps: { label: 'Sync-Stempel älter als 90 Tage', standard: true },
+    snapshots: { label: 'Durchsichts-Snapshots alter Fassung verdichten (volles Wochenraster je Durchsicht → nur Wochen mit Inhalt; Archiv-Ansicht und PDF bleiben)', standard: true },
     betriebe: { label: 'Betriebe ohne Azubis und Termine (samt Ausbildern)', standard: false },
     papierkorb: { label: 'Papierkorb leeren', standard: false },
   },
@@ -35421,6 +35483,11 @@ const DbTools = {
     add('log', 'Änderungslog-Zeilen', q(`SELECT COUNT(*) FROM aenderungslog WHERE zeitpunkt < '${this._monatsGrenze(this.LOG_MONATE_STANDARD)}' AND aktion != 'geloescht'`));
     add('importDetails', 'Import-Detaillisten', q(`SELECT COUNT(*) FROM import_historie WHERE zeitpunkt < '${this._monatsGrenze(this.IMPORT_DETAILS_MONATE)}' AND details_json != '[]' AND details_json != ''`));
     add('stamps', 'Sync-Stempel', this._stampsAlt());
+    if (o.snapshots) {
+      const alt = App.query("SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(kw_daten_json)),0) AS bytes FROM durchsicht_snapshots WHERE kw_daten_json LIKE '[%'")[0] || { n: 0, bytes: 0 };
+      v.snapshotBytes = alt.bytes || 0;
+      add('snapshots', `Durchsichts-Snapshots alter Fassung (${this._bytes(alt.bytes)})`, alt.n || 0);
+    }
     add('betriebe', 'Betriebe ohne Bezug', q(`SELECT COUNT(*) FROM betriebe b WHERE NOT EXISTS (SELECT 1 FROM schueler s WHERE s.betrieb_id=b.id) AND NOT EXISTS (SELECT 1 FROM kontrolltermine t WHERE t.betrieb_id=b.id)`));
     add('papierkorb', 'Papierkorb-Einträge', q('SELECT COUNT(*) FROM bhk_papierkorb'));
     v.gesamt = v.posten.reduce((a, p) => a + p.n, 0);
@@ -35444,11 +35511,23 @@ const DbTools = {
       for (const [k, val] of [...App._rowStamps]) { if (Object.values(val).every(x => (x.ts || 0) < grenze)) { App._rowStamps.delete(k); n++; } }
       r.stamps = n;
     }
+    if (o.snapshots) r.snapshots = this._snapshotsVerdichten();
     if (o.betriebe) App.query(`SELECT id FROM betriebe b WHERE NOT EXISTS (SELECT 1 FROM schueler s WHERE s.betrieb_id=b.id) AND NOT EXISTS (SELECT 1 FROM kontrolltermine t WHERE t.betrieb_id=b.id)`).forEach(b => { App.deleteBetriebKaskade(b.id); r.betriebe = (r.betriebe || 0) + 1; });
     if (o.papierkorb) { r.papierkorb = this._count('SELECT COUNT(*) FROM bhk_papierkorb'); App.papierkorbLeeren(); }
     try { App.run("DELETE FROM bhk_tombstones WHERE geloescht_am < datetime('now','localtime','-60 days')"); } catch(e) {}
     try { App.run('DELETE FROM bhk_applied_ops WHERE rowid NOT IN (SELECT rowid FROM bhk_applied_ops ORDER BY rowid DESC LIMIT 5000)'); } catch(e) {}
     return r;
+  },
+  // Snapshots alter Fassung (volle kw_status-Zeilen als JSON) in die kompakte
+  // Fassung bringen – Inhalt bleibt derselbe, nur die leeren Wochen fallen weg.
+  _snapshotsVerdichten() {
+    const alt = App.query("SELECT id, kw_daten_json FROM durchsicht_snapshots WHERE kw_daten_json LIKE '[%'");
+    let n = 0;
+    alt.forEach(s => {
+      const zeilen = App.snapshotZeilen(s.kw_daten_json);
+      try { App.run('UPDATE durchsicht_snapshots SET kw_daten_json=? WHERE id=?', [App.snapshotKompakt(zeilen), s.id]); n++; } catch(e) {}
+    });
+    return n;
   },
   _optionenAusFormular() {
     const o = {};
