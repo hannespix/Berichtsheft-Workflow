@@ -153,7 +153,7 @@ console.log('══ Kompaktierung: Schwelle, Abstand, Leitung, Zeitlimit ══'
   App._letzteKompaktierung = Date.now() - 10 * 60000;
   check(/vor 10 min/.test(App._kompaktGebremst()), 'Letzte Kompaktierung vor 10 min bremst');
   App._letzteKompaktierung = 0;
-  setFeldmodus(true); check(App._kompaktGebremst() === 'Feldmodus', 'Feldmodus bremst'); setFeldmodus(false);
+  setFeldmodus(true); check(/langsame Leitung \(Einstellung\)/.test(App._kompaktGebremst()), 'Einstellung „Langsame Leitung“ bremst'); setFeldmodus(false);
   App._networkQuality = 'very-slow'; check(/langsame Leitung/.test(App._kompaktGebremst()), 'Sehr langsame Leitung bremst');
   App._networkQuality = 'good'; check(App._kompaktGebremst() === '', 'Sonst frei');
   // _compactionDue: ungedeckte Protokollbytes
