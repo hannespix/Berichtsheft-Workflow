@@ -264,7 +264,7 @@ const BerichteHandler = {
           <input type="checkbox" id="gpICS" style="accent-color:var(--clr-forest)"> ▤ Ergebnisliste des Termins (Excel, alle Azubis)
         </label>
       </div>
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:10px">Die Dateien werden nacheinander heruntergeladen – der Browser fragt ggf. einmal nach der Erlaubnis für mehrere Downloads.</div>
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:10px">Die Dateien werden nacheinander heruntergeladen – der Browser fragt ggf. einmal nach der Erlaubnis für mehrere Downloads.</div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="BerichteHandler.doGesamtpaket(${terminId})">Alles exportieren</button>`);
   },
@@ -377,7 +377,7 @@ const BerichteHandler = {
       App.openModal('Jahresbericht erstellen', `
         <div class="form-group"><label>Schuljahr (1. August – 31. Juli)</label>
           <select class="form-control" id="jbSchuljahr">${opts.map(y => `<option value="${y}">${y}/${y + 1}</option>`).join('')}</select>
-          <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Gezählt werden Termine und Ergebnisse in diesem Zeitraum; jeder Azubi nach seinem letzten Ergebnis im Schuljahr.</div>
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Gezählt werden Termine und Ergebnisse in diesem Zeitraum; jeder Azubi nach seinem letzten Ergebnis im Schuljahr.</div>
         </div>`,
         `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
          <button class="btn btn-primary" onclick="const v=parseInt(document.getElementById('jbSchuljahr').value);App.closeModal();BerichteHandler.jahresbericht(v)">Bericht erstellen</button>`);
@@ -779,11 +779,11 @@ const BerichteHandler = {
           <tbody>${azubis.map(s => `<tr>
             <td style="text-align:center">${ampelIcon(s.letztes_ergebnis)}</td>
             <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}</td>
-            <td style="font-size:11px">${esc(s.betrieb_display||'')}${s.b_ort ? ' <span style="color:var(--clr-text-light)">('+esc(s.b_ort)+')</span>' : ''}</td>
-            <td style="font-size:11px">${esc(s.schule||'')} <span style="color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</span></td>
-            <td style="font-size:11px">${esc(s.fachrichtung||'')}</td>
+            <td style="font-size:12px">${esc(s.betrieb_display||'')}${s.b_ort ? ' <span style="color:var(--clr-text-light)">('+esc(s.b_ort)+')</span>' : ''}</td>
+            <td style="font-size:12px">${esc(s.schule||'')} <span style="color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</span></td>
+            <td style="font-size:12px">${esc(s.fachrichtung||'')}</td>
             <td>${esc(s.jahrgang||'')}</td>
-            <td>${s.letztes_ergebnis ? `<span class="badge-status ${s.letztes_ergebnis==='in_ordnung'?'badge-ok':'badge-open'}" style="font-size:10px">${ergebnisLabel[s.letztes_ergebnis]||s.letztes_ergebnis}</span>` : '–'}</td>
+            <td>${s.letztes_ergebnis ? `<span class="badge-status ${s.letztes_ergebnis==='in_ordnung'?'badge-ok':'badge-open'}" style="font-size:12px">${ergebnisLabel[s.letztes_ergebnis]||s.letztes_ergebnis}</span>` : '–'}</td>
             <td style="text-align:center">${s.offene_wv > 0 ? `<span style="color:var(--clr-red);font-weight:700">${s.offene_wv}</span>` : '–'}</td>
             <td style="text-align:center">${s.pruefungsausschuss ? '<span style="color:var(--clr-red);font-weight:700">PA</span>' : ''}</td>
           </tr>`).join('')}</tbody>
@@ -1100,7 +1100,7 @@ const BerichteHandler = {
     App.openModal('Datenqualität IBYKUS-Datenbestand', `
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
         <div style="font-size:26px;font-weight:700;color:${scoreColor};font-family:var(--font-display)">${score}%</div>
-        <div style="font-size:11px;color:var(--clr-text-light);line-height:1.4">Qualitäts-Score<br>(Azubis ohne Fehler/Warnung)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);line-height:1.4">Qualitäts-Score<br>(Azubis ohne Fehler/Warnung)</div>
         <span style="margin-left:auto"></span>
         <span class="badge-status badge-overdue" style="cursor:pointer" onclick="BerichteHandler._dqSetFilter('sev','fehler')">${nF} Fehler</span>
         <span class="badge-status badge-open" style="cursor:pointer" onclick="BerichteHandler._dqSetFilter('sev','warnung')">${nW} Warnungen</span>
@@ -1120,10 +1120,10 @@ const BerichteHandler = {
           <option value="Klasse">Klassen</option>
           <option value="Schule">Schulen</option>
         </select>
-        <span style="font-size:11px;color:var(--clr-text-light)">Spalten-Klick sortiert · Zeilen-Klick öffnet den Datensatz</span>
+        <span style="font-size:12px;color:var(--clr-text-light)">Spalten-Klick sortiert · Zeilen-Klick öffnet den Datensatz</span>
       </div>
       <div id="dqTableWrap" style="max-height:55vh;overflow:auto"></div>
-      <p style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Wichtig: Korrekturen an IBYKUS-Stammdaten in <strong>IBYKUS</strong> vornehmen (der nächste Import überschreibt lokale Änderungen). Der Excel-Export dient als Abarbeitungsliste für die Assistenz.</p>
+      <p style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Wichtig: Korrekturen an IBYKUS-Stammdaten in <strong>IBYKUS</strong> vornehmen (der nächste Import überschreibt lokale Änderungen). Der Excel-Export dient als Abarbeitungsliste für die Assistenz.</p>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-secondary" onclick="BerichteHandler.datenqualitaet()">↻ Neu prüfen</button>
         <button class="btn btn-primary" onclick="BerichteHandler.exportDatenqualitaet()">Excel-Export</button>`);
@@ -1159,9 +1159,9 @@ const BerichteHandler = {
         <td data-sort="${sevRank[i.sev]}">${sevBadge[i.sev]}</td>
         <td>${esc(i.kat)}</td>
         <td><strong>${esc(i.name)}</strong></td>
-        <td style="font-size:11px;color:var(--clr-text-light)">${esc(i.ibykusId || '–')}</td>
+        <td style="font-size:12px;color:var(--clr-text-light)">${esc(i.ibykusId || '–')}</td>
         <td>${esc(i.problem)}</td>
-        <td style="font-size:11px;color:var(--clr-text-light)">${esc(i.feld)}</td>
+        <td style="font-size:12px;color:var(--clr-text-light)">${esc(i.feld)}</td>
       </tr>`).join('')}
       </tbody></table>`;
     this._dqRendered = list;

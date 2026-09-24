@@ -201,7 +201,7 @@ const Konsole = {
         ${r.schritte.map(s => `<tr><td>${esc(s.Schritt)}</td><td style="text-align:right;white-space:nowrap">${s.ms} ms</td><td style="color:${s.Ergebnis === 'OK' ? 'var(--clr-green)' : 'var(--clr-red)'}">${esc(s.Ergebnis)}${s.Info ? ' <span style="color:var(--clr-text-light)">– ' + esc(s.Info) + '</span>' : ''}</td></tr>`).join('')}
       </tbody></table>
       <div style="margin-top:10px;font-size:13px"><strong>Befunde</strong><ul style="margin:4px 0 0 18px">${r.befunde.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div>
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code> zeigt alle Diagnosebefehle, <code>bhk.spur()</code> die Ereignisspur.</div>`,
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code> zeigt alle Diagnosebefehle, <code>bhk.spur()</code> die Ereignisspur.</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-secondary" onclick="App.kopieren(Konsole._letzterTest,'Testergebnis kopiert')">▤ Ergebnis kopieren</button>
        <button class="btn btn-primary" onclick="Konsole.kopieren()">▤ Zustandsbild kopieren</button>`);

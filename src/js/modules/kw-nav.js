@@ -257,7 +257,7 @@ const KWNav = {
       <label>Fehltage KW ${kw}:</label>
       <div style="display:flex;align-items:center;gap:6px;">
         <input type="number" id="kwInlineFehltage" value="${currentFehltage}" min="0" max="5" autofocus>
-        <span style="font-size:11px;color:var(--clr-text-light)">(0–5, Enter bestätigt)</span>
+        <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt)</span>
       </div>
     `;
     cell.appendChild(pop);
@@ -561,9 +561,9 @@ const KWNav = {
       ${bausteine.length ? `<div style="margin-bottom:10px">
         <label style="font-size:12px;font-weight:600;color:var(--clr-forest);margin-bottom:4px;display:block">Textbausteine (Klick = einfügen)</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="bausteinInsert('sonstBem',${bi})" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
+          ${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:12px;padding:3px 8px" onclick="bausteinInsert('sonstBem',${bi})" title="${esc(b)}">${esc(b.length > 30 ? b.substring(0, 28) + '…' : b)}</button>`).join('')}
         </div>
-      </div>` : `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:8px">
+      </div>` : `<div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
         Keine Textbausteine definiert – <a href="#" onclick="App.closeModal();App.navigate('einstellungen');return false" style="color:var(--clr-forest)">In Einstellungen anlegen</a>
       </div>`}
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>

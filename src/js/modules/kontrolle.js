@@ -110,7 +110,7 @@ const KontrolleHandler = {
     kurz.innerHTML = `<div class="termin-zeile">
       <span class="tz-label">Termin</span>
       <strong class="tz-name">${esc(App.formatTerminLabel(t))}</strong>
-      ${abg ? `<span class="badge-status badge-ok" style="font-size:10px">abgeschlossen ${formatDate(t.durchgefuehrt_datum || t.geplant_datum)}</span>` : ''}
+      ${abg ? `<span class="badge-status badge-ok" style="font-size:12px">abgeschlossen ${formatDate(t.durchgefuehrt_datum || t.geplant_datum)}</span>` : ''}
       <span class="tz-nav">
         <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.terminWechseln()" title="Anderen Kontrolltermin wählen">Termin wechseln</button>
         ${this._menue('Termin', this._terminAktionen(t, fremde), 'Anfrage, Betriebe, Ämter, PDFs und Druck zu diesem Termin')}
@@ -270,23 +270,23 @@ const KontrolleHandler = {
         <td style="text-align:center">${i+1}</td>
         <td>
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
-          ${isExtraSchueler ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
-          ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
-          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
-          ${isPA ? '<span style="font-size:9px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof Phasen!=='undefined'?`<a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 12)}</a>`:''}</div>
+          ${isExtraSchueler ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
+          ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
+          ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
+          ${isPA ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
+          <div style="font-size:12px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof Phasen!=='undefined'?`<a href="#" onclick="event.preventDefault();Phasen.editor(${s.id})" style="color:var(--clr-forest);text-decoration:none" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
-        <td style="font-size:11px" data-sort="${esc(frName)}">${esc(frName)}</td>
+        <td style="font-size:12px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
           <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
         </td>
         <td style="text-align:center" title="${esc(ampel.label)}">${ampel.icon}</td>
         <td data-sort="${ke.ergebnis || ''}">
-          ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:11px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>`
-            : (isAnw ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-green-light);color:var(--clr-forest-dark);border:1px solid var(--clr-green)" onclick="KontrolleHandler.quickMarkOK(${s.id})" title="Berichtsheft in Ordnung – Ergebnis + Pflichtteile setzen (Mängel/Bemerkungen bitte in der Einzelansicht)">✓ i.O.</button>` : '<span style="color:var(--clr-text-light);font-size:11px">– abwesend</span>')}
-          ${wvOffen ? '<span style="color:var(--clr-red);font-size:10px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
+          ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:12px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>`
+            : (isAnw ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-green-light);color:var(--clr-forest-dark);border:1px solid var(--clr-green)" onclick="KontrolleHandler.quickMarkOK(${s.id})" title="Berichtsheft in Ordnung – Ergebnis + Pflichtteile setzen (Mängel/Bemerkungen bitte in der Einzelansicht)">✓ i.O.</button>` : '<span style="color:var(--clr-text-light);font-size:12px">– abwesend</span>')}
+          ${wvOffen ? '<span style="color:var(--clr-red);font-size:12px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
         </td>
-        <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage / ${arbeitstage} Arbeitstage (${Math.round(arbeitstage/5)} aktive KWs) = ${fehlProzent.toFixed(1)}%">${fehlGesamt}<span style="font-size:9px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
+        <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage / ${arbeitstage} Arbeitstage (${Math.round(arbeitstage/5)} aktive KWs) = ${fehlProzent.toFixed(1)}%">${fehlGesamt}<span style="font-size:12px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
         <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile: 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.4=${ke.p_1_4_auszubildende||'-'}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA)">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
         <td style="text-align:center">
           <input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-green)" title="Zulassung zur AP${autoZulassung ? ' (automatisch empfohlen)' : ''}">
@@ -300,8 +300,8 @@ const KontrolleHandler = {
           ${isPA ? '<span style="color:var(--clr-red);font-size:12px;font-weight:700" title="Prüfungsausschuss">PA</span>' : ''}
         </td>
         <td>
-          <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht">→</button>
-          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Kontrolle entfernen">✕</button>
+          <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht" aria-label="Einzelansicht öffnen: ${esc(s.nachname)}, ${esc(s.vorname)}">→</button>
+          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:12px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Kontrolle entfernen" aria-label="Azubi aus dieser Kontrolle entfernen: ${esc(s.nachname)}, ${esc(s.vorname)}">✕</button>
         </td>
       </tr>`;
     });
@@ -382,7 +382,7 @@ const KontrolleHandler = {
           const pctOK = nenner ? Math.round(okCount / nenner * 100) : 0;
           const pctMangel = nenner ? Math.round(mangelCount / nenner * 100) : 0;
           return `<div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;color:var(--clr-text-light)">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px;color:var(--clr-text-light)">
               <span>Fortschritt: ${doneCount}/${nenner} anwesende Azubis bewertet (${pctDone}%)${abwesend ? ` · ${abwesend} abwesend` : ''}</span>
               <span>${offen === 0 ? '✓ Alle Anwesenden bewertet!' : `${offen} offen`}</span>
             </div>
@@ -419,10 +419,10 @@ const KontrolleHandler = {
           <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;background:var(--clr-warm);border-radius:var(--radius)" title="Prüferaufteilung: „Ich nehme #von–bis" – Kollegen überspringen diesen Bereich beim Weiterschalten">
             Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">
-            <button class="btn btn-sm btn-secondary" style="padding:1px 6px;font-size:11px" onclick="KontrolleHandler.setzeBereichAusEingabe()">übernehmen</button>
-            ${this._bereich ? `<a href="#" onclick="KontrolleHandler.setzeBereich(null);return false" style="font-size:11px;color:var(--clr-text-light)">✕</a>` : ''}
+            <button class="btn btn-sm btn-secondary" style="padding:1px 6px;font-size:12px" onclick="KontrolleHandler.setzeBereichAusEingabe()">übernehmen</button>
+            ${this._bereich ? `<a href="#" onclick="KontrolleHandler.setzeBereich(null);return false" style="font-size:12px;color:var(--clr-text-light)">✕</a>` : ''}
           </span>
-          ${(App._otherPositions || []).filter(p => p.terminId === this.currentTerminId && p.bereich).map(p => `<span style="font-size:11px;padding:2px 8px;background:var(--clr-blue-light);border-radius:var(--radius)">${esc(p.pruefer)}: #${p.bereich.von}–${p.bereich.bis}</span>`).join('')}
+          ${(App._otherPositions || []).filter(p => p.terminId === this.currentTerminId && p.bereich).map(p => `<span style="font-size:12px;padding:2px 8px;background:var(--clr-blue-light);border-radius:var(--radius)">${esc(p.pruefer)}: #${p.bereich.von}–${p.bereich.bis}</span>`).join('')}
           <div style="margin-left:auto">
             ${this._menue('Weitere Aktionen', [
               { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(true)' },
@@ -736,26 +736,26 @@ const KontrolleHandler = {
       return `<tr style="background:${bg}${isPA ? ';border-left:3px solid #c0392b' : ''}">
         <td style="text-align:center">${i+1}</td>
         <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}${isPA ? ' <b style="color:#c0392b">PA</b>' : ''}</td>
-        <td style="font-size:10px">${esc(s.ausbildungsstaette || '–')}</td>
+        <td style="font-size:12px">${esc(s.ausbildungsstaette || '–')}</td>
         <td style="text-align:center">${isAnw ? '✓' : '–'}</td>
         <td>${isDone ? (eLbl[ke.ergebnis] || ke.ergebnis || '–') : ''}</td>
-        <td style="text-align:center;${fehlWarn ? 'color:red;font-weight:bold' : ''}">${fehl} <span style="font-size:8px">(${fehlPct.toFixed(0)}%)</span></td>
+        <td style="text-align:center;${fehlWarn ? 'color:red;font-weight:bold' : ''}">${fehl} <span style="font-size:12px">(${fehlPct.toFixed(0)}%)</span></td>
         <td style="text-align:center">${pflOK ? '✓' : '–'}</td>
         <td style="text-align:center;color:${isZul ? '#27ae60' : '#999'};font-weight:${isZul ? '700' : '400'}">${isZul ? '✓' : '–'}</td>
         <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠︎ PA' : '–'}</td>
-        <td style="font-size:10px">${esc(ke.bemerkung || '')}</td>
+        <td style="font-size:12px">${esc(ke.bemerkung || '')}</td>
       </tr>`;
     }).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Übersicht ${isEinsendung ? 'Einsendung' : klassenStr} – ${formatDate(termin.geplant_datum)}</title>
     <style>
-      body { font-family: Arial, sans-serif; font-size: 11px; margin: 15mm; color: #333; }
+      body { font-family: Arial, sans-serif; font-size:12px; margin: 15mm; color: #333; }
       h1 { font-size: 16px; color: #2d5016; margin: 0 0 4px 0; }
-      .sub { font-size: 11px; color: #666; margin-bottom: 12px; }
+      .sub { font-size:12px; color: #666; margin-bottom: 12px; }
       table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-      th { background: #2d5016; color: white; padding: 5px 6px; font-size: 10px; text-align: left; }
+      th { background: #2d5016; color: white; padding: 5px 6px; font-size:12px; text-align: left; }
       td { padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
-      .stats { display: flex; gap: 16px; margin: 8px 0 4px 0; font-size: 11px; }
+      .stats { display: flex; gap: 16px; margin: 8px 0 4px 0; font-size:12px; }
       .stats span { padding: 3px 8px; border-radius: 4px; }
       @media print { body { margin: 10mm; } }
     </style></head><body>
@@ -772,7 +772,7 @@ const KontrolleHandler = {
       <thead><tr><th>#</th><th>Name</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt">Fehl.</th><th title="Pflichtteile vollständig">Pfl.</th><th title="Zulassung zur Abschlussprüfung">Zul.</th><th title="Prüfungsausschuss">PA</th><th>Bemerkung</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div style="margin-top:16px;font-size:9px;color:#999;border-top:1px solid #ddd;padding-top:4px">
+    <div style="margin-top:16px;font-size:12px;color:#999;border-top:1px solid #ddd;padding-top:4px">
       Regierungspräsidium Freiburg · Abt. 3 · Ref. 31 · Erstellt: ${new Date().toLocaleDateString('de-DE')}
     </div>
     </body></html>`;
@@ -834,7 +834,7 @@ const KontrolleHandler = {
         <div id="addSchuelerResults" style="max-height:250px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius)">
           <p style="padding:16px;color:var(--clr-text-light);text-align:center;font-size:13px">Suchbegriff eingeben um in <strong>allen ${available.length} verfügbaren Azubis</strong> zu suchen</p>
         </div>
-        <p id="addSchuelerCount" style="font-size:11px;color:var(--clr-text-light);margin-top:6px">${available.length} Azubis verfügbar (nicht in dieser Kontrolle)</p>
+        <p id="addSchuelerCount" style="font-size:12px;color:var(--clr-text-light);margin-top:6px">${available.length} Azubis verfügbar (nicht in dieser Kontrolle)</p>
       </div>
 
       <!-- Panel 2: Neuer Azubi manuell anlegen -->
@@ -919,9 +919,9 @@ const KontrolleHandler = {
              onclick="KontrolleHandler.addExistingSchueler(${s.id})">
           <div>
             <strong>${esc(s.nachname)}, ${esc(s.vorname)}</strong>
-            <span style="color:var(--clr-text-light);font-size:11px;margin-left:6px">${esc(s.ausbildungsstaette||'')} · ${esc(s.klassenbezeichnung||'')} · ${esc(s.schule||'')}${s.jahrgang ? ' · '+esc(s.jahrgang) : ''}</span>
+            <span style="color:var(--clr-text-light);font-size:12px;margin-left:6px">${esc(s.ausbildungsstaette||'')} · ${esc(s.klassenbezeichnung||'')} · ${esc(s.schule||'')}${s.jahrgang ? ' · '+esc(s.jahrgang) : ''}</span>
           </div>
-          <button class="btn btn-sm btn-success" style="padding:2px 10px;font-size:11px;flex-shrink:0" onclick="event.stopPropagation();KontrolleHandler.addExistingSchueler(${s.id})">+</button>
+          <button class="btn btn-sm btn-success" style="padding:2px 10px;font-size:12px;flex-shrink:0" onclick="event.stopPropagation();KontrolleHandler.addExistingSchueler(${s.id})">+</button>
         </div>
       `).join('');
     }
@@ -1104,7 +1104,7 @@ const KontrolleHandler = {
       </select>`;
 
     const gefuehrtOptHtml = (name, val) => `
-      <select class="form-control" style="width:auto;display:inline;padding:2px 6px;font-size:11px${val === 'nein' ? ';border-color:var(--clr-red);color:var(--clr-red)' : val === 'ja' ? ';border-color:var(--clr-green)' : ''}" data-field="${name}" onchange="KontrolleHandler.saveField('${name}',this.value)" title="Wird der Teil laufend geführt? „Nicht geführt“ fügt automatisch einen Hinweis in die Bemerkung ein.">
+      <select class="form-control" style="width:auto;display:inline;padding:2px 6px;font-size:12px${val === 'nein' ? ';border-color:var(--clr-red);color:var(--clr-red)' : val === 'ja' ? ';border-color:var(--clr-green)' : ''}" data-field="${name}" onchange="KontrolleHandler.saveField('${name}',this.value)" title="Wird der Teil laufend geführt? „Nicht geführt“ fügt automatisch einen Hinweis in die Bemerkung ein.">
         <option value="" ${!val?'selected':''}>–</option>
         <option value="ja" ${val==='ja'?'selected':''}>geführt</option>
         <option value="nein" ${val==='nein'?'selected':''}>nicht geführt</option>
@@ -1146,7 +1146,7 @@ const KontrolleHandler = {
             const fehlDisplay = fehl > 0 && !(hasCodes && codeStr.includes('H')) ? `<span class="kw-fehltage">${fehl}</span>` : '';
             // Merge H with Fehltage: "A,H" + 3 → display "A H3"
             const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
-            const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;font-size:7px;line-height:1"></span>` : '';
+            const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
             const title = `KW ${kw}${drLabel}${hasRealMaengel ? ' · Mängel: '+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
             return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
@@ -1180,7 +1180,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>O</kbd>OK</span>
       <span class="leg-item"><kbd>J</kbd>heutige KW</span>
       <span class="leg-item"><kbd>⇧1–6</kbd>Ergebnis</span>
-      <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden">✕</button>
+      <button class="kw-legend-toggle" onclick="KontrolleHandler.legendeUmschalten(false)" title="Kürzel ausblenden" aria-label="Kürzel ausblenden">✕</button>
     </div>`;
 
     const c = document.getElementById('kontrolleContent');
@@ -1192,18 +1192,18 @@ const KontrolleHandler = {
 
     // Sticky-Kopf: aktueller Azubi immer sichtbar (kein Hochscrollen nötig)
     const klasseStk = s.klasse_id ? (App.query('SELECT k.klassenbezeichnung, bs.name AS schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {}) : {};
-    const ergStk = ke.ergebnis ? `<span class="badge-status ${ke.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}" style="font-size:10px">${esc(ergebnisLabels[ke.ergebnis] || ke.ergebnis)}</span>` : (ke.anwesend === 0 ? '<span class="badge-status badge-overdue" style="font-size:10px">abwesend</span>' : '<span style="font-size:10px;color:var(--clr-text-light)">noch offen</span>');
+    const ergStk = ke.ergebnis ? `<span class="badge-status ${ke.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}" style="font-size:12px">${esc(ergebnisLabels[ke.ergebnis] || ke.ergebnis)}</span>` : (ke.anwesend === 0 ? '<span class="badge-status badge-overdue" style="font-size:12px">abwesend</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">noch offen</span>');
     const stickyHtml = `<div class="azubi-sticky" id="azubiSticky" title="Aktuell bearbeiteter Azubi">
       <span class="as-nr">#${this.currentIndex + 1}/${total}</span>
       <span class="as-name">${esc(s.nachname)}, ${esc(s.vorname)}</span>
       ${ergStk}
       <span class="as-meta">${[s.ausbildungsstaette, klasseStk.klassenbezeichnung, klasseStk.schule].filter(Boolean).map(esc).join(' · ')}</span>
       <span class="as-nav">
-        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" ${this.currentIndex === 0 ? 'disabled' : ''}>‹</button>
-        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
-        <button class="btn btn-secondary" onclick="KontrolleHandler.nextOffen()" title="Nächster offener Azubi">offen ›</button>
-        <button class="btn btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht">▤</button>
-        <button class="btn btn-secondary" onclick="KontrolleHandler.legendeUmschalten()" title="Mängelcodes und Tastenkürzel ein-/ausblenden">?</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" aria-label="Vorheriger Azubi" ${this.currentIndex === 0 ? 'disabled' : ''}>‹</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" aria-label="Nächster Azubi" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.nextOffen()" title="Nächster offener Azubi" aria-label="Nächster offener Azubi">offen ›</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht" aria-label="Zurück zur Übersicht">▤</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.legendeUmschalten()" title="Mängelcodes und Tastenkürzel ein-/ausblenden" aria-label="Mängelcodes und Tastenkürzel ein- oder ausblenden" aria-controls="kwLegendBar">?</button>
       </span>
     </div>`;
     c.innerHTML = `${stickyHtml}${kwLegendHtml}
@@ -1215,10 +1215,10 @@ const KontrolleHandler = {
           <div>
             <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Azubi!</strong>
             <div style="font-size:12px;color:var(--clr-text)">Dieser Azubi ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Azubi wechselt.</div>
-            <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">
               Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Azubi bearbeiten.
-              <button class="btn btn-sm btn-primary" style="margin-left:12px;font-size:11px;padding:2px 8px" onclick="KontrolleHandler.nextOffen()">→ Nächster freier Azubi</button>
-              <button class="btn btn-sm" style="margin-left:6px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
+              <button class="btn btn-sm btn-primary" style="margin-left:12px;font-size:12px;padding:2px 8px" onclick="KontrolleHandler.nextOffen()">→ Nächster freier Azubi</button>
+              <button class="btn btn-sm" style="margin-left:6px;font-size:12px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
             </div>
           </div>
         </div>
@@ -1226,7 +1226,7 @@ const KontrolleHandler = {
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
           <span style="font-size:24px">⊘</span>
           <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Azubi!</strong>
-            <div style="font-size:11px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben</button></div>
+            <div style="font-size:12px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:12px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben</button></div>
           </div>
         </div>
       </div>`}
@@ -1258,12 +1258,12 @@ const KontrolleHandler = {
             <div id="searchDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:0 0 var(--radius) var(--radius);box-shadow:var(--shadow-md);z-index:50;font-size:12px"></div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;font-size:10px;color:var(--clr-sage);margin-top:4px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--clr-sage);margin-top:4px;flex-wrap:wrap">
           ${!App.demoMode ? `<span style="display:flex;align-items:center;gap:4px" title="Live-Abgleich mit den Kollegen (Positionen und Ergebnisse)">
             <span id="syncPulse" style="width:6px;height:6px;border-radius:50%;background:var(--clr-green);opacity:0.3;transition:opacity 0.3s"></span>
             LIVE
           </span>` : '<span style="color:var(--clr-amber)">Demo (kein Sync)</span>'}
-          <span id="livePrueferBar" style="display:${anderePruefer.length ? '' : 'none'};font-size:11px;padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">
+          <span id="livePrueferBar" style="display:${anderePruefer.length ? '' : 'none'};font-size:12px;padding:3px 8px;background:var(--clr-red-light);border-radius:10px;color:var(--clr-red)">
             ${anderePruefer.map(a => `⊘ ${esc(a.pruefer)} → #${this.currentSchuelerList.findIndex(sc => sc.id === a.schuelerId)+1} ${esc(a.schuelerName || this.currentSchuelerList.find(sc => sc.id === a.schuelerId)?.nachname || '?')}`).join(' · ')}
           </span>
         </div>
@@ -1408,22 +1408,22 @@ const KontrolleHandler = {
       <div class="card" style="margin-bottom:12px;max-width:540px">
         <div class="card-header" style="padding-bottom:6px;display:flex;justify-content:space-between;align-items:center">
           <span>Pflichtteile (Zulassung Abschlussprüfung)</span>
-          <button class="btn btn-sm btn-success" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.setAllPflichtOK()" title="Alle Pflichtteile auf 'Ja' setzen">✓ Alle OK</button>
+          <button class="btn btn-sm btn-success" style="font-size:12px;padding:2px 8px" onclick="KontrolleHandler.setAllPflichtOK()" title="Alle Pflichtteile auf 'Ja' setzen">✓ Alle OK</button>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
           <span style="font-weight:600;color:var(--clr-sage)">1.1</span>
-          <span>Ausbildungsplan <span style="font-size:11px;color:var(--clr-text-light)">(ausgef. + unterschr.)</span></span>
+          <span>Ausbildungsplan <span style="font-size:12px;color:var(--clr-text-light)">(ausgef. + unterschr.)</span></span>
           <div>${pflichtOptHtml('p_1_1_ausbildungsplan', ke.p_1_1_ausbildungsplan)}</div>
           <span></span>
-          <span style="font-size:11px;color:var(--clr-text-light);padding-left:10px">↳ Inhalte laufend angekreuzt?</span>
+          <span style="font-size:12px;color:var(--clr-text-light);padding-left:10px">↳ Inhalte laufend angekreuzt?</span>
           <div>${gefuehrtOptHtml('p_1_1_gefuehrt', ke.p_1_1_gefuehrt)}</div>
 
           <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
-          <span>Der/die Auszubildende <span style="font-size:11px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
+          <span>Der/die Auszubildende <span style="font-size:12px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
           <div>${pflichtOptHtml('p_1_4_auszubildende', ke.p_1_4_auszubildende)}</div>
 
           <span style="font-weight:600;color:var(--clr-sage)">1.5</span>
-          <span>Bescheinigungen ÜBA <span style="font-size:11px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
+          <span>Bescheinigungen ÜBA <span style="font-size:12px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap">
             ${pflichtOptHtml('p_1_5_bescheinigungen', ke.p_1_5_bescheinigungen)}
             ${(() => {
@@ -1432,15 +1432,15 @@ const KontrolleHandler = {
               const ubaOK = curUBA >= reqUBA;
               const ubaColor = ubaOK ? 'var(--clr-green)' : curUBA > 0 ? 'var(--clr-amber)' : 'var(--clr-text-light)';
               return `<input type="number" class="form-control" value="${curUBA}" min="0" max="20" style="width:40px;padding:2px 4px;font-size:12px" onchange="KontrolleHandler.saveField('bescheinigungen_anzahl',this.value)">
-                <span style="font-weight:600;color:${ubaColor};font-size:11px;white-space:nowrap">${curUBA}/${reqUBA} ${reqUBA === 6 ? '(GaLa)' : '(Prod.)'}${ubaOK ? ' ✓' : ''}</span>`;
+                <span style="font-weight:600;color:${ubaColor};font-size:12px;white-space:nowrap">${curUBA}/${reqUBA} ${reqUBA === 6 ? '(GaLa)' : '(Prod.)'}${ubaOK ? ' ✓' : ''}</span>`;
             })()}
           </div>
           <span></span>
-          <span style="font-size:11px;color:var(--clr-text-light);padding-left:10px">↳ Zusammenstellung geführt?</span>
+          <span style="font-size:12px;color:var(--clr-text-light);padding-left:10px">↳ Zusammenstellung geführt?</span>
           <div>${gefuehrtOptHtml('p_1_5_gefuehrt', ke.p_1_5_gefuehrt)}</div>
         </div>
         <div style="border-top:1px solid var(--clr-sand);margin-top:8px;padding-top:6px">
-          <div style="font-size:11px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px">Freiwillig / Vertragsbestandteil</div>
+          <div style="font-size:12px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px">Freiwillig / Vertragsbestandteil</div>
           <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
             <span style="font-weight:600;color:var(--clr-sage)">1.2</span>
             <span>Vertragliche Regelungen</span>
@@ -1480,22 +1480,22 @@ const KontrolleHandler = {
         const zu = this._ajZustand.has(aj) ? this._ajZustand.get(aj) === false : ((frueher && !maengelCount && geprueftCount >= activeCount) || kuenftig);
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
-          <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" title="${zu ? 'Aufklappen' : 'Einklappen'}">
-            <span><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''}${aj === ajJetzt ? ' <span style="font-size:10px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
-            <span style="font-size:11px;font-weight:400;color:var(--clr-sage)">
+          <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
+            <span><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''}${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
+            <span style="font-size:12px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>
-            <div style="margin-left:auto;display:${zu ? 'none' : 'flex'};align-items:center;gap:4px;font-size:11px" onclick="event.stopPropagation()">
+            <div style="margin-left:auto;display:${zu ? 'none' : 'flex'};align-items:center;gap:4px;font-size:12px" onclick="event.stopPropagation()">
               <span style="color:var(--clr-text-light)">Bereich pr\u00fcfen:</span>
-              <select id="kwRangeFrom_${aj}" class="form-control" style="width:60px;padding:2px 4px;font-size:11px">
+              <select id="kwRangeFrom_${aj}" class="form-control kw-bereich-select" aria-label="Bereich von Kalenderwoche" style="padding:2px 4px;font-size:12px">
                 ${KW_ALL.map(kw => `<option value="${kw}" ${kw===36?'selected':''}${bnd.inactiveKWs.includes(kw)?' disabled':''}>${bnd.inactiveKWs.includes(kw)?'(':''}KW ${kw}${bnd.inactiveKWs.includes(kw)?')':''}</option>`).join('')}
               </select>
               <span>\u2013</span>
-              <select id="kwRangeTo_${aj}" class="form-control" style="width:60px;padding:2px 4px;font-size:11px">
+              <select id="kwRangeTo_${aj}" class="form-control kw-bereich-select" aria-label="Bereich bis Kalenderwoche" style="padding:2px 4px;font-size:12px">
                 ${KW_ALL.map(kw => `<option value="${kw}" ${kw===35?'selected':''}${bnd.inactiveKWs.includes(kw)?' disabled':''}>${bnd.inactiveKWs.includes(kw)?'(':''}KW ${kw}${bnd.inactiveKWs.includes(kw)?')':''}</option>`).join('')}
               </select>
-              <button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:11px" onclick="KontrolleHandler.markRangeChecked(${aj})">✓ Als geprüft</button>
-              <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="KontrolleHandler.unmarkRangeChecked(${aj})">✕ Entfernen</button>
+              <button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:12px" onclick="KontrolleHandler.markRangeChecked(${aj})">✓ Als geprüft</button>
+              <button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="KontrolleHandler.unmarkRangeChecked(${aj})">✕ Entfernen</button>
             </div>
           </div>
           <div style="height:4px;background:var(--clr-sand);border-radius:2px;margin:0 0 4px">
@@ -1510,19 +1510,19 @@ const KontrolleHandler = {
         <div class="card-header">Fehl-/Krankheitstage</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
           ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
-          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">│</span>
           <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
           <input type="hidden" id="fehlGesamtInput" value="${ke.fehltage_gesamt}">
-          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
-          <label style="font-size:11px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
-            <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:11px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
+          <span style="font-size:12px;color:var(--clr-text-light)">│</span>
+          <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
+            <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:12px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
             <span id="fehlPauschalAnzeige" style="display:none">${ke.fehltage_pauschal || 0}</span>
           </label>
-          <span style="font-size:11px;color:var(--clr-text-light)">│</span>
-          <label style="font-size:11px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Sachberichte (bei Wetter-Mängeln)">Sachberichte:
-            <input type="number" class="form-control" value="${ke.sachberichte_anzahl}" onchange="KontrolleHandler.saveField('sachberichte_anzahl',this.value)" style="width:58px;padding:2px 4px;font-size:11px;text-align:center">
+          <span style="font-size:12px;color:var(--clr-text-light)">│</span>
+          <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Sachberichte (bei Wetter-Mängeln)">Sachberichte:
+            <input type="number" class="form-control" value="${ke.sachberichte_anzahl}" onchange="KontrolleHandler.saveField('sachberichte_anzahl',this.value)" style="width:58px;padding:2px 4px;font-size:12px;text-align:center">
           </label>
-          <span style="font-size:10px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
+          <span style="font-size:12px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
         </div>
       </div>
 
@@ -1569,7 +1569,7 @@ const KontrolleHandler = {
         </div>
         <div class="ke-bemerkung">
           <textarea class="form-control" rows="${ke.bemerkung && ke.bemerkung.length > 90 ? 3 : 1}" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="if(this.value.length<=90)this.rows=1">${esc(ke.bemerkung)}</textarea>
-          <select class="form-control" style="width:auto;font-size:11px;padding:4px 6px;color:var(--clr-text-light)" title="Textbaustein an die Bemerkung anhängen" onchange="if(this.value){const ta=document.getElementById('keBemerkung');ta.value=ta.value?(ta.value+'. '+this.value):this.value;KontrolleHandler.saveField('bemerkung',ta.value);this.value=''}">
+          <select class="form-control" style="width:auto;font-size:12px;padding:4px 6px;color:var(--clr-text-light)" title="Textbaustein an die Bemerkung anhängen" onchange="if(this.value){const ta=document.getElementById('keBemerkung');ta.value=ta.value?(ta.value+'. '+this.value):this.value;KontrolleHandler.saveField('bemerkung',ta.value);this.value=''}">
             <option value="">Textbaustein…</option>
             ${App.getTextbausteine().map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
           </select>
@@ -1578,8 +1578,8 @@ const KontrolleHandler = {
           <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
           <button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.nextOffen()" title="Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet">✓ Fertig, nächster offener</button>
           <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
-          <span id="keGesichert" style="font-size:11px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
+          <span id="keGesichert" style="font-size:12px;cursor:pointer;color:${App.azubiGesichert(s.id) ? 'var(--clr-green)' : 'var(--clr-amber)'}" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--clr-text-light);cursor:pointer" title="Nach der Auswahl „In Ordnung" automatisch zum nächsten offenen Azubi springen"><input type="checkbox" ${App.uGet('auto_next', '1') !== '0' ? 'checked' : ''} onchange="App.uSet('auto_next', this.checked ? '1' : '0')" style="accent-color:var(--clr-forest)"> Auto-Weiter</label>
           <span style="margin-left:auto">${this._menue('⋯', [
             { label: '▤ Durchsichtsbogen dieses Azubis (PDF)', onclick: `PDFExport.generateSingle(${this.currentTerminId},${s.id})` },
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
@@ -1801,7 +1801,7 @@ const KontrolleHandler = {
 
     App.openModal(`KW ${kw} – Ausbildungsjahr ${aj}`, `
       <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="btn btn-success" style="flex:1;font-weight:600" id="kwBtnOK" onclick="KontrolleHandler.saveKWOk(${keId},${aj},${kw})">✓ Keine Beanstandungen <kbd style="font-size:10px;opacity:0.7;margin-left:4px">O</kbd></button>
+        <button class="btn btn-success" style="flex:1;font-weight:600" id="kwBtnOK" onclick="KontrolleHandler.saveKWOk(${keId},${aj},${kw})">✓ Keine Beanstandungen <kbd style="font-size:12px;opacity:0.7;margin-left:4px">O</kbd></button>
       </div>
       <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:8px">Mängel-Codes (<kbd>A</kbd>–<kbd>I</kbd> zum Umschalten):</p>
       ${codes.map((c,i) => `
@@ -1819,14 +1819,14 @@ const KontrolleHandler = {
           <label>Bemerkung zu KW ${kw} (Sonstiges)</label>
           <textarea class="form-control" id="kwBemText" rows="2" style="font-size:12px" placeholder="Freitext…">${esc(kwBem)}</textarea>
         </div>
-        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="bausteinInsert('kwBemText',${bi})" title="${esc(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
+        ${bausteine.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bausteine.map((b, bi) => `<button class="btn btn-sm btn-secondary" style="font-size:12px;padding:2px 6px" onclick="bausteinInsert('kwBemText',${bi})" title="${esc(b)}">${esc(b.length > 25 ? b.substring(0,23)+'…' : b)}</button>`).join('')}</div>` : ''}
       </div>
-      <div style="font-size:10px;color:var(--clr-text-light);margin-top:12px;border-top:1px solid var(--clr-sand);padding-top:8px">
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:12px;border-top:1px solid var(--clr-sand);padding-top:8px">
         <kbd>Enter</kbd> Speichern · <kbd>Esc</kbd> Abbrechen · <kbd>O</kbd> Keine Beanstandungen · <kbd>A</kbd>–<kbd>I</kbd> Codes umschalten
       </div>
-    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen <kbd style="font-size:9px;opacity:0.6">Esc</kbd></button>
+    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen <kbd style="font-size:12px;opacity:0.6">Esc</kbd></button>
         <button class="btn btn-danger btn-sm" onclick="KontrolleHandler.clearKW(${keId},${aj},${kw})">Leeren</button>
-        <button class="btn btn-primary" onclick="KontrolleHandler.saveKW(${keId},${aj},${kw})">Speichern <kbd style="font-size:9px;opacity:0.6">Enter</kbd></button>`);
+        <button class="btn btn-primary" onclick="KontrolleHandler.saveKW(${keId},${aj},${kw})">Speichern <kbd style="font-size:12px;opacity:0.6">Enter</kbd></button>`);
 
     // Store context for keyboard handler
     this._kwModalContext = { keId, aj, kw, cellEl };
@@ -2435,11 +2435,11 @@ const KontrolleHandler = {
         style="padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--clr-sand);${isActive ? 'background:var(--clr-green-light)' : ''}"
         onmouseenter="KontrolleHandler._searchHover(${ri})"
         onclick="KontrolleHandler._searchSelect(${r.idx})">
-        <span style="font-size:11px;width:22px;text-align:center;color:var(--clr-text-light)">${r.idx + 1}</span>
+        <span style="font-size:12px;width:22px;text-align:center;color:var(--clr-text-light)">${r.idx + 1}</span>
         <span>${badge}</span>
         <div style="flex:1;min-width:0">
           <div>${highlight(s.nachname, q)}, ${highlight(s.vorname, q)}</div>
-          <div style="font-size:10px;color:var(--clr-text-light);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.ausbildungsstaette || '–')}</div>
+          <div style="font-size:12px;color:var(--clr-text-light);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.ausbildungsstaette || '–')}</div>
         </div>
       </div>`;
     }).join('');
@@ -2566,7 +2566,7 @@ const KontrolleHandler = {
       </div>` : ''}
       ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
         <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>
-        <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname) + (App.istFremdesAmt(a) ? ' <span style="color:var(--clr-purple);font-size:10px" title="Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt">§ fremdes Amt</span>' : '')).join(' · ')}</div>
+        <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname) + (App.istFremdesAmt(a) ? ' <span style="color:var(--clr-purple);font-size:12px" title="Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt">§ fremdes Amt</span>' : '')).join(' · ')}</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
           <input type="checkbox" id="wizNachholungWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Nachholung" anlegen, Frist
           <input type="date" class="form-control" id="wizNachholungFrist" value="${addDaysStr(21)}" style="width:140px;padding:3px 6px;font-size:12px">
@@ -2591,9 +2591,9 @@ const KontrolleHandler = {
             return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px" data-wv-ke="${m.ke.id}" data-wv-sid="${m.id}" data-wv-art="${m.ergebnis}">
               <input type="checkbox" class="wv-auto" ${!hasWV?'checked':''} style="accent-color:var(--clr-forest)">
               <span style="min-width:120px"><strong>${esc(m.nachname)}</strong>, ${esc(m.vorname)}</span>
-              <span class="badge-status badge-open" style="font-size:10px">${eLbl[m.ergebnis]||m.ergebnis}</span>
-              <input type="date" class="form-control wv-date" value="${hasWV ? existingWV[0].frist_datum : defaultDate}" style="width:130px;padding:3px 6px;font-size:11px">
-              ${hasWV ? '<span style="color:var(--clr-green);font-size:10px">✓ existiert</span>' : ''}
+              <span class="badge-status badge-open" style="font-size:12px">${eLbl[m.ergebnis]||m.ergebnis}</span>
+              <input type="date" class="form-control wv-date" value="${hasWV ? existingWV[0].frist_datum : defaultDate}" style="width:130px;padding:3px 6px;font-size:12px">
+              ${hasWV ? '<span style="color:var(--clr-green);font-size:12px">✓ existiert</span>' : ''}
             </div>`;
           }).join('')}
         </div>
@@ -2863,7 +2863,7 @@ const KontrolleHandler = {
           </tr>`).join('')}
         </tbody></table>
       </div>` : '<p style="color:var(--clr-green)">Keine Mängel zum Zeitpunkt dieser Durchsicht.</p>'}
-      <div style="margin-top:8px;font-size:11px;color:var(--clr-text-light)">
+      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">
         Geprüfte KWs: ${Object.entries(geprueftKWs).map(([aj, kws]) => `AJ${aj}: ${kws.length ? kws.join(', ') : '–'}`).join(' · ') || '–'}
       </div>`;
     App.openModal(`Durchsicht vom ${formatDate(snap.snapshot_datum)}`, body,

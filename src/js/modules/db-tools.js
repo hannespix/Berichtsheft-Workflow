@@ -415,9 +415,9 @@ const DbTools = {
     App.openModal(`Archiv ${esc(name)}`, `
       <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Jahrgang ${esc(info.jahrgaenge || '–')} · erstellt ${esc((info.erstellt || '').slice(0, 10))} von ${esc(info.von || '–')} · ${azubis.length} Azubis</div>
       <div style="max-height:50vh;overflow:auto"><table class="data-table"><thead><tr><th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-arch:not(:disabled)').forEach(c=>c.checked=this.checked)"></th><th>Name</th><th>IBYKUS</th><th>Status</th><th>Ergebnisse</th></tr></thead><tbody>
-        ${azubis.map(a => `<tr><td><input type="checkbox" class="chk-arch" value="${a.id}" ${vorhanden.has(a.id) ? 'disabled title="bereits in der Datenbank"' : ''}></td><td>${esc(a.nachname)}, ${esc(a.vorname)}${vorhanden.has(a.id) ? ' <span style="font-size:10px;color:var(--clr-text-light)">(vorhanden)</span>' : ''}</td><td>${esc(a.ibykus_id || '')}</td><td>${esc(App.STATUS_LABELS[a.status] || a.status || '')}</td><td>${a.n}</td></tr>`).join('')}
+        ${azubis.map(a => `<tr><td><input type="checkbox" class="chk-arch" value="${a.id}" ${vorhanden.has(a.id) ? 'disabled title="bereits in der Datenbank"' : ''}></td><td>${esc(a.nachname)}, ${esc(a.vorname)}${vorhanden.has(a.id) ? ' <span style="font-size:12px;color:var(--clr-text-light)">(vorhanden)</span>' : ''}</td><td>${esc(a.ibykus_id || '')}</td><td>${esc(App.STATUS_LABELS[a.status] || a.status || '')}</td><td>${a.n}</td></tr>`).join('')}
       </tbody></table></div>
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">Zurückgeholte Azubis kommen samt Ergebnissen, Wochendaten, Wiedervorlagen und Bemerkungen zurück (inaktiv, wie archiviert). Akten-Dateien liegen unter _bhk/${esc(this.ARCHIV_ORDNER)}/…_dateien/ und werden nicht automatisch zurückkopiert.</div>`,
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Zurückgeholte Azubis kommen samt Ergebnissen, Wochendaten, Wiedervorlagen und Bemerkungen zurück (inaktiv, wie archiviert). Akten-Dateien liegen unter _bhk/${esc(this.ARCHIV_ORDNER)}/…_dateien/ und werden nicht automatisch zurückkopiert.</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-primary" onclick="DbTools.archivWiederherstellen('${esc(name)}')">Ausgewählte zurückholen</button>`);
     if (typeof _makeModalWide === 'function') _makeModalWide();
@@ -546,7 +546,7 @@ const DbTools = {
     const box = document.getElementById('dbtVorschau');
     if (box) box.innerHTML = `<table class="data-table" style="max-width:520px"><tbody>${v.posten.map(p => `<tr><td>${esc(p.label)}</td><td style="text-align:right"><strong>${p.n}</strong></td></tr>`).join('')}
       <tr><td><strong>Gesamt</strong></td><td style="text-align:right"><strong>${v.gesamt}</strong></td></tr></tbody></table>
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Anschließend wird die Datei neu aufgebaut (VACUUM) – erst das macht sie kleiner.</div>`;
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Anschließend wird die Datei neu aufgebaut (VACUUM) – erst das macht sie kleiner.</div>`;
   },
   async aufraeumen(nurNeuaufbau) {
     const o = nurNeuaufbau ? Object.fromEntries(Object.keys(this.AUFRAEUMEN_OPTIONEN).map(k => [k, false])) : this._optionenAusFormular();
@@ -753,19 +753,19 @@ const DbTools = {
     const gross = b.tabellen.filter(t => t.zeilen > 0).sort((x, y) => y.zeilen - x.zeilen);
     const monate = parseInt(document.getElementById('dbtMonate')?.value) || this.VERDICHTEN_MONATE_STANDARD;
     const lauf = this._ausstehend ? `<div style="font-size:12px;color:var(--clr-red);margin-top:4px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius)">⏳ ${esc(this._ausstehend.meldung)} – <strong>noch nicht gespeichert</strong>${App._neuladenNoetig ? ', dafür muss die Seite neu geladen werden (F5)' : ', wird automatisch nachgeholt'}. Bitte das Fenster nicht schließen.${App._compactGrund ? `<br>Grund: ${esc(App._compactGrund)}` : ''} <button class="btn btn-sm btn-secondary" style="margin-left:6px" onclick="DbTools.sperreDialog()">Sperre prüfen</button>${App._neuladenNoetig ? ' <button class="btn btn-sm btn-primary" onclick="location.reload()">Jetzt neu laden</button>' : ''}</div>`
-      : this._letzterLauf ? `<div style="font-size:11px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
+      : this._letzterLauf ? `<div style="font-size:12px;color:var(--clr-forest);margin-top:4px">Letzter Lauf: ${esc(this._letzterLauf.meldung)} · ${this._bytes(this._letzterLauf.vorher)} → ${this._bytes(this._letzterLauf.nachher)}</div>` : '';
     box.innerHTML = `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
         Die Datenbank wird beim Start komplett geladen und bei jeder Kompaktierung und jedem Backup komplett geschrieben – über VPN zählt jedes Megabyte.
         Alle Werkzeuge hier: Vorschau mit Zahlen, automatisches Backup, Ausführung als neuer Snapshot für alle Nutzer, danach Neuaufbau der Datei.
       </p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
-        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:11px;color:var(--clr-text-light)">Datei</div><div style="font-size:18px;font-weight:700">${this._bytes(b.dateiBytes)}</div><div style="font-size:11px;color:var(--clr-text-light)">Speicher ${this._bytes(b.speicherBytes)}${b.freiBytes ? ` · ${this._bytes(b.freiBytes)} frei` : ''}</div></div>
-        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:11px;color:var(--clr-text-light)">Azubis</div><div style="font-size:18px;font-weight:700">${b.azubis.aktiv} <span style="font-size:12px;font-weight:400">aktiv</span></div><div style="font-size:11px;color:var(--clr-text-light)">${b.azubis.inaktiv} inaktiv</div></div>
-        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:11px;color:var(--clr-text-light)">Größte Tabellen</div><div style="font-size:11px;line-height:1.5">${gross.slice(0, 4).map(t => `${esc(t.label)}: <strong>${t.zeilen}</strong>`).join('<br>')}</div></div>
+        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:12px;color:var(--clr-text-light)">Datei</div><div style="font-size:18px;font-weight:700">${this._bytes(b.dateiBytes)}</div><div style="font-size:12px;color:var(--clr-text-light)">Speicher ${this._bytes(b.speicherBytes)}${b.freiBytes ? ` · ${this._bytes(b.freiBytes)} frei` : ''}</div></div>
+        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:12px;color:var(--clr-text-light)">Azubis</div><div style="font-size:18px;font-weight:700">${b.azubis.aktiv} <span style="font-size:12px;font-weight:400">aktiv</span></div><div style="font-size:12px;color:var(--clr-text-light)">${b.azubis.inaktiv} inaktiv</div></div>
+        <div style="padding:8px 10px;background:var(--clr-warm);border-radius:var(--radius)"><div style="font-size:12px;color:var(--clr-text-light)">Größte Tabellen</div><div style="font-size:12px;line-height:1.5">${gross.slice(0, 4).map(t => `${esc(t.label)}: <strong>${t.zeilen}</strong>`).join('<br>')}</div></div>
       </div>
       <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:var(--clr-text-light)">Alle Tabellen</summary>
-        <div style="columns:2;font-size:11px;margin-top:4px">${b.tabellen.map(t => `<div>${esc(t.label)}: ${t.zeilen}</div>`).join('')}</div></details>
+        <div style="columns:2;font-size:12px;margin-top:4px">${b.tabellen.map(t => `<div>${esc(t.label)}: ${t.zeilen}</div>`).join('')}</div></details>
       ${lauf}
 
       <h4 style="font-size:13px;margin:12px 0 6px">1 · Jahrgänge ausmisten</h4>
@@ -778,7 +778,7 @@ const DbTools = {
         <th>Jahrgang</th><th>aktiv</th><th>inaktiv</th><th>letzter Termin</th><th>Ergebnisse</th><th>Wochenzeilen</th><th>Snapshots</th><th>WV offen</th></tr></thead><tbody>
         ${b.jahrgaenge.map(j => `<tr>
           <td><input type="checkbox" class="chk-dbtjg" value="${j.id}" ${j.id ? '' : 'disabled'} title="${j.id ? (j.aktiv ? j.aktiv + ' aktive Azubis werden mitgelöscht' : 'abgeschlossen') : 'ohne Jahrgang – nicht löschbar'}"></td>
-          <td><strong>${esc(j.bezeichnung)}</strong>${j.id && !j.abgeschlossen && j.aktiv ? ' <span style="font-size:10px;color:var(--clr-amber)" title="Löschen entfernt auch die aktiven Azubis">● aktiv</span>' : ''}</td><td>${j.aktiv ? '<strong style="color:var(--clr-amber)">' + j.aktiv + '</strong>' : 0}</td><td>${j.inaktiv}</td><td>${j.letzter_termin ? esc(formatDate(j.letzter_termin)) : '–'}</td><td>${j.ergebnisse}</td><td>${j.kw_zeilen}</td><td>${j.snapshots}</td><td>${j.wv_offen || ''}</td></tr>`).join('')}
+          <td><strong>${esc(j.bezeichnung)}</strong>${j.id && !j.abgeschlossen && j.aktiv ? ' <span style="font-size:12px;color:var(--clr-amber)" title="Löschen entfernt auch die aktiven Azubis">● aktiv</span>' : ''}</td><td>${j.aktiv ? '<strong style="color:var(--clr-amber)">' + j.aktiv + '</strong>' : 0}</td><td>${j.inaktiv}</td><td>${j.letzter_termin ? esc(formatDate(j.letzter_termin)) : '–'}</td><td>${j.ergebnisse}</td><td>${j.kw_zeilen}</td><td>${j.snapshots}</td><td>${j.wv_offen || ''}</td></tr>`).join('')}
       </tbody></table></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <label style="font-size:12px">Verdichten: inaktiv seit mindestens <input type="number" id="dbtMonate" min="1" max="120" value="${monate}" style="width:56px" class="form-control" onchange="DbTools.renderCard()"> Monaten</label>

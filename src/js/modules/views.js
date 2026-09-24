@@ -69,7 +69,7 @@ const Views = {
         ${showDate ? `<td>${s.letzte_kontrolle ? formatDate(s.letzte_kontrolle) : '<span style="color:var(--clr-red)">nie</span>'}</td>` : ''}
       </tr>`).join('')}
     </tbody></table>
-    ${total > 30 ? `<div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">Zeigt max. 30 von ${total}</div>` : ''}`;
+    ${total > 30 ? `<div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Zeigt max. 30 von ${total}</div>` : ''}`;
   },
 
   dashboard() {
@@ -170,7 +170,7 @@ const Views = {
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-forest)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <strong style="font-size:14px;color:var(--clr-forest-dark)">Wo stehen wir?</strong>
-          <span style="font-size:11px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Kontrolle → Nachbereitung → Berichte</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Kontrolle → Nachbereitung → Berichte</span>
           <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -264,11 +264,11 @@ const Views = {
               const frAj = App.formatTerminFrAj(t.id);
               const schuelerCount = App.getTerminSchueler(t.id).length;
               return `<tr>
-              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '✉︎' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${schule ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : (t.typ === 'einsendung' ? '<em style="color:var(--clr-text-light)">Einsendung</em>' : '<em style="color:var(--clr-amber)">ohne Ort</em>')}</td>
+              <td data-sort="${t.geplant_datum}">${t.typ === 'einsendung' ? '✉︎' : ''} ${formatDate(t.geplant_datum)} <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>              <td>${schule ? esc(schule) + (ort ? ` <span style="color:var(--clr-text-light)">(${esc(ort)})</span>` : '') : (t.typ === 'einsendung' ? '<em style="color:var(--clr-text-light)">Einsendung</em>' : '<em style="color:var(--clr-amber)">ohne Ort</em>')}</td>
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:11px;padding:2px 8px">▸ Starten</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:12px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -304,7 +304,7 @@ const Views = {
               <strong id="kontrollMonateLabel">–</strong>
             </label>
             <input type="range" id="kontrollMonateSlider" min="0" max="18" step="1" value="0" style="flex:1;min-width:100px;accent-color:var(--clr-amber)" oninput="Views._updateKontrollstatus()">
-            <span id="kontrollStatusCount" style="font-size:11px;font-weight:600;color:var(--clr-amber)"></span>
+            <span id="kontrollStatusCount" style="font-size:12px;font-weight:600;color:var(--clr-amber)"></span>
           </div>
           <div id="kontrollStatusTable" class="scroll-subtle" style="max-height:50vh;overflow-y:auto"></div>
         </div>
@@ -340,7 +340,7 @@ const Views = {
               <div style="width:${w}%;background:${color};height:100%;border-radius:3px;min-width:${val?'2px':'0'}"></div>
             </div>
             <span style="text-align:right;font-weight:600">${val}</span>
-            <span style="text-align:right;color:var(--clr-text-light);font-size:10px">${pct}%</span>
+            <span style="text-align:right;color:var(--clr-text-light);font-size:12px">${pct}%</span>
           </div>`;
         };
 
@@ -450,10 +450,10 @@ const Views = {
                   <div style="width:${j.cnt?Math.round((j.issue_cnt||0)/j.cnt*100):0}%;background:var(--clr-red);height:100%" title="${j.issue_cnt||0} mit Mängeln"></div>
                 </div>
                 <span style="min-width:30px;text-align:right;font-weight:600">${j.cnt}</span>
-                <span style="min-width:50px;font-size:10px;color:var(--clr-text-light)">${pruef?'AP '+pruef:''}</span>
+                <span style="min-width:50px;font-size:12px;color:var(--clr-text-light)">${pruef?'AP '+pruef:''}</span>
               </div>`;
             }).join('')}
-            <div style="margin-top:6px;font-size:10px;color:var(--clr-text-light)">
+            <div style="margin-top:6px;font-size:12px;color:var(--clr-text-light)">
               <span style="display:inline-block;width:10px;height:10px;background:var(--clr-green);border-radius:2px;vertical-align:middle"></span> In Ordnung
               <span style="display:inline-block;width:10px;height:10px;background:var(--clr-red);border-radius:2px;vertical-align:middle;margin-left:8px"></span> Mängel
               <span style="display:inline-block;width:10px;height:10px;background:var(--clr-sand);border-radius:2px;vertical-align:middle;margin-left:8px"></span> Noch nicht kontrolliert
@@ -468,19 +468,19 @@ const Views = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-forest)">${total}</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Azubis gesamt</div>
+                <div style="font-size:12px;color:var(--clr-text-light)">Azubis gesamt</div>
               </div>
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-sage)">${verkuerzer}</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Verkürzer (${total?Math.round(verkuerzer/total*100):0}%)</div>
+                <div style="font-size:12px;color:var(--clr-text-light)">Verkürzer (${total?Math.round(verkuerzer/total*100):0}%)</div>
               </div>
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-forest)">${schulen.length}</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Berufsschulen</div>
+                <div style="font-size:12px;color:var(--clr-text-light)">Berufsschulen</div>
               </div>
               <div style="padding:8px;background:var(--clr-warm);border-radius:var(--radius)">
                 <div style="font-size:24px;font-weight:700;color:var(--clr-sage)">${totalBetriebe}</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">Betriebe</div>
+                <div style="font-size:12px;color:var(--clr-text-light)">Betriebe</div>
               </div>
             </div>
           </div>
@@ -501,7 +501,7 @@ const Views = {
               <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px">
                 <span><strong>${esc(p.bezeichnung)}</strong> <span style="color:var(--clr-text-light)">(${p.typ})</span></span>
                 <span style="font-weight:600">${formatDate(p.pruefungstermin)}</span>
-                <span style="color:var(--clr-sage);font-size:11px">${p.cnt} Azubis</span>
+                <span style="color:var(--clr-sage);font-size:12px">${p.cnt} Azubis</span>
               </div>
             `).join('') : '<div style="padding:8px;color:var(--clr-text-light);font-size:12px">Keine anstehenden Prüfungen</div>'}
           </div>
@@ -522,17 +522,17 @@ const Views = {
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">Kontrollfortschritt</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartKontrollfortschritt" style="cursor:pointer"></canvas></div>
-            <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Berichte / Kontrolle</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Berichte / Kontrolle</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">Geschlechterquote</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartGeschlecht" style="cursor:pointer"></canvas></div>
-            <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">Regionale Verteilung</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartRegionen" style="cursor:pointer"></canvas></div>
-            <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Amt-Filter setzen</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Amt-Filter setzen</div>
           </div>
         </div>
 
@@ -540,12 +540,12 @@ const Views = {
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">${svgIcon('abschluss', 15)} Schulabschlüsse</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartSchulabschluss" style="cursor:pointer"></canvas></div>
-            <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">▤ Prüfungserfolg</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartPruefungserfolg" style="cursor:pointer"></canvas></div>
-            <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Azubi-Liste filtern</div>
           </div>
         </div>
 
@@ -559,7 +559,7 @@ const Views = {
         <div class="card dash-chart-card" style="margin-bottom:16px">
           <div class="card-header">Fachrichtungen: Gärtner vs. Fachwerker</div>
           <div class="dash-chart-wrap" style="height:${Math.max(140, Math.min(400, frs.length * 30))}px"><canvas id="chartFachrichtungen" style="cursor:pointer"></canvas></div>
-          <div style="font-size:9px;color:var(--clr-text-light);margin-top:4px">Klick auf Balken → Fachrichtung filtern</div>
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick auf Balken → Fachrichtung filtern</div>
         </div>
 
       </div>`;
@@ -893,7 +893,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">▤ Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="csvPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS/Excel kopieren und hier einfügen (Ctrl+V)&#10;&#10;Erste Zeile = Spaltenüberschriften" style="font-size:12px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('csvPasteArea')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -939,7 +939,7 @@ const Views = {
           <details style="margin-top:8px">
             <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600;padding:4px 0">▤ Alternativ: Daten aus Zwischenablage einfügen (Copy & Paste)</summary>
             <div style="margin-top:6px">
-              <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:11px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
+              <textarea id="lfkPasteArea" class="form-control" rows="6" maxlength="500000" placeholder="Tabelle aus IBYKUS kopieren und hier einfügen (Ctrl+V)&#10;&#10;Spalten: Nr. | Besch-Person | Nummer der Klasse | Beschreibung Klasse | Landesfachklasse" style="font-size:12px;font-family:monospace;white-space:pre;resize:vertical"></textarea>
               <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ImportHandler.handlePaste('lfkPasteArea','lfk')">Eingefügte Daten importieren</button>
             </div>
           </details>
@@ -1066,21 +1066,21 @@ const Views = {
               const bg = td ? (tds.every(x => x.status === 'durchgefuehrt') ? 'var(--clr-green-light)' : 'var(--clr-blue-light)') : '';
               const border = isToday ? '2px solid var(--clr-forest)' : td ? '1px solid var(--clr-sage-light)' : '';
               const tip = tds.map(x => `${x.label} – ${x.detail} – ${x.pruefer}`).join(' | ');
-              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:11px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="${tds.length > 1 ? `App.navigate('planung')` : `PlanungHandler.editTermin(${td.t.id})`}" title="${esc(tip)}"` : ''}>
-                <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}${tds.length > 1 ? ` <span style="font-size:8px;color:var(--clr-sage)">×${tds.length}</span>` : ''}</div>
-                ${tds.map(x => `<div style="font-size:9px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.label)}</div><div style="font-size:8px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.detail)}</div>`).join('')}
+              cells += `<div style="min-height:32px;padding:2px 4px;border-radius:4px;font-size:12px;cursor:${td?'pointer':'default'};background:${bg};border:${border}" ${td ? `onclick="${tds.length > 1 ? `App.navigate('planung')` : `PlanungHandler.editTermin(${td.t.id})`}" title="${esc(tip)}"` : ''}>
+                <div style="font-weight:${isToday?'700':'400'};color:${td?'var(--clr-forest-dark)':'var(--clr-text-light)'}">${d}${tds.length > 1 ? ` <span style="font-size:12px;color:var(--clr-sage)">×${tds.length}</span>` : ''}</div>
+                ${tds.map(x => `<div style="font-size:12px;color:var(--clr-forest);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.label)}</div><div style="font-size:12px;color:var(--clr-sage);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.detail)}</div>`).join('')}
               </div>`;
             }
             return `<div class="card" style="margin-bottom:8px">
               <div class="card-header" style="padding:8px 12px;font-size:13px">${monthName}</div>
               <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:4px 8px 8px">
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Mo</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Di</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Mi</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Do</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Fr</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">Sa</div>
-                <div style="font-size:9px;text-align:center;color:var(--clr-text-light);font-weight:600">So</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Mo</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Di</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Mi</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Do</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Fr</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">Sa</div>
+                <div style="font-size:12px;text-align:center;color:var(--clr-text-light);font-weight:600">So</div>
                 ${cells}
               </div>
             </div>`;
@@ -1101,7 +1101,7 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
-            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:9px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}</td>
+            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}</td>
             <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
             <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
             <td>${esc(klassenStr)}</td>
@@ -1109,7 +1109,7 @@ const Views = {
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
-            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:10px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
+            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td style="white-space:nowrap">
               ${(() => {
                 // Ein Hauptknopf je Termin, passend zum Status; alles Weitere im ⋯-Menü
@@ -1246,9 +1246,9 @@ const Views = {
         const we = dt.getDay() === 0 || dt.getDay() === 6;
         const bg = fer ? 'var(--clr-sand)' : kamp ? farben[kamp.key] : we ? 'transparent' : 'var(--clr-white)';
         const title = [kw ? `KW ${kw}` : '', fer ? fer.name : '', kamp ? kamp.titel : '', block ? `Blockwoche LJ ${[...block].sort().join('+')}` : '', ...tt.map(t => `Termin: ${t.bemerkung || ''} (${t.pruefer || '–'})`)].filter(Boolean).join(' · ');
-        cells += `<div title="${esc(title)}" style="height:20px;font-size:9px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:${bg};${s === heute ? 'outline:2px solid var(--clr-forest);' : ''}${block ? 'border-bottom:2px solid var(--clr-purple);' : ''}color:${we && !fer && !kamp ? 'var(--clr-text-light)' : 'var(--clr-text)'};cursor:${tt.length ? 'pointer' : 'default'}" ${tt.length ? `onclick="PlanungHandler.editTermin(${tt[0].id})"` : ''}>${tt.length ? `<strong style="color:${tt.every(t => t.status === 'durchgefuehrt') ? 'var(--clr-green)' : 'var(--clr-red)'}">●</strong>` : d}</div>`;
+        cells += `<div title="${esc(title)}" style="height:20px;font-size:12px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:${bg};${s === heute ? 'outline:2px solid var(--clr-forest);' : ''}${block ? 'border-bottom:2px solid var(--clr-purple);' : ''}color:${we && !fer && !kamp ? 'var(--clr-text-light)' : 'var(--clr-text)'};cursor:${tt.length ? 'pointer' : 'default'}" ${tt.length ? `onclick="PlanungHandler.editTermin(${tt[0].id})"` : ''}>${tt.length ? `<strong style="color:${tt.every(t => t.status === 'durchgefuehrt') ? 'var(--clr-green)' : 'var(--clr-red)'}">●</strong>` : d}</div>`;
       }
-      return `<div style="min-width:150px;flex:1"><div style="font-size:11px;font-weight:600;color:var(--clr-forest);margin-bottom:3px">${m.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">${cells}</div></div>`;
+      return `<div style="min-width:150px;flex:1"><div style="font-size:12px;font-weight:600;color:var(--clr-forest);margin-bottom:3px">${m.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">${cells}</div></div>`;
     };
     box.innerHTML = `<div class="card">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -1259,7 +1259,7 @@ const Views = {
           <option value="0">Blockwochen: Schule wählen…</option>
           ${schulen.map(sc => `<option value="${sc.id}" ${sc.id === bsId ? 'selected' : ''}>${esc(sc.name)}</option>`).join('')}
         </select>
-        <span style="font-size:11px;color:var(--clr-text-light);display:flex;gap:10px;flex-wrap:wrap;margin-left:auto">
+        <span style="font-size:12px;color:var(--clr-text-light);display:flex;gap:10px;flex-wrap:wrap;margin-left:auto">
           <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-amber-light);vertical-align:middle;border-radius:2px"></span> Kontrolle 2.+3. AJ</span>
           <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-blue-light);vertical-align:middle;border-radius:2px"></span> ZP</span>
           <span><span style="display:inline-block;width:10px;height:10px;background:var(--clr-green-light);vertical-align:middle;border-radius:2px"></span> AP-Zulassung</span>
@@ -1276,7 +1276,7 @@ const Views = {
         ${App.istFerien(heute) ? ` · <span style="color:var(--clr-amber)">${esc(App.istFerien(heute))}</span>` : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:12px">${monate.map(monatHtml).join('')}</div>
-      <div style="font-size:11px;color:var(--clr-text-light);margin-top:8px">Ferientermine sind Richtwerte (Einstellungen → Schulferien anpassen). Kampagnenfenster wie in den Kontroll-Vorlagen.</div>
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Ferientermine sind Richtwerte (Einstellungen → Schulferien anpassen). Kampagnenfenster wie in den Kontroll-Vorlagen.</div>
     </div>`;
   },
 
@@ -1344,7 +1344,7 @@ const Views = {
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
-            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:10px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:10px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
+            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
             <td style="white-space:nowrap">
               ${(() => {
@@ -1393,7 +1393,7 @@ const Views = {
         <p>Durchsichtsbögen, Klassenübersichten und Statistiken exportieren</p>
       </div>
       ${App.filterBadgeHtml()}
-      <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:10px">
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:10px">
         Hinweis: Terminliste und Zulassungsliste folgen den aktiven Filtern.
         Klassenübersicht, Excel-Dashboard und Jahresbericht werten immer den
         <strong>gesamten aktiven Bestand</strong> aus.
@@ -1411,7 +1411,7 @@ const Views = {
             const schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '–');
             const klassenStr = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
             return `<tr>
-            <td>${formatDate(t.geplant_datum)} <span style="font-size:10px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
+            <td>${formatDate(t.geplant_datum)} <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span></td>
             <td>${esc(schule)}</td>
             <td>${esc(klassenStr)}</td>
             <td>${t.kontrolliert} Azubis</td>
@@ -1490,7 +1490,7 @@ const Views = {
             <span style="border-top:1px solid var(--clr-sand);padding-top:4px;margin-top:4px;font-weight:600">Gesamt</span>
             <strong style="border-top:1px solid var(--clr-sand);padding-top:4px;margin-top:4px">${totalRows}</strong>
           </div>
-          <div style="margin-top:8px;font-size:11px;color:${integrity==='ok'?'var(--clr-green)':'var(--clr-red)'}">
+          <div style="margin-top:8px;font-size:12px;color:${integrity==='ok'?'var(--clr-green)':'var(--clr-red)'}">
             Integrität: ${integrity === 'ok' ? '✓ OK' : '✗ ' + integrity}
           </div>
           <div style="margin-top:8px;display:flex;gap:6px">
@@ -1506,6 +1506,10 @@ const Views = {
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:12px">
               <input type="checkbox" ${isDark?'checked':''} onchange="document.body.classList.toggle('dark-mode',this.checked);try{App.uSet('dark',this.checked?'1':'0')}catch(e){}" style="width:20px;height:20px;accent-color:var(--clr-forest)">
               ☾ Dark Mode
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-bottom:12px" title="Ganze Oberfläche um 20 % vergrößert – gilt auf diesem Rechner für alle Personen. Zusätzlich lässt sich der Browser mit Strg und + weiter vergrößern; ab einer kleinen Fensterhöhe scrollen die festen Leisten mit.">
+              <input type="checkbox" ${App.grosseSchrift ? 'checked' : ''} onchange="App.setGrosseSchrift(this.checked)" style="width:20px;height:20px;accent-color:var(--clr-forest)">
+              Große Schrift (dieser Rechner)
             </label>
             <p style="font-size:12px;color:var(--clr-text-light)">Tastenkürzel: <strong>F1</strong> oder <strong>?</strong> für Hilfe, <strong>Ctrl+K</strong> für Suche</p>
           </div>
@@ -1577,9 +1581,9 @@ const Views = {
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <button class="btn btn-secondary" onclick="Konsole.testDialog()" title="Auflisten, Lesen, Schreibprobe, Uhrversatz und Lebenszeichen messen – mit Befunden in Klartext">⚙ Verbindungstest</button>
           <button class="btn btn-secondary" onclick="Konsole.kopieren()" title="Zustandsbild, Ereignisspur und Konsolenprotokoll in die Zwischenablage (Namen geschwärzt)">▤ Zustandsbild kopieren</button>
-          <span style="font-size:11px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code></span>
+          <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code></span>
         </div>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
       </div>
 
       <!-- Landesfachklassen-Regeln -->
@@ -1613,7 +1617,7 @@ const Views = {
         </div>
         <div class="form-group"><label>Funktions-E-Mail Berichtsheftkontrolle (Absender/Kopie bei allen E-Mails)</label>
           <input class="form-control" id="setRPEmail" value="${esc(rpEmail)}" placeholder="berichtsheft.GB@rpf.bwl.de">
-          <div style="font-size:11px;color:var(--clr-text-light);margin-top:3px">Wird bei Sammel-E-Mails an Betriebe als Empfänger („An") eingesetzt und in Vorlagen als {rp_email}. Prüfer-E-Mails werden unter Stammdaten → Prüfer gepflegt.</div>
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:3px">Wird bei Sammel-E-Mails an Betriebe als Empfänger („An") eingesetzt und in Vorlagen als {rp_email}. Prüfer-E-Mails werden unter Stammdaten → Prüfer gepflegt.</div>
         </div>
         <button class="btn btn-primary" onclick="Views.saveEinstellungen()">Einstellungen speichern</button>
       </div>
@@ -1650,11 +1654,11 @@ const Views = {
           <select class="form-control" id="vorlTyp" style="max-width:420px" onchange="Views._vorlageLaden()">
             ${Object.entries(App.VORLAGEN).map(([k, v]) => `<option value="${k}">${esc(v.titel)}${App.getVorlage(k).angepasst ? ' ✎' : ''}</option>`).join('')}
           </select>
-          <span id="vorlStatus" style="font-size:11px;color:var(--clr-text-light)"></span>
+          <span id="vorlStatus" style="font-size:12px;color:var(--clr-text-light)"></span>
         </div>
         <div class="form-group"><label>Betreff</label><input class="form-control" id="vorlBetreff" style="font-size:12px"></div>
         <div class="form-group"><label>Text</label><textarea class="form-control" id="vorlBody" rows="14" style="font-size:12px;font-family:inherit;line-height:1.45"></textarea></div>
-        <div style="font-size:11px;color:var(--clr-text-light);margin-bottom:4px">Platzhalter (Klick fügt an der Cursorposition ein):</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:4px">Platzhalter (Klick fügt an der Cursorposition ein):</div>
         <div id="vorlPlatzhalter" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="Views.saveVorlage()">Vorlage speichern</button>
@@ -1703,7 +1707,7 @@ const Views = {
           <input type="file" id="wordTemplateUpload" accept=".docx" style="display:none" onchange="Views.uploadWordTemplate(this.files[0])">
           <button class="btn btn-sm btn-secondary" onclick="document.getElementById('wordTemplateUpload').click()">Vorlage hochladen (.docx)</button>
           ${App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") ? `<span style="font-size:12px;color:var(--clr-green)">✓ ${esc(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template_name'") || '')}</span>
-          <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.')){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
+          <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="if(confirm('Word-Vorlage wirklich entfernen? Serienbriefe werden dann wieder als Standard-PDF erzeugt.')){App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('word_template','word_template_name')&quot;);Views.einstellungen();App.toast('Word-Vorlage entfernt','success')}">✕ Entfernen</button>` : '<span style="font-size:12px;color:var(--clr-text-light)">Keine Vorlage hinterlegt (Standard-PDF wird verwendet)</span>'}
         </div>
         <details>
           <summary style="cursor:pointer;font-size:12px;color:var(--clr-forest);font-weight:600">Verfügbare Platzhalter anzeigen</summary>
@@ -1739,7 +1743,7 @@ const Views = {
         const logCount = App.scalar("SELECT COUNT(*) FROM aenderungslog WHERE ibykus_relevant=1 AND exportiert=0") || 0;
         const logAll = App.scalar("SELECT COUNT(*) FROM aenderungslog") || 0;
         return `<div class="card" style="margin-top:16px">
-          <div class="card-header">▤ Änderungs-Logbuch ${logCount > 0 ? `<span style="background:var(--clr-red);color:white;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px">${logCount} offen</span>` : ''}</div>
+          <div class="card-header">▤ Änderungs-Logbuch ${logCount > 0 ? `<span style="background:var(--clr-red);color:white;padding:2px 8px;border-radius:10px;font-size:12px;margin-left:8px">${logCount} offen</span>` : ''}</div>
           <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Datenänderungen an Azubi-Stammdaten für den Nachtrag in IBYKUS. ${logAll} Einträge gesamt, davon ${logCount} noch nicht exportiert.</p>
           <div style="padding:8px 12px 12px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm" onclick="Views.showLogbuch()">Logbuch anzeigen</button>
@@ -1767,9 +1771,9 @@ const Views = {
           <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Diese Betriebe könnten identisch sein. Prüfen und ggf. unter Stammdaten → Betriebe zusammenführen.</div>
           <table class="data-table"><thead><tr><th>Betrieb A</th><th>Betrieb B</th><th>Aktion</th></tr></thead><tbody>
             ${dupes.map(d => `<tr>
-              <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id1}</span></td>
-              <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:10px">#${d.id2}</span></td>
-              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:10px">Zusammenführen</button></td>
+              <td>${esc(d.name1)} <span style="color:var(--clr-text-light);font-size:12px">#${d.id1}</span></td>
+              <td>${esc(d.name2)} <span style="color:var(--clr-text-light);font-size:12px">#${d.id2}</span></td>
+              <td><button class="btn btn-sm btn-secondary" onclick="Views.mergeBetriebe(${d.id1},${d.id2})" style="font-size:12px">Zusammenführen</button></td>
             </tr>`).join('')}
           </tbody></table>
         </div>`;
@@ -1788,7 +1792,7 @@ const Views = {
     document.getElementById('vorlStatus').textContent = v.angepasst ? '✎ angepasst (weicht vom Standardtext ab)' : 'Standardtext';
     const ph = [...new Set([...(v.platzhalter || []), 'rp_email', 'datum_heute'])];
     document.getElementById('vorlPlatzhalter').innerHTML = ph.map(p =>
-      `<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px;font-family:monospace" onclick="Views._vorlagePlatzhalterEinfuegen('${p}')">{${p}}</button>`).join('');
+      `<button class="btn btn-sm btn-secondary" style="font-size:12px;padding:2px 6px;font-family:monospace" onclick="Views._vorlagePlatzhalterEinfuegen('${p}')">{${p}}</button>`).join('');
   },
   _vorlagePlatzhalterEinfuegen(p) {
     const ta = document.getElementById('vorlBody');
@@ -1836,7 +1840,7 @@ const Views = {
     App.openModal('Vorschau – ' + App.VORLAGEN[typ].titel, `
       <div style="font-size:12px;margin-bottom:6px"><strong>Betreff:</strong> ${esc(betreff)}</div>
       <pre style="white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.45;background:var(--clr-warm);padding:10px;border-radius:var(--radius);max-height:60vh;overflow:auto">${esc(body)}</pre>
-      ${offen.length ? `<div style="font-size:11px;color:var(--clr-amber);margin-top:6px">Unbekannte Platzhalter bleiben im Schreiben stehen: ${esc(offen.join(' '))}</div>` : ''}
+      ${offen.length ? `<div style="font-size:12px;color:var(--clr-amber);margin-top:6px">Unbekannte Platzhalter bleiben im Schreiben stehen: ${esc(offen.join(' '))}</div>` : ''}
     `, '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>');
   },
   saveAemterEmails() {
@@ -1886,7 +1890,7 @@ const Views = {
     };
     box.innerHTML = `<div style="font-size:12px;font-weight:600;margin-bottom:4px">Backups (${backups.length}, neueste zuerst)</div>
       <div style="max-height:220px;overflow:auto"><table class="data-table" style="font-size:12px"><thead><tr><th>Zeitpunkt</th><th>Datei</th><th style="text-align:right">Größe</th><th style="text-align:right">Aktion</th></tr></thead><tbody>
-      ${backups.map(b => `<tr><td style="white-space:nowrap">${esc(lesbar(b.name))}</td><td style="font-family:monospace;font-size:10px;color:var(--clr-text-light)">${esc(b.name)}</td>
+      ${backups.map(b => `<tr><td style="white-space:nowrap">${esc(lesbar(b.name))}</td><td style="font-family:monospace;font-size:12px;color:var(--clr-text-light)">${esc(b.name)}</td>
         <td style="text-align:right">${fmt(b.size)}</td>
         <td style="text-align:right"><button class="btn btn-sm btn-secondary" onclick="Views.backupRestore('${esc(b.name)}')">⟲ Wiederherstellen</button></td></tr>`).join('')}
       </tbody></table></div>`;
@@ -1962,8 +1966,8 @@ const Views = {
     el.innerHTML = items.map((text, i) => `
       <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--clr-sand)">
         <span style="flex:1;font-size:12px">${esc(text)}</span>
-        <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="Views.editTextbaustein(${i})">✎</button>
-        <button class="btn btn-sm" style="font-size:10px;padding:2px 6px;color:var(--clr-red)" onclick="Views.removeTextbaustein(${i})">✕</button>
+        <button class="btn btn-sm" style="font-size:12px;padding:2px 6px" onclick="Views.editTextbaustein(${i})">✎</button>
+        <button class="btn btn-sm" style="font-size:12px;padding:2px 6px;color:var(--clr-red)" onclick="Views.removeTextbaustein(${i})">✕</button>
       </div>
     `).join('');
   },
@@ -2127,30 +2131,30 @@ const Views = {
         <div class="card-header">1. Termin & Filter wählen</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Datum der Durchsicht</label>
+            <label style="font-size:12px">Datum der Durchsicht</label>
             <input type="date" class="form-control" id="neTerminDatum" value="${todayStr()}" style="width:160px" onchange="NacherfassungHandler._datumGeaendert()">
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Prüfer</label>
+            <label style="font-size:12px">Prüfer</label>
             <select class="form-control" id="neTerminPruefer" style="width:auto">
               ${App.query('SELECT name FROM pruefer WHERE aktiv=1').map(p => `<option>${esc(p.name)}</option>`).join('')}
             </select>
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Schule</label>
+            <label style="font-size:12px">Schule</label>
             <select class="form-control" id="neSchule" style="width:auto" onchange="NacherfassungHandler.loadKlassen()">
               <option value="">– Schule wählen –</option>
               ${schulen.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
             </select>
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Klasse</label>
+            <label style="font-size:12px">Klasse</label>
             <select class="form-control" id="neKlasse" style="width:auto" onchange="NacherfassungHandler.loadSchueler()">
               <option value="">– alle Klassen –</option>
             </select>
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Jahrgang</label>
+            <label style="font-size:12px">Jahrgang</label>
             <select class="form-control" id="neJahrgang" style="width:auto" onchange="NacherfassungHandler.loadSchueler()">
               <option value="">– optional –</option>
               ${(() => {
@@ -2178,7 +2182,7 @@ const Views = {
             </select>
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Fachrichtung</label>
+            <label style="font-size:12px">Fachrichtung</label>
             ${(() => {
               const globalIds = (App.filterFachrichtungen || []).map(Number).filter(n => n > 0);
               const frs = App.query('SELECT id, bezeichnung, typ FROM fachrichtungen ORDER BY typ, bezeichnung');
@@ -2191,7 +2195,7 @@ const Views = {
             })()}
           </div>
           <div class="form-group" style="margin:0">
-            <label style="font-size:11px">Amt</label>
+            <label style="font-size:12px">Amt</label>
             <select class="form-control" id="neAmt" style="width:auto" onchange="NacherfassungHandler.loadSchueler()">
               <option value="">Alle</option>
               ${aemter.map(a => `<option value="${esc(a.zustaendiges_amt)}">${App.amtLabel(a.zustaendiges_amt)}</option>`).join('')}
@@ -2205,7 +2209,7 @@ const Views = {
       <!-- Nicht erfasste Azubi -->
       <div class="card" style="margin-top:16px" id="neNichtErfasst">
         <div class="card-header" style="cursor:pointer" onclick="document.getElementById('neNichtErfasstBody').style.display=document.getElementById('neNichtErfasstBody').style.display==='none'?'':'none'">
-          ▤ Noch nicht kontrollierte Azubis <span id="neNichtErfasstCount" style="font-size:11px;color:var(--clr-amber)"></span>
+          ▤ Noch nicht kontrollierte Azubis <span id="neNichtErfasstCount" style="font-size:12px;color:var(--clr-amber)"></span>
           <span style="float:right;color:var(--clr-text-light)">▾</span>
         </div>
         <div id="neNichtErfasstBody" style="display:none"></div>
@@ -2230,16 +2234,16 @@ const Views = {
           <p>Version ${version} · Stand: ${buildDate}</p>
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" style="font-size:11px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="Views.exportWarnungPDF()" title="Wichtige Hinweise als PDF (Aushang)">⚠︎ Hinweise PDF</button>
-          <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:11px">▤ Komplett-PDF</button>
+          <button class="btn btn-sm" style="font-size:12px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="Views.exportWarnungPDF()" title="Wichtige Hinweise als PDF (Aushang)">⚠︎ Hinweise PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="Views.exportHilfePDF()" style="font-size:12px">▤ Komplett-PDF</button>
         </div>
       </div>
 
       <div style="display:flex;gap:16px;align-items:flex-start">
         <!-- Navigation (links, sticky) -->
         <div id="helpNav" style="position:sticky;top:0;min-width:200px;max-width:200px;max-height:calc(100vh - 20px);overflow-y:auto;padding:8px 0;font-size:12px;background:var(--clr-warm);border-radius:var(--radius);border:1px solid var(--clr-sand);flex-shrink:0">
-          <div style="padding:4px 12px;font-weight:700;color:var(--clr-forest-dark);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
-          ${helpSections.map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:3px 12px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;font-size:11px;line-height:1.4;transition:background 0.15s,border-color 0.15s">${i+1}. ${t}</a>`).join('')}
+          <div style="padding:4px 12px;font-weight:700;color:var(--clr-forest-dark);font-size:12px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Inhalt</div>
+          ${helpSections.map((t,i) => `<a href="#" class="help-nav-link" data-section="${i}" onclick="document.getElementById('help_${i}').scrollIntoView({behavior:'smooth',block:'start'});return false" style="display:block;padding:3px 12px;color:var(--clr-text);text-decoration:none;border-left:3px solid transparent;font-size:12px;line-height:1.4;transition:background 0.15s,border-color 0.15s">${i+1}. ${t}</a>`).join('')}
         </div>
 
         <!-- Content (rechts, feste Breite) -->
@@ -2538,33 +2542,33 @@ const Views = {
             <div class="card-header" style="font-size:15px">⌨︎ Tastenkürzel (vollständig)</div>
             <p><strong>Allgemein:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+K</kbd><span>Globale Suche öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+S</kbd><span>Sofort speichern</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F1 / ?</kbd><span>Tastenkürzel-Übersicht</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Escape</kbd><span>Dialog schließen / Selektion aufheben</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Alt+1–8</kbd><span>Schnellnavigation (Dashboard, Stammdaten, Import, Planung, Kontrolle, WV, Berichte, Einstellungen)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+K</kbd><span>Globale Suche öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+S</kbd><span>Sofort speichern</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F1 / ?</kbd><span>Tastenkürzel-Übersicht</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Escape</kbd><span>Dialog schließen / Selektion aufheben</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Alt+1–8</kbd><span>Schnellnavigation (Dashboard, Stammdaten, Import, Planung, Kontrolle, WV, Berichte, Einstellungen)</span>
             </div>
             <p><strong>In der Kontrolle:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">/</kbd><span>Azubi-Suche fokussieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">F5</kbd><span>Von Datenträger neu laden</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+→ / ←</kbd><span>Nächster / vorheriger Azubi</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">/</kbd><span>Azubi-Suche fokussieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F5</kbd><span>Von Datenträger neu laden</span>
             </div>
             <p><strong>Im KW-Raster:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px">
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">A–G</kbd><span>Mängelcode togglen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">H</kbd><span>Fehltage-Popover öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">1–5</kbd><span>Fehltage-Schnelleingabe</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">0</kbd><span>Fehltage entfernen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">I</kbd><span>Sonstiges-Dialog (Bemerkung)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">O</kbd><span>Keine Beanstandungen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Entf / Backspace</kbd><span>Zelle leeren (→ behoben)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Leertaste / Enter</kbd><span>Bearbeitungs-Modal öffnen</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Pfeiltasten</kbd><span>Zwischen Zellen navigieren</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Shift+Klick</kbd><span>Bereich auswählen (Bulk)</span>
-              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:11px">Shift+Pfeiltaste</kbd><span>Selektion erweitern</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">A–G</kbd><span>Mängelcode togglen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">H</kbd><span>Fehltage-Popover öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">1–5</kbd><span>Fehltage-Schnelleingabe</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">0</kbd><span>Fehltage entfernen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">I</kbd><span>Sonstiges-Dialog (Bemerkung)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">O</kbd><span>Keine Beanstandungen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Entf / Backspace</kbd><span>Zelle leeren (→ behoben)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Leertaste / Enter</kbd><span>Bearbeitungs-Modal öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Pfeiltasten</kbd><span>Zwischen Zellen navigieren</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Klick</kbd><span>Bereich auswählen (Bulk)</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Shift+Pfeiltaste</kbd><span>Selektion erweitern</span>
             </div>
           </div>
 
@@ -3148,7 +3152,7 @@ const Views = {
     const feldLabel = {nachname:'Nachname',vorname:'Vorname',ausbildungsbeginn:'AV-Beginn',ausbildungsende:'AV-Ende',ausbildungsstaette:'Betrieb',status:'Status',aktiv:'Aktiv',ap_zugelassen:'AP-Zulassung',ap_bestanden:'AP-Bestanden',jahrgang_id:'Jahrgang',klasse_id:'Klasse',fachrichtung_id:'Fachrichtung',betrieb_id:'Betrieb-ID',zwischenpruefung:'ZP',zustaendiges_amt:'Amt',landesfachklasse:'LFK',inaktiv_datum:'Inaktiv-Datum',inaktiv_grund:'Inaktiv-Grund',beruf_id:'Beruf',geburtsdatum:'Geburtsdatum',regulaer_dauer_monate:'Dauer (Mon.)',verkuerzung_monate:'Verkürzung',vorzeitige_zulassung:'§45 Vorz.',brutto_lohn:'Bruttolohn',zp_termin:'ZP-Termin',ap_termin:'AP-Termin'};
     App.openModal('▤ Änderungs-Logbuch', `
       <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
-        <table class="data-table" style="font-size:11px">
+        <table class="data-table" style="font-size:12px">
           <thead><tr><th>Zeitpunkt</th><th>Azubi</th><th>Feld</th><th>Alt</th><th>Neu</th><th>Aktion</th><th>Bearbeiter</th><th>IBYKUS</th></tr></thead>
           <tbody>${logs.map(l => `<tr style="${l.exportiert ? 'opacity:0.5' : l.ibykus_relevant ? 'background:var(--clr-amber-light)' : ''}">
             <td style="white-space:nowrap">${esc(l.zeitpunkt||'')}</td>
@@ -3156,8 +3160,8 @@ const Views = {
             <td>${esc(feldLabel[l.feld] || l.feld)}</td>
             <td style="color:var(--clr-red)">${esc(l.alter_wert||'–')}</td>
             <td style="color:var(--clr-green);font-weight:600">${esc(l.neuer_wert||'–')}</td>
-            <td style="font-size:10px">${esc(l.aktion||'')}</td>
-            <td style="font-size:10px">${esc(l.bearbeiter||'')}</td>
+            <td style="font-size:12px">${esc(l.aktion||'')}</td>
+            <td style="font-size:12px">${esc(l.bearbeiter||'')}</td>
             <td style="text-align:center">${l.ibykus_relevant ? (l.exportiert ? '✓' : '⚠︎') : '–'}</td>
           </tr>`).join('')}</tbody>
         </table>

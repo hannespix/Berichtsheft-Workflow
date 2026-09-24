@@ -63,7 +63,7 @@
         Demo-Modus (ohne Datenbank)
       </button>
     </div>
-    <p style="font-size:11px;color:var(--clr-text-light);margin-top:12px">
+    <p style="font-size:12px;color:var(--clr-text-light);margin-top:12px">
       Datenbanken werden im Unterordner <strong>Datenbanken/</strong> gespeichert.<br>
       App-Daten (Sync, Backups) liegen in <strong>_bhk/</strong>.
     </p>
@@ -91,7 +91,7 @@
     </div>
     <p id="browserHint" style="font-size:12px;color:var(--clr-amber);margin-top:8px;display:none">
       ⚠︎ <strong>Bitte Google Chrome oder Microsoft Edge verwenden!</strong><br>
-      <span style="font-size:11px;color:var(--clr-text-light)">Dieses Tool benötigt die File System Access API (Chrome, Edge, Brave).</span>
+      <span style="font-size:12px;color:var(--clr-text-light)">Dieses Tool benötigt die File System Access API (Chrome, Edge, Brave).</span>
     </p>
     <script>
       if (!('showDirectoryPicker' in window)) document.getElementById('browserHint').style.display = '';
@@ -105,7 +105,7 @@
   <!-- Top Bar -->
   <div class="topbar">
     <div class="topbar-brand">
-      <button class="hamburger" id="hamburgerBtn" onclick="App.toggleSidebar()">
+      <button class="hamburger" id="hamburgerBtn" onclick="App.toggleSidebar()" aria-label="Menü ein- oder ausblenden">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <img class="topbar-logo topbar-logo--pos" src="assets/logo/rpf-logo.png" alt="Regierungspräsidium Freiburg, Baden-Württemberg">
@@ -113,23 +113,23 @@
       <h1>Berichtsheftkontrolle</h1>
     </div>
     <div class="topbar-status">
-      <button class="topbar-filter-toggle" id="filterPanelToggle" onclick="App.toggleFilterPanel()" title="Filter ein-/ausblenden">
+      <button class="topbar-filter-toggle" id="filterPanelToggle" onclick="App.toggleFilterPanel()" title="Filter ein-/ausblenden" aria-label="Filter ein- oder ausblenden" aria-controls="filterPanel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        Filter <span id="filterActiveCount" style="font-size:10px;opacity:0.7"></span>
+        Filter <span id="filterActiveCount" style="font-size:12px;opacity:0.7"></span>
       </button>
-      <button class="topbar-btn" onclick="GlobalSearch.open()" title="Suche (Ctrl+K)">
+      <button class="topbar-btn" onclick="GlobalSearch.open()" title="Suche (Ctrl+K)" aria-label="Suche öffnen (Strg+K)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <kbd>Ctrl+K</kbd>
       </button>
       <span id="dbStatusIndicator" style="cursor:pointer" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen ansehen, jetzt schreiben oder als Datei sichern"><span class="dot dot-green"></span>Verbunden</span>
-      <span id="networkQuality" style="display:none;font-size:10px;white-space:nowrap"></span>
-      <button class="btn btn-sm btn-secondary" style="font-size:10px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
+      <span id="networkQuality" style="display:none;font-size:12px;white-space:nowrap"></span>
+      <button class="btn btn-sm btn-secondary" style="font-size:12px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">Prüfer</option>
       </select>
       <span id="dbFileName" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">–</span>
-      <span id="autoSaveIndicator" style="font-size:11px;opacity:0.7">Auto-Save</span>
-      <button id="btnSwitchDB" class="topbar-btn" style="display:none;font-size:10px;padding:2px 8px" onclick="App.switchDB()" title="Datenbank wechseln">
+      <span id="autoSaveIndicator" style="font-size:12px;opacity:0.7">Auto-Save</span>
+      <button id="btnSwitchDB" class="topbar-btn" style="display:none;font-size:12px;padding:2px 8px" onclick="App.switchDB()" title="Datenbank wechseln">
         ↻ DB
       </button>
       <button id="btnGrantAccess" class="btn btn-sm" style="background:var(--clr-gelb);color:#2A2623;border:none;display:none;font-weight:700" onclick="App.grantFolderAccess()">
@@ -165,15 +165,15 @@
       <div id="bavFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px">
         <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('aktiv')">
           <span id="bavOpt_aktiv" style="display:inline-block;width:16px">✓</span> Aktive BAV
-          <div style="font-size:10px;color:#888;margin-left:20px">Laufende Ausbildungsverhältnisse</div>
+          <div style="font-size:12px;color:#888;margin-left:20px">Laufende Ausbildungsverhältnisse</div>
         </div>
         <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('alle')">
           <span id="bavOpt_alle" style="display:inline-block;width:16px"></span> Alle BAV
-          <div style="font-size:10px;color:#888;margin-left:20px">Inkl. beendete Ausbildungsverhältnisse</div>
+          <div style="font-size:12px;color:#888;margin-left:20px">Inkl. beendete Ausbildungsverhältnisse</div>
         </div>
         <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('ende')">
           <span id="bavOpt_ende" style="display:inline-block;width:16px"></span> Beendete BAV
-          <div style="font-size:10px;color:#888;margin-left:20px">Nur beendete Ausbildungsverhältnisse</div>
+          <div style="font-size:12px;color:#888;margin-left:20px">Nur beendete Ausbildungsverhältnisse</div>
         </div>
       </div>
     </div>
@@ -184,7 +184,7 @@
       <div id="extraFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px;max-height:400px;overflow-y:auto"></div>
     </div>
     <div id="extraFilterChips" style="display:contents"></div>
-    <span id="dbLastSaved" style="margin-left:auto;font-size:10px;color:var(--tb-muted)">–</span>
+    <span id="dbLastSaved" style="margin-left:auto;font-size:12px;color:var(--tb-muted)">–</span>
   </div>
 
   <div class="app-layout">
@@ -281,7 +281,7 @@
       <input id="globalSearchInput" class="form-control" placeholder="Name, Betrieb, Schule, Ort, Tel, E-Mail…" style="border:none;font-size:15px;padding:8px 4px;outline:none;width:100%" oninput="GlobalSearch._doSearch(this.value)" onkeydown="GlobalSearch._handleKey(event)" autofocus role="combobox" aria-expanded="true" aria-controls="globalSearchResults" aria-autocomplete="list">
     </div>
     <div id="globalSearchResults" role="listbox" style="max-height:400px;overflow-y:auto;padding:8px"></div>
-    <div style="padding:6px 16px;background:var(--clr-warm);font-size:10px;color:var(--clr-text-light);display:flex;gap:12px">
+    <div style="padding:6px 16px;background:var(--clr-warm);font-size:12px;color:var(--clr-text-light);display:flex;gap:12px">
       <span>↑↓ Navigieren</span><span>Enter Auswählen</span><span>Esc Schließen</span><span style="margin-left:auto">Ctrl+K</span>
     </div>
   </div>
