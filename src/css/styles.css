@@ -961,6 +961,32 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 .az-teil-fuss { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--clr-sand); }
 .az-teil #mAkteBemerkungen { max-height: none; }
 .az-tabelle { font-size: 13px; }
+.az-bearbeiten { margin-left: auto; }
+.az-spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; margin-top: 14px; }
+.az-spalte h3 { font-family: var(--font-display); font-size: 14px; margin: 0 0 6px; color: var(--clr-forest-dark); border-bottom: 1px solid var(--clr-sand); padding-bottom: 4px; }
+.az-spalte h3.az-h3-abstand { margin-top: 14px; }
+.az-zeile { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; }
+.az-label { flex: 0 0 132px; color: var(--clr-text-light); }
+.az-wert { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.az-strahl { margin-top: 2px; }
+.az-strahl-kopf { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
+.az-strahl-balken { position: relative; height: 34px; background: var(--clr-warm); border: 1px solid var(--clr-sand); border-radius: var(--radius); overflow: hidden; }
+.az-strahl-fortschritt { position: absolute; left: 0; top: 0; bottom: 0; background: var(--clr-green-light); }
+.az-phase { position: absolute; top: 0; height: 8px; }
+.az-phase.voll { background: var(--clr-green); opacity: 0.55; }
+.az-phase.teilzeit { background: repeating-linear-gradient(135deg, var(--clr-green) 0 4px, transparent 4px 8px); }
+.az-phase.pause { background: var(--clr-amber); }
+.az-jahr { position: absolute; top: 8px; bottom: 0; border-left: 1px solid var(--clr-sand); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--clr-text-light); }
+.az-jahr:first-child, .az-jahr[style*="left:0%"] { border-left: none; }
+.az-jahr.aktuell { color: var(--clr-forest-dark); font-weight: 700; }
+.az-heute { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--clr-red); }
+.az-heute::after { content: 'heute'; position: absolute; top: -1px; left: 4px; font-size: 12px; color: var(--clr-red); font-weight: 600; }
+.az-strahl-legende { font-size: 12px; color: var(--clr-text-light); margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.az-leg { display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-left: 8px; }
+.az-leg.voll { background: var(--clr-green); opacity: 0.55; }
+.az-leg.teilzeit { background: repeating-linear-gradient(135deg, var(--clr-green) 0 4px, transparent 4px 8px); }
+.az-leg.pause { background: var(--clr-amber); }
+
 .az-leer { color: var(--clr-text-light); font-size: 12px; }
 @media (max-width: 768px) { .az-titel h1 { font-size: 18px; } .az-kopf, .az-teil { padding: 12px; } }
 .help-abschnitt { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--clr-sand); }
