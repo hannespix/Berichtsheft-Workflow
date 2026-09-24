@@ -36,8 +36,10 @@ const Chat = {
   },
   _uKey() { return 'chat_gesehen_' + App._dbSlug(); },
 
-  aktiv() { return !!(App.dirHandle && !App.offlineModus && !App._netzWeg); },
+  an() { return !!(App.kollegenAn && App.kollegenAn()); },
+  aktiv() { return !!(this.an() && App.dirHandle && !App.offlineModus && !App._netzWeg); },
   _grund() {
+    if (!this.an()) return 'Nachrichten sind ausgeschaltet (Einstellungen → Verbindung → Kollegen-Anzeige und Nachrichten)';
     if (!App.dirHandle) return 'Kein Datenbank-Ordner verbunden';
     if (App.offlineModus) return 'Im Offline-Modus werden keine Nachrichten übertragen';
     if (App._netzWeg) return 'Netzlaufwerk nicht erreichbar';
@@ -195,10 +197,17 @@ const Chat = {
   _render() {
     const el = document.getElementById('chatBadge');
     if (!el) return;
-    const n = this.ungelesen();
     // Immer sichtbar: Nicht jeder kennt die Tastenkürzel, und das Symbol ist
     // der einzige Weg zu Nachrichten und zum Melden eines Problems.
     el.style.display = '';
+    if (!this.an()) {
+      // Nachrichten ausgeschaltet: Das Symbol führt nur noch zum Melden
+      el.innerHTML = '⚑ Problem melden';
+      el.title = 'Problem melden (F2): Zustandsbild, Protokoll und Bildschirmfoto an die Entwicklung. Nachrichten an Kollegen sind ausgeschaltet (Einstellungen → Verbindung).';
+      el.style.color = ''; el.style.opacity = '0.7';
+      return;
+    }
+    const n = this.ungelesen();
     el.innerHTML = n ? `✉ <strong>${n}</strong> Nachrichten` : '✉ Nachrichten';
     el.title = (n ? `${n} ungelesene Nachricht(en). ` : '') + 'Nachrichten an Kolleginnen und Kollegen (Strg+M) und Problem melden (F2). Gemeinsamer Ordner, nicht vertraulich.'
       + (this.aktiv() ? '' : ' – ' + this._grund());
@@ -214,6 +223,7 @@ const Chat = {
 
   // ── Fenster ──
   oeffnen(anClient) {
+    if (!this.an()) { if (typeof Melden !== 'undefined') Melden.oeffnen(); else App.toast(this._grund(), 'info'); return; }
     this._gesehenLaden();
     const online = (App.onlineNutzer ? App.onlineNutzer() : []);
     const ziel = anClient || this._letztesZiel || '';

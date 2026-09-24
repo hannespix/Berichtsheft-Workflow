@@ -83,6 +83,7 @@ App.kopieren = async (t) => { kopiert = String(t); return true; };
 App.dirHandle = fakeDir; App.bhkDirHandle = fakeDir; App.autoLoadedDbName = 'test.sqlite'; App._clientIdCache = 'client-AAAA';
 App.currentView = 'planung'; App.currentUser = 'Anna';
 App.dbFileHandle = { name: 'test.sqlite', async getFile() { return { size: 4096, lastModified: Date.now() }; } };
+App.db.run("INSERT INTO einstellungen (schluessel,wert) VALUES ('kollegen_anzeige','1')"); // Präsenz und Chat für diese Suite einschalten
 
 let failed = 0, passed = 0;
 const check = (c, m) => { if (c) { passed++; console.log('  ✓ ' + m); } else { failed++; console.error('  ✗ FEHLER: ' + m); } };
