@@ -1,5 +1,5 @@
 const BulkSchueler = {
-  // Löschen aus der Bulk-Leiste der Schülerliste. Der Knopf rief bisher eine
+  // Löschen aus der Bulk-Leiste der Azubi-Liste. Der Knopf rief bisher eine
   // Funktion auf, die es nicht gab – ein Klick blieb ohne jede Reaktion.
   deleteSelected() {
     const ids = this.getSelected();
@@ -32,7 +32,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const klassen = App.query(`SELECT k.*, bs.name as schule FROM klassen k JOIN berufsschulen bs ON k.berufsschule_id=bs.id ORDER BY bs.name, k.klassenbezeichnung`);
-    App.openModal(`${ids.length} Schüler → Klasse zuordnen`, `
+    App.openModal(`${ids.length} Azubis → Klasse zuordnen`, `
       <div class="form-group"><label>Klasse</label><select class="form-control" id="mBulkKlasse">
         <option value="">– Keine Klasse –</option>
         ${klassen.map(k => `<option value="${k.id}">${esc(k.schule)} – ${esc(k.klassenbezeichnung)}</option>`).join('')}
@@ -45,7 +45,7 @@ const BulkSchueler = {
     const klId = document.getElementById('mBulkKlasse').value || null;
     ids.forEach(id => App.run('UPDATE schueler SET klasse_id=? WHERE id=?', [klId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler zugeordnet`, 'success');
+    App.toast(`${ids.length} Azubis zugeordnet`, 'success');
     this.deselectAll();
     this._refresh();
   },
@@ -53,7 +53,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const jgs = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC, typ');
-    App.openModal(`${ids.length} Schüler → Jahrgang ändern`, `
+    App.openModal(`${ids.length} Azubis → Jahrgang ändern`, `
       <div class="form-group"><label>Abschlussjahrgang</label><select class="form-control" id="mBulkJG">
         ${jgs.map(j => `<option value="${j.id}" ${j.aktiv?'selected':''}>${esc(j.bezeichnung)}${j.typ ? ' ('+j.typ+' '+j.jahr+')' : ''}</option>`).join('')}
       </select></div>
@@ -65,7 +65,7 @@ const BulkSchueler = {
     const jgId = document.getElementById('mBulkJG').value;
     ids.forEach(id => App.run('UPDATE schueler SET jahrgang_id=? WHERE id=?', [jgId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler verschoben`, 'success');
+    App.toast(`${ids.length} Azubis verschoben`, 'success');
     this.deselectAll();
     this._refresh();
   },
@@ -73,7 +73,7 @@ const BulkSchueler = {
     const ids = this.getSelected();
     if (!ids.length) return;
     const frs = App.query('SELECT * FROM fachrichtungen ORDER BY typ, bezeichnung');
-    App.openModal(`${ids.length} Schüler → Fachrichtung ändern`, `
+    App.openModal(`${ids.length} Azubis → Fachrichtung ändern`, `
       <div class="form-group"><label>Fachrichtung</label><select class="form-control" id="mBulkFR">
         <option value="">– Keine –</option>
         ${frs.map(f => `<option value="${f.id}">${esc(f.typ)}: ${esc(f.bezeichnung)} (${f.code})</option>`).join('')}
@@ -86,7 +86,7 @@ const BulkSchueler = {
     const frId = document.getElementById('mBulkFR').value || null;
     ids.forEach(id => App.run('UPDATE schueler SET fachrichtung_id=? WHERE id=?', [frId, id]));
     App.closeModal();
-    App.toast(`${ids.length} Schüler aktualisiert`, 'success');
+    App.toast(`${ids.length} Azubis aktualisiert`, 'success');
     this.deselectAll();
     this._refresh();
   },

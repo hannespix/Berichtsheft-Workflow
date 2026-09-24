@@ -13,7 +13,7 @@ const KontrolleHandler = {
     this.loadTermin(terminId);
   },
 
-  // Zentrale Navigation: Kontrolle öffnen und direkt zu einem bestimmten Schüler springen
+  // Zentrale Navigation: Kontrolle öffnen und direkt zu einem bestimmten Azubi springen
   goToKontrolle(terminId, schuelerId) {
     App.closeModal();
     App.navigate('kontrolle');
@@ -74,7 +74,7 @@ const KontrolleHandler = {
     this.currentSchuelerList = App.getTerminSchueler(terminId);
 
     // Also include students from OTHER classes who have a kontrollergebnis for this termin
-    // (manually added via "+ Schüler hinzufügen")
+    // (manually added via "+ Azubi hinzufügen")
     const extraIds = App.query(`SELECT DISTINCT schueler_id FROM kontrollergebnisse WHERE kontrolltermin_id=?`, [terminId]).map(r => r.schueler_id);
     const currentIds = new Set(this.currentSchuelerList.map(s => s.id));
     const missingIds = extraIds.filter(id => !currentIds.has(id));
@@ -139,16 +139,8 @@ const KontrolleHandler = {
       { label: '⎙ Übersichtstabelle drucken', onclick: `KontrolleHandler.printUebersicht(${tid})` },
     ].filter(Boolean);
   },
-  // Aufklappmenü ohne eigene Zustandslogik: <details>; ein Klick auf einen
-  // Eintrag oder daneben schließt es. Einträge: { label, onclick, title }
-  // oder { trenner: true }. Klasse „oben“ öffnet nach oben (Fußleiste).
-  _menue(titel, eintraege, title, klasse) {
-    if (!this._menueInit) {
-      this._menueInit = true;
-      try { document.addEventListener('click', (e) => { document.querySelectorAll('details.aktionen-menue[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); }); }); } catch(e) {}
-    }
-    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel} ▾</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
-  },
+  // Aufklappmenü – gemeinsamer Helfer im Kern (App.menue), hier nur die Kurzform
+  _menue(titel, eintraege, title, klasse) { return App.menue(titel, eintraege, title, klasse); },
   // Kürzel-Leiste (Mängelcodes + Tasten) ein-/ausblenden – Vorgabe: aus
   legendeUmschalten(an) {
     const bar = document.getElementById('kwLegendBar');
@@ -309,7 +301,7 @@ const KontrolleHandler = {
         </td>
         <td>
           <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht">→</button>
-          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Schüler aus dieser Kontrolle entfernen">✕</button>
+          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:11px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Kontrolle entfernen">✕</button>
         </td>
       </tr>`;
     });
@@ -822,32 +814,32 @@ const KontrolleHandler = {
     const fachrichtungen = App.query(`SELECT * FROM fachrichtungen ORDER BY bezeichnung`);
     const jahrgaenge = App.query('SELECT * FROM abschlussjahrgaenge ORDER BY jahr DESC');
 
-    App.openModal('Schüler zur Kontrolle hinzufügen', `
+    App.openModal('Azubi zur Kontrolle hinzufügen', `
       <!-- Tab buttons -->
       <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--clr-sand);padding-bottom:8px">
         <button class="btn btn-sm" id="tabExisting" style="background:var(--clr-forest);color:var(--clr-white)" onclick="document.getElementById('panelExisting').style.display='';document.getElementById('panelNew').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabNew').style.background='var(--clr-warm)';document.getElementById('tabNew').style.color='var(--clr-text)'">
-          Vorhandener Schüler
+          Vorhandener Azubi
         </button>
         <button class="btn btn-sm" id="tabNew" style="background:var(--clr-warm);color:var(--clr-text)" onclick="document.getElementById('panelNew').style.display='';document.getElementById('panelExisting').style.display='none';this.style.background='var(--clr-forest)';this.style.color='white';document.getElementById('tabExisting').style.background='var(--clr-warm)';document.getElementById('tabExisting').style.color='var(--clr-text)'">
-          Neuer Schüler (manuell)
+          Neuer Azubi (manuell)
         </button>
       </div>
 
-      <!-- Panel 1: Vorhandener Schüler suchen -->
+      <!-- Panel 1: Vorhandener Azubi suchen -->
       <div id="panelExisting">
         <div class="form-group">
-          <label>Schüler suchen (Name, Betrieb, Klasse, Jahrgang)</label>
+          <label>Azubi suchen (Name, Betrieb, Klasse, Jahrgang)</label>
           <input class="form-control" id="addSchuelerSearch" type="text" placeholder="Mind. 2 Buchstaben eingeben…" oninput="KontrolleHandler._liveSearchSchueler(this.value)" autofocus>
         </div>
         <div id="addSchuelerResults" style="max-height:250px;overflow-y:auto;border:1px solid var(--clr-sand);border-radius:var(--radius)">
           <p style="padding:16px;color:var(--clr-text-light);text-align:center;font-size:13px">Suchbegriff eingeben um in <strong>allen ${available.length} verfügbaren Azubis</strong> zu suchen</p>
         </div>
-        <p id="addSchuelerCount" style="font-size:11px;color:var(--clr-text-light);margin-top:6px">${available.length} Schüler verfügbar (nicht in dieser Kontrolle)</p>
+        <p id="addSchuelerCount" style="font-size:11px;color:var(--clr-text-light);margin-top:6px">${available.length} Azubis verfügbar (nicht in dieser Kontrolle)</p>
       </div>
 
-      <!-- Panel 2: Neuer Schüler manuell anlegen -->
+      <!-- Panel 2: Neuer Azubi manuell anlegen -->
       <div id="panelNew" style="display:none">
-        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠︎ Der Schüler wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
+        <p style="font-size:12px;color:var(--clr-amber);margin-bottom:10px">⚠︎ Der Azubi wird dauerhaft in die Datenbank aufgenommen und kann danach auch bei zukünftigen Kontrollen verwendet werden.</p>
         <div class="form-row">
           <div class="form-group"><label>Nachname *</label><input class="form-control" id="newSchNachname" required></div>
           <div class="form-group"><label>Vorname *</label><input class="form-control" id="newSchVorname" required></div>
@@ -889,7 +881,7 @@ const KontrolleHandler = {
         </div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="KontrolleHandler.doAddNewSchueler()">Neuen Schüler anlegen + hinzufügen</button>`);
+        <button class="btn btn-primary" onclick="KontrolleHandler.doAddNewSchueler()">Neuen Azubi anlegen + hinzufügen</button>`);
   },
 
   _liveSearchSchueler(query) {
@@ -940,7 +932,7 @@ const KontrolleHandler = {
   addExistingSchueler(schuelerId) {
     // Check not already added
     if (this.currentSchuelerList.find(s => s.id === schuelerId)) {
-      return App.toast('Schüler ist bereits in dieser Kontrolle', 'warning');
+      return App.toast('Azubi ist bereits in dieser Kontrolle', 'warning');
     }
     // Create kontrollergebnis for this student + termin
     const existing = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId]);
@@ -984,7 +976,7 @@ const KontrolleHandler = {
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     const hasDaten = ke && ke.ergebnis && ke.ergebnis !== '';
     const msg = hasDaten
-      ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Schüler liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
+      ? `${name} aus dieser Kontrolle entfernen?\n\nAchtung: Für diesen Azubi liegt bereits ein Ergebnis vor (${ke.ergebnis}). Dieses wird gelöscht!`
       : `${name} aus dieser Kontrolle entfernen?`;
     if (!confirm(msg)) return;
     // Delete kontrollergebnis for this termin+student
@@ -1017,7 +1009,7 @@ const KontrolleHandler = {
     // Check for duplicates
     const dup = App.query('SELECT id FROM schueler WHERE nachname=? AND vorname=? AND jahrgang_id=?', [nachname, vorname, jgId]);
     if (dup.length) {
-      if (!confirm(`Ein Schüler "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
+      if (!confirm(`Ein Azubi "${nachname}, ${vorname}" existiert bereits. Trotzdem neu anlegen?`)) return;
     }
 
     // Insert into schueler table
@@ -1221,10 +1213,10 @@ const KontrolleHandler = {
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
           <span style="font-size:24px">⊘</span>
           <div>
-            <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Schüler!</strong>
-            <div style="font-size:12px;color:var(--clr-text)">Dieser Schüler ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Schüler wechselt.</div>
+            <strong style="color:var(--clr-red);font-size:14px">${esc(isLocked.pruefer)} bearbeitet diesen Azubi!</strong>
+            <div style="font-size:12px;color:var(--clr-text)">Dieser Azubi ist gesperrt bis ${esc(isLocked.pruefer)} auf <em>"Speichern & Freigeben"</em> klickt oder zum nächsten Azubi wechselt.</div>
             <div style="font-size:11px;color:var(--clr-text-light);margin-top:4px">
-              Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Schüler bearbeiten.
+              Seit ${formatDateTime(isLocked.seit)} · Bitte einen anderen Azubi bearbeiten.
               <button class="btn btn-sm btn-primary" style="margin-left:12px;font-size:11px;padding:2px 8px" onclick="KontrolleHandler.nextOffen()">→ Nächster freier Azubi</button>
               <button class="btn btn-sm" style="margin-left:6px;font-size:11px;padding:2px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);color:var(--clr-amber)" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben (Datenkonflikt möglich!)</button>
             </div>
@@ -1233,7 +1225,7 @@ const KontrolleHandler = {
       </div>` : `<div id="lockWarning" style="display:none" class="card" style="margin-bottom:8px;border-left:4px solid var(--clr-red);background:var(--clr-red-light)">
         <div style="display:flex;align-items:center;gap:8px;font-size:13px">
           <span style="font-size:24px">⊘</span>
-          <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Schüler!</strong>
+          <div><strong style="color:var(--clr-red)"><span class="lock-pruefer"></span> bearbeitet diesen Azubi!</strong>
             <div style="font-size:11px;color:var(--clr-text-light)"><button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="KontrolleHandler.overrideLock()">⚠︎ Sperre aufheben</button></div>
           </div>
         </div>
@@ -1364,7 +1356,7 @@ const KontrolleHandler = {
           WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != ''
           ORDER BY kt.geplant_datum DESC`, [s.id, this.currentTerminId]);
         if (!prevKEs.length && durchsichtNr <= 1) {
-          return '<div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px;font-size:12px;color:var(--clr-forest-dark)"><strong>Erste Durchsicht</strong> für diesen Schüler – noch keine Vorgänger-Daten vorhanden.</div>';
+          return '<div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);margin-bottom:12px;font-size:12px;color:var(--clr-forest-dark)"><strong>Erste Durchsicht</strong> für diesen Azubi – noch keine Vorgänger-Daten vorhanden.</div>';
         }
         if (!prevKEs.length) return '';
         const lastPrev = prevKEs[0];
@@ -1977,7 +1969,7 @@ const KontrolleHandler = {
     this.renderSchueler(); // re-render to show unlocked state
     // Abschluss des Berichtshefts: sofort anhängen, Ergebnis zurückmelden
     App.sofortSpeichern('Freigeben').then(ok => {
-      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Schüler'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
+      App.toast(`${s ? s.nachname + ', ' + s.vorname : 'Azubi'} freigegeben – ${ok ? 'Änderungen sind auf dem Netzlaufwerk' : 'Änderungen werden noch geschrieben'}`, ok ? 'success' : 'info');
       this._gesichertAnzeigen();
     });
   },
@@ -2239,7 +2231,7 @@ const KontrolleHandler = {
     const progEl = document.querySelector('[data-sync-progress]');
     if (progEl) {
       const open = total - done;
-      progEl.innerHTML = `${done} von ${total} Schülern kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}`;
+      progEl.innerHTML = `${done} von ${total} Azubis kontrolliert${open > 0 ? ` – <strong>${open} offen</strong>` : ' – <strong style="color:var(--clr-green)">alle fertig!</strong>'}`;
     }
     const progBar = document.querySelector('[data-sync-progress-bar]');
     if (progBar) progBar.style.width = `${total ? Math.round(done/total*100) : 0}%`;
@@ -2392,7 +2384,7 @@ const KontrolleHandler = {
     }
   },
 
-  // ── Schülersuche innerhalb Kontrolle ──
+  // ── Azubi-Suche innerhalb Kontrolle ──
   _searchHighlightIdx: -1,
 
   searchSchueler(query) {
@@ -2515,7 +2507,7 @@ const KontrolleHandler = {
   // ── Ausgewählte als "In Ordnung" markieren ──
   bulkMarkOK() {
     const ids = [...document.querySelectorAll('.chk-ok:checked')].map(c => parseInt(c.value));
-    if (!ids.length) return App.toast('Bitte Schüler auswählen', 'warning');
+    if (!ids.length) return App.toast('Bitte Azubi auswählen', 'warning');
     if (!this._pruefeAbgeschlossen()) return;
     const wvOffen = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id IN (${ids.join(',')}) AND status IN ('offen','ueberfaellig')`) || 0;
     if (!confirm(`${ids.length} Auszubildende als „In Ordnung" markieren?\n\nDabei werden je Azubi die 5 Pflichtteile auf „ja" gesetzt${wvOffen ? ` und ${wvOffen} offene Wiedervorlage(n) geschlossen (auch aus früheren Terminen)` : ''}.`)) return;
@@ -2612,7 +2604,7 @@ const KontrolleHandler = {
         <strong style="font-size:13px;color:var(--clr-forest)">Nachbereitung</strong>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> ▤ PDFs für mangelhafte Schüler generieren (${mangelhafte.length})
+            <input type="checkbox" id="wizPDF" checked style="accent-color:var(--clr-forest)"> ▤ PDFs für mangelhafte Azubis generieren (${mangelhafte.length})
           </label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="wizEmailSchule" style="accent-color:var(--clr-forest)"> ✉︎ Ergebnis-Zusammenfassung an Schule senden

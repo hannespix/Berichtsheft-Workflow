@@ -248,7 +248,7 @@ const PlanungHandler = {
         <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
-      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Schüler manuell hinzufügen -->
+      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
       <div id="sectionEinsendungExtra" style="margin-top:12px;padding:12px 16px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius)">
         <div class="form-group" style="margin-bottom:8px">
           <label style="font-weight:600;color:var(--clr-forest)">Einzelne Azubis hinzufügen (z.B. LFK-Gäste, fremde Ämter)</label>
@@ -437,7 +437,7 @@ const PlanungHandler = {
     // "Keine"-Auswahl in einer Dimension → leere Menge, gar nicht erst suchen
     if ([jg, zp, bs, amt, fr, lj].some(sel => sel[0] === '∅')) {
       box.style.display = '';
-      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Azubis für diese Filterauswahl gefunden.</div>';
       return;
     }
 
@@ -467,7 +467,7 @@ const PlanungHandler = {
     const gruppen = App.getStandortgruppen(opts);
     if (!gruppen.length) {
       box.style.display = '';
-      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Schüler für diese Filterauswahl gefunden.</div>';
+      content.innerHTML = '<div style="font-size:12px;color:var(--clr-text-light);padding:4px">Keine Azubis für diese Filterauswahl gefunden.</div>';
       return;
     }
 
@@ -475,7 +475,7 @@ const PlanungHandler = {
     const filtered = bs.length ? gruppen.filter(g => bs.some(b => g.schule.toLowerCase().includes(b.toLowerCase()))) : gruppen;
     this._standortGruppen = filtered;
 
-    // Check ob es LFK-Schüler gibt
+    // Check ob es LFK-Azubis gibt
     const hasAnyLFK = filtered.some(g => g.hasLFK);
 
     // Filter-Label für Anzeige
@@ -489,14 +489,14 @@ const PlanungHandler = {
 
     box.style.display = '';
     content.innerHTML = `<div style="font-size:11px;color:var(--clr-text-light);margin-bottom:6px">
-        Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Schüler an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
+        Filter: <strong>${activeFilters.join(' + ')}</strong> → ${gruppen.reduce((s,g) => s + g.schueler.length, 0)} Azubis an ${filtered.length} Standort${filtered.length !== 1 ? 'en' : ''}
       </div>`
     + filtered.map((g, gi) => {
       const lfkCount = g.schueler.filter(s => App.getAktuelleSchule(s, terminDatum || undefined).isLandesfachklasse).length;
       const regCount = g.schueler.length - lfkCount;
       const klasseIds = [...g.klasse_ids];
 
-      // Schüler-Details für Tooltip
+      // Azubi-Details für Tooltip
       const schuelerNames = g.schueler.slice(0, 8).map(s => `${s.nachname}, ${s.vorname}`).join('\n');
       const moreHint = g.schueler.length > 8 ? `\n… und ${g.schueler.length - 8} weitere` : '';
 
@@ -508,7 +508,7 @@ const PlanungHandler = {
         <div style="flex:1">
           <strong style="font-size:13px;color:var(--clr-forest-dark)">${esc(g.schule)}</strong>
           <div style="font-size:11px;color:var(--clr-text-light)">
-            ${g.schueler.length} Schüler${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
+            ${g.schueler.length} Azubis${regCount && lfkCount ? ` (${regCount} regulär + ${lfkCount} LFK)` : lfkCount ? ' (alle LFK)' : ''}
           </div>
         </div>
         ${g.hasLFK ? '<span style="font-size:10px;padding:2px 8px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:10px;font-weight:600">LFK</span>' : ''}
@@ -516,7 +516,7 @@ const PlanungHandler = {
       </div>`;
     }).join('')
     + (hasAnyLFK ? `<div style="font-size:10px;color:var(--clr-purple);margin-top:6px;padding:4px 0">
-      <strong>LFK</strong> = Schüler an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
+      <strong>LFK</strong> = Azubi an Landesfachklasse (besuchen diese Schule statt ihrer regulären Berufsschule)
     </div>` : '');
   },
 
@@ -578,7 +578,7 @@ const PlanungHandler = {
       }
     });
     this._renderEinsendSelected();
-    App.toast(`${added} Schüler aus "${label}" hinzugefügt`, 'success');
+    App.toast(`${added} Azubis aus "${label}" hinzugefügt`, 'success');
   },
 
   _renderEinsendSelected() {
@@ -599,7 +599,7 @@ const PlanungHandler = {
         <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="PlanungHandler._removeEinsendSchueler(${sid})">✕</span>
       </span>`;
     }).join('');
-    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Schüler ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
+    if (info) info.innerHTML = `<strong>${this._einsendSchuelerIds.length}</strong> Azubi ausgewählt · <a href="#" onclick="PlanungHandler._einsendSchuelerIds=[];PlanungHandler._renderEinsendSelected();return false" style="color:var(--clr-red);font-size:11px">Alle entfernen</a>`;
   },
 
   _einsendSchuelerIds: [],
@@ -746,13 +746,13 @@ const PlanungHandler = {
     
     // Get selected class IDs (Schulkontrolle)
     const selectedKlassen = [...document.querySelectorAll('.chk-termin-kl:checked')].map(c => parseInt(c.value));
-    // Get selected students (Einsendung) + Smart-Standort LFK-Schüler
+    // Get selected students (Einsendung) + Smart-Standort LFK-Azubis
     const selectedSchueler = this._einsendSchuelerIds || [];
     const standortSchueler = this._standortSchuelerIds || [];
 
     if (!dt) return App.toast('Datum ist Pflicht', 'error');
     if (!pr) return App.toast('Mindestens ein Prüfer muss ausgewählt werden', 'error');
-    if (!selectedKlassen.length && !selectedSchueler.length && !standortSchueler.length) return App.toast('Mindestens eine Klasse oder einen Schüler auswählen', 'error');
+    if (!selectedKlassen.length && !selectedSchueler.length && !standortSchueler.length) return App.toast('Mindestens eine Klasse oder einen Azubi auswählen', 'error');
     
     // Get jahrgang from first selected class
     const firstChecked = document.querySelector('.chk-termin-kl:checked');
@@ -777,23 +777,23 @@ const PlanungHandler = {
       // Legacy klasse_id IMMER setzen – auch auf NULL: sonst holte der
       // Fallback in getTerminKlassenIds eine abgewählte Klasse zurück
       App.run('UPDATE kontrolltermine SET klasse_id=? WHERE id=?', [selectedKlassen[0] || null, id]);
-      // Update individual student links (Einsendung + Smart-Standort LFK-Schüler)
+      // Update individual student links (Einsendung + Smart-Standort LFK-Azubis)
       App.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=?', [id]);
       const allExtraSchuelerEdit = [...new Set([...selectedSchueler, ...standortSchueler])];
       allExtraSchuelerEdit.forEach(sid => {
         App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [id, sid]);
       });
 
-      // Verwaiste Kontrollergebnisse aufräumen: Schüler, die nicht mehr zum Termin gehören
+      // Verwaiste Kontrollergebnisse aufräumen: Azubi, die nicht mehr zum Termin gehören
       // (weder über Klassen noch über Einzel-Zuordnung), deren KE-Daten aber noch existieren
       const validSchuelerIds = new Set();
-      // Schüler aus verknüpften Klassen
+      // Azubi aus verknüpften Klassen
       if (selectedKlassen.length) {
         const klPh = selectedKlassen.map(() => '?').join(',');
         App.query(`SELECT id FROM schueler WHERE klasse_id IN (${klPh}) AND aktiv=1`, selectedKlassen)
           .forEach(s => validSchuelerIds.add(s.id));
       }
-      // Einzeln verknüpfte Schüler
+      // Einzeln verknüpfte Azubi
       allExtraSchuelerEdit.forEach(sid => validSchuelerIds.add(sid));
       // Verwaiste KEs: NUR leere Bögen löschen. Bögen MIT Inhalt (am
       // Kontrolltag ad hoc hinzugefügte Gäste, inzwischen inaktive Azubis)
@@ -824,7 +824,7 @@ const PlanungHandler = {
         selectedKlassen.forEach(klId => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (?,?)', [newId, klId]);
         });
-        // Link individual students (Einsendung + Smart-Standort LFK-Schüler)
+        // Link individual students (Einsendung + Smart-Standort LFK-Azubis)
         const allExtraSchueler = [...new Set([...selectedSchueler, ...standortSchueler])];
         allExtraSchueler.forEach(sid => {
           App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [newId, sid]);
@@ -938,7 +938,7 @@ const PlanungHandler = {
         <div id="standortAuswahlInfo" style="font-size:11px;color:var(--clr-forest);font-weight:600;margin-top:4px"></div>
       </div>
 
-      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Schüler manuell hinzufügen -->
+      <!-- NUR BEI EINSENDUNG: Zusätzlich einzelne Azubis manuell hinzufügen -->
       <div id="sectionEinsendungExtra" style="margin-top:12px;padding:12px 16px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius)">
         <div class="form-group" style="margin-bottom:8px">
           <label style="font-weight:600;color:var(--clr-forest)">Einzelne Azubis hinzufügen (z.B. LFK-Gäste, fremde Ämter)</label>
@@ -1092,7 +1092,7 @@ const PlanungHandler = {
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
-  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Schüler")
+  // nurIds (optional): nur diese Azubis (z.B. „PDFs für mangelhafte Azubis")
   exportTerminPDF(terminId, nurIds) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
@@ -1111,7 +1111,7 @@ const PlanungHandler = {
       const ids = nurIds.map(Number).filter(Boolean);
       schuelerList = ids.length ? App.query(`SELECT * FROM schueler WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY nachname, vorname`, ids) : [];
     }
-    if (!schuelerList.length) return App.toast('Keine Schüler für diesen Termin', 'warning');
+    if (!schuelerList.length) return App.toast('Keine Azubis für diesen Termin', 'warning');
     PDFExport.generateBatch(doc => doc, termin, terminId, schuelerList);
   },
 

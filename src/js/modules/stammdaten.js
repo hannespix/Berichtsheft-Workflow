@@ -40,6 +40,13 @@ const StammdatenTab = {
   _azubiSearch: '',
   _azubiFilter: {},
   _azubiPage: 0,
+  AZUBI_SEITE: 50,
+  _azubiSeite(n) {
+    this._azubiPage = Math.max(0, n | 0);
+    const c = document.getElementById('stammdatenContent');
+    if (c) this._renderAzubiTable(c);
+    try { const t = document.getElementById('azubiTableContainer'); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch(e) {}
+  },
   _azubiDebounce: null,
   // Extra filters are now global (App.extraFilters) - no local definitions needed
 
@@ -90,9 +97,15 @@ const StammdatenTab = {
       ${globalBadge}
       ${fil.drillDown ? `<span style="font-size:11px;padding:3px 8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:6px;display:flex;align-items:center;gap:4px">${esc(fil.drillDown.label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold" onclick="StammdatenTab._azubiFilter.drillDown=null;StammdatenTab._azubiPage=0;StammdatenTab._renderAzubiTable(document.getElementById('stammdatenContent'))">✕</span></span>` : ''}
       <span id="azubiCount" style="font-size:12px;color:var(--clr-text-light)"></span>
-      <div style="margin-left:auto;display:flex;gap:4px">
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._exportAzubiExcel()" title="Gefilterte Liste als Excel exportieren" style="font-size:11px;padding:4px 8px">Excel</button>
-        <button class="btn btn-sm btn-secondary" onclick="StammdatenTab._copyAzubiTable()" title="Tabelle in Zwischenablage kopieren" style="font-size:11px;padding:4px 8px">▤ Kopieren</button>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm btn-secondary" onclick="ImportHandler.addManually()" title="Azubi von Hand anlegen (nicht aus IBYKUS)">+ Azubi</button>
+        ${App.menue('Liste', [
+          { label: '▤ Als Excel exportieren', onclick: 'StammdatenTab._exportAzubiExcel()', title: 'Gefilterte Liste als Excel' },
+          { label: '▤ Tabelle kopieren', onclick: 'StammdatenTab._copyAzubiTable()', title: 'In die Zwischenablage' },
+          { trenner: true },
+          { label: '⚑ Jahrgang abschließen…', onclick: 'SchuelerView.abschliessenJahrgang()', title: 'Alle Azubis eines Jahrgangs als AP bestanden markieren und inaktiv setzen' },
+          { label: '✕ Jahrgang komplett löschen…', onclick: 'ImportHandler.deleteAllJahrgang()', title: 'Alle Azubis eines Jahrgangs samt Ergebnissen entfernen (z.B. vor einem Neu-Import)' },
+        ], 'Export, Jahrgang abschließen oder löschen')}
       </div>
     </div>
     <div id="azubiTableContainer"></div>`;
@@ -218,7 +231,7 @@ const StammdatenTab = {
     if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
     // Drill-down filter (from dashboard clicks)
     if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
-    // If global "Inaktive Schüler" extra filter is active, remove the s.aktiv=1 constraint
+    // If global "Inaktive Azubi" extra filter is active, remove the s.aktiv=1 constraint
     const ef = App._extraFilterSql();
     if (ef.overrideAktiv) { where = where.replace('s.aktiv=1', '1=1'); }
     // Store for export
@@ -226,9 +239,21 @@ const StammdatenTab = {
     this._lastAzubiParams = [...params];
     const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
 
+    // Seiten à AZUBI_SEITE Zeilen: bei 4000 Azubis rechnete die Liste sonst
+    // je Zeile vier Abfragen und wurde 16.000 px hoch
+    const seiten = Math.max(1, Math.ceil(azubis.length / this.AZUBI_SEITE));
+    if (!(this._azubiPage >= 0)) this._azubiPage = 0;
+    if (this._azubiPage >= seiten) this._azubiPage = seiten - 1;
+    const sichtbar = azubis.slice(this._azubiPage * this.AZUBI_SEITE, (this._azubiPage + 1) * this.AZUBI_SEITE);
+    const pager = seiten > 1 ? `<div class="azubi-pager"><span>Seite ${this._azubiPage + 1} von ${seiten} · ${azubis.length} Azubis</span><div class="btn-group">
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage <= 0 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(0)" title="Erste Seite">«</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage <= 0 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${this._azubiPage - 1})" title="Vorherige Seite">‹</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage >= seiten - 1 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${this._azubiPage + 1})" title="Nächste Seite">›</button>
+        <button class="btn btn-sm btn-secondary" ${this._azubiPage >= seiten - 1 ? 'disabled' : ''} onclick="StammdatenTab._azubiSeite(${seiten - 1})" title="Letzte Seite">»</button>
+      </div></div>` : '';
     // Update count label
     const countEl = document.getElementById('azubiCount');
-    if (countEl) countEl.textContent = `${azubis.length} Treffer`;
+    if (countEl) countEl.textContent = `${azubis.length} Treffer${seiten > 1 ? ` · Seite ${this._azubiPage + 1}/${seiten}` : ''}`;
 
     // Only update the table, not the search bar (preserves cursor position)
     container.innerHTML = `
@@ -246,7 +271,7 @@ const StammdatenTab = {
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
       ${azubis.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
-      ${azubis.map(s => {
+      ${sichtbar.map(s => {
         const ktrls = App.query('SELECT ke.*, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != "" ORDER BY kt.geplant_datum DESC', [s.id]);
         const snpCnt = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE schueler_id=?', [s.id])||0;
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id])||0;
@@ -261,7 +286,7 @@ const StammdatenTab = {
             ${wvO?'<span style="font-size:9px;padding:1px 4px;background:var(--clr-amber);color:white;border-radius:8px" title="Offene oder überfällige Wiedervorlage vorhanden">WV</span>':''}
             <div style="font-size:10px;color:var(--clr-text-light)">${esc(s.ibykus_id||'')}${s.zustaendiges_amt && s.zustaendiges_amt !== '93' ? ' <span style="padding:0 3px;background:var(--clr-blue-light);border-radius:4px;font-weight:600">'+esc(App.amtLabel(s.zustaendiges_amt))+'</span>' : ''}</div></td>
           <td>${s.betrieb_id ? `<a href="#" onclick="StammdatenTab.showBetriebAzubis(${s.betrieb_id});return false" style="color:var(--clr-forest);font-weight:600;font-size:12px;text-decoration:underline" title="Alle Azubis dieses Betriebs">${esc(s.b_name||s.ausbildungsstaette||'')}</a>` : `<strong style="font-size:12px">${esc(s.b_name||s.ausbildungsstaette||'')}</strong>`}${s.b_ort?'<div style="font-size:10px;color:var(--clr-text-light)">'+esc(s.b_ort)+'</div>':''}</td>
-          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Schüler dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
+          <td style="font-size:12px">${(() => { const ak = App.getAktuelleSchule(s); return (s.klasse_id ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${s.klasse_id});return false" style="color:var(--clr-forest);text-decoration:underline" title="Alle Azubis dieser Klasse">${esc(ak.schule||'')}</a>` : esc(ak.schule||'')) + (ak.isLandesfachklasse ? ' <span style="font-size:9px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Landesfachklasse (regulär: '+esc(s.schule||'')+')" >LFK</span>' : ''); })()}<div style="font-size:10px;color:var(--clr-text-light)">${esc(s.klassenbezeichnung||'')}</div></td>
           <td style="font-size:12px">${esc(s.jahrgang||'')}</td>
           <td style="font-size:11px">${s.fr_typ==='Fachwerker'?'FW ':''}${esc(s.fachrichtung||'')}</td>
           <td style="font-size:11px;white-space:nowrap">
@@ -276,10 +301,17 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:9px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td class="btn-group" style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">✎</button>${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="Phasen.editor(${s.id})" title="Ausbildungsverlauf (Phasen: Teilzeit, Unterbrechungen, Betriebswechsel)">${svgIcon('dashboard', 13)}</button>`:''}<button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:11px" onclick="SchuelerAkte.open(${s.id})" title="Akte: Bemerkungen">${svgIcon('akte', 13)}</button></td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">Bearbeiten</button> ${App.menue('⋯', [
+            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `Phasen.editor(${s.id})`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
+            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `SchuelerAkte.open(${s.id})` },
+            { label: '▤ Einzelprüfung anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung)' },
+            snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
+            { trenner: true },
+            { label: '✕ Azubi löschen', onclick: `ImportHandler.deleteSchueler(${s.id})` },
+          ].filter(Boolean), 'Weitere Aktionen', 'klein')}</td>
         </tr>`;
       }).join('')}
-    </tbody></table></div>`;
+    </tbody></table>${pager}</div>`;
   },
 
   // ── Bulk operations for Azubi table ──
@@ -293,7 +325,7 @@ const StammdatenTab = {
     if (cnt) cnt.textContent = ids.length;
     if (bar) bar.style.display = ids.length > 0 ? 'flex' : 'none';
     // (kein Override von BulkSchueler.getSelected mehr – der Standard-Selektor
-    // deckt beide Listen ab; der Override machte die Leiste der Schülerliste tot)
+    // deckt beide Listen ab; der Override machte die Leiste der Azubi-Liste tot)
   },
 
   _bulkDeleteAzubis() {
@@ -494,7 +526,7 @@ const StammdatenTab = {
         <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('jahrgang')" title="Ähnliche Jahrgangsbezeichnungen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addJahrgang()">+ Neuer Abschlussjahrgang</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Schüler</th><th>Aktionen</th></tr></thead><tbody>
+      <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Azubi</th><th>Aktionen</th></tr></thead><tbody>
         ${rows.map(r => {
           const bgFR = App.filterFachrichtungen.length ? ` AND fachrichtung_id IN (${App.filterFachrichtungen.join(',')})` : '';
           const cnt = App.scalar(`SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?${bgFR}`, [r.id]) || 0;
@@ -611,7 +643,7 @@ const StammdatenTab = {
     if (!ids.length) return;
     if (!confirm(`${ids.length} Schulen löschen? Zugehörige Klassen werden ebenfalls gelöscht.`)) return;
     // NUR die Kaskade: sie löst jede Klasse der Schule einzeln über
-    // deleteKlasseKaskade auf (Schüler-Zuordnung, Termin-Klassen usw.).
+    // deleteKlasseKaskade auf (Azubi-Zuordnung, Termin-Klassen usw.).
     // Ein direktes DELETE FROM klassen davor machte die Kaskade zum No-Op
     // und hinterließ verwaiste klasse_id-Verweise.
     ids.forEach(id => App.deleteSchuleKaskade(id));
@@ -623,7 +655,7 @@ const StammdatenTab = {
     if (ids.length < 2) return App.toast('Mindestens 2 Schulen zum Zusammenführen auswählen', 'warning');
     const schulen = ids.map(id => App.query('SELECT * FROM berufsschulen WHERE id=?',[id])[0]).filter(Boolean);
     App.openModal('Schulen zusammenführen', `
-      <p style="font-size:13px;margin-bottom:12px">Alle Klassen und Schüler der ausgewählten Schulen werden auf <strong>eine Ziel-Schule</strong> übertragen. Die anderen werden gelöscht.</p>
+      <p style="font-size:13px;margin-bottom:12px">Alle Klassen und Azubis der ausgewählten Schulen werden auf <strong>eine Ziel-Schule</strong> übertragen. Die anderen werden gelöscht.</p>
       <div class="form-group"><label>Ziel-Schule (bleibt bestehen)</label><select class="form-control" id="mMergeTarget">
         ${schulen.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
       </select></div>
@@ -823,7 +855,7 @@ const StammdatenTab = {
       </div>
       <div class="card"><table class="data-table"><thead><tr>
         <th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkKlassen()"></th>
-        <th>Berufsschule</th><th>Jahrgang</th><th>LJ</th><th>Fachrichtung</th><th>Bezeichnung</th><th>Schüler</th><th>Aktionen</th>
+        <th>Berufsschule</th><th>Jahrgang</th><th>LJ</th><th>Fachrichtung</th><th>Bezeichnung</th><th>Azubi</th><th>Aktionen</th>
       </tr></thead><tbody>
         ${rows.map(r => {
           const cnt = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [r.id]) || 0;
@@ -834,7 +866,7 @@ const StammdatenTab = {
             <td>${r.lehrjahr || '–'}</td>
             <td>${esc(r.fachrichtung || '–')}</td>
             <td>${esc(r.klassenbezeichnung)}</td>
-            <td>${cnt > 0 ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Schüler anzeigen">${cnt}</a>` : '0'}</td>
+            <td>${cnt > 0 ? `<a href="#" onclick="StammdatenTab.showKlasseAzubis(${r.id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Azubi anzeigen">${cnt}</a>` : '0'}</td>
             <td class="btn-group">
               <button class="btn-icon btn-sm" onclick="StammdatenTab.editKlasse(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
               <button class="btn-icon btn-sm" onclick="StammdatenTab.deleteKlasse(${r.id})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
@@ -852,7 +884,7 @@ const StammdatenTab = {
     const ids = [...document.querySelectorAll('.chk-kl:checked')].map(c=>parseInt(c.value));
     if (!ids.length) return;
     const total = ids.reduce((s,id) => s + (App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?',[id])||0), 0);
-    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Schüler werden entkoppelt.` : ''}`)) return;
+    if (!confirm(`${ids.length} Klassen löschen?${total ? ` ${total} Azubis werden entkoppelt.` : ''}`)) return;
     ids.forEach(id => {
       App.run('UPDATE schueler SET klasse_id=NULL WHERE klasse_id=?', [id]);
       App.run('DELETE FROM kontrolltermin_klassen WHERE klasse_id=?', [id]);
@@ -1069,7 +1101,7 @@ const StammdatenTab = {
       </div></div>
       <div class="card" style="padding:12px">
         <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">
-          Klicken Sie auf eine Kalenderwoche um die Anwesenheit zu markieren (grün = Schüler anwesend). Halten Sie die Maus gedrückt um mehrere KWs zu markieren.
+          Klicken Sie auf eine Kalenderwoche um die Anwesenheit zu markieren (grün = Azubi anwesend). Halten Sie die Maus gedrückt um mehrere KWs zu markieren.
         </p>
         <div id="blockplanGrid"></div>
       </div>
@@ -1289,7 +1321,7 @@ const StammdatenTab = {
   _autoLinkBetriebe(showToast) {
     // Find schueler without betrieb_id but with ausbildungsstaette text
     const unlinked = App.query("SELECT id, ausbildungsstaette FROM schueler WHERE betrieb_id IS NULL AND ausbildungsstaette != '' AND aktiv=1");
-    if (!unlinked.length) { if (showToast) App.toast('Alle Schüler sind bereits verknüpft', 'success'); return; }
+    if (!unlinked.length) { if (showToast) App.toast('Alle Azubis sind bereits verknüpft', 'success'); return; }
 
     let linked = 0, created = 0, fehler = 0;
     unlinked.forEach(s => {
@@ -1540,7 +1572,7 @@ const StammdatenTab = {
     App.openModal(`${esc(bs.name)} – ${klassen.length} Klassen`, `
       ${bs.email ? `<div style="margin-bottom:8px;font-size:12px">✉︎ <a href="mailto:${esc(bs.email)}" style="color:var(--clr-forest)">${esc(bs.email)}</a>${bs.telefon ? ` · ☎︎ <a href="tel:${esc(bs.telefon)}" style="color:var(--clr-forest)">${esc(bs.telefon)}</a>` : ''}</div>` : ''}
       <table class="data-table">
-        <thead><tr><th>Klasse</th><th>Jahrgang</th><th>Fachrichtung</th><th>Schüler</th><th></th></tr></thead>
+        <thead><tr><th>Klasse</th><th>Jahrgang</th><th>Fachrichtung</th><th>Azubi</th><th></th></tr></thead>
         <tbody>${klassen.map(k => `<tr>
           <td><strong>${esc(k.klassenbezeichnung)}</strong></td>
           <td>${esc(k.jahrgang||'–')}</td>
@@ -1550,10 +1582,10 @@ const StammdatenTab = {
         </tr>`).join('')}</tbody>
       </table>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">Alle Schüler</button>`);
+       <button class="btn btn-primary" onclick="App.closeModal();setTimeout(()=>StammdatenTab.showSchuleAzubis(${schuleId}),100)">Alle Azubis</button>`);
   },
 
-  // ── Modal: Schüler einer Klasse ──
+  // ── Modal: Azubi einer Klasse ──
   showKlasseAzubis(klasseId) {
     const kl = App.query(`SELECT k.*, bs.name as schule, j.bezeichnung as jahrgang,
       CASE WHEN f.typ='Fachwerker' THEN 'FW: ' ELSE '' END || COALESCE(f.bezeichnung,'') as fachrichtung
@@ -1575,7 +1607,7 @@ const StammdatenTab = {
     App.openModal(`${esc(kl.klassenbezeichnung)} – ${esc(kl.schule)}`, `
       <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:180px;font-size:12px;color:var(--clr-text-light)">
-          ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Schüler
+          ${esc(kl.jahrgang||'')} · ${esc(kl.fachrichtung||'')} · ${azubis.length} Azubis
           ${bs.telefon ? '<br>☎︎ <a href="tel:' + esc(bs.telefon) + '" style="color:var(--clr-forest)">' + esc(bs.telefon) + '</a>' : ''}
           ${bs.email ? '<br>✉︎ <a href="mailto:' + esc(bs.email) + '" style="color:var(--clr-forest)">' + esc(bs.email) + '</a>' : ''}
         </div>
@@ -1629,7 +1661,7 @@ const StammdatenTab = {
     const eLbl = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail',berichte_bis_termin_email:'E-Mail',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
     const ampelIcon = (erg) => !erg ? '<span style="color:var(--clr-sage-light)">○</span>' : erg === 'in_ordnung' ? '<span style="color:var(--clr-green)">●</span>' : '<span style="color:var(--clr-red)">◆</span>';
 
-    App.openModal(`${azubis.length} Schüler – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
+    App.openModal(`${azubis.length} Azubis – ${esc(bs.name)}${bs.ort ? ' (' + esc(bs.ort) + ')' : ''}`, `
       <table class="data-table">
         <thead><tr><th></th><th>Name</th><th>Klasse</th><th>Betrieb</th><th>Letzte Kontrolle</th><th>Kontakt</th><th></th></tr></thead>
         <tbody>

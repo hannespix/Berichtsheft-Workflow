@@ -100,7 +100,7 @@ const NacherfassungHandler = {
       ORDER BY s.nachname, s.vorname`, params);
 
     if (!schueler.length) {
-      area.innerHTML = '<div class="card"><div class="empty-state"><p>Keine Schüler für diese Auswahl gefunden</p></div></div>';
+      area.innerHTML = '<div class="card"><div class="empty-state"><p>Keine Azubis für diese Auswahl gefunden</p></div></div>';
       return;
     }
 
@@ -117,7 +117,7 @@ const NacherfassungHandler = {
     area.innerHTML = `
     <div class="card">
       <div class="card-header" style="justify-content:space-between">
-        <span>2. Ergebnisse erfassen – ${schueler.length} Schüler</span>
+        <span>2. Ergebnisse erfassen – ${schueler.length} Azubis</span>
         <span id="neProgress" style="font-size:11px;color:var(--clr-sage)">0/${schueler.length} erfasst</span>
       </div>
       <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:11px;line-height:1.7;margin-bottom:8px">
@@ -392,10 +392,10 @@ const NacherfassungHandler = {
       WHERE ${where} AND s.id NOT IN (SELECT DISTINCT ke.schueler_id FROM kontrollergebnisse ke WHERE ke.ergebnis != '')
       ORDER BY bs.name, j.bezeichnung, s.nachname`, params);
 
-    if (countEl) countEl.textContent = nichtErfasst.length > 0 ? `(${nichtErfasst.length} Schüler)` : '(alle erfasst ✓)';
+    if (countEl) countEl.textContent = nichtErfasst.length > 0 ? `(${nichtErfasst.length} Azubis)` : '(alle erfasst ✓)';
 
     if (!nichtErfasst.length) {
-      body.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green)">✓ Alle Schüler wurden mindestens einmal kontrolliert!</div>';
+      body.innerHTML = '<div style="padding:12px;text-align:center;color:var(--clr-green)">✓ Alle Azubis wurden mindestens einmal kontrolliert!</div>';
       return;
     }
 

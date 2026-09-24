@@ -293,7 +293,7 @@ const App = {
     offene_maengel:   { cat: 'Kontrolle', label: 'Offene Mängel', type: 'toggle', options: [{v:'ja',l:'Mit Mängeln'},{v:'nein',l:'Ohne Mängel'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" : "s.id NOT IN (SELECT schueler_id FROM kw_status WHERE maengel_codes != '' AND maengel_codes != 'H')" },
     offene_wv:        { cat: 'Kontrolle', label: 'Offene Wiedervorlage', type: 'toggle', options: [{v:'ja',l:'Mit offener WV'},{v:'nein',l:'Ohne offene WV'}], sqlS: (v) => v === 'ja' ? "s.id IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" : "s.id NOT IN (SELECT schueler_id FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig'))" },
     bav_status:       { cat: 'Kontrolle', label: 'BAV-Status', type: 'select', optionsSql: "SELECT DISTINCT bav_status FROM schueler WHERE bav_status != '' AND bav_status IS NOT NULL ORDER BY bav_status", optionKey: 'bav_status', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.bav_status = '${safe}'`; } },
-    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Schüler', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
+    status_inaktiv:   { cat: 'Kontrolle', label: 'Inaktive Azubi', type: 'toggle', options: [{v:'ja',l:'Nur inaktive'},{v:'alle',l:'Aktive + Inaktive'}], sqlS: (v) => v === 'ja' ? "s.aktiv = 0" : "1=1", overrideAktiv: true },
     inaktiv_grund:    { cat: 'Kontrolle', label: 'Inaktiv-Grund', type: 'select', optionsSql: "SELECT DISTINCT inaktiv_grund FROM schueler WHERE inaktiv_grund != '' AND inaktiv_grund IS NOT NULL ORDER BY inaktiv_grund", optionKey: 'inaktiv_grund', sqlS: (v) => { const safe = v.replace(/\\/g,'').replace(/'/g,"''"); return `s.inaktiv_grund = '${safe}'`; } },
     // Kategorie: Datenqualität
     ohne_betrieb:     { cat: 'Datenqualität', label: 'Ohne Betrieb', type: 'toggle', options: [{v:'ja',l:'Ohne Betrieb'}], sqlS: () => "(s.betrieb_id IS NULL OR s.betrieb_id = 0)" },
@@ -1132,7 +1132,7 @@ const App = {
       if (extraSql) w += ` AND b.id IN (SELECT DISTINCT s2.betrieb_id FROM schueler s2 WHERE s2.betrieb_id IS NOT NULL${extraSql.replace(/\bs\./g,'s2.')})`;
     } else if (entity === 'termine' || entity === 'kt') {
       // Ein Termin bleibt sichtbar, wenn IRGENDEINE verknüpfte Klasse ODER
-      // IRGENDEIN einzeln verknüpfter Schüler zum Filter passt. Vorher liefen
+      // IRGENDEIN einzeln verknüpfter Azubi zum Filter passt. Vorher liefen
       // alle Klauseln nur über kontrolltermin_klassen – reine Einsendungs-
       // Termine (nur Einzelschüler, keine Klasse) verschwanden bei JEDEM
       // aktiven Filter komplett aus Planung und Kontrolle.
@@ -6585,7 +6585,7 @@ const App = {
     )`);
     try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
     run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
-    // Ausbildungsphasen + erweiterte Schüler-Felder
+    // Ausbildungsphasen + erweiterte Azubi-Felder
     run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       schueler_id INTEGER NOT NULL REFERENCES schueler(id),
@@ -6743,7 +6743,7 @@ const App = {
           const pi = this._paramIndexForColumn(op.sql, 'kontrollergebnis_id');
           if (pi >= 0 && pi < op.params.length && op.params[pi] === l.id) op.params[pi] = dId;
         });
-        console.log(`[Sync] KE-Id reconciled: lokal ${l.id} → Disk ${dId} (Termin ${l.kontrolltermin_id}, Schüler ${l.schueler_id})`);
+        console.log(`[Sync] KE-Id reconciled: lokal ${l.id} → Disk ${dId} (Termin ${l.kontrolltermin_id}, Azubi ${l.schueler_id})`);
       });
     } catch(e) { console.warn('KE-Reconcile:', e.message); }
   },
@@ -7201,7 +7201,7 @@ const App = {
     const countMap = {};
     counts.forEach(c => { countMap[c.klasse_id] = c.cnt; });
 
-    // 4) Build cache. Die Schülerzahl wird NICHT mehr aus den Klassen summiert
+    // 4) Build cache. Die Azubi-Zahl wird NICHT mehr aus den Klassen summiert
     // (Kampagnen-Termine mit Einzel-Zuordnung zeigten überall „0"), sondern
     // beim ersten Zugriff über getTerminSchueler berechnet und gemerkt.
     terminIds.forEach(tid => {
@@ -7227,7 +7227,7 @@ const App = {
     return legacy ? [legacy] : [];
   },
 
-  // Get all Schüler for a Termin (from all linked Klassen)
+  // Get all Azubi for a Termin (from all linked Klassen)
   getTerminSchueler(terminId) {
     const klassenIds = this.getTerminKlassenIds(terminId);
     // Students from linked classes – nur AKTIVE (konsistent mit der Zählung im
@@ -7240,7 +7240,7 @@ const App = {
     }
     // Students directly linked (Einsendungen / manuell hinzugefügt)
     const direkt = this.query(`SELECT s.* FROM schueler s JOIN kontrolltermin_schueler kts ON kts.schueler_id=s.id WHERE kts.kontrolltermin_id=?`, [terminId]);
-    // Schüler mit vorhandenem Kontrollergebnis IMMER einbeziehen: sie wurden
+    // Azubi mit vorhandenem Kontrollergebnis IMMER einbeziehen: sie wurden
     // real kontrolliert (z.B. am Kontrolltag ad hoc hinzugefügte LFK-Gäste
     // oder inzwischen inaktive Azubis) – ohne diesen Zweig fehlten genau
     // ihre Bögen in sämtlichen Termin-Exporten.
@@ -7304,7 +7304,7 @@ const App = {
       ORDER BY bs.name, k.klassenbezeichnung`, klassenIds);
   },
 
-  // Get cached Schüler count for a Termin
+  // Get cached Azubi count for a Termin
   getTerminSchuelerCount(terminId) {
     const c = this._tkCache[terminId];
     if (c && c.schuelerCount != null) return c.schuelerCount;
@@ -7606,7 +7606,7 @@ const App = {
     return { aj, kw };
   },
 
-  // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Schüler) ──
+  // ── Arbeitstage berechnen (individuell aus aktiven KWs pro Azubi) ──
   // Nutzt getAJKWBounds: aktive KWs × 5 Werktage − Feiertage (BW)
   calcArbeitstage(beginn, ende, schuelerId) {
     // If schuelerId given → precise calculation from active KWs
@@ -7705,7 +7705,7 @@ const App = {
     return { schule: regulaereSchule, isLandesfachklasse: false };
   },
 
-  // ── Standortgruppen: Schüler nach aktuellem Schulstandort gruppieren ──
+  // ── Standortgruppen: Azubi nach aktuellem Schulstandort gruppieren ──
   // Berücksichtigt Landesfachklasse-Regeln je nach Fachrichtung + AJ.
   // opts: { jahrgangId, fachrichtungId, amt, zwischenpruefung, refDate }
   // Jeder Filter akzeptiert auch eine LISTE von Werten (Mehrfachauswahl).
@@ -7893,6 +7893,38 @@ const App = {
     k.mangelQuote = k.kontrolliert ? Math.round(k.mangel / k.kontrolliert * 100) : 0;
     k.ampel = !k.azubis ? 'grau' : (k.abdeckung >= 90 && k.mangelQuote < 25) ? 'gruen' : k.abdeckung >= 50 ? 'gelb' : 'rot';
     return k;
+  },
+
+  // ── Aufklappmenü für Listen und Kontrolltag ──
+  // <details> ohne eigene Zustandslogik: ein Klick auf einen Eintrag oder
+  // daneben schließt es, Scrollen ebenso. Die Liste wird beim Öffnen fest
+  // positioniert (position:fixed), damit sie in scrollenden Karten und am
+  // unteren Rand nicht abgeschnitten wird; Klasse „oben“ erzwingt nach oben,
+  // „klein“ macht den Knopf schmal (⋯ in Tabellenzeilen).
+  // Einträge: { label, onclick, title } oder { trenner: true }.
+  menue(titel, eintraege, title, klasse) {
+    if (!this._menueInit) {
+      this._menueInit = true;
+      try {
+        const zu = (e) => { document.querySelectorAll('details.aktionen-menue[open]').forEach(d => { if (!e || !d.contains(e.target)) d.removeAttribute('open'); }); };
+        document.addEventListener('click', zu);
+        document.addEventListener('scroll', () => zu(null), true);
+        window.addEventListener('resize', () => zu(null));
+      } catch(e) {}
+    }
+    return `<details class="aktionen-menue${klasse ? ' ' + klasse : ''}" ontoggle="App._menuePosition(this)"><summary class="btn btn-sm btn-secondary" title="${esc(title || '')}">${titel}${klasse && klasse.includes('klein') ? '' : ' ▾'}</summary><div class="menue-liste">${eintraege.map(e => e.trenner ? '<hr>' : `<button type="button" onclick="this.closest('details').removeAttribute('open');${e.onclick}" title="${esc(e.title || '')}">${e.label}</button>`).join('')}</div></details>`;
+  },
+  _menuePosition(d) {
+    try {
+      const l = d.querySelector('.menue-liste'); if (!l) return;
+      if (!d.open) { l.style.cssText = ''; return; }
+      const r = d.querySelector('summary').getBoundingClientRect();
+      l.style.position = 'fixed'; l.style.top = 'auto'; l.style.bottom = 'auto'; l.style.left = 'auto'; l.style.right = 'auto';
+      const h = l.offsetHeight, w = l.offsetWidth;
+      const oben = d.classList.contains('oben') || (r.bottom + h + 8 > window.innerHeight && r.top - h - 8 > 0);
+      l.style.top = (oben ? r.top - h - 4 : r.bottom + 4) + 'px';
+      l.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    } catch(e) {}
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
@@ -8373,7 +8405,7 @@ const App = {
     if (!this._kwBoundsLogged) this._kwBoundsLogged = {};
     if (!this._kwBoundsLogged[schuelerId]) {
       this._kwBoundsLogged[schuelerId] = true;
-      // console.log(`[KW-Bounds] Schüler ${schuelerId}: AV ${s.ausbildungsbeginn} → ${s.ausbildungsende}, d1=${d1?.toISOString()}, d2=${d2?.toISOString()}, startKW=${startKW}, endKW=${endKW}, AJs=[${ajs}]`);
+      // console.log(`[KW-Bounds] Azubi ${schuelerId}: AV ${s.ausbildungsbeginn} → ${s.ausbildungsende}, d1=${d1?.toISOString()}, d2=${d2?.toISOString()}, startKW=${startKW}, endKW=${endKW}, AJs=[${ajs}]`);
     }
 
     ajs.forEach((aj, idx) => {
@@ -8469,7 +8501,7 @@ const App = {
       [schuelerId, name, feld, String(alterWert ?? ''), String(neuerWert ?? ''), aktion || 'geaendert', bearbeiter, ibykusRelevant]);
   },
 
-  // ── Ampel-System: Schüler-Status auf Basis der letzten Kontrolle ──
+  // ── Ampel-System: Azubi-Status auf Basis der letzten Kontrolle ──
   // Returns {color:'green'|'yellow'|'red'|'gray', icon:'<span style="color:var(--clr-green)">●</span>'|'<span style="color:var(--clr-amber)">◐</span>'|'<span style="color:var(--clr-red)">◆</span>'|'<span style="color:var(--clr-sage-light)">○</span>', label:'...', prevErgebnis:'...', wvOffen:bool}
   getSchuelerAmpel(schuelerId) {
     const lastKE = this.query(`SELECT ke.ergebnis, ke.kontrolltermin_id, kt.geplant_datum
@@ -8925,7 +8957,7 @@ Anlagen: {anlagen}` },
             }, 150);
           }, 100);
           restored = true;
-          console.log(`[Session] Kontrolle wiederhergestellt: Termin ${pos.terminId}, Schüler ${pos.schuelerId}`);
+          console.log(`[Session] Kontrolle wiederhergestellt: Termin ${pos.terminId}, Azubi ${pos.schuelerId}`);
         }
       } else if (lastView && validViews.includes(lastView)) {
         // Any other view → navigate directly
@@ -9379,7 +9411,7 @@ Anlagen: {anlagen}` },
       )`);
       // kw_maengel VOR dem COUNT anlegen: Auf einer Alt-DB ohne diese Tabelle
       // warf der COUNT und riss das ganze try mit – schueler_bemerkungen,
-      // schueler_dateien und ausbilder wurden dann nie angelegt (Schülerakte
+      // schueler_dateien und ausbilder wurden dann nie angelegt (Azubi-Akte
       // und Ausbilder-Verwaltung liefen still ins Leere).
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_maengel (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9455,7 +9487,7 @@ Anlagen: {anlagen}` },
       }
     } catch(e) { console.warn('Multi-Klassen-Migration:', e); }
 
-    // ── Ausbildungsphasen + erweiterte Schüler-Felder ──
+    // ── Ausbildungsphasen + erweiterte Azubi-Felder ──
     try {
       this.db.run(`CREATE TABLE IF NOT EXISTS ausbildungsphasen (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9503,7 +9535,7 @@ Anlagen: {anlagen}` },
           if (!b) b = this.query('SELECT id FROM betriebe WHERE name LIKE ?', [`%${name}%`])[0];
           if (b) { this.db.run('UPDATE schueler SET betrieb_id=? WHERE id=?', [b.id, s.id]); linked++; }
         });
-        if (linked) console.log(`Auto-Link: ${linked} Schüler mit Betrieben verknüpft`);
+        if (linked) console.log(`Auto-Link: ${linked} Azubis mit Betrieben verknüpft`);
       }
     } catch(e) { console.warn('Auto-Link Betriebe:', e); }
   },
