@@ -1092,7 +1092,7 @@ const ImportHandler = {
       if (lj) lehrjahrInfo = `${lj}. Lehrjahr`;
     }
 
-    App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('stammdaten', id, `${ampel.icon} ${s.nachname}, ${s.vorname}`, `
       <!-- Quick-Info Bar -->
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:12px">
         <span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:10px">${keCount} Kontrollen</span>
@@ -1193,11 +1193,10 @@ const ImportHandler = {
         </div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
-        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
+        <button class="btn btn-sm btn-secondary" data-nur-dialog onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" data-nur-dialog onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Ausbildung beenden</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
-    _makeModalWide();
   },
   updateSchueler(id) {
     const n = document.getElementById('mSNach').value.trim();
@@ -1249,6 +1248,7 @@ const ImportHandler = {
     const newS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     App.IBYKUS_FELDER.forEach(f => { if (String(oldS[f]||'') !== String(newS[f]||'')) App.logChange(id, f, oldS[f], newS[f], 'stammdaten_bearbeitet'); });
     App.closeModal();
+    if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) { AzubiSeite.render(); App.toast('Azubi aktualisiert', 'success'); return; }
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);

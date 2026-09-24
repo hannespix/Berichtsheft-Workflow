@@ -7903,7 +7903,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
@@ -9559,8 +9559,10 @@ Anlagen: {anlagen}` },
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
+    // Die Azubi-Seite hat keinen eigenen Menüpunkt – sie gehört zu den Stammdaten
+    const menuView = view === 'azubi' ? 'stammdaten' : view;
     document.querySelectorAll('.sidebar-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.view === view);
+      el.classList.toggle('active', el.dataset.view === menuView);
     });
     // Stop live sync when leaving kontrolle
     if (view !== 'kontrolle' && typeof KontrolleHandler !== 'undefined') {
@@ -9589,6 +9591,7 @@ Anlagen: {anlagen}` },
       einstellungen: Views.einstellungen,
       wartung: Views.wartung,
       hilfe: Views.hilfe,
+      azubi: () => AzubiSeite.render(),
     };
     const fn = views[this.currentView];
     if (fn) fn.call(Views);
@@ -9721,6 +9724,30 @@ Anlagen: {anlagen}` },
       try { history.pushState({ bhkModal: true }, ''); this._modalHistoryPushed = true; } catch(e) {}
     }
     setTimeout(() => TableSort.initAll(), 50);
+  },
+  // ── Editor-Inhalt: in den Dialog oder in einen Abschnitt der Azubi-Seite ──
+  //  Die Editoren (Stammdaten bearbeiten, Ausbildungsverlauf, Akte) bauen ihren
+  //  Inhalt wie bisher; ist die Azubi-Seite für diesen Azubi offen, landet er
+  //  im Abschnitt #azTeil_<abschnitt> statt im Dialog. Knöpfe, die nur den
+  //  Dialog schlössen, entfallen dort; „App.closeModal();X“ wird zu „X“.
+  oeffneEditor(abschnitt, id, title, bodyHtml, footerHtml = '') {
+    if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) {
+      const el = document.getElementById('azTeil_' + abschnitt);
+      if (el) {
+        const fuss = String(footerHtml || '')
+          .replace(/<button[^>]*data-nur-dialog[^>]*>[\s\S]*?<\/button>/g, '')
+          .replace(/<button[^>]*onclick="App\.closeModal\(\)"[^>]*>[^<]*<\/button>/g, '')
+          .replace(/onclick="App\.closeModal\(\);\s*/g, 'onclick="');
+        el.innerHTML = `<div class="az-teil-body">${bodyHtml}</div>${fuss.trim() ? `<div class="az-teil-fuss">${fuss}</div>` : ''}`;
+        // Ein noch offener Dialog (z.B. das Phasen-Formular) ist damit erledigt
+        const ov = document.getElementById('modalOverlay');
+        if (ov && ov.classList && ov.classList.contains('active')) this.closeModal();
+        return true;
+      }
+    }
+    this.openModal(title, bodyHtml, footerHtml);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    return false;
   },
   // ── Bestätigung und Eingabe als eigene Dialoge ──
   //  Kein window.confirm/prompt mehr: die Browser-Dialoge sehen fremd aus,

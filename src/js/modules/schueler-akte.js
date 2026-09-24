@@ -10,7 +10,7 @@ const SchuelerAkte = {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am DESC', [schuelerId]);
-    App.openModal(`Akte: ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('akte', schuelerId, `Akte: ${s.nachname}, ${s.vorname}`, `
       <div class="form-group">
         <label>Neue Bemerkung</label>
         <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
@@ -29,7 +29,6 @@ const SchuelerAkte = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="SchuelerAkte.exportAktenvermerk(${schuelerId})">Aktenvermerk exportieren</button>`);
-    _makeModalWide();
   },
 
   addBemerkung(schuelerId) {

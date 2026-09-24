@@ -6662,6 +6662,27 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 }
 .kw-legend-show:hover { color: var(--clr-forest); }
 .kw-legend-sentinel { display: none; }
+/* ── Azubi-Seite: eine Seite je Azubi statt drei Dialoge ── */
+.az-seite { display: flex; flex-direction: column; gap: 12px; }
+.az-kopf { padding: 14px 18px; }
+.az-titel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.az-titel h1 { font-family: var(--font-display); font-size: 22px; margin: 0; color: var(--clr-forest-dark); }
+.az-ident { font-size: 12px; color: var(--clr-sage); }
+.az-meta { margin-top: 4px; font-size: 13px; color: var(--clr-text-light); }
+.az-punkt { color: var(--clr-sage-light); }
+.az-zahlen { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.az-zahl { border: 1px solid var(--clr-sand); background: var(--clr-warm); border-radius: 999px; padding: 3px 12px; font-size: 12px; color: var(--clr-text); cursor: pointer; font-family: inherit; }
+.az-zahl.statisch { cursor: default; }
+.az-zahl.offen { border-color: var(--clr-amber); color: var(--clr-amber); }
+.az-zahl strong { font-size: 13px; }
+.az-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.az-teil { padding: 14px 18px; }
+.az-teil h2 { font-family: var(--font-display); font-size: 17px; margin: 0 0 10px; color: var(--clr-forest-dark); }
+.az-teil-fuss { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--clr-sand); }
+.az-teil #mAkteBemerkungen { max-height: none; }
+.az-tabelle { font-size: 13px; }
+.az-leer { color: var(--clr-text-light); font-size: 12px; }
+@media (max-width: 768px) { .az-titel h1 { font-size: 18px; } .az-kopf, .az-teil { padding: 12px; } }
 .help-abschnitt { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--clr-sand); }
 .help-untertitel { font-family: var(--font-display); font-size: 15px; margin: 0 0 6px; color: var(--clr-forest-dark); }
 .einst-tab > .card:first-child { margin-top: 0 !important; }
@@ -15313,7 +15334,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
@@ -16969,8 +16990,10 @@ Anlagen: {anlagen}` },
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
+    // Die Azubi-Seite hat keinen eigenen Menüpunkt – sie gehört zu den Stammdaten
+    const menuView = view === 'azubi' ? 'stammdaten' : view;
     document.querySelectorAll('.sidebar-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.view === view);
+      el.classList.toggle('active', el.dataset.view === menuView);
     });
     // Stop live sync when leaving kontrolle
     if (view !== 'kontrolle' && typeof KontrolleHandler !== 'undefined') {
@@ -16999,6 +17022,7 @@ Anlagen: {anlagen}` },
       einstellungen: Views.einstellungen,
       wartung: Views.wartung,
       hilfe: Views.hilfe,
+      azubi: () => AzubiSeite.render(),
     };
     const fn = views[this.currentView];
     if (fn) fn.call(Views);
@@ -17131,6 +17155,30 @@ Anlagen: {anlagen}` },
       try { history.pushState({ bhkModal: true }, ''); this._modalHistoryPushed = true; } catch(e) {}
     }
     setTimeout(() => TableSort.initAll(), 50);
+  },
+  // ── Editor-Inhalt: in den Dialog oder in einen Abschnitt der Azubi-Seite ──
+  //  Die Editoren (Stammdaten bearbeiten, Ausbildungsverlauf, Akte) bauen ihren
+  //  Inhalt wie bisher; ist die Azubi-Seite für diesen Azubi offen, landet er
+  //  im Abschnitt #azTeil_<abschnitt> statt im Dialog. Knöpfe, die nur den
+  //  Dialog schlössen, entfallen dort; „App.closeModal();X“ wird zu „X“.
+  oeffneEditor(abschnitt, id, title, bodyHtml, footerHtml = '') {
+    if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) {
+      const el = document.getElementById('azTeil_' + abschnitt);
+      if (el) {
+        const fuss = String(footerHtml || '')
+          .replace(/<button[^>]*data-nur-dialog[^>]*>[\s\S]*?<\/button>/g, '')
+          .replace(/<button[^>]*onclick="App\.closeModal\(\)"[^>]*>[^<]*<\/button>/g, '')
+          .replace(/onclick="App\.closeModal\(\);\s*/g, 'onclick="');
+        el.innerHTML = `<div class="az-teil-body">${bodyHtml}</div>${fuss.trim() ? `<div class="az-teil-fuss">${fuss}</div>` : ''}`;
+        // Ein noch offener Dialog (z.B. das Phasen-Formular) ist damit erledigt
+        const ov = document.getElementById('modalOverlay');
+        if (ov && ov.classList && ov.classList.contains('active')) this.closeModal();
+        return true;
+      }
+    }
+    this.openModal(title, bodyHtml, footerHtml);
+    if (typeof _makeModalWide === 'function') _makeModalWide();
+    return false;
   },
   // ── Bestätigung und Eingabe als eigene Dialoge ──
   //  Kein window.confirm/prompt mehr: die Browser-Dialoge sehen fremd aus,
@@ -20944,9 +20992,9 @@ const StammdatenTab = {
             ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:12px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
-          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="ImportHandler.editSchueler(${s.id})" title="Stammdaten bearbeiten">Bearbeiten</button> ${App.menue('⋯', [
-            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `Phasen.editor(${s.id})`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
-            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `SchuelerAkte.open(${s.id})` },
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="AzubiSeite.oeffnen(${s.id})" title="Azubi-Seite: Stammdaten, Ausbildungsverlauf, Akte, Kontrollen, Wiedervorlagen">Öffnen</button> ${App.menue('⋯', [
+            typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'phasen')`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
+            { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'akte')` },
             { label: '▤ Einzelprüfung anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung)' },
             snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
             { trenner: true },
@@ -23490,7 +23538,7 @@ const ImportHandler = {
       if (lj) lehrjahrInfo = `${lj}. Lehrjahr`;
     }
 
-    App.openModal(`${ampel.icon} ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('stammdaten', id, `${ampel.icon} ${s.nachname}, ${s.vorname}`, `
       <!-- Quick-Info Bar -->
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:12px">
         <span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:10px">${keCount} Kontrollen</span>
@@ -23591,11 +23639,10 @@ const ImportHandler = {
         </div>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
-        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
+        <button class="btn btn-sm btn-secondary" data-nur-dialog onclick="App.closeModal();SchuelerAkte.open(${id})" title="Bemerkungen">${svgIcon('akte')} Akte${(() => { const c = SchuelerAkte.getCount(id); return c ? ' (' + c + ')' : ''; })()}</button>
+        ${typeof Phasen!=='undefined'?`<button class="btn btn-sm btn-secondary" data-nur-dialog onclick="App.closeModal();Phasen.editor(${id})" title="Phasen: Teilzeit, Unterbrechungen, Betriebswechsel">${svgIcon('dashboard')} Ausbildungsverlauf</button>`:''}
         ${s.aktiv ? `<button class="btn btn-danger btn-sm" onclick="ImportHandler.setInaktiv(${id})">Ausbildung beenden</button>` : `<button class="btn btn-success btn-sm" onclick="ImportHandler.setAktiv(${id})">Reaktivieren</button>`}
         <button class="btn btn-primary" onclick="ImportHandler.updateSchueler(${id})">Speichern</button>`);
-    _makeModalWide();
   },
   updateSchueler(id) {
     const n = document.getElementById('mSNach').value.trim();
@@ -23647,6 +23694,7 @@ const ImportHandler = {
     const newS = App.query('SELECT * FROM schueler WHERE id=?', [id])[0] || {};
     App.IBYKUS_FELDER.forEach(f => { if (String(oldS[f]||'') !== String(newS[f]||'')) App.logChange(id, f, oldS[f], newS[f], 'stammdaten_bearbeitet'); });
     App.closeModal();
+    if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(id)) { AzubiSeite.render(); App.toast('Azubi aktualisiert', 'success'); return; }
     try { SchuelerView.render(); } catch(e) {}
     const sc = document.getElementById('stammdatenContent');
     if (sc && sc.innerHTML.includes('data-table')) StammdatenTab.azubis(sc);
@@ -33558,7 +33606,7 @@ const Phasen = {
 
     const probleme = Phasen.phasenValidieren(phasen);
 
-    App.openModal(`Ausbildungsverlauf: ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('phasen', schuelerId, `Ausbildungsverlauf: ${s.nachname}, ${s.vorname}`, `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Phasen der Ausbildung: Vollzeit, Teilzeit, Betriebswechsel und Unterbrechungen (Elternzeit, lange Krankheit). Aus ihnen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit. Ohne Phasen gilt Ausbildungsbeginn/-ende aus den Stammdaten.</p>
       ${probleme.length ? `<div style="background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);padding:8px 12px;margin-bottom:12px;font-size:12px">
         <strong>Validierung:</strong> ${probleme.map(p => esc(p.text)).join('; ')}
@@ -33571,7 +33619,6 @@ const Phasen = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="Phasen.addPhaseForm(${schuelerId})">+ Phase hinzufügen</button>`);
-    _makeModalWide();
   },
 
   autoCreateInitialPhase(schuelerId) {
@@ -33768,7 +33815,7 @@ const SchuelerAkte = {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am DESC', [schuelerId]);
-    App.openModal(`Akte: ${s.nachname}, ${s.vorname}`, `
+    App.oeffneEditor('akte', schuelerId, `Akte: ${s.nachname}, ${s.vorname}`, `
       <div class="form-group">
         <label>Neue Bemerkung</label>
         <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
@@ -33787,7 +33834,6 @@ const SchuelerAkte = {
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="SchuelerAkte.exportAktenvermerk(${schuelerId})">Aktenvermerk exportieren</button>`);
-    _makeModalWide();
   },
 
   addBemerkung(schuelerId) {
@@ -34006,6 +34052,142 @@ const SchuelerAkte = {
   getCount(schuelerId) {
     return App.scalar('SELECT COUNT(*) FROM schueler_bemerkungen WHERE schueler_id=?', [schuelerId]) || 0;
   }
+};
+
+// ── azubi-seite.js ──
+// ══════════════════════════════════════════════════════════════
+//  AZUBI-SEITE: eine Seite je Azubi statt drei Dialoge
+//  (Stammdaten bearbeiten, Ausbildungsverlauf, Akte). Die bisherigen
+//  Editoren bleiben unverändert – sie zeichnen ihren Inhalt über
+//  App.oeffneEditor() in einen Abschnitt dieser Seite, wenn sie offen ist,
+//  sonst wie bisher in den Dialog. Dazu Kontrollen und Wiedervorlagen des
+//  Azubis mit Absprung in die Durchsicht.
+// ══════════════════════════════════════════════════════════════
+
+const AzubiSeite = {
+  _id: null,
+  _springe: '',
+  ABSCHNITTE: [
+    ['stammdaten', 'Stammdaten'],
+    ['phasen', 'Ausbildungsverlauf'],
+    ['akte', 'Akte'],
+    ['kontrollen', 'Kontrollen'],
+    ['wiedervorlagen', 'Wiedervorlagen'],
+  ],
+  ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' },
+
+  oeffnen(id, abschnitt) {
+    this._id = parseInt(id);
+    this._springe = abschnitt || '';
+    try { App.uSet('azubi_id', String(this._id)); } catch(e) {}
+    App.navigate('azubi');
+  },
+  // Ist die Seite (für diesen Azubi) gerade zu sehen? Dann zeichnen die
+  // Editoren in ihre Abschnitte statt in den Dialog.
+  istOffen(id) {
+    if (App.currentView !== 'azubi' || this._id == null) return false;
+    if (id != null && Number(id) !== Number(this._id)) return false;
+    return !!document.getElementById('azSeite');
+  },
+  zurueck() { App.navigate('stammdaten'); },
+  springe(abschnitt) {
+    const el = document.getElementById('azAbschnitt_' + abschnitt);
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  render() {
+    const c = document.getElementById('mainContent');
+    if (!c) return;
+    if (this._id == null) { try { this._id = parseInt(App.uGet('azubi_id', '')) || null; } catch(e) {} }
+    const s = this._id != null ? App.query('SELECT * FROM schueler WHERE id=?', [this._id])[0] : null;
+    if (!s) { this._id = null; App.navigate('stammdaten'); return; }
+    const klasse = s.klasse_id ? (App.query('SELECT k.klassenbezeichnung, bs.name AS schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || null) : null;
+    const jg = s.jahrgang_id ? App.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [s.jahrgang_id]) : '';
+    const fr = s.fachrichtung_id ? App.scalar('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [s.fachrichtung_id]) : '';
+    const ampel = App.getSchuelerAmpel(s.id);
+    const nKe = App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE schueler_id=? AND ergebnis != ''", [s.id]) || 0;
+    const nWv = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) || 0;
+    const fehl = App.getFehltageGesamt(s.id).gesamt;
+    const status = s.status || (s.aktiv ? 'aktiv' : 'inaktiv');
+    const statusKlasse = status === 'aktiv' ? 'badge-ok' : 'badge-open';
+    const meta = [s.ausbildungsstaette, klasse ? [klasse.klassenbezeichnung, klasse.schule].filter(Boolean).join(' · ') : '', jg ? 'Jahrgang ' + jg : '', fr].filter(Boolean);
+    c.innerHTML = `
+      <div class="page-header kompakt">
+        <div class="page-header-left"><button class="btn btn-secondary btn-sm" onclick="AzubiSeite.zurueck()" title="Zurück zur Azubi-Liste">‹ Azubi-Liste</button></div>
+      </div>
+      <div id="azSeite" class="az-seite" data-id="${s.id}">
+        <div class="card az-kopf">
+          <div class="az-titel">
+            <span class="az-ampel" title="${esc(ampel.label || '')}">${ampel.icon || ''}</span>
+            <h1>${esc(s.nachname)}, ${esc(s.vorname)}</h1>
+            <span class="badge-status ${statusKlasse}">${esc(status)}</span>
+            ${s.ibykus_id ? `<span class="az-ident" title="IBYKUS-Ident">${esc(s.ibykus_id)}</span>` : ''}
+          </div>
+          ${meta.length ? `<div class="az-meta">${meta.map(esc).join(' <span class="az-punkt">·</span> ')}</div>` : ''}
+          <div class="az-zahlen">
+            <button class="az-zahl" onclick="AzubiSeite.springe('kontrollen')"><strong>${nKe}</strong> Kontrollen</button>
+            <button class="az-zahl${nWv ? ' offen' : ''}" onclick="AzubiSeite.springe('wiedervorlagen')"><strong>${nWv}</strong> offene Wiedervorlage${nWv === 1 ? '' : 'n'}</button>
+            <span class="az-zahl statisch"><strong>${fehl}</strong> Fehltage</span>
+          </div>
+          <nav class="az-nav" aria-label="Abschnitte">
+            ${this.ABSCHNITTE.map(([k, t]) => `<button class="btn btn-sm btn-secondary" onclick="AzubiSeite.springe('${k}')">${t}</button>`).join('')}
+          </nav>
+        </div>
+        ${this.ABSCHNITTE.map(([k, t]) => `<section class="card az-teil" id="azAbschnitt_${k}" aria-labelledby="azTitel_${k}"><h2 id="azTitel_${k}">${t}</h2><div id="azTeil_${k}"></div></section>`).join('')}
+      </div>`;
+    // Die bestehenden Editoren zeichnen in ihre Abschnitte (App.oeffneEditor)
+    try { ImportHandler.editSchueler(s.id); } catch(e) { console.warn('Azubi-Seite: Stammdaten', e); }
+    if (typeof Phasen !== 'undefined') { try { Phasen.openPhasenEditor(s.id); } catch(e) { console.warn('Azubi-Seite: Verlauf', e); } }
+    if (typeof SchuelerAkte !== 'undefined') { try { SchuelerAkte.open(s.id); } catch(e) { console.warn('Azubi-Seite: Akte', e); } }
+    this._kontrollen(s);
+    this._wiedervorlagen(s);
+    if (this._springe) { const ziel = this._springe; this._springe = ''; setTimeout(() => this.springe(ziel), 60); }
+  },
+
+  _kontrollen(s) {
+    const el = document.getElementById('azTeil_kontrollen');
+    if (!el) return;
+    const rows = App.query(`SELECT ke.id, ke.kontrolltermin_id, ke.ergebnis, ke.anwesend, ke.geaendert_am, ke.zulassung_ap, ke.pruefungsausschuss,
+        kt.geplant_datum, kt.durchgefuehrt_datum, kt.status AS kt_status, kt.bemerkung AS kt_bemerkung, bs.name AS schule
+      FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
+      WHERE ke.schueler_id=? ORDER BY kt.geplant_datum DESC, ke.id DESC`, [s.id]);
+    if (!rows.length) { el.innerHTML = '<p class="az-leer">Noch keine Kontrolle zu diesem Azubi.</p>'; return; }
+    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th></th></tr></thead><tbody>
+      ${rows.map(r => {
+        const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
+        const vermerke = [r.zulassung_ap === 1 ? 'AP-Zulassung' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
+        return `<tr><td>${esc(formatDate(r.durchgefuehrt_datum || r.geplant_datum))}</td><td>${esc([r.schule, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}${r.kt_status === 'durchgefuehrt' ? ' <span class="az-leer">(abgeschlossen)</span>' : ''}</td><td>${erg}</td><td>${esc(vermerke) || '<span class="az-leer">–</span>'}</td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins öffnen">Öffnen</button></td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+  },
+  _wiedervorlagen(s) {
+    const el = document.getElementById('azTeil_wiedervorlagen');
+    if (!el) return;
+    const rows = App.query(`SELECT w.*, kt.geplant_datum FROM wiedervorlagen w LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE w.schueler_id=? ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum DESC`, [s.id]);
+    if (!rows.length) { el.innerHTML = '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
+    const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
+    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
+      ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(w.art || '–')}</td>
+        <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
+        <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>
+        <td style="white-space:nowrap">${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td></tr>`).join('')}
+    </tbody></table>`;
+  },
+  // Durchsicht eines Termins mit diesem Azubi öffnen (wie der Absprung aus der Azubi-Liste)
+  kontrolleOeffnen(terminId, schuelerId) {
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      const sel = document.getElementById('selKontrolltermin');
+      if (sel) sel.value = terminId;
+      KontrolleHandler.loadTermin(terminId);
+      setTimeout(() => {
+        const i = (KontrolleHandler.currentSchuelerList || []).findIndex(x => x.id === schuelerId);
+        if (i >= 0) { KontrolleHandler.currentIndex = i; KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.enterSchüler(); }
+      }, 200);
+    }, 100);
+  },
 };
 
 // ── db-tools.js ──

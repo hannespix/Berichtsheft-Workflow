@@ -63,7 +63,7 @@ console.log('\n══ Hilfe in zwölf Kapiteln ══');
   check(abschnitte === 13 && (V.match(/<h4 class="help-untertitel">/g) || []).length === 13, `Zusammengeführte Kapitel behalten ihre Inhalte als Abschnitte (${abschnitte})`);
   for (const t of ['Ordnerstruktur', 'KW-Raster & Bulk-Editing', 'Tastenkürzel (vollständig)', 'Datensicherung', 'Nacherfassung (Übernahme von Altdaten)', 'Häufig gestellte Fragen (FAQ)']) check(new RegExp('<h4 class="help-untertitel">[^<]*' + t.replace(/[()&]/g, '\\$&') + '</h4>').test(V), `Abschnitt „${t}“ erhalten`);
   check(/id="help_neu"/.test(V) && /id="help_warning"/.test(V) && /id="help_glossar"/.test(V), 'Sonderkarten „Was ist neu“, Warnhinweis und Glossar bleiben');
-  check(/HILFE_MAP: \{ dashboard: 'help_1', stammdaten: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' \}/.test(APP), 'Kontexthilfe je Ansicht zeigt ins passende Kapitel');
+  check(/HILFE_MAP: \{ dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' \}/.test(APP), 'Kontexthilfe je Ansicht zeigt ins passende Kapitel');
   check(/\.help-abschnitt \{/.test(CSS) && /\.help-untertitel \{/.test(CSS), 'Stile für Abschnitte');
 }
 
