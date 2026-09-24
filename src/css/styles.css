@@ -128,6 +128,7 @@ body.dark-mode .kw-cell { background: var(--clr-warm); border-color: #3F3B36; co
 body.dark-mode .kw-cell.kw-ok { background: var(--clr-green-light); border-color: #3E5A2A; }
 body.dark-mode .kw-cell.kw-issue { background: var(--clr-red-light); border-color: #6B3A36; }
 body.dark-mode .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #3B2D19, #3B2D19 3px, #4A3A1F 3px, #4A3A1F 6px); border-color: #7A5A28; }
+body.dark-mode .kw-cell.kw-hinweis { background: #3B2D19; border-color: #7A5A28; }
 body.dark-mode .kw-cell.kw-fehltage-only { border-color: #7A5A28; }
 body.dark-mode .kw-cell:focus, body.dark-mode .kw-cell.kw-issue:focus, body.dark-mode .kw-cell.kw-session:focus { border-color: var(--clr-gelb); box-shadow: 0 0 0 3px var(--clr-gelb), inset 0 0 0 2px #1B1917; outline: none; }
 body.dark-mode .kw-cell.kw-inactive { background: var(--clr-white) !important; }
@@ -763,6 +764,10 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .kw-cell.kw-issue { background: var(--clr-red-light); border-color: #f0b8b3; color: var(--clr-red); }
 .kw-cell.kw-issue:focus { border-color: var(--clr-forest-dark, #000000); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
 .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #fff5e6, #fff5e6 3px, #ffedcc 3px, #ffedcc 6px); border-color: #f0c878; }
+/* Hinweis-Codes (Wetter ohne Zusatzvereinbarung, Sonstiges): beanstandet, aber keine Zulassungsvoraussetzung */
+.kw-cell.kw-hinweis { background: var(--clr-amber-light); border-color: #e0b95a; color: var(--clr-amber); }
+.kw-cell.kw-hinweis:focus { border-color: var(--clr-forest-dark, #000000); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
+.kw-legend .leg-hinweis { font-size: 12px; color: var(--clr-text-light); font-weight: 400; }
 .kw-cell.kw-session { box-shadow: inset 0 0 0 2px var(--clr-leaf); }
 .kw-cell.kw-session:focus { box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; outline: 2px dashed var(--clr-forest); outline-offset: 3px; }
 .kw-cell.kw-selected { border-color: var(--clr-blue, #2563eb) !important; box-shadow: inset 0 0 0 2px rgba(37,99,235,0.3); z-index: 5; }

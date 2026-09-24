@@ -2,7 +2,7 @@
 
 **Stand:** September 2026 · **Gegenstand:** alle fachlichen Regeln des Tools (Zulassung, Mängelcodes, Pflichtteile, Fehltage, Zeiten und Zeiträume, KW-Raster, Kampagnen, Wiedervorlagen, Ergebnisarten, Statusmodell, Anschreiben) · **Vorgehen:** Regel-Inventar aus dem Code (Fundstellen unten) gegen die Rechtsgrundlagen und die veröffentlichten Vorgaben der zuständigen Stellen.
 
-> **Status: Befund, noch nicht umgesetzt.** Dieses Dokument bewertet und schlägt Pakete vor. Es ändert keinen Code. Die Umsetzung erfolgt paketweise nach Freigabe.
+> **Status: Pakete 1, 2 und 3 umgesetzt** (Zulassung nach § 43 mit Übersteuerung und Meldung der fehlenden Voraussetzungen, Fehlzeiten sauber, Zusatzvereinbarung als Schalter; Details in `CLAUDE.md` unter „Zulassung nach § 43“, Tests in `tests/zulassung-test.mjs`). Ergänzung aus der Abstimmung: Die Zulassung bleibt **immer** manuell setzbar – ein Prüfungsausschuss kann auch bei nicht vollständig erfüllten Voraussetzungen zulassen; das Tool meldet dann die fehlenden Punkte nach § 43 BBiG und verlangt eine Begründung. Pakete 4–7 sind offen.
 
 Legende: 🔴 Regel widerspricht der Rechtslage oder erzeugt eine falsche amtliche Aussage · 🟠 Regel geht über die Rechtslage hinaus oder ist nicht belegbar · 🟡 Vereinfachung oder Klarstellung sinnvoll · ✅ stimmig
 

@@ -356,14 +356,14 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   check(/g_1_1: ke\.p_1_1_gefuehrt/.test(K_SRC) && /g_1_1: ke\.p_1_1_gefuehrt/.test(NE_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest');
   check(/nicht geführt/.test(read('src/js/modules/pdf-export.js')) && /p_1_1_gefuehrt/.test(read('src/js/modules/pdf-export.js')), 'Der Durchsichtsbogen (PDF) zeigt „geführt / nicht geführt“');
   // „nicht geführt“ zählt in der Zulassung als nicht erfüllt
-  const voll = { p_1_1_ausbildungsplan: 'ja', p_1_4_auszubildende: 'ja', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_1_gefuehrt: '', p_1_5_gefuehrt: '' };
-  check(KH.pflichtteileOK(voll, 2) === true, 'Pflichtteile erfüllt: alle vorhanden, ÜBA erreicht');
+  const voll = { p_1_1_ausbildungsplan: 'ja', p_1_4_auszubildende: '', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_1_gefuehrt: '', p_1_5_gefuehrt: '' };
+  check(KH.pflichtteileOK(voll, 2) === true, 'Pflichtteile erfüllt: 1.1 und 1.5 vorhanden, ÜBA erreicht (1.4 ist keine Zulassungsvoraussetzung)');
   check(KH.pflichtteileOK({ ...voll, p_1_1_gefuehrt: 'nein' }, 2) === false, '1.1 „nicht geführt“ → Pflichtteile nicht erfüllt');
   check(KH.pflichtteileOK({ ...voll, p_1_5_gefuehrt: 'nein' }, 2) === false, '1.5 „nicht geführt“ → Pflichtteile nicht erfüllt');
   check(KH.pflichtteileOK({ ...voll, p_1_1_gefuehrt: 'ja', p_1_5_gefuehrt: 'ja' }, 2) === true, '„geführt“ ändert nichts am erfüllten Stand');
   check(KH.pflichtteileOK({ ...voll, bescheinigungen_anzahl: 1 }, 2) === false, 'Zu wenig ÜBA → nicht erfüllt');
   const KSRC = read('src/js/modules/kontrolle.js');
-  check((KSRC.match(/this\.pflichtteileOK\(ke, reqUBA2?\)/g) || []).length === 2 && !/p_1_5_bescheinigungen === 'ja' && \(ke\.bescheinigungen_anzahl\|\|0\) >= reqUBA/.test(KSRC), 'Übersicht und Druck nutzen denselben Helfer (keine zweite Formel)');
+  check((KSRC.match(/this\.zulassungsBefund\(s, ke\)/g) || []).length === 3 && (KSRC.match(/this\.pflichtteileOK\(ke, reqUBA\)/g) || []).length === 1 && !/p_1_5_bescheinigungen === 'ja' && \(ke\.bescheinigungen_anzahl\|\|0\) >= reqUBA/.test(KSRC), 'Übersicht und Druck nutzen denselben Befund (keine zweite Formel)');
   check(/data-field="\$\{name\}"/.test(K_SRC) && /gefuehrtOptHtml\('p_1_1_gefuehrt'/.test(K_SRC) && /gefuehrtOptHtml\('p_1_5_gefuehrt'/.test(K_SRC), 'Beide Auswahlfelder stehen in der Eingabemaske');
   KH.currentIndex = 0;
 }

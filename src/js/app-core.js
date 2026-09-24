@@ -6495,8 +6495,26 @@ const App = {
    * Apply schema migrations to diskDb so dirty-op replay doesn't fail
    * on missing columns/tables. Mirrors the ALTERs from migrateDB().
    */
+  // Einmalige Datenmigration (In-Memory UND Disk-DB, Parität wie bei Schema-
+  // Änderungen): Teil 1.2 wurde bisher von „In Ordnung“/„Alle OK“ automatisch
+  // auf „ja“ gesetzt und hatte keine fachliche Wirkung. Jetzt bedeutet „ja“
+  // „Zusatzvereinbarung zur Berichtsheftführung liegt vor“ und schaltet, ob
+  // Wetter (D) als Zulassungsmangel zählt – die Automatik-Werte werden geleert.
+  _migrateZusatzvereinbarung(db) {
+    const marker = 'f12_zusatzvereinbarung_v1';
+    const st = db.prepare("SELECT wert FROM einstellungen WHERE schluessel=?");
+    st.bind([marker]);
+    const vorhanden = st.step();
+    st.free();
+    if (vorhanden) return false;
+    db.run("UPDATE kontrollergebnisse SET f_1_2_vertragliche_regelungen='' WHERE f_1_2_vertragliche_regelungen='ja'");
+    db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?, '1')", [marker]);
+    return true;
+  },
+
   _migrateDiskDb(diskDb) {
     const run = (sql) => { try { diskDb.run(sql); } catch(e) { if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) console.warn('DiskDB-Migration:', e.message, sql.substring(0,60)); } };
+    try { this._migrateZusatzvereinbarung(diskDb); } catch(e) { console.warn('DiskDB-Migration Zusatzvereinbarung:', e.message); }
     // Tables
     run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7705,6 +7723,73 @@ const App = {
     return Math.max(1, workdays - feiertage);
   },
 
+  // Arbeitstage bis HEUTE (zurückgelegte Ausbildungszeit): nur aktive Wochen
+  // vor der laufenden Kalenderwoche. Maßstab der 10-%-Regel ist die
+  // zurückgelegte Zeit – bezogen auf die Gesamtdauer stand ein Azubi im
+  // 2. Lehrjahr mit 30 Fehltagen bei 4 %, tatsächlich waren es 8 %, und der
+  // Hinweis auf eine Verlängerung nach § 8 Abs. 2 BBiG kam zu spät.
+  calcArbeitstageBisher(schuelerId, heute) {
+    heute = heute || new Date();
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s?.ausbildungsbeginn) return this.calcArbeitstage(null, null, schuelerId);
+    const ende = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
+    if (ende && ende < heute) return this.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, schuelerId);
+    const bounds = this.getAJKWBounds(schuelerId);
+    const jetzt = this.ajKwFuerStichtag(schuelerId, heute, this._isoKW(heute));
+    if (!jetzt) return 0;
+    const idx = kw => (kw >= 36 ? kw - 36 : kw + 17);
+    let wochen = 0;
+    Object.keys(bounds).forEach(k => {
+      const aj = parseInt(k);
+      const inaktiv = new Set(bounds[k].inactiveKWs || []);
+      if (aj > jetzt.aj) return;
+      for (let kw = 1; kw <= 52; kw++) {
+        if (inaktiv.has(kw)) continue;
+        if (aj < jetzt.aj || idx(kw) < idx(jetzt.kw)) wochen++;
+      }
+    });
+    const feiertage = Math.round(wochen / 52 * 11);
+    return Math.max(0, wochen * 5 - feiertage);
+  },
+
+  // ── Zulassung zur Abschlussprüfung, § 43 Abs. 1 Nr. 2 BBiG ──
+  // Zulassungsrelevant sind nur Mängel an den Tagesberichten und den
+  // Unterschriften: A/B (Unterschriften), C (Berufsschulthemen, BIBB-
+  // Empfehlung 2020 Nr. 4), E/F (Inhalt, Fehlen), G (KW/Datum). Wetter (D)
+  // ist laut Merkblatt zum Gärtner-Berichtsheft ausdrücklich KEINE
+  // Zulassungsvoraussetzung – nur mit Zusatzvereinbarung (Teil 1.2) ist das
+  // vollständige Führen vertraglich verbindlich. I (Sonstiges) ist ein Hinweis.
+  ZULASSUNG_CODES: ['A', 'B', 'C', 'E', 'F', 'G'],
+  hatZusatzvereinbarung(ke) { return !!ke && ke.f_1_2_vertragliche_regelungen === 'ja'; },
+  zulassungsCodes(ke) { return this.hatZusatzvereinbarung(ke) ? [...this.ZULASSUNG_CODES, 'D'] : this.ZULASSUNG_CODES; },
+  istZulassungsMangel(codesStr, ke) {
+    const rel = this.zulassungsCodes(ke);
+    return String(codesStr || '').split(',').some(c => rel.includes(c.trim()));
+  },
+  // Wochen mit zulassungsrelevanten Mängeln (über alle Durchsichten)
+  offeneZulassungsMaengel(schuelerId, ke) {
+    const rel = this.zulassungsCodes(ke);
+    return this.query("SELECT maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != ''", [schuelerId])
+      .filter(r => String(r.maengel_codes).split(',').some(c => rel.includes(c.trim()))).length;
+  },
+  // Schwelle „geringfügige Fehlzeiten“ (Praxis der zuständigen Stellen in BW:
+  // i.d.R. 10 % der Ausbildungszeit, Einzelfallentscheidung) – einstellbar
+  fehlzeitenSchwelle() {
+    const v = parseFloat(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='fehlzeiten_prozent'"));
+    return v > 0 && v <= 100 ? v : 10;
+  },
+  // Fehlzeiten-Stand eines Azubis: Summe, Arbeitstage gesamt und bisher,
+  // beide Prozentwerte; die Warnung folgt der ZURÜCKGELEGTEN Zeit
+  fehlzeitenStand(s, heute) {
+    const gesamt = this.getFehltageGesamt(s.id).gesamt;
+    const arbeitstage = this.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, s.id);
+    const bisher = this.calcArbeitstageBisher(s.id, heute);
+    const prozent = arbeitstage > 0 ? gesamt / arbeitstage * 100 : 0;
+    const prozentBisher = bisher > 0 ? gesamt / bisher * 100 : prozent;
+    const schwelle = this.fehlzeitenSchwelle();
+    return { gesamt, arbeitstage, arbeitstageBisher: bisher, prozent, prozentBisher, schwelle, warn: prozentBisher >= schwelle };
+  },
+
   // ── Erforderliche ÜBA-Bescheinigungen nach Fachrichtung ──
   // GaLaBau (Code 036, 176): 6 Bescheinigungen
   // Alle anderen Produktionsgartenbau-FRs: 2 Bescheinigungen
@@ -8678,7 +8763,8 @@ const App = {
 
   // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
   // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
-  TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
+  TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 % der zurückgelegten Ausbildungszeit – ggf. Verlängerung nach § 8 Abs. 2 BBiG (Antrag durch den Azubi) prüfen',
+  TB_FEHLTAGE_ALT: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
 
   // ── Bemerkung-Textbausteine (loaded from DB) ──
   getTextbausteine() {
@@ -8752,10 +8838,11 @@ im Rahmen der Berufsausbildung zum/zur {fachrichtung} findet am {datum} an der {
 Bitte stellen Sie sicher, dass Ihr Auszubildender/Ihre Auszubildende das Berichtsheft vollständig und ordnungsgemäß geführt zur Durchsicht mitbringt.
 
 Folgende Unterlagen werden geprüft:
-- Individueller Ausbildungsplan (ausgefüllt und unterschrieben)
-- Sachberichte / Wochenberichte (lückenlos geführt)
-- Bescheinigungen über überbetriebliche Ausbildung
-- Unterschriften des Ausbilders/der Ausbilderin
+- Tagesberichte (Teil 2.1, lückenlos geführt, mit Kalenderwoche, Datum und Berufsschulthemen)
+- Unterschriften des Auszubildenden und des Ausbilders/der Ausbilderin mit Datum
+- Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
+- Bescheinigungen über die überbetriebliche Ausbildung
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Wetterbeobachtungen, Sachberichte, Pflanze der Woche
 
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
 
@@ -8774,7 +8861,7 @@ Folgende Ihrer Auszubildenden sind betroffen:
 
 Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
 
-Geprüft werden: Individueller Ausbildungsplan, Sachberichte/Wochenberichte (lückenlos), ÜBA-Bescheinigungen, Unterschriften.
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Wetter, Sachberichte und Pflanze der Woche.
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -8790,7 +8877,7 @@ Für folgende Ihrer Auszubildenden ergab sich Handlungsbedarf:
 
 {azubi_block}
 
-Wir bitten Sie, dafür Sorge zu tragen, dass die genannten Mängel zeitnah behoben werden.
+Wir bitten Sie, dafür Sorge zu tragen, dass die genannten Mängel zeitnah behoben werden. Als Ausbildende sind Sie verpflichtet, Ihre Auszubildenden zum Führen des Ausbildungsnachweises anzuhalten und diesen regelmäßig durchzusehen (§ 14 Abs. 2 BBiG).
 
 Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
 
@@ -9430,9 +9517,9 @@ Anlagen: {anlagen}` },
         } else {
           this.db.run("INSERT OR IGNORE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)",
             [JSON.stringify([
-              'Wetterbericht fehlt durchgehend',
+              'Wetterbericht fehlt durchgehend (Hinweis – nur bei Zusatzvereinbarung verbindlich)',
               'Unterschrift Ausbilder fehlt',
-              'Sachberichte zu Wetter nachzureichen per E-Mail',
+              'Sachberichte zu Wetter nachzureichen per E-Mail (nur bei Zusatzvereinbarung)',
               'Berichte komplett lückenhaft – persönliches Gespräch empfohlen',
               'Berichtsheft ordentlich und vollständig geführt',
               'Fehltage-Nachweise nicht beigelegt',
@@ -9461,7 +9548,22 @@ Anlagen: {anlagen}` },
           }
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_ergaenzt','1')");
         }
+        // Fassung mit Hinweis auf § 8 Abs. 2 BBiG ersetzt den alten Wortlaut (einmalig)
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='tb_fehltage_v2'")) {
+          const tb = JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+          if (Array.isArray(tb)) {
+            const i = tb.indexOf(this.TB_FEHLTAGE_ALT);
+            if (i >= 0 && !tb.includes(this.TB_FEHLTAGE)) { tb[i] = this.TB_FEHLTAGE; this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)", [JSON.stringify(tb)]); }
+          }
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_v2','1')");
+        }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
+      // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
+      // und schaltet, ob Wetter/Sachberichte als Mangel zählen. Bisher setzte
+      // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –
+      // diese Automatik-Werte werden einmalig geleert, der Prüfer setzt den
+      // neuen Wert bei der nächsten Durchsicht (Wert wird weitervererbt).
+      try { this._migrateZusatzvereinbarung(this.db); } catch(e) { console.warn('Zusatzvereinbarung-Migration:', e); }
       // Blockplan table for school presence weeks
       try {
         this.db.run(`CREATE TABLE IF NOT EXISTS blockplan (

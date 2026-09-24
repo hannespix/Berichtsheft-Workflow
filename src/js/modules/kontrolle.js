@@ -181,13 +181,52 @@ const KontrolleHandler = {
   // ══════════════════════════════════════
   //  ÜBERSICHTSTABELLE
   // ══════════════════════════════════════
-  // Pflichtteile für die AP-Zulassung: 1.1, 1.4 und 1.5 vorhanden, ÜBA-Zahl
-  // erreicht – UND 1.1/1.5 nicht als „nicht geführt“ markiert. Ein vorhandener,
-  // aber nicht geführter Ausbildungsplan oder Nachweis zählt nicht als erfüllt.
+  // Pflichtteile für die AP-Zulassung: 1.1 (Ausbildungsplan, Vertragsanlage)
+  // und 1.5 (ÜBA-Nachweis, Vertragsanlage) vorhanden, ÜBA-Zahl erreicht – UND
+  // 1.1/1.5 nicht als „nicht geführt“ markiert. Teil 1.4 (Angaben zur Person)
+  // ist keine Zulassungsvoraussetzung und zählt nur als Hinweis.
   pflichtteileOK(ke, reqUBA) {
-    return ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_4_auszubildende === 'ja' && ke.p_1_5_bescheinigungen === 'ja'
+    return ke.p_1_1_ausbildungsplan === 'ja' && ke.p_1_5_bescheinigungen === 'ja'
       && (ke.bescheinigungen_anzahl || 0) >= (reqUBA || 0)
       && ke.p_1_1_gefuehrt !== 'nein' && ke.p_1_5_gefuehrt !== 'nein';
+  },
+  // Berichtsheft-Voraussetzung nach § 43 Abs. 1 Nr. 2 BBiG für EINEN Azubi:
+  // ein Befund mit Klartext-Gründen, den Übersicht, Druckliste, Übersteuerung
+  // und Bogen gemeinsam nutzen. Zwischenprüfung, Verzeichnis-Eintrag und
+  // Vertragsende (§ 43 Abs. 1 Nr. 1 und 3) prüft die Prüfungsverwaltung.
+  zulassungsBefund(s, ke, heute) {
+    const gruende = [];
+    const fz = App.fehlzeitenStand(s, heute);
+    if (fz.warn) gruende.push(`Fehlzeiten ${fz.prozentBisher.toFixed(1)} % der bisherigen Ausbildungszeit (Schwelle ${fz.schwelle} %)`);
+    const reqUBA = App.getRequiredUBA(s.fachrichtung_id);
+    const pflichtOK = this.pflichtteileOK(ke, reqUBA);
+    if (!pflichtOK) {
+      const p = [];
+      if (ke.p_1_1_ausbildungsplan !== 'ja') p.push('Ausbildungsplan (1.1) fehlt');
+      else if (ke.p_1_1_gefuehrt === 'nein') p.push('Ausbildungsplan (1.1) nicht geführt');
+      if (ke.p_1_5_bescheinigungen !== 'ja') p.push('ÜBA-Bescheinigungen (1.5) fehlen');
+      else if (ke.p_1_5_gefuehrt === 'nein') p.push('Zusammenstellung (1.5) nicht geführt');
+      if ((ke.bescheinigungen_anzahl || 0) < reqUBA) p.push(`ÜBA ${ke.bescheinigungen_anzahl || 0}/${reqUBA}`);
+      gruende.push('Pflichtteile: ' + (p.join(', ') || 'unvollständig'));
+    }
+    const offeneMaengel = App.offeneZulassungsMaengel(s.id, ke);
+    if (offeneMaengel) gruende.push(`${offeneMaengel} Woche(n) mit Mängeln an Tagesberichten/Unterschriften (${App.zulassungsCodes(ke).join(' ')})`);
+    const wvOffen = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) > 0;
+    if (wvOffen) gruende.push('Wiedervorlage offen (Nachweis steht aus)');
+    const isDone = !!(ke.ergebnis && ke.ergebnis !== '');
+    const isOK = ke.ergebnis === 'in_ordnung';
+    if (!isDone) gruende.push('Berichtsheft noch nicht bewertet');
+    else if (!isOK) gruende.push('Ergebnis der Durchsicht nicht „in Ordnung“');
+    const ajListe = App.getSchuelerAJs(s.id);
+    const beginn = s.ausbildungsbeginn || App.scalar('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [s.id]);
+    const ajJetzt = App.getCurrentAJ(beginn, s.id);
+    const vorzeitig = s.vorzeitige_zulassung != null ? !!s.vorzeitige_zulassung : !!App.scalar('SELECT vorzeitige_zulassung FROM schueler WHERE id=?', [s.id]);
+    const imLetztenAJ = vorzeitig || !ajJetzt || !ajListe.length || ajJetzt >= ajListe[ajListe.length - 1];
+    return { ok: gruende.length === 0, gruende, fz, fehlWarn: fz.warn, reqUBA, pflichtOK, offeneMaengel, wvOffen, isDone, isOK, imLetztenAJ, vorzeitig };
+  },
+  // Meldung für die Übersteuerung: welche Voraussetzungen nach § 43 BBiG fehlen
+  zulassungsMeldung(befund) {
+    return 'Nicht alle Zulassungsvoraussetzungen nach § 43 Abs. 1 Nr. 2 BBiG sind erfüllt:\n' + befund.gruende.map(g => '• ' + g).join('\n');
   },
 
   renderUebersicht() {
@@ -262,24 +301,16 @@ const KontrolleHandler = {
       if (ke.pruefungsausschuss === 1) paCount++;
       if (ke.zulassung_ap === 1) zulCount++;
 
-      // AP-Zulassung checks
-      const fehlGesamt = App.getFehltageGesamt(s.id).gesamt;
-      const arbeitstage = App.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, s.id);
-      const fehlProzent = arbeitstage > 0 ? (fehlGesamt / arbeitstage * 100) : 0;
-      const fehlWarn = fehlProzent >= 10;
-      const reqUBA = App.getRequiredUBA(s.fachrichtung_id);
-      const pflichtOK = this.pflichtteileOK(ke, reqUBA);
-      const offeneMaengel = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes != '' AND maengel_codes != 'H'", [s.id]) || 0;
-      const wvOffen = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) > 0;
+      // Berichtsheft-Voraussetzung (§ 43 Abs. 1 Nr. 2 BBiG) – ein Befund für alles
+      const befund = this.zulassungsBefund(s, ke);
+      const { fz, fehlWarn, reqUBA, pflichtOK, wvOffen } = befund;
+      const fehlGesamt = fz.gesamt, arbeitstage = fz.arbeitstage, fehlProzent = fz.prozentBisher;
       const ampel = App.getSchuelerAmpel(s.id);
-
-      // Zulassungsbedingungen: < 10% Fehltage UND Pflichtteile OK UND keine Mängel/WV
-      const bedingungenOK = !fehlWarn && pflichtOK && offeneMaengel === 0 && !wvOffen && isDone && isOK;
-      // Automatisch vorgeschlagen wird nur im LETZTEN Ausbildungsjahr – im
-      // 1. Lehrjahr gibt es noch nichts zuzulassen
-      const ajListe = App.getSchuelerAJs(s.id);
-      const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn || App.scalar('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [s.id]), s.id);
-      const imLetztenAJ = !ajJetzt || !ajListe.length || ajJetzt >= ajListe[ajListe.length - 1];
+      const bedingungenOK = befund.ok;
+      // Automatisch vorgeschlagen wird nur im LETZTEN Ausbildungsjahr (oder bei
+      // vorzeitiger Zulassung nach § 45 Abs. 1) – im 1. Lehrjahr gibt es noch
+      // nichts zuzulassen
+      const imLetztenAJ = befund.imLetztenAJ;
       const autoZulassung = bedingungenOK && imLetztenAJ;
       // Auto-set nur wenn: nie manuell abgewählt (Session-Merker) und noch 0.
       // App.run statt _runSilent → wird persistiert und via Sync verteilt (sonst flippt
@@ -294,6 +325,9 @@ const KontrolleHandler = {
       const isPA = ke.pruefungsausschuss === 1;
       // Conditions NOT met → needs attention (red if not already zugelassen or PA)
       const needsAttention = isDone && !bedingungenOK && !isZulassung && !isPA;
+      // Als erfüllt markiert, obwohl Voraussetzungen fehlen = Einzelfallentscheidung
+      const trotzAbweichung = isZulassung && !bedingungenOK;
+      const befundTitel = befund.ok ? 'Berichtsheft-Voraussetzung erfüllt' : this.zulassungsMeldung(befund);
 
       const ergebnisLabels = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
@@ -317,18 +351,19 @@ const KontrolleHandler = {
             : (isAnw ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-green-light);color:var(--clr-forest-dark);border:1px solid var(--clr-green)" onclick="KontrolleHandler.quickMarkOK(${s.id})" title="Berichtsheft in Ordnung – Ergebnis + Pflichtteile setzen (Mängel/Bemerkungen bitte in der Einzelansicht)">✓ i.O.</button>` : '<span style="color:var(--clr-text-light);font-size:12px">– abwesend</span>')}
           ${wvOffen ? '<span style="color:var(--clr-red);font-size:12px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
         </td>
-        <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage / ${arbeitstage} Arbeitstage (${Math.round(arbeitstage/5)} aktive KWs) = ${fehlProzent.toFixed(1)}%">${fehlGesamt}<span style="font-size:12px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
-        <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile: 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.4=${ke.p_1_4_auszubildende||'-'}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA)">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
+        <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage (ohne Urlaub und Berufsschule) · bisher: ${fz.arbeitstageBisher} Arbeitstage = ${fz.prozentBisher.toFixed(1)} % · Gesamtdauer: ${arbeitstage} Arbeitstage = ${fz.prozent.toFixed(1)} % · Schwelle ${fz.schwelle} % der zurückgelegten Zeit">${fehlGesamt}<span style="font-size:12px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
+        <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile (§ 43 Abs. 1 Nr. 2 BBiG): 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA) · Hinweis 1.4=${ke.p_1_4_auszubildende||'-'}">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
         <td style="text-align:center">
-          <input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-green)" title="Zulassung zur AP${autoZulassung ? ' (automatisch empfohlen)' : ''}">
+          <input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-green)" title="${esc(befundTitel)}${autoZulassung ? ' (automatisch vorgeschlagen)' : ''}${!befund.ok ? '\n\nTrotzdem setzbar (Einzelfallentscheidung / Prüfungsausschuss) – mit Begründung' : ''}" aria-label="Berichtsheft-Voraussetzung für die Zulassung erfüllt: ${esc(s.nachname)}, ${esc(s.vorname)}">
         </td>
         <td style="text-align:center">
-          <input type="checkbox" ${isPA ? 'checked' : ''} onchange="KontrolleHandler.togglePA(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-red)" title="An Prüfungsausschuss übergeben">
+          <input type="checkbox" ${isPA ? 'checked' : ''} onchange="KontrolleHandler.togglePA(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-red)" title="Dem Prüfungsausschuss zur Entscheidung vorgelegt (§ 46 Abs. 1 Satz 2 BBiG)" aria-label="Prüfungsausschuss: ${esc(s.nachname)}, ${esc(s.vorname)}">
         </td>
         <td style="text-align:center">
-          ${needsAttention ? '<span title="Zulassungsbedingungen nicht erfüllt – prüfen!" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠︎</span>' : ''}
-          ${isZulassung && !isPA ? '<span style="color:var(--clr-green);font-size:14px" title="AP-Zulassung erteilt ✓">✓</span>' : ''}
-          ${isPA ? '<span style="color:var(--clr-red);font-size:12px;font-weight:700" title="Prüfungsausschuss">PA</span>' : ''}
+          ${needsAttention ? `<span title="${esc(this.zulassungsMeldung(befund))}" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠︎</span>` : ''}
+          ${isZulassung && !trotzAbweichung ? '<span style="color:var(--clr-green);font-size:14px" title="Berichtsheft-Voraussetzung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">✓</span>' : ''}
+          ${trotzAbweichung ? `<span style="color:var(--clr-amber);font-size:13px;font-weight:700;cursor:help" title="Zulassung trotz Abweichung (Einzelfallentscheidung, Begründung in der Bemerkung).\n${esc(this.zulassungsMeldung(befund))}">✓!</span>` : ''}
+          ${isPA ? '<span style="color:var(--clr-red);font-size:12px;font-weight:700" title="Prüfungsausschuss (§ 46 Abs. 1 Satz 2 BBiG)">PA</span>' : ''}
         </td>
         <td>
           <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht" aria-label="Einzelansicht öffnen: ${esc(s.nachname)}, ${esc(s.vorname)}">→</button>
@@ -355,7 +390,7 @@ const KontrolleHandler = {
 
     // Toast bei automatischer AP-Zulassung
     if (autoZulCount > 0) {
-      App.toast(`${autoZulCount} Auszubildende${autoZulCount > 1 ? '' : 'r'} automatisch zur AP zugelassen (alle Kriterien erfüllt)`, 'success');
+      App.toast(`${autoZulCount} Auszubildende${autoZulCount > 1 ? '' : 'r'}: Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG) – automatisch vorgeschlagen`, 'success');
     }
 
     // Abwesende zählen nicht als "offen": der Nenner des Fortschritts sind
@@ -400,7 +435,7 @@ const KontrolleHandler = {
             <strong>${offen}</strong> noch offen${abwesend ? ` <span style="color:var(--clr-text-light)">· ${abwesend} abwesend</span>` : ''}
           </div>
           ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> zugelassen
+            ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> Voraussetzung erfüllt
           </div>` : ''}
           ${paCount ? `<div style="padding:6px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--clr-red)">
             ⚠︎ <strong>${paCount}</strong> Prüfungsausschuss
@@ -434,10 +469,10 @@ const KontrolleHandler = {
               <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei Durchsicht (Checkbox)'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
               <th style="width:35px;text-align:center" title="Ampel-Status">↯</th>
               <th>Ergebnis</th>
-              <th style="width:55px;text-align:center" title="Fehltage gesamt">Fehl.</th>
-              <th style="width:45px;text-align:center" title="Pflichtteile vollständig">Pfl.</th>
-              <th style="width:45px;text-align:center" title="Zulassung zur Abschlussprüfung">Zul.</th>
-              <th style="width:35px;text-align:center" title="Prüfungsausschuss (Sonderfall)">PA</th>
+              <th style="width:55px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th>
+              <th style="width:45px;text-align:center" title="Pflichtteile 1.1 und 1.5 vollständig">Pfl.</th>
+              <th style="width:45px;text-align:center" title="Berichtsheft-Voraussetzung für die Zulassung zur Abschlussprüfung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG) – Zwischenprüfung, Verzeichnis und Vertragsende prüft die Prüfungsverwaltung">Zul.</th>
+              <th style="width:35px;text-align:center" title="Dem Prüfungsausschuss vorgelegt (§ 46 Abs. 1 Satz 2 BBiG)">PA</th>
               <th style="width:55px;text-align:center" title="AP-Status">AP</th>
               <th style="width:40px"></th>
             </tr></thead>
@@ -501,9 +536,12 @@ const KontrolleHandler = {
     this.renderUebersicht();
   },
   // Gemeinsame Kernlogik von quickMarkOK / markOffeneOK / bulkMarkOK
+  // (1.2 = Zusatzvereinbarung wird NICHT automatisch gesetzt – das ist eine
+  // Tatsachenfeststellung, kein „in Ordnung“)
+  PFLICHT_AUTO_JA: ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_6_ausbildungsbetrieb'],
   _markOK(ids) {
     const tid = this.currentTerminId;
-    const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
+    const pflichtFields = ['p_1_1_ausbildungsplan','p_1_4_auszubildende','p_1_5_bescheinigungen','f_1_6_ausbildungsbetrieb'];
     let count = 0, wv = 0;
     ids.forEach(sid => {
       let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
@@ -703,26 +741,41 @@ const KontrolleHandler = {
     this.renderUebersicht();
   },
 
-  // Toggle Zulassung AP (mutually exclusive with PA)
-  toggleZulassung(schuelerId, checked) {
+  // Berichtsheft-Voraussetzung „erfüllt“ setzen oder abwählen. Fehlen
+  // Voraussetzungen nach § 43 BBiG, bleibt das Setzen möglich (Einzelfall-
+  // entscheidung, z. B. durch den Prüfungsausschuss nach § 46 Abs. 1 BBiG) –
+  // aber nur nach einer Meldung der fehlenden Punkte und mit Begründung, die
+  // als eigene Zeile in die Bemerkung geht. Prüfungsausschuss und Zulassung
+  // schließen sich nicht mehr aus: der Ausschuss kann zulassen.
+  ZULASSUNG_TROTZ_PREFIX: '[Zulassung trotz Abweichung]',
+  async toggleZulassung(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
+    if (checked) {
+      const s = this.currentSchuelerList.find(x => x.id === schuelerId) || App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+      const befund = s ? this.zulassungsBefund(s, ke) : { ok: true, gruende: [] };
+      if (!befund.ok) {
+        const ok = await App.confirm(this.zulassungsMeldung(befund) + '\n\nTrotzdem als zugelassen markieren? Das ist eine Einzelfallentscheidung (z. B. des Prüfungsausschusses nach § 46 Abs. 1 BBiG) und braucht eine Begründung.', { titel: 'Zulassungsvoraussetzungen nicht erfüllt', ok: 'Trotzdem zulassen', gefaehrlich: true });
+        if (!ok) { this.renderUebersicht(); return; }
+        const grund = await App.prompt('Begründung der Zulassung trotz fehlender Voraussetzungen (erscheint in der Bemerkung und im Bogen):', { titel: 'Zulassung trotz Abweichung', platzhalter: 'z.B. Entscheidung des Prüfungsausschusses vom …, Fehlzeiten durch Krankheit ohne Gefährdung des Ausbildungsziels' });
+        if (grund === null || !grund.trim()) { App.toast('Ohne Begründung keine Zulassung trotz Abweichung', 'warning'); this.renderUebersicht(); return; }
+        const bem = (ke.bemerkung || '').trim();
+        const zeile = `${this.ZULASSUNG_TROTZ_PREFIX} ${grund.trim()}`;
+        if (!bem.includes(zeile)) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bem ? bem + '\n' + zeile : zeile, ke.id]);
+      }
+    }
     // Manuelles Abwählen DAUERHAFT merken (DB-Spalte, nicht nur im Speicher):
-    // sonst setzt die Auto-Zulassung sie nach einem Reload – oder beim Kollegen,
+    // sonst setzt die Automatik sie nach einem Reload – oder beim Kollegen,
     // der dieselbe Übersicht öffnet – kommentarlos wieder auf 1.
     App.run('UPDATE kontrollergebnisse SET zulassung_manuell=? WHERE id=?', [checked ? 0 : 1, ke.id]);
-    if (checked && ke.pruefungsausschuss === 1) {
-      // Unset PA when setting Zulassung
-      App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=0, zulassung_ap=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
-        [this.activePruefer || '', ke.id]);
-    } else {
-      App.run('UPDATE kontrollergebnisse SET zulassung_ap=?, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
-        [checked ? 1 : 0, this.activePruefer || '', ke.id]);
-    }
+    App.run('UPDATE kontrollergebnisse SET zulassung_ap=?, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
+      [checked ? 1 : 0, this.activePruefer || '', ke.id]);
     this.renderUebersicht();
   },
 
-  // Toggle Prüfungsausschuss (mutually exclusive with Zulassung)
+  // Prüfungsausschuss: dem Ausschuss zur Entscheidung vorgelegt (§ 46 Abs. 1
+  // Satz 2 BBiG). Lässt eine gesetzte Zulassung stehen (der Ausschuss kann
+  // trotz Abweichung zulassen – dann stehen beide Marken).
   async togglePA(schuelerId, checked) {
     let ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, schuelerId])[0];
     if (!ke) return;
@@ -736,14 +789,8 @@ const KontrolleHandler = {
         if (!bem.includes(zeile)) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bem ? bem + '\n' + zeile : zeile, ke.id]);
       }
     }
-    if (checked && ke.zulassung_ap === 1) {
-      // Unset Zulassung when setting PA
-      App.run('UPDATE kontrollergebnisse SET zulassung_ap=0, pruefungsausschuss=1, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
-        [this.activePruefer || '', ke.id]);
-    } else {
-      App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=?, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
-        [checked ? 1 : 0, this.activePruefer || '', ke.id]);
-    }
+    App.run('UPDATE kontrollergebnisse SET pruefungsausschuss=?, geaendert_am=datetime(\'now\',\'localtime\'), geaendert_von=? WHERE id=?',
+      [checked ? 1 : 0, this.activePruefer || '', ke.id]);
     this.renderUebersicht();
   },
 
@@ -775,12 +822,12 @@ const KontrolleHandler = {
       if (isDone && ke.ergebnis !== 'in_ordnung') mg++;
       if (isPA) pa++;
       if (isZul) zul++;
-      const fehl = App.getFehltageGesamt(s.id).gesamt;
-      const at = App.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, s.id);
-      const fehlPct = at > 0 ? (fehl / at * 100) : 0;
-      const fehlWarn = fehlPct >= 10;
-      const reqUBA2 = App.getRequiredUBA(s.fachrichtung_id);
-      const pflOK = this.pflichtteileOK(ke, reqUBA2);
+      const befund = this.zulassungsBefund(s, ke);
+      const fehl = befund.fz.gesamt;
+      const fehlPct = befund.fz.prozentBisher;
+      const fehlWarn = befund.fehlWarn;
+      const pflOK = befund.pflichtOK;
+      const trotz = isZul && !befund.ok;
       const bg = isPA ? '#fde0dc' : !isAnw ? '#f5f0eb' : isDone && ke.ergebnis !== 'in_ordnung' ? '#fde8e6' : isDone && ke.ergebnis === 'in_ordnung' ? '#e8f5e9' : '#fff';
       return `<tr style="background:${bg}${isPA ? ';border-left:3px solid #c0392b' : ''}">
         <td style="text-align:center">${i+1}</td>
@@ -790,7 +837,7 @@ const KontrolleHandler = {
         <td>${isDone ? (eLbl[ke.ergebnis] || ke.ergebnis || '–') : ''}</td>
         <td style="text-align:center;${fehlWarn ? 'color:red;font-weight:bold' : ''}">${fehl} <span style="font-size:12px">(${fehlPct.toFixed(0)}%)</span></td>
         <td style="text-align:center">${pflOK ? '✓' : '–'}</td>
-        <td style="text-align:center;color:${isZul ? '#27ae60' : '#999'};font-weight:${isZul ? '700' : '400'}">${isZul ? '✓' : '–'}</td>
+        <td style="text-align:center;color:${isZul ? (trotz ? '#b7791f' : '#27ae60') : '#999'};font-weight:${isZul ? '700' : '400'}">${isZul ? (trotz ? '✓ trotz Abw.' : '✓') : '–'}</td>
         <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠︎ PA' : '–'}</td>
         <td style="font-size:12px">${esc(ke.bemerkung || '')}</td>
       </tr>`;
@@ -814,11 +861,11 @@ const KontrolleHandler = {
       <span style="background:#e8f5e9">✓ ${ok} i.O.</span>
       <span style="background:${mg ? '#fde8e6' : '#f5f5f5'}">✗ ${mg} beanstandet</span>
       <span style="background:#f5f5f5">${anw}/${schueler.length} anwesend</span>
-      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">${svgIcon('abschluss', 12)} ${zul} zugelassen</span>` : ''}
+      ${zul ? `<span style="background:#e8f5e9;font-weight:bold">${svgIcon('abschluss', 12)} ${zul} Voraussetzung erfüllt</span>` : ''}
       ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠︎ ${pa} Prüfungsausschuss</span>` : ''}
     </div>
     <table>
-      <thead><tr><th>#</th><th>Name</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt">Fehl.</th><th title="Pflichtteile vollständig">Pfl.</th><th title="Zulassung zur Abschlussprüfung">Zul.</th><th title="Prüfungsausschuss">PA</th><th>Bemerkung</th></tr></thead>
+      <thead><tr><th>#</th><th>Name</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt (ohne Urlaub) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th><th title="Pflichtteile 1.1 und 1.5 vollständig">Pfl.</th><th title="Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">Zul.</th><th title="Prüfungsausschuss (§ 46 BBiG)">PA</th><th>Bemerkung</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:16px;font-size:12px;color:#999;border-top:1px solid #ddd;padding-top:4px">
@@ -1155,6 +1202,8 @@ const KontrolleHandler = {
     const ajBounds = App.getAJKWBounds(s.id);
 
     const ergebnisOptions = this.ERGEBNIS_OPTIONEN;
+    // Für KWNav.updateCellVisual: entscheidet, ob D als Zulassungsmangel zählt
+    this._aktuellesKE = ke;
 
     const pflichtOptHtml = (name, val) => `
       <select class="form-control" style="width:auto;display:inline;padding:4px 8px;font-size:12px" data-field="${name}" onchange="KontrolleHandler.saveField('${name}',this.value)">
@@ -1194,12 +1243,15 @@ const KontrolleHandler = {
             const hasBem = d && d.bemerkung;
             const isSessionKW = ajSessionKWs.includes(kw);
             const isPastPruef = d && d.geprueft && !isSessionKW;
-            // H (Fehltage) allein = kein Mangel → kein rot
+            // H (Fehltage) allein = kein Mangel → kein rot; D/I ohne
+            // Zusatzvereinbarung = Hinweis (gelb), kein Zulassungsmangel
             const hasRealMaengel = hasCodes && codeStr.split(',').some(c => c.trim() && c.trim() !== 'H');
+            const hasZulMangel = hasCodes && App.istZulassungsMangel(codeStr, ke);
             const isHOnly = hasCodes && !hasRealMaengel;
-            // States: kw-issue (red) only for real Mängel, kw-behoben (orange), kw-ok (green)
+            // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for D/I, kw-behoben (orange), kw-ok (green)
             let cls = '';
-            if (hasRealMaengel) cls = 'kw-issue';
+            if (hasZulMangel) cls = 'kw-issue';
+            else if (hasRealMaengel) cls = 'kw-hinweis';
             else if (hasBehoben) cls = 'kw-behoben';
             else if (isPastPruef || isHOnly) cls = 'kw-ok';
             if (fehl > 0 && !hasRealMaengel) cls += ' kw-fehltage-only';
@@ -1208,7 +1260,7 @@ const KontrolleHandler = {
             // Merge H with Fehltage: "A,H" + 3 → display "A H3"
             const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
             const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
-            const title = `KW ${kw}${drLabel}${hasRealMaengel ? ' · Mängel: '+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
+            const title = `KW ${kw}${drLabel}${hasRealMaengel ? (hasZulMangel ? ' · Mängel: ' : ' · Hinweis (keine Zulassungsvoraussetzung): ')+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
             return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
               data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
               data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
@@ -1229,12 +1281,12 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
-      <span class="leg-item"><kbd>D</kbd>Wetter</span>
+      <span class="leg-item" title="${App.hatZusatzvereinbarung(ke) ? 'Wetter – mit Zusatzvereinbarung verbindlich (Zulassungsmangel)' : 'Wetter – ohne Zusatzvereinbarung (1.2) nur Hinweis, keine Zulassungsvoraussetzung'}"><kbd>D</kbd>Wetter${App.hatZusatzvereinbarung(ke) ? '' : ' <span class="leg-hinweis">(Hinweis)</span>'}</span>
       <span class="leg-item"><kbd>E</kbd>Lückenhaft</span>
       <span class="leg-item"><kbd>F</kbd>Berichte fehlen</span>
       <span class="leg-item"><kbd>G</kbd>Datum/KW</span>
-      <span class="leg-item"><kbd>H</kbd>Fehltage (1-5)</span>
-      <span class="leg-item"><kbd>I</kbd>Sonstiges</span>
+      <span class="leg-item" title="Fehltage je Woche (Krankheit, unentschuldigt – ohne Urlaub und Berufsschule)"><kbd>H</kbd>Fehltage (1-5)</span>
+      <span class="leg-item" title="Sonstiges mit Bemerkung – Hinweis, keine Zulassungsvoraussetzung"><kbd>I</kbd>Sonstiges</span>
       <span class="leg-sep">│</span>
       <span class="leg-item"><kbd>←→↑↓</kbd>Nav</span>
       <span class="leg-item"><kbd>Entf</kbd>Leeren</span>
@@ -1472,8 +1524,8 @@ const KontrolleHandler = {
       <!-- Pflichtteile (kompakt) -->
       <div class="card" style="margin-bottom:12px;max-width:540px">
         <div class="card-header" style="padding-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-          <span>Pflichtteile (Zulassung Abschlussprüfung)</span>
-          <button class="btn btn-sm btn-success" style="font-size:12px;padding:2px 8px" onclick="KontrolleHandler.setAllPflichtOK()" title="Alle Pflichtteile auf 'Ja' setzen">✓ Alle OK</button>
+          <span title="Zulassungsvoraussetzung nach § 43 Abs. 1 Nr. 2 BBiG: Tagesberichte (Raster), Unterschriften, Ausbildungsplan (Vertragsanlage) und ÜBA-Nachweis (Vertragsanlage)">Pflichtteile (§ 43 Abs. 1 Nr. 2 BBiG)</span>
+          <button class="btn btn-sm btn-success" style="font-size:12px;padding:2px 8px" onclick="KontrolleHandler.setAllPflichtOK()" title="Alle Pflicht- und Hinweisteile auf 'Ja' setzen (1.2 Zusatzvereinbarung bleibt unberührt)">✓ Alle OK</button>
         </div>
         <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
           <span style="font-weight:600;color:var(--clr-sage)">1.1</span>
@@ -1482,10 +1534,6 @@ const KontrolleHandler = {
           <span></span>
           <span style="font-size:12px;color:var(--clr-text-light);padding-left:10px">↳ Inhalte laufend angekreuzt?</span>
           <div>${gefuehrtOptHtml('p_1_1_gefuehrt', ke.p_1_1_gefuehrt)}</div>
-
-          <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
-          <span>Der/die Auszubildende <span style="font-size:12px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
-          <div>${pflichtOptHtml('p_1_4_auszubildende', ke.p_1_4_auszubildende)}</div>
 
           <span style="font-weight:600;color:var(--clr-sage)">1.5</span>
           <span>Bescheinigungen ÜBA <span style="font-size:12px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
@@ -1505,11 +1553,15 @@ const KontrolleHandler = {
           <div>${gefuehrtOptHtml('p_1_5_gefuehrt', ke.p_1_5_gefuehrt)}</div>
         </div>
         <div style="border-top:1px solid var(--clr-sand);margin-top:8px;padding-top:6px">
-          <div style="font-size:12px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px">Freiwillig / Vertragsbestandteil</div>
+          <div style="font-size:12px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px" title="Keine Zulassungsvoraussetzung – wird beanstandet, sperrt aber nicht">Hinweis (keine Zulassungsvoraussetzung)</div>
           <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
             <span style="font-weight:600;color:var(--clr-sage)">1.2</span>
-            <span>Vertragliche Regelungen</span>
+            <span title="Liegt die Zusatzvereinbarung zum Ausbildungsvertrag über die Berichtsheftführung vor, sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel.">Zusatzvereinbarung Berichtsheftführung ${App.hatZusatzvereinbarung(ke) ? '<span style="font-size:12px;color:var(--clr-forest);font-weight:600">· Wetter/Sachberichte verbindlich</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">· ohne: Wetter (D) nur Hinweis</span>'}</span>
             <div>${pflichtOptHtml('f_1_2_vertragliche_regelungen', ke.f_1_2_vertragliche_regelungen)}</div>
+
+            <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
+            <span>Der/die Auszubildende <span style="font-size:12px;color:var(--clr-text-light)">(ausgefüllt)</span></span>
+            <div>${pflichtOptHtml('p_1_4_auszubildende', ke.p_1_4_auszubildende)}</div>
 
             <span style="font-weight:600;color:var(--clr-sage)">1.6</span>
             <span>Ausbildungsbetrieb / Skizze</span>
@@ -1571,8 +1623,8 @@ const KontrolleHandler = {
       }).join(''); })()}
 
       <!-- Fehltage (Ergebnis und Bemerkung stehen in der festen Leiste unten) -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">Fehl-/Krankheitstage</div>
+      ${(() => { const fz = App.fehlzeitenStand(s); return `<div class="card" style="margin-bottom:12px">
+        <div class="card-header" title="Zeiten ohne aktive Ausbildung: Krankheit und unentschuldigtes Fehlen. Urlaub und Berufsschule sind Ausbildungszeit und zählen nicht.">Fehltage <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">(Krankheit, unentschuldigt – ohne Urlaub und Berufsschule)</span></div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
           ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
@@ -1584,12 +1636,15 @@ const KontrolleHandler = {
             <span id="fehlPauschalAnzeige" style="display:none">${ke.fehltage_pauschal || 0}</span>
           </label>
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
-          <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Sachberichte (bei Wetter-Mängeln)">Sachberichte:
+          <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Sachberichte – nur mit Zusatzvereinbarung (1.2) verbindlich">Sachberichte:
             <input type="number" class="form-control" value="${ke.sachberichte_anzahl}" onchange="KontrolleHandler.saveField('sachberichte_anzahl',this.value)" style="width:58px;padding:2px 4px;font-size:12px;text-align:center">
           </label>
           <span style="font-size:12px;color:var(--clr-sage);margin-left:auto">= KW-Einträge + pauschal</span>
         </div>
-      </div>
+        <div id="fehlProzentZeile" style="font-size:12px;margin-top:6px;padding:0 10px;color:${fz.warn ? 'var(--clr-red)' : 'var(--clr-text-light)'}" title="Maßstab der Praxis in Baden-Württemberg: geringfügige Fehlzeiten von i.d.R. ${fz.schwelle} % der zurückgelegten Ausbildungszeit stehen der Zulassung nicht entgegen (Einzelfallentscheidung, verschuldet oder unverschuldet ist unerheblich)">
+          ${fz.warn ? '⚠︎ ' : ''}<strong>${fz.prozentBisher.toFixed(1)} %</strong> der bisherigen Ausbildungszeit (${fz.arbeitstageBisher} Arbeitstage) · ${fz.prozent.toFixed(1)} % der Gesamtdauer (${fz.arbeitstage}) · Schwelle ${fz.schwelle} %${fz.warn ? ' – Zulassung gefährdet, ggf. Verlängerung nach § 8 Abs. 2 BBiG (Antrag durch den Azubi) ansprechen' : ''}
+        </div>
+      </div>`; })()}
 
       </div><!-- /lock overlay -->
 
@@ -1703,7 +1758,7 @@ const KontrolleHandler = {
     const pflichtVorher = {};
     let wvVorher = [];
     if (field === 'ergebnis' && value === 'in_ordnung') {
-      ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'].forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
+      this.PFLICHT_AUTO_JA.forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
       wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
     }
     // „nicht geführt“ schreibt/entfernt den festen Hinweis in der Bemerkung
@@ -1748,8 +1803,7 @@ const KontrolleHandler = {
       // …und alle Wochen bis zur Vorwoche des Kontrolltags gelten als gesehen
       // (nur fehlende Wochen werden ergänzt, Codes bleiben)
       try { this._markiereGeprueftBisVorwoche(keId, s.id); } catch(e) {}
-      const pflichtFields = ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
-      pflichtFields.forEach(pf => {
+      this.PFLICHT_AUTO_JA.forEach(pf => {
         App.run(`UPDATE kontrollergebnisse SET ${pf}='ja' WHERE id=? AND (${pf}='' OR ${pf} IS NULL)`, [ke.id]);
         // Update UI dropdown
         const sel = document.querySelector(`[data-field="${pf}"]`);
@@ -1757,6 +1811,14 @@ const KontrolleHandler = {
       });
     }
 
+    // Zusatzvereinbarung (1.2) schaltet, ob Wetter (D) als Zulassungsmangel
+    // zählt → Raster und Kürzel-Leiste neu einfärben
+    if (field === 'f_1_2_vertragliche_regelungen') { this._aktuellesKE = { ...ke, [field]: value }; this.renderSchueler(); }
+    // „Sachberichte wegen Wetter“ ist ohne Zusatzvereinbarung (1.2) kein
+    // Zulassungsmangel – Ergebnis bleibt möglich, aber mit Hinweis
+    if (field === 'ergebnis' && value === 'sachberichte_wetter_email' && !App.hatZusatzvereinbarung(ke)) {
+      App.toast('Hinweis: Ohne Zusatzvereinbarung (Teil 1.2) sind Wetter und Sachberichte keine Zulassungsvoraussetzung – Nachreichung ist eine Bitte, keine Auflage.', 'warning');
+    }
     // Show/hide WV section
     if (field === 'ergebnis') {
       const wvSec = document.getElementById('wvSection');
@@ -1798,7 +1860,7 @@ const KontrolleHandler = {
     if (!s) return;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
     if (!ke) return;
-    const fields = ['p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb'];
+    const fields = this.PFLICHT_AUTO_JA;
     let count = 0;
     fields.forEach(f => {
       if (ke[f] !== 'ja') {

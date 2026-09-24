@@ -51,7 +51,7 @@ const Workflows = {
   },
   _anrede(ap) { return ap ? `\nsehr geehrte/r ${ap},` : ''; },
   _eLbl: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bei nächster Durchsicht', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail nachreichen', berichte_bis_termin_email: 'Berichte per E-Mail nachreichen', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Vorlage per Post im RP' },
-  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage nicht eingetragen', I: 'Sonstiges' },
+  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen (Hinweis, nur mit Zusatzvereinbarung verbindlich)', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage', I: 'Sonstiges (Hinweis)' },
 
   // Gruppen (Fachrichtung + AJ) und Namensliste je Klasse für die Schul-Mails
   _gruppenUndListe(t) {

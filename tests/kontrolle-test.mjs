@@ -109,14 +109,18 @@ console.log('\n══ Manuelle Abwahl der AP-Zulassung bleibt bestehen ══');
   check(App.query('PRAGMA table_info(kontrollergebnisse)').some(c => c.name === 'zulassung_manuell'),
     'Spalte zulassung_manuell existiert im Schema');
   App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=100');
-  KontrolleHandler.toggleZulassung(1, false);
+  await KontrolleHandler.toggleZulassung(1, false);
   check(App.scalar('SELECT zulassung_ap FROM kontrollergebnisse WHERE id=100') === 0, 'Zulassung ist abgewählt');
   check(App.scalar('SELECT zulassung_manuell FROM kontrollergebnisse WHERE id=100') === 1, 'Abwahl ist dauerhaft vermerkt');
   // Auto-Zulassung darf sie nicht zurücksetzen
   App.run('UPDATE kontrollergebnisse SET zulassung_ap=1 WHERE id=? AND zulassung_ap=0 AND pruefungsausschuss=0 AND COALESCE(zulassung_manuell,0)=0', [100]);
   check(App.scalar('SELECT zulassung_ap FROM kontrollergebnisse WHERE id=100') === 0, 'Automatik setzt die Abwahl nicht zurück');
-  KontrolleHandler.toggleZulassung(1, true);
+  // Wiedereinschalten trotz fehlender Voraussetzungen: Rückfrage + Begründung (Sandkasten: confirm/prompt)
+  sandbox.confirm = () => true; sandbox.prompt = () => 'Entscheidung des Prüfungsausschusses';
+  await KontrolleHandler.toggleZulassung(1, true);
   check(App.scalar('SELECT zulassung_manuell FROM kontrollergebnisse WHERE id=100') === 0, 'Wiedereinschalten hebt die Sperre auf');
+  check(App.scalar('SELECT zulassung_ap FROM kontrollergebnisse WHERE id=100') === 1, 'Zulassung trotz Abweichung gesetzt');
+  check(/\[Zulassung trotz Abweichung\] Entscheidung des Prüfungsausschusses/.test(App.scalar('SELECT bemerkung FROM kontrollergebnisse WHERE id=100') || ''), 'Begründung steht in der Bemerkung');
 }
 
 console.log('\n══ Migrations-Parität (Disk-Datenbank) ══');

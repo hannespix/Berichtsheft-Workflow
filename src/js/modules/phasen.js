@@ -160,6 +160,22 @@ const Phasen = {
     return probleme;
   },
 
+  // Warntext, wenn das aus den Phasen berechnete Vertragsende die Grenze des
+  // § 7a Abs. 2 BBiG (1,5 × reguläre Dauer, bei 36 Monaten also 54) überschreitet
+  teilzeitDeckelWarnung(phasen, s) {
+    if (!phasen || !phasen.length || !s || !s.ausbildungsbeginn) return '';
+    const regulaer = parseInt(s.regulaer_dauer_monate) || 36;
+    const mit = this.phasenMitEnden(phasen, regulaer, parseInt(s.verkuerzung_monate) || 0);
+    const ende = this.vertragsendeAusPhasen(mit);
+    if (!ende) return '';
+    const beginn = this.parseISO(s.ausbildungsbeginn);
+    if (!beginn) return '';
+    const monate = this.diffMonths(beginn, ende);
+    const deckel = Math.round(regulaer * 1.5);
+    if (monate <= deckel) return '';
+    return `Berechnete Dauer ${monate} Monate überschreitet das Eineinhalbfache der regulären Ausbildungsdauer (${deckel} Monate, § 7a Abs. 2 BBiG) – Teilzeitanteil oder Unterbrechungen prüfen.`;
+  },
+
   beschreibPhase(p) {
     if (p.typ === "unterbrechung") return `Unterbrechung${p.grund ? `: ${p.grund}` : ""}`;
     const tz = p.teilzeit_prozent || 100;
@@ -241,6 +257,10 @@ const Phasen = {
     }
 
     const probleme = Phasen.phasenValidieren(phasen);
+    // § 7a Abs. 2 BBiG: Teilzeit verlängert die Dauer höchstens auf das
+    // Eineinhalbfache der regulären Ausbildungsdauer
+    const tzWarnung = Phasen.teilzeitDeckelWarnung(phasen, s);
+    if (tzWarnung) probleme.push({ typ: 'teilzeit_deckel', phasen: [], text: tzWarnung });
 
     App.oeffneEditor('phasen', schuelerId, `Ausbildungsverlauf: ${s.nachname}, ${s.vorname}`, `
       <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Phasen der Ausbildung: Vollzeit, Teilzeit, Betriebswechsel und Unterbrechungen (Elternzeit, lange Krankheit). Aus ihnen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit. Ohne Phasen gilt Ausbildungsbeginn/-ende aus den Stammdaten.</p>

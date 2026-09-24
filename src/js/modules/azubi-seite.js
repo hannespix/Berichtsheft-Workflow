@@ -245,7 +245,7 @@ const AzubiSeite = {
     el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th></th></tr></thead><tbody>
       ${rows.map(r => {
         const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
-        const vermerke = [r.zulassung_ap === 1 ? 'AP-Zulassung' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
+        const vermerke = [r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
         return `<tr><td>${esc(formatDate(r.durchgefuehrt_datum || r.geplant_datum))}</td><td>${esc([r.schule, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}${r.kt_status === 'durchgefuehrt' ? ' <span class="az-leer">(abgeschlossen)</span>' : ''}</td><td>${erg}</td><td>${esc(vermerke) || '<span class="az-leer">–</span>'}</td>
           <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins öffnen">Öffnen</button></td></tr>`;
       }).join('')}

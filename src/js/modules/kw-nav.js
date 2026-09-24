@@ -254,7 +254,7 @@ const KWNav = {
     const pop = document.createElement('div');
     pop.className = 'kw-inline-popover';
     pop.innerHTML = `
-      <label>Fehltage KW ${kw}:</label>
+      <label>Fehltage KW ${kw} <span style="font-weight:400;color:var(--clr-text-light)">(ohne Urlaub/Berufsschule)</span>:</label>
       <div style="display:flex;align-items:center;gap:6px;">
         <input type="number" id="kwInlineFehltage" value="${currentFehltage}" min="0" max="5" autofocus>
         <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt)</span>
@@ -551,7 +551,7 @@ const KWNav = {
       <div style="margin-bottom:10px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
           <input type="checkbox" id="sonstI" ${hasI ? 'checked' : ''} style="accent-color:var(--clr-forest)">
-          <strong>I – Sonstiges</strong> als Mangel markieren
+          <strong>I – Sonstiges</strong> als Beanstandung markieren <span style="font-size:12px;color:var(--clr-text-light)">(Hinweis – keine Zulassungsvoraussetzung; sperrt die Zulassung nicht)</span>
         </label>
       </div>
       <div class="form-group">
@@ -630,8 +630,15 @@ const KWNav = {
     const hasCodes = !!codesStr;
     const fehl = parseInt(fehltage) || 0;
     const hasBehoben = cell.dataset.behoben && !hasCodes;
+    // Zulassungsmangel rot, Hinweis-Codes (D ohne Zusatzvereinbarung, I) gelb,
+    // H allein kein Mangel – dieselbe Einteilung wie beim Zeichnen des Rasters
+    const ke = typeof KontrolleHandler !== 'undefined' && KontrolleHandler._aktuellesKE ? KontrolleHandler._aktuellesKE : null;
+    const hasRealMaengel = hasCodes && codesStr.split(',').some(c => c.trim() && c.trim() !== 'H');
+    const hasZulMangel = hasCodes && typeof App.istZulassungsMangel === 'function' && App.istZulassungsMangel(codesStr, ke);
     let cls = 'kw-cell';
-    if (hasCodes) cls += ' kw-issue';
+    if (hasZulMangel) cls += ' kw-issue';
+    else if (hasRealMaengel) cls += ' kw-hinweis';
+    else if (hasCodes) cls += ' kw-ok';
     else if (hasBehoben) cls += ' kw-behoben';
     if (fehl > 0 && !hasCodes) cls += ' kw-fehltage-only';
     cls += ' kw-session'; // currently being edited = in session
