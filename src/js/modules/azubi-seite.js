@@ -10,20 +10,35 @@
 const AzubiSeite = {
   _id: null,
   _springe: '',
+  _zurueck: null,        // { terminId, schuelerId } – Rückweg in die Durchsicht
+  _bearbeiten: false,    // Formulare (Stammdaten, Verlauf) nur auf Wunsch
+  // Reihenfolge der Abschnitte: erst sehen, dann bearbeiten
   ABSCHNITTE: [
-    ['stammdaten', 'Stammdaten'],
-    ['phasen', 'Ausbildungsverlauf'],
-    ['akte', 'Akte'],
+    ['uebersicht', 'Übersicht'],
     ['kontrollen', 'Kontrollen'],
     ['wiedervorlagen', 'Wiedervorlagen'],
+    ['akte', 'Akte'],
+    ['stammdaten', 'Stammdaten bearbeiten'],
+    ['phasen', 'Ausbildungsverlauf bearbeiten'],
   ],
+  NUR_BEARBEITEN: new Set(['stammdaten', 'phasen']),
   ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' },
 
-  oeffnen(id, abschnitt) {
+  // opts.zurueck = { terminId, schuelerId }: die Seite kam aus der Durchsicht
+  // und führt dorthin zurück. Abschnitte „stammdaten“/„phasen“ als Sprungziel
+  // schalten den Bearbeiten-Modus gleich ein.
+  oeffnen(id, abschnitt, opts) {
     this._id = parseInt(id);
     this._springe = abschnitt || '';
+    this._zurueck = (opts && opts.zurueck) || null;
+    this._bearbeiten = this.NUR_BEARBEITEN.has(this._springe);
     try { App.uSet('azubi_id', String(this._id)); } catch(e) {}
     App.navigate('azubi');
+  },
+  bearbeiten(an) {
+    this._bearbeiten = an == null ? !this._bearbeiten : !!an;
+    this.render();
+    if (this._bearbeiten) setTimeout(() => this.springe('stammdaten'), 60);
   },
   // Ist die Seite (für diesen Azubi) gerade zu sehen? Dann zeichnen die
   // Editoren in ihre Abschnitte statt in den Dialog.
@@ -32,7 +47,11 @@ const AzubiSeite = {
     if (id != null && Number(id) !== Number(this._id)) return false;
     return !!document.getElementById('azSeite');
   },
-  zurueck() { App.navigate('stammdaten'); },
+  zurueck() {
+    const z = this._zurueck; this._zurueck = null;
+    if (z && z.terminId) { this.kontrolleOeffnen(z.terminId, z.schuelerId); return; }
+    App.navigate('stammdaten');
+  },
   springe(abschnitt) {
     const el = document.getElementById('azAbschnitt_' + abschnitt);
     if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -54,17 +73,20 @@ const AzubiSeite = {
     const status = s.status || (s.aktiv ? 'aktiv' : 'inaktiv');
     const statusKlasse = status === 'aktiv' ? 'badge-ok' : 'badge-open';
     const meta = [s.ausbildungsstaette, klasse ? [klasse.klassenbezeichnung, klasse.schule].filter(Boolean).join(' · ') : '', jg ? 'Jahrgang ' + jg : '', fr].filter(Boolean);
+    const zurueckText = this._zurueck && this._zurueck.terminId ? '‹ Zurück zur Durchsicht' : '‹ Azubi-Liste';
+    const abschnitte = this.ABSCHNITTE.filter(([k]) => this._bearbeiten || !this.NUR_BEARBEITEN.has(k));
     c.innerHTML = `
       <div class="page-header kompakt">
-        <div class="page-header-left"><button class="btn btn-secondary btn-sm" onclick="AzubiSeite.zurueck()" title="Zurück zur Azubi-Liste">‹ Azubi-Liste</button></div>
+        <div class="page-header-left"><button class="btn btn-secondary btn-sm" onclick="AzubiSeite.zurueck()" title="${esc(zurueckText.slice(2))}">${zurueckText}</button></div>
       </div>
-      <div id="azSeite" class="az-seite" data-id="${s.id}">
+      <div id="azSeite" class="az-seite${this._bearbeiten ? ' bearbeiten' : ''}" data-id="${s.id}">
         <div class="card az-kopf">
           <div class="az-titel">
             <span class="az-ampel" title="${esc(ampel.label || '')}">${ampel.icon || ''}</span>
             <h1>${esc(s.nachname)}, ${esc(s.vorname)}</h1>
             <span class="badge-status ${statusKlasse}">${esc(status)}</span>
             ${s.ibykus_id ? `<span class="az-ident" title="IBYKUS-Ident">${esc(s.ibykus_id)}</span>` : ''}
+            <button class="btn btn-sm ${this._bearbeiten ? 'btn-primary' : 'btn-secondary'} az-bearbeiten" onclick="AzubiSeite.bearbeiten()" aria-pressed="${this._bearbeiten ? 'true' : 'false'}" title="Stammdaten und Ausbildungsverlauf bearbeiten">${this._bearbeiten ? '✓ Bearbeiten beenden' : '✎ Bearbeiten'}</button>
           </div>
           ${meta.length ? `<div class="az-meta">${meta.map(esc).join(' <span class="az-punkt">·</span> ')}</div>` : ''}
           <div class="az-zahlen">
@@ -73,18 +95,143 @@ const AzubiSeite = {
             <span class="az-zahl statisch"><strong>${fehl}</strong> Fehltage</span>
           </div>
           <nav class="az-nav" aria-label="Abschnitte">
-            ${this.ABSCHNITTE.map(([k, t]) => `<button class="btn btn-sm btn-secondary" onclick="AzubiSeite.springe('${k}')">${t}</button>`).join('')}
+            ${abschnitte.map(([k, t]) => `<button class="btn btn-sm btn-secondary" onclick="AzubiSeite.springe('${k}')">${t}</button>`).join('')}
           </nav>
         </div>
-        ${this.ABSCHNITTE.map(([k, t]) => `<section class="card az-teil" id="azAbschnitt_${k}" aria-labelledby="azTitel_${k}"><h2 id="azTitel_${k}">${t}</h2><div id="azTeil_${k}"></div></section>`).join('')}
+        ${abschnitte.map(([k, t]) => `<section class="card az-teil" id="azAbschnitt_${k}" aria-labelledby="azTitel_${k}"><h2 id="azTitel_${k}">${t}</h2><div id="azTeil_${k}"></div></section>`).join('')}
       </div>`;
+    this._uebersicht(s, { klasse, jg, fr, ampel, nKe, nWv, fehl });
     // Die bestehenden Editoren zeichnen in ihre Abschnitte (App.oeffneEditor)
-    try { ImportHandler.editSchueler(s.id); } catch(e) { console.warn('Azubi-Seite: Stammdaten', e); }
-    if (typeof Phasen !== 'undefined') { try { Phasen.openPhasenEditor(s.id); } catch(e) { console.warn('Azubi-Seite: Verlauf', e); } }
+    if (this._bearbeiten) {
+      try { ImportHandler.editSchueler(s.id); } catch(e) { console.warn('Azubi-Seite: Stammdaten', e); }
+      if (typeof Phasen !== 'undefined') { try { Phasen.openPhasenEditor(s.id); } catch(e) { console.warn('Azubi-Seite: Verlauf', e); } }
+    }
     if (typeof SchuelerAkte !== 'undefined') { try { SchuelerAkte.open(s.id); } catch(e) { console.warn('Azubi-Seite: Akte', e); } }
     this._kontrollen(s);
     this._wiedervorlagen(s);
     if (this._springe) { const ziel = this._springe; this._springe = ''; setTimeout(() => this.springe(ziel), 60); }
+  },
+
+  // ── Übersicht: alles Wesentliche auf einen Blick, nichts zum Tippen ──
+  _uebersicht(s, k) {
+    const el = document.getElementById('azTeil_uebersicht');
+    if (!el) return;
+    const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
+    const ausbilder = s.betrieb_id ? App.query('SELECT * FROM ausbilder WHERE betrieb_id=? ORDER BY nachname, vorname', [s.betrieb_id]) : [];
+    const schule = k.klasse ? k.klasse : null;
+    const letzte = App.query(`SELECT ke.ergebnis, kt.geplant_datum, kt.durchgefuehrt_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
+      WHERE ke.schueler_id=? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC LIMIT 1`, [s.id])[0];
+    const zeile = (label, wert, opts = {}) => wert ? `<div class="az-zeile"><span class="az-label">${label}</span><span class="az-wert">${opts.roh ? wert : esc(wert)}</span></div>` : '';
+    const link = (art, wert) => wert ? `<a href="${art}:${esc(String(wert).replace(/\s+/g, ''))}">${esc(wert)}</a>` : '';
+    const alter = s.geburtsdatum && typeof Phasen !== 'undefined' ? Phasen.alterZuStichtag(s.geburtsdatum, new Date()) : null;
+    const dauer = (s.regulaer_dauer_monate || 36) - (s.verkuerzung_monate || 0);
+    const statusZeilen = [
+      zeile('Status', s.status || (s.aktiv ? 'aktiv' : 'inaktiv')),
+      s.inaktiv_datum ? zeile('Seit', formatDate(s.inaktiv_datum) + (s.inaktiv_grund ? ' · ' + s.inaktiv_grund : '')) : '',
+      zeile('BAV-Status (IBYKUS)', s.bav_status),
+      zeile('Zuständiges Amt', App.amtLabel ? App.amtLabel(s.zustaendiges_amt) : s.zustaendiges_amt),
+      zeile('Prüfungserfolg', s.pruefungserfolg),
+      s.ap_zugelassen || s.ap_bestanden ? zeile('Abschlussprüfung', [s.ap_zugelassen ? 'zugelassen' : '', s.ap_bestanden ? 'bestanden' : ''].filter(Boolean).join(', ')) : '',
+    ].join('');
+    el.innerHTML = `
+      ${this._zeitstrahl(s)}
+      <div class="az-spalten">
+        <div class="az-spalte">
+          <h3>Azubi</h3>
+          ${zeile('Telefon', link('tel', s.telefon), { roh: true })}
+          ${zeile('E-Mail', link('mailto', s.email), { roh: true })}
+          ${zeile('Geburtsdatum', s.geburtsdatum ? formatDate(s.geburtsdatum) + (alter != null ? ` (${alter} Jahre)` : '') : '')}
+          ${zeile('Geschlecht', s.geschlecht)}
+          ${zeile('Schulabschluss', s.schulabschluss)}
+          ${zeile('Ausbildungsdauer', `${dauer} Monate${s.verkuerzung_monate ? ` (verkürzt um ${s.verkuerzung_monate})` : ''}${s.vorzeitige_zulassung ? ' · vorzeitige Zulassung' : ''}`)}
+          ${!s.telefon && !s.email && !s.geburtsdatum ? '<p class="az-leer">Keine Kontaktdaten hinterlegt.</p>' : ''}
+        </div>
+        <div class="az-spalte">
+          <h3>Betrieb</h3>
+          ${betrieb ? `
+            ${zeile('Betrieb', [betrieb.name, betrieb.zusatzbezeichnung].filter(Boolean).join(' · '))}
+            ${zeile('Anschrift', [betrieb.strasse, [betrieb.plz, betrieb.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}
+            ${zeile('Telefon', link('tel', betrieb.telefon), { roh: true })}
+            ${zeile('E-Mail', link('mailto', betrieb.email), { roh: true })}
+            ${zeile('Ansprechpartner', betrieb.ansprechpartner)}
+            ${zeile('Betriebsnummer', betrieb.betriebsnummer)}
+            ${ausbilder.map(a => zeile(a.funktion || 'Ausbilder', [a.vorname, a.nachname].filter(Boolean).join(' ') + [a.telefon, a.mobil, a.email].filter(Boolean).map(x => ' · ' + x).join(''))).join('')}
+          ` : zeile('Ausbildungsstätte', s.ausbildungsstaette) || '<p class="az-leer">Kein Betrieb zugeordnet.</p>'}
+        </div>
+        <div class="az-spalte">
+          <h3>Schule</h3>
+          ${zeile('Berufsschule', schule ? schule.schule : '')}
+          ${zeile('Klasse', schule ? schule.klassenbezeichnung : '')}
+          ${zeile('Fachrichtung', k.fr)}
+          ${zeile('Jahrgang', k.jg)}
+          ${zeile('Landesfachklasse', s.landesfachklasse)}
+          ${!schule ? '<p class="az-leer">Keine Klasse zugeordnet.</p>' : ''}
+          <h3 class="az-h3-abstand">Kontrollstand</h3>
+          ${zeile('Ampel', `${k.ampel.icon || ''} ${esc(k.ampel.label || '')}`, { roh: true })}
+          ${letzte ? zeile('Letzte Kontrolle', `${formatDate(letzte.durchgefuehrt_datum || letzte.geplant_datum)} · ${this.ERGEBNIS[letzte.ergebnis] || letzte.ergebnis}`) : zeile('Letzte Kontrolle', 'noch keine')}
+          ${zeile('Offene Mängel', String(k.ampel.offeneMaengel || 0) + ' Woche(n)')}
+          ${zeile('Offene Wiedervorlagen', String(k.nWv))}
+          ${zeile('Fehltage', String(k.fehl))}
+          ${statusZeilen}
+        </div>
+      </div>`;
+  },
+
+  // ── Zeitstrahl: Ausbildung von Beginn bis Ende, Lehrjahre, Phasen, heute ──
+  _zeitstrahl(s) {
+    const beginn = App._parseDate(s.ausbildungsbeginn);
+    if (!beginn) return '<p class="az-leer">Kein Ausbildungsbeginn hinterlegt – kein Zeitstrahl.</p>';
+    let ende = App._parseDate(s.ausbildungsende);
+    let phasenMit = [];
+    if (typeof Phasen !== 'undefined') {
+      try {
+        const phasen = Phasen.getPhasen(s.id);
+        if (phasen.length) {
+          phasenMit = Phasen.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0);
+          const e = Phasen.vertragsendeAusPhasen(phasenMit);
+          if (e) ende = e;
+        }
+      } catch(e) {}
+    }
+    if (!ende) { ende = new Date(beginn); ende.setMonth(ende.getMonth() + ((s.regulaer_dauer_monate || 36) - (s.verkuerzung_monate || 0))); }
+    const heute = new Date();
+    const span = Math.max(1, ende - beginn);
+    const pos = (d) => Math.min(100, Math.max(0, (d - beginn) / span * 100));
+    const fortschritt = Math.round(pos(heute));
+    const monate = Math.round((ende - beginn) / (30.44 * 86400000));
+    // Lehrjahre: je zwölf Monate ab Beginn (letztes ggf. kürzer)
+    const jahre = [];
+    for (let j = 0, d = new Date(beginn); d < ende && j < 4; j++) {
+      const bis = new Date(d); bis.setFullYear(bis.getFullYear() + 1);
+      const b = bis < ende ? bis : ende;
+      jahre.push({ nr: j + 1, links: pos(d), breite: pos(b) - pos(d) });
+      d = bis;
+    }
+    const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+    const phasenHtml = phasenMit.map(p => {
+      const von = Phasen.parseISO(p.von);
+      const bisStr = p.bis || p._berechnetesEnde;
+      const bis = bisStr ? Phasen.parseISO(bisStr) : ende;
+      const l = pos(von), b = Math.max(0.5, pos(bis) - l);
+      const art = p.typ !== 'ausbildung' ? 'pause' : ((p.teilzeit_prozent || 100) < 100 ? 'teilzeit' : 'voll');
+      const titel = p.typ !== 'ausbildung' ? `Unterbrechung${p.grund ? ': ' + p.grund : ''}` : `${p.betrieb || 'Ausbildung'}${(p.teilzeit_prozent || 100) < 100 ? ` · Teilzeit ${p.teilzeit_prozent} %` : ''}`;
+      return `<div class="az-phase ${art}" style="left:${l}%;width:${b}%" title="${esc(titel)} · ${esc(formatDate(p.von))} – ${esc(bisStr ? formatDate(bisStr) : 'offen')}"></div>`;
+    }).join('');
+    const vorbei = heute > ende, davor = heute < beginn;
+    return `
+      <div class="az-strahl" role="img" aria-label="Ausbildung vom ${esc(formatDate(s.ausbildungsbeginn))} bis ${esc(formatDate(Phasen && Phasen.fmtISO ? Phasen.fmtISO(ende) : ende))}, ${fortschritt} Prozent vergangen${ajJetzt ? `, Lehrjahr ${ajJetzt}` : ''}">
+        <div class="az-strahl-kopf">
+          <span><strong>Ausbildung</strong> ${esc(formatDate(s.ausbildungsbeginn))} – ${esc(formatDate(typeof Phasen !== 'undefined' ? Phasen.fmtISO(ende) : ende))} <span class="az-leer">(${monate} Monate${s.verkuerzung_monate ? ', verkürzt' : ''})</span></span>
+          <span>${vorbei ? '<strong>beendet</strong>' : davor ? '<strong>beginnt erst</strong>' : `<strong>${fortschritt} %</strong>${ajJetzt ? ` · Lehrjahr ${ajJetzt}` : ''}`}</span>
+        </div>
+        <div class="az-strahl-balken">
+          <div class="az-strahl-fortschritt" style="width:${fortschritt}%"></div>
+          ${phasenHtml}
+          ${jahre.map(j => `<div class="az-jahr${ajJetzt === j.nr ? ' aktuell' : ''}" style="left:${j.links}%;width:${j.breite}%"><span>${j.nr}. LJ</span></div>`).join('')}
+          ${!vorbei && !davor ? `<div class="az-heute" style="left:${fortschritt}%" title="Heute"></div>` : ''}
+        </div>
+        ${phasenMit.length ? `<div class="az-strahl-legende"><span class="az-leg voll"></span> Vollzeit <span class="az-leg teilzeit"></span> Teilzeit <span class="az-leg pause"></span> Unterbrechung</div>` : ''}
+      </div>`;
   },
 
   _kontrollen(s) {
@@ -112,7 +259,7 @@ const AzubiSeite = {
     if (!rows.length) { el.innerHTML = '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
     const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
     el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
-      ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(w.art || '–')}</td>
+      ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
         <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>
         <td style="white-space:nowrap">${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td></tr>`).join('')}
