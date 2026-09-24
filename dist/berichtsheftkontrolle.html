@@ -11561,14 +11561,21 @@ const App = {
     } catch(e) {}
   },
   run(sql, params = []) {
-    // During bulk import: skip dirty-tracking, full-write happens at end
+    // Bulk-Modus (Import, Bereinigung): keine Änderungsverfolgung je Anweisung,
+    // aber DIESELBE Vorbereitung wie eine normale Op – globale Kennung in
+    // INSERTs, eingefrorene Zeit, Tombstones. Vorher wurde das SQL roh
+    // ausgeführt; die gemerkten _bulkOps trugen keine Kennungen und taugten
+    // nur zur Wiederholung auf demselben Rechner. Jetzt sind sie vollwertige
+    // Ops: bulkAlsOps() übergibt sie nach dem Import dem Protokoll, und alle
+    // Kollegen bekommen dieselben Kennungen (kein Snapshot, keine Sperre).
     if (this._bulkImport) {
-      this.db.run(sql, params);
-      // Für den Fall, dass die Kompaktierung nach dem Import scheitert und
-      // zwischendurch ein fremder Snapshot übernommen wird: Import auf der
-      // frischen DB wiederholen (siehe _pruefeFremdenSnapshot).
+      const prep = this._prepareOp(sql, params);
       if (!this._bulkOps) this._bulkOps = [];
-      if (this._bulkOps.length < 200000) this._bulkOps.push({ sql, params: [...params] });
+      const merke = (q, p) => { if (this._bulkOps.length < 200000) this._bulkOps.push({ sql: q, params: [...(p || [])] }); };
+      prep.pre.forEach(x => { try { this.db.run(x.sql, x.params); merke(x.sql, x.params); } catch(e) {} });
+      this.db.run(prep.sql, prep.params);
+      merke(prep.opSql, prep.opParams);
+      prep.post.forEach(x => { try { this.db.run(x.sql, x.params); merke(x.sql, x.params); } catch(e) {} });
       return;
     }
     const prep = this._prepareOp(sql, params);
@@ -11593,6 +11600,32 @@ const App = {
     this.markDirty();
   },
   _bulkImport: false,
+  // Im Bulk-Modus ausgeführte Anweisungen (ab Index `ab`) als normale Ops in
+  // den Puffer übernehmen: Stempel, Kennung, betroffener Azubi, Absturzpuffer,
+  // Anhängen im Hintergrund in Häppchen (APPEND_MAX_BYTES). Der Import
+  // wartet damit nicht mehr auf eine Kompaktierung mit Sperre und Zeitlimit
+  // (über eine langsame Leitung 300 s und mehr, und bis dahin standen die
+  // Daten nur im Speicher). Liefert die Zahl der übernommenen Ops.
+  bulkAlsOps(ab = 0, quelle = 'Import') {
+    const ops = (this._bulkOps || []).slice(ab);
+    if (this._bulkOps) this._bulkOps.length = Math.min(this._bulkOps.length, ab);
+    if (!ops.length) return 0;
+    const cid = this._getClientId();
+    for (const o of ops) {
+      const rec = { uid: this._newUid(), ts: this._stampTs(), seq: this._nextSeq(), sql: o.sql, params: o.params };
+      const sid = this._azubiAusOp(rec.sql, rec.params);
+      if (sid != null) { rec.sid = sid; this._ungesichertAzubis.add(sid); }
+      this._dirtyOps.push(rec);
+      this._notiereStamp(rec.sql, rec.params, rec.ts, cid, rec.seq);
+    }
+    try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
+    this.markDirty();
+    BhkSpur.notiere('anhaengen', 'Bulk-Ops übernommen', { ok: true, info: `${quelle}: ${ops.length} Änderung(en) in den Puffer` });
+    // Sofort in den Absturzpuffer und dann anhängen – ohne zu warten: die
+    // Oberfläche bleibt frei, der Speicherstatus zeigt „n wartend“.
+    this.sofortSpeichern(quelle).catch(() => {});
+    return ops.length;
+  },
   // Run without tracking (used during merge-import to avoid re-tracking)
   _runSilent(sql, params = []) {
     this.db.run(sql, params);
@@ -11779,6 +11812,7 @@ const App = {
   //  als geschrieben verbuchen, Wartezeit zwischen Versuchen verdoppeln.
   APPEND_TIMEOUT_MIN_MS: 30000,
   APPEND_TIMEOUT_MAX_MS: 180000,
+  APPEND_MAX_BYTES: 256 * 1024,   // je Anhängen höchstens so viele Bytes (Import in Häppchen)
   _appendHaengt: null,
   _netzLangsam: false,
   _langsamStufe: 0,
@@ -11839,19 +11873,28 @@ const App = {
       return;
     }
     this._appendInProgress = true;
-    const claimed = this._dirtyOps.splice(0);
+    // Höchstens APPEND_MAX_BYTES je Anhängen (ein Import bringt Tausende
+    // Ops): ein einziger Megabyte-Schreibvorgang liefe über eine langsame
+    // Leitung ins Zeitlimit; Häppchen kommen nacheinander durch, und nach
+    // jedem rotiert das Protokoll (kein Kopieren großer Dateien). Der Rest
+    // bleibt im Puffer und folgt mit dem nächsten Auto-Save.
+    const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler?.activePruefer) || '?';
+    const jetzt = Date.now();
+    const cid = this._getClientId();
+    const zeilen = [];
+    let summe = 0, anzahl = 0;
+    for (const o of this._dirtyOps) {
+      const z = JSON.stringify({ uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params }) + '\n';
+      if (anzahl > 0 && summe + z.length > this.APPEND_MAX_BYTES) break;
+      zeilen.push(z); summe += z.length; anzahl++;
+    }
+    const claimed = this._dirtyOps.splice(0, anzahl);
     this._wartetSeit = 0;
     this._opsInFlight = claimed; // für _persistDirtyOps: Crash-Puffer behält sie
     let writable = null;
     try {
       const dir = this._syncDirV3();
-      const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler?.activePruefer) || '?';
-      const jetzt = Date.now();
-      const cid = this._getClientId();
-      const lines = claimed.map(o => JSON.stringify({
-        uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params,
-      })).join('\n') + '\n';
-      const bytes = new TextEncoder().encode(lines);
+      const bytes = new TextEncoder().encode(zeilen.join(''));
       let handle = await dir.getFileHandle(this._myOplogName(), { create: true });
       // Die Größe MUSS bekannt sein: Bei unlesbarer Datei galt bisher 0, und das
       // Anhängen überschrieb den Anfang des eigenen Protokolls – diese Ops las
@@ -23351,16 +23394,20 @@ const ImportHandler = {
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
-    // Während des Imports ist die Änderungsverfolgung aus – die Daten stehen
-    // NUR im Arbeitsspeicher. Schlägt das Speichern fehl, sind sie beim
-    // nächsten regulären Speichern verloren, deshalb hier hart melden.
+    // Die Import-Anweisungen gehen als normale Ops in den Puffer (Absturz-
+    // puffer sofort) und werden im Hintergrund in Häppchen an das eigene
+    // Protokoll angehängt – kein Snapshot, keine Sperre, kein Warten. Vorher
+    // schrieb der Import die ganze Datenbank mit bis zu drei Versuchen à
+    // 120 s Zeitlimit; über eine langsame Leitung wartete man Minuten, und
+    // bis dahin standen die Daten nur im Speicher.
     this._importGespeichert = false;
+    this._importOps = 0;
     try {
       if (!App.dbFileHandle) throw new Error('Keine Datenbankdatei verbunden');
-      await App.fullSave();
+      this._importOps = App.bulkAlsOps(bulkOpsVorher, 'Import');
       this._importGespeichert = true;
     } catch(e) {
-      console.error('Import konnte nicht gespeichert werden:', e);
+      console.error('Import konnte nicht übernommen werden:', e);
       App.toast('ACHTUNG: Import wurde NICHT gespeichert (' + (e.message || e) + '). Bitte Netzlaufwerk prüfen und erneut speichern!', 'error');
     }
     App.hideLoading();
@@ -23380,6 +23427,8 @@ const ImportHandler = {
     // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
     this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
+      ${this._importGespeichert && this._importOps ? `<div style="margin-bottom:12px;padding:8px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
+        Der Import ist übernommen und liegt im Absturzpuffer dieses Rechners. <strong>${this._importOps} Änderung(en)</strong> werden jetzt im Hintergrund auf das Netzlaufwerk geschrieben – der Speicherstatus oben zeigt „Gespeichert“, sobald alles angehängt ist. Sie können sofort weiterarbeiten.</div>` : ''}
       ${this._importGespeichert === false ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:13px">
         <strong>Der Import wurde NICHT auf das Netzlaufwerk geschrieben.</strong> Die Daten stehen nur in dieser Sitzung.
         Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}

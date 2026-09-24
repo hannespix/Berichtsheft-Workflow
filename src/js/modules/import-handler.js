@@ -905,16 +905,20 @@ const ImportHandler = {
 
     // Re-enable dirty-tracking (IMMER, auch bei Fehlern)
     App._bulkImport = false;
-    // Während des Imports ist die Änderungsverfolgung aus – die Daten stehen
-    // NUR im Arbeitsspeicher. Schlägt das Speichern fehl, sind sie beim
-    // nächsten regulären Speichern verloren, deshalb hier hart melden.
+    // Die Import-Anweisungen gehen als normale Ops in den Puffer (Absturz-
+    // puffer sofort) und werden im Hintergrund in Häppchen an das eigene
+    // Protokoll angehängt – kein Snapshot, keine Sperre, kein Warten. Vorher
+    // schrieb der Import die ganze Datenbank mit bis zu drei Versuchen à
+    // 120 s Zeitlimit; über eine langsame Leitung wartete man Minuten, und
+    // bis dahin standen die Daten nur im Speicher.
     this._importGespeichert = false;
+    this._importOps = 0;
     try {
       if (!App.dbFileHandle) throw new Error('Keine Datenbankdatei verbunden');
-      await App.fullSave();
+      this._importOps = App.bulkAlsOps(bulkOpsVorher, 'Import');
       this._importGespeichert = true;
     } catch(e) {
-      console.error('Import konnte nicht gespeichert werden:', e);
+      console.error('Import konnte nicht übernommen werden:', e);
       App.toast('ACHTUNG: Import wurde NICHT gespeichert (' + (e.message || e) + '). Bitte Netzlaufwerk prüfen und erneut speichern!', 'error');
     }
     App.hideLoading();
@@ -934,6 +938,8 @@ const ImportHandler = {
     // CSV-Werten mit Entities/Quotes) — stattdessen per Index referenzieren:
     this._pendingKonflikte = pKonf;
     App.openModal('Import abgeschlossen', `
+      ${this._importGespeichert && this._importOps ? `<div style="margin-bottom:12px;padding:8px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
+        Der Import ist übernommen und liegt im Absturzpuffer dieses Rechners. <strong>${this._importOps} Änderung(en)</strong> werden jetzt im Hintergrund auf das Netzlaufwerk geschrieben – der Speicherstatus oben zeigt „Gespeichert“, sobald alles angehängt ist. Sie können sofort weiterarbeiten.</div>` : ''}
       ${this._importGespeichert === false ? `<div style="margin-bottom:12px;padding:10px 14px;background:var(--clr-red-light);border:1px solid var(--clr-red);border-radius:var(--radius);font-size:13px">
         <strong>Der Import wurde NICHT auf das Netzlaufwerk geschrieben.</strong> Die Daten stehen nur in dieser Sitzung.
         Bitte die Verbindung prüfen und über „Speichern" erneut sichern – sonst gehen sie verloren.</div>` : ''}
