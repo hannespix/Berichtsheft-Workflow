@@ -268,5 +268,29 @@ console.log('══ Netzqualität aus dem Anhängen ══');
   check(Spur.liste('anhaengen').at(-1).ok, 'Spur: Anhängen OK' + (fehlerAusgaben.length ? ' – ' + fehlerAusgaben.at(-1).slice(0, 300) : ''));
 }
 
+console.log('══ Neue Datenbank im Unterordner Datenbanken/ ══');
+{
+  const datenbanken = await bhk.getDirectoryHandle('Datenbanken', { create: true });
+  datenbanken.setze('neu.sqlite', 'x'.repeat(100));
+  App.dbDirHandle = datenbanken; App.autoLoadedDbName = 'neu.sqlite';
+  App.dbFileHandle = { name: 'neu.sqlite', async getFile() { throw Object.assign(new Error('veraltet'), { name: 'InvalidStateError' }); } };
+  App._verbFehler = 0; App._netzWeg = false; App._lastSaveDurationMs = 0; App._networkQuality = 'good';
+  const h = await App._dbDateiHandle();
+  check(h && h.name === 'neu.sqlite' && h !== App.dbFileHandle, 'Datenbankdatei wird in Datenbanken/ gefunden, obwohl der alte Zugriffspunkt tot ist');
+  await App._netzPruefenAsync('snapshot');
+  check(App._verbFehler === 0 && !App._netzWeg && App._networkQuality === 'good', 'Netzprobe zählt keinen Fehler und pinnt die Netzqualität nicht auf 30 s');
+  bhk.dateien.delete(App._snapMetaName());
+  App._v3Ready = true; App._snapGen = 0;
+  const vorher = Spur.liste('snapshot').filter(e => !e.ok).length;
+  await App._pruefeFremdenSnapshot(); await App._pruefeFremdenSnapshot();
+  check(App._verbFehler === 0 && !App._netzWeg && Spur.liste('snapshot').filter(e => !e.ok).length === vorher, 'Fehlendes snapmeta vor der ersten Kompaktierung: kein Fehler, kein Netzabriss');
+  App._netzWeg = true;
+  check(await App._netzProbe(false) === true && App.dbFileHandle.name === 'neu.sqlite' && !App._netzWeg, 'Leseprobe findet die Datei in Datenbanken/ und hebt den Netzabriss auf');
+  App.dbFileHandle = { name: 'weg.sqlite', async getFile() { throw nf(); } }; App.autoLoadedDbName = 'weg.sqlite';
+  let fehler = null; try { await App._dbDateiHandle(); } catch(e) { fehler = e; }
+  check(fehler && fehler.name === 'NotFoundError', 'Wirklich fehlende Datei wirft NotFound (echter Netzabriss bleibt erkennbar)');
+  check(!/this\.dirHandle\.getFileHandle\(name, \{ create: false \}\)\)\.getFile\(\)/.test(APP_SRC) && (APP_SRC.match(/_dbDateiHandle\(/g) || []).length >= 5, 'Alle Suchpfade nutzen den gemeinsamen Helfer');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
