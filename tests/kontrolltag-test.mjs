@@ -47,7 +47,7 @@ const sandbox = {
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
-for (const [f, name] of [['src/js/modules/azubi-rechner.js', 'AzubiRechner'],
+for (const [f, name] of [['src/js/modules/phasen.js', 'Phasen'],
                          ['src/js/modules/kontrolle.js', 'KontrolleHandler'],
                          ['src/js/modules/kw-nav.js', 'KWNav'],
                          ['src/js/modules/nacherfassung.js', 'NacherfassungHandler']]) {

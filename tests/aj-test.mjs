@@ -34,8 +34,8 @@ const sandbox = {
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
-// AzubiRechner mitladen – getSchuelerAJs leitet das Vertragsende aus Phasen ab
-vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/js/modules/azubi-rechner.js'), 'utf8'), sandbox, { filename: 'azubi-rechner.js' });
+// Phasen mitladen – getSchuelerAJs leitet das Vertragsende aus Phasen ab
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/js/modules/phasen.js'), 'utf8'), sandbox, { filename: 'phasen.js' });
 const App = sandbox.__App;
 App.db = db;
 App.toast = () => {}; App.markDirty = () => {}; App.scheduleAutoSave = () => {};

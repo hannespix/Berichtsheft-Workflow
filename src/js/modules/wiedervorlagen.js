@@ -49,12 +49,10 @@ const WiedervorlagenHandler = {
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:8px">
         <input type="checkbox" id="mWvBehoben" ${offeneMaengel ? 'checked' : ''} style="accent-color:var(--clr-forest)"> Nachweis erbracht – ${offeneMaengel ? `die <strong>${offeneMaengel}</strong> offenen Mängel im KW-Raster als behoben markieren` : 'keine offenen Mängel im Raster'}
       </label>
-      ${App.bhkDirHandle ? `<div class="form-group"><label>Nachweis-Datei in die Akte (optional, z.B. E-Mail .msg, PDF)</label><input type="file" id="mWvDatei" multiple class="form-control" style="padding:4px"></div>`
-        : '<div style="font-size:11px;color:var(--clr-text-light)">Dateien lassen sich erst nach dem Öffnen eines Datenbank-Ordners ablegen.</div>'}
     `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     setTimeout(() => document.getElementById('mWvBem')?.focus(), 50);
   },
-  // params (optional, für Tests/andere Dialoge): {datum, bem, nachweis, behoben, files}
+  // params (optional, für Tests/andere Dialoge): {datum, bem, nachweis, behoben}
   async doErledigen(id, params) {
     const w = App.query('SELECT * FROM wiedervorlagen WHERE id=?', [id])[0];
     if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
@@ -63,17 +61,13 @@ const WiedervorlagenHandler = {
       bem: (document.getElementById('mWvBem')?.value || '').trim(),
       nachweis: document.getElementById('mWvNachweis')?.value || '',
       behoben: !!document.getElementById('mWvBehoben')?.checked,
-      files: document.getElementById('mWvDatei')?.files,
     };
     const datum = p.datum || todayStr();
     const artLabel = this.NACHWEIS_ARTEN[p.nachweis] || '';
     const bem = (artLabel ? `Nachweis (${artLabel})` : '') + (p.bem ? (artLabel ? ': ' : '') + p.bem : '');
     let behoben = 0;
     if (p.behoben) behoben = this._maengelBehoben(w.schueler_id);
-    let dateien = 0;
-    if (p.files && p.files.length && typeof SchuelerAkte !== 'undefined') {
-      try { dateien = await SchuelerAkte.speichereDateien(p.files, w.schueler_id, { beschreibung: `Nachweis zur Wiedervorlage (${formatDate(datum)})` }); } catch(e) { console.warn('Nachweis-Datei:', e); }
-    }
+    const dateien = 0; // Datei-Anhänge an Wiedervorlagen gibt es nicht mehr (Akte ohne Datei-Upload)
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [datum, bem, id]);
     App.closeModal();
     try { Views.wiedervorlagen(); } catch(e) {}

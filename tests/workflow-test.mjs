@@ -255,7 +255,7 @@ console.log('\n══ Stufe 2 (3): Wiedervorlage-Nachweis, Akte-Dateien beim end
   check(r.behoben === 2 && App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=801 AND maengel_codes != ''") === 0 && App.scalar("SELECT behobene_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40") === 'A,C', 'Offene Mängel als behoben protokolliert (Historie bleibt)');
   const amp = App.getSchuelerAmpel(801);
   check(amp.color === 'green' && amp.nachgewiesen === true, `Ampel erkennt „nachgewiesen" (${amp.label})`);
-  check(/speichereDateien\(p\.files, w\.schueler_id/.test(read('src/js/modules/wiedervorlagen.js')) && /async speichereDateien\(files, schuelerId, opts = \{\}\)/.test(read('src/js/modules/schueler-akte.js')), 'Nachweis-Datei landet über die Akte-Funktion in der Schülerakte');
+  check(!/speichereDateien|mWvDatei/.test(read('src/js/modules/wiedervorlagen.js')) && !/schueler_dateien/.test(read('src/js/modules/schueler-akte.js')), 'Wiedervorlage ohne Datei-Anhang, Akte ohne Datei-Upload');
   check((APP_SRC.match(/_loescheAkteDateien\(/g) || []).length >= 5, 'Endgültiges Löschen (Papierkorb-Eintrag, Leeren, 90-Tage-Bereinigung, Kaskade ohne Papierkorb) entfernt die Akten-Dateien');
 }
 

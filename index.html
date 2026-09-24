@@ -16,7 +16,6 @@
 <script src="libs/pizzip.js"></script>
 <script src="libs/docxtemplater.js"></script>
 <script src="libs/FileSaver.min.js"></script>
-<script src="libs/pdf.min.js"></script>
 <script src="libs/chart.umd.min.js"></script>
 
 <!-- ═══ LIBRARY INIT ═══ -->
@@ -25,18 +24,6 @@
   if (typeof Chart !== 'undefined') {
     Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 2);
     Chart.defaults.font.family = "'BaWue Sans', system-ui, sans-serif";
-  }
-</script>
-<script>
-  // PDF.js Worker setup (inline worker via Blob URL)
-  if (window.pdfjsLib) {
-    fetch('libs/pdf.worker.min.js')
-      .then(r => r.text())
-      .then(code => {
-        const blob = new Blob([code], { type: 'application/javascript' });
-        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
-      })
-      .catch(() => { /* offline fallback: worker runs on main thread */ });
   }
 </script>
 
@@ -312,8 +299,6 @@
 <script src="src/js/modules/kontrolle.js"></script>
 <script src="src/js/modules/kw-nav.js"></script>
 <script src="src/js/modules/undo-manager.js"></script>
-<script src="src/js/modules/llm-helper.js"></script>
-<script src="src/js/modules/blockplan-analyzer.js"></script>
 <script src="src/js/modules/global-search.js"></script>
 <script src="src/js/modules/keyboard-shortcuts.js"></script>
 <script src="src/js/modules/bulk-schueler.js"></script>
@@ -322,8 +307,7 @@
 <script src="src/js/modules/wiedervorlagen.js"></script>
 <script src="src/js/modules/berichte.js"></script>
 <script src="src/js/modules/table-sort.js"></script>
-<script src="src/js/modules/azubi-rechner.js"></script>
-<script src="src/js/modules/azubi-dashboard.js"></script>
+<script src="src/js/modules/phasen.js"></script>
 <script src="src/js/modules/schueler-view.js"></script>
 <script src="src/js/modules/schueler-akte.js"></script>
 <script src="src/js/modules/db-tools.js"></script>

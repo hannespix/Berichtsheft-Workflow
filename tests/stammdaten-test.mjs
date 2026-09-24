@@ -37,7 +37,7 @@ const sandbox = {
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(APP_SRC + '\n;globalThis.__App = App;', sandbox, { filename: 'app-core.js' });
-for (const [f, name] of [['src/js/modules/azubi-rechner.js', 'AzubiRechner'], ['src/js/modules/import-handler.js', 'ImportHandler']]) {
+for (const [f, name] of [['src/js/modules/phasen.js', 'Phasen'], ['src/js/modules/import-handler.js', 'ImportHandler']]) {
   vm.runInContext(read(f) + `\n;globalThis.${name} = ${name};`, sandbox, { filename: path.basename(f) });
 }
 const { __App: App, ImportHandler: IH } = sandbox;

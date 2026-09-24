@@ -294,7 +294,7 @@ const Views = {
       </div>
 
       <!-- Kontrollstatus + Charts (Easter Egg) -->
-      <div id="dashStatSection" style="${typeof AzubiDashboard!=='undefined'&&AzubiDashboard.isStatsEnabled()?'':'display:none'}">
+      <div id="dashStatSection" style="${App.statsEnabled()?'':'display:none'}">
       <div class="grid-2" style="margin-bottom:20px">
         <!-- Kontrollstatus-Übersicht -->
         <div class="card" style="border-left:3px solid var(--clr-amber)">
@@ -1435,7 +1435,7 @@ const Views = {
           <p style="font-size:13px;color:var(--clr-text-light)">Datenbestand auf Fehler, Lücken und Duplikate prüfen – sortierbar, filterbar, als Excel-Abarbeitungsliste exportierbar.</p>
         </div>
       </div>
-      ${AzubiDashboard.isStatsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
+      ${App.statsEnabled() ? `<div class="card" style="cursor:pointer;border-left:4px solid var(--clr-forest)" onclick="BerichteHandler.jahresbericht()">
         <div class="card-header">Jahresbericht generieren</div>
         <p style="font-size:13px;color:var(--clr-text-light)">Gesamtstatistik als PDF: Anzahl kontrolliert, Mängelquote, Top-Codes, Betrieb-Ranking, Vergleich pro Schule.</p>
       </div>` : ''}
@@ -1715,13 +1715,6 @@ const Views = {
           </div>
         </details>
         <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Views.downloadSampleTemplate()">▤ Beispiel-Vorlage herunterladen</button>
-      </div>
-
-      <!-- Tariflöhne -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header">Tariflöhne & Vergütung</div>
-        <p style="font-size:13px;color:var(--clr-text-light);padding:0 12px">Tarifliche Ausbildungsvergütungen und Mindestvergütung nach §17 BBiG verwalten.</p>
-        <div style="padding:8px 12px 12px"><button class="btn btn-primary btn-sm" onclick="Views.openTarifModal()">Tariflöhne bearbeiten</button></div>
       </div>
 
       <!-- Änderungs-Logbuch -->
@@ -2427,46 +2420,23 @@ const Views = {
           </div>
 
           <div id="help_9" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
-            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Azubi-Dashboard</div>
-            <p>Per-Schüler-Dashboard mit Ausbildungsverlauf, Kennzahlen, Vergütung und Prüfungsterminen. Erreichbar über den ${svgIcon('dashboard', 12)}-Button in Stammdaten, SchuelerView und Kontrolle.</p>
-            <p><strong>Komponenten:</strong></p>
-            <p>• <strong>Hero-Status-Card</strong> – Aktuelles Lehrjahr (VZ-Äquivalent), Fortschrittsbalken, aktueller Betrieb + Teilzeit-%</p>
-            <p>• <strong>Nächster Meilenstein</strong> – ZP, AP oder Vertragsende mit Countdown in Tagen</p>
-            <p>• <strong>Phasen-Timeline</strong> – Farbiger Balken: dunkelgrün = Vollzeit, hellgrün = Teilzeit, grau-gestreift = Unterbrechung, goldene Linie = Betriebswechsel, rote Linie = Heute</p>
-            <p>• <strong>Kennzahlen-Cards</strong> – Fehltagsbudget (10%/15%-Schwelle), aktuelle Vergütung, Wochenstunden, Fortschritt</p>
-            <p>• <strong>Risiko-Indikatoren</strong> – Automatische Warnungen bei Fehltage-Überschreitung, Phasen-Lücken, Unterbrechungen</p>
-            <p style="margin-top:8px"><strong>Editierbare Felder (direkt im Dashboard):</strong></p>
-            <p>• Zwischenprüfung / Abschlussprüfung (leer = automatisch berechnet)</p>
-            <p>• Ausbildungsende – bei Änderung wird Jahrgangs-Anpassung angeboten</p>
-            <p>• Beruf (Tarif), reguläre Dauer, Verkürzung, Geburtsdatum, vorzeitige Zulassung §45</p>
-            <p>• Individueller Bruttolohn (überschreibt Tarif, 0 = Tarifberechnung)</p>
-            <p>• <strong>Vergütungsperioden-Tabelle</strong> – Zeitraum, Betrieb, Lehrjahr, TZ-%, Brutto VZ/effektiv, Urlaub</p>
-          </div>
-
-          <div id="help_10" class="card" style="margin-bottom:12px;">
-            <div class="card-header" style="font-size:15px">Azubi-Rechner & Tarife</div>
-            <p>Berechnet Vergütung, Prüfungstermine und Kennzahlen basierend auf dem Phasenmodell und Tarifdaten.</p>
-            <p><strong>Tarifverwaltung</strong> (Einstellungen → „Tariflöhne bearbeiten"):</p>
-            <p>• 7 Gartenbau-Fachrichtungen mit Tarifsätzen je Lehrjahr (GaLaBau, Baumschule, Friedhof, Gemüse, Obst, Stauden, Zierpflanzen)</p>
-            <p>• Mindestvergütung §17 BBiG – separat editierbar, jährlich aktualisiert</p>
-            <p>• „Auf Standard zurücksetzen" – Tarife auf eingebaute Werte zurücksetzen</p>
-            <p style="margin-top:8px"><strong>Sonderregelungen:</strong></p>
-            <p>• <strong>Tarifstand zum Ausbildungsbeginn</strong> – Die im BAV vereinbarte Vergütung gilt in der Regel für die gesamte Ausbildung. Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch; passt ein Betrieb aus Kulanz an, den individuellen Bruttolohn eintragen.</p>
-            <p>• <strong>Fachwerker/Fachpraktiker (§66 BBiG)</strong> – Erhalten Ausbildungsgeld der Arbeitsagentur: 501 € (Elternhaushalt) / 822 € (eigene Wohnung), nicht tarifgebunden. Nur 1 ÜBA-Bescheinigung erforderlich (statt 2 bzw. 6).</p>
-            <p>• <strong>Individueller Bruttolohn</strong> – Pro Azubi einstellbar, überschreibt Tarifberechnung. Vergütungsperioden werden trotzdem angezeigt (Lehrjahr-Wechsel, Urlaub).</p>
+            <div class="card-header" style="font-size:15px">${svgIcon('dashboard', 15)} Ausbildungsverlauf (Phasen)</div>
+            <p>Pro Azubi lassen sich Phasen der Ausbildung hinterlegen: Vollzeit, Teilzeit, Betriebswechsel, Unterbrechungen (Elternzeit, lange Krankheit). Erreichbar über das ${svgIcon('dashboard', 12)}-Symbol in Stammdaten, Azubi-Ansicht und Kontrolle sowie aus dem Bearbeiten-Fenster.</p>
+            <p>• Aus den Phasen folgen Ausbildungsjahr, Vertragsende und die grau markierten Wochen im KW-Raster; pauschale Fehltage je Phase zählen bei der Zulassung mit</p>
+            <p>• Ohne Phasen gilt Ausbildungsbeginn und -ende aus den Stammdaten</p>
+            <p>• Tarife, Vergütung und Urlaub werden nicht mehr geführt – sie gehören nicht zur Berichtsheftkontrolle</p>
           </div>
 
           <div id="help_11" class="card" style="margin-bottom:12px">
             <div class="card-header" style="font-size:15px">${svgIcon('akte', 15)} Schüler-Akte</div>
-            <p>Pro Schüler können Bemerkungen und Dateien hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
+            <p>Pro Schüler können Bemerkungen hinterlegt werden. Erreichbar über den ${svgIcon('akte', 12)}-Button in Stammdaten und SchuelerView.</p>
             <p>• <strong>Bemerkungen</strong> – Freitext-Notizen mit Zeitstempel und Prüfer-Zuordnung</p>
-            <p>• <strong>Dateien</strong> – Dokumente an den Schüler-Datensatz anhängen (werden im Arbeitsordner gespeichert)</p>
             <p>• <strong>Aktenvermerk-Export</strong> – Als PDF exportierbar</p>
           </div>
 
           <div id="help_12" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest);">
             <div class="card-header" style="font-size:15px">⇄ Phasen-Editor</div>
-            <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar im Azubi-Dashboard → „Phasen bearbeiten".</p>
+            <p>Verwaltet Ausbildungsphasen: Vollzeit, Teilzeit, Unterbrechungen, Betriebswechsel. Erreichbar über das Symbol „Ausbildungsverlauf“ → „Phasen bearbeiten".</p>
             <p><strong>Phasentypen:</strong></p>
             <p>• <strong>Ausbildung</strong> – Betrieb, Teilzeit-% (25–100%), pauschale Fehltage</p>
             <p>• <strong>Unterbrechung</strong> – Grund (Mutterschutz, Elternzeit, Krankheit etc.), verschiebt Vertragsende</p>
@@ -2707,7 +2677,6 @@ const Views = {
             <div class="card-header" style="font-size:15px">⚙︎ Einstellungen</div>
             <p>Unter <strong>Sidebar → Einstellungen</strong> können folgende Optionen konfiguriert werden:</p>
             <p>• <strong>Textbausteine</strong> – Vorgefertigte Bemerkungstexte für KW-Raster (I-Code) und Ergebnis-Kommentare</p>
-            <p>• <strong>Tariflöhne bearbeiten</strong> – Tarifliche Ausbildungsvergütung pro Beruf und Lehrjahr anpassen. Mindestvergütung §17 BBiG separat editierbar. „Auf Standard zurücksetzen" möglich.</p>
             <p>• <strong>Word-Vorlage</strong> – DOCX-Vorlage für Serienbriefe an Betriebe/Schulen hochladen</p>
             <p>• <strong>RP-Adressen</strong> – Adresse für persönliche Vorlage und Post-Versand</p>
             <p>• <strong>E-Mail-Vorlage Freisprechung</strong> – Text für Freisprechungseinladungen</p>
@@ -3205,72 +3174,4 @@ const Views = {
     App.toast(`${logs.length} Einträge exportiert`, 'success');
   },
 
-  openTarifModal() {
-    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
-    const berufe = saved || AzubiRechner.BERUFE;
-    const miav = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG;
-
-    const berufRows = berufe.map((b, bi) => {
-      const lastTarif = b.tarife[b.tarife.length - 1];
-      return `<tr>
-        <td style="font-size:12px;font-weight:600">${esc(b.label)}</td>
-        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="0" value="${lastTarif.lj[0]}" min="0"></td>
-        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="1" value="${lastTarif.lj[1]}" min="0"></td>
-        <td><input type="number" class="form-control" style="width:70px;padding:2px 4px;font-size:12px" data-beruf="${bi}" data-lj="2" value="${lastTarif.lj[2]}" min="0"></td>
-        <td style="font-size:10px;color:var(--clr-text-light)">ab ${lastTarif.ab}</td>
-      </tr>`;
-    }).join('');
-
-    const lastMiav = miav[miav.length - 1];
-    App.openModal('Tariflöhne bearbeiten', `
-      <div style="font-size:13px;margin-bottom:12px;color:var(--clr-text-light)">
-        Aktuelle Tarife (letzter gültiger Eintrag pro Beruf). Änderungen gelten für alle neuen Berechnungen.<br>
-        <strong>Wichtig:</strong> Für jeden Azubi ist der Tarifstand zu seinem <strong>Ausbildungsbeginn</strong> maßgeblich
-        (im BAV vereinbart) – Tariferhöhungen während der laufenden Ausbildung greifen nicht automatisch.
-        Passt ein Betrieb freiwillig an, den individuellen Bruttolohn im Azubi-Dashboard eintragen.
-      </div>
-      <div style="overflow-x:auto;margin-bottom:16px">
-        <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Beruf</th><th>1. LJ (€)</th><th>2. LJ (€)</th><th>3. LJ (€)</th><th>Gültig</th></tr></thead>
-          <tbody>${berufRows}</tbody>
-        </table>
-      </div>
-      <div style="font-weight:600;font-size:14px;margin-bottom:6px">Mindestvergütung §17 BBiG</div>
-      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px;align-items:center;font-size:12px;margin-bottom:12px">
-        <span style="font-weight:600">Aktuell (${lastMiav.ab}):</span>
-        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav1" value="${lastMiav.lj[0]}" min="0">
-        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav2" value="${lastMiav.lj[1]}" min="0">
-        <input type="number" class="form-control" style="padding:2px 4px;font-size:12px" id="miav3" value="${lastMiav.lj[2]}" min="0">
-      </div>
-      <div style="font-size:11px;color:var(--clr-text-light)">Fachwerker erhalten Ausbildungsgeld der Arbeitsagentur (${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.elternhaushalt}€ / ${AzubiRechner.FACHWERKER_AUSBILDUNGSGELD.eigeneWohnung}€) — nicht tarifgebunden.</div>
-    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm" style="color:var(--clr-red)" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel IN ('custom_tarife','custom_mindestverguetung')&quot;);AzubiRechner._loadCustomTarife();App.closeModal();App.toast('Auf Standard-Tarife zurückgesetzt','success')">Auf Standard zurücksetzen</button>
-        <button class="btn btn-primary" onclick="Views.saveTarife()">Speichern</button>`);
-    _makeModalWide();
-  },
-
-  saveTarife() {
-    const saved = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_tarife'") || 'null');
-    const berufe = JSON.parse(JSON.stringify(saved || AzubiRechner.BERUFE));
-    document.querySelectorAll('[data-beruf]').forEach(input => {
-      const bi = parseInt(input.dataset.beruf);
-      const lj = parseInt(input.dataset.lj);
-      const val = parseInt(input.value) || 0;
-      if (berufe[bi]) {
-        berufe[bi].tarife[berufe[bi].tarife.length - 1].lj[lj] = val;
-      }
-    });
-    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_tarife',?)", [JSON.stringify(berufe)]);
-
-    const miav = JSON.parse(JSON.stringify(JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='custom_mindestverguetung'") || 'null') || AzubiRechner.MINDESTVERGUETUNG));
-    const lastIdx = miav.length - 1;
-    miav[lastIdx].lj[0] = parseInt(document.getElementById('miav1').value) || 0;
-    miav[lastIdx].lj[1] = parseInt(document.getElementById('miav2').value) || 0;
-    miav[lastIdx].lj[2] = parseInt(document.getElementById('miav3').value) || 0;
-    App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('custom_mindestverguetung',?)", [JSON.stringify(miav)]);
-
-    AzubiRechner._loadCustomTarife();
-    App.closeModal();
-    App.toast('Tariflöhne gespeichert', 'success');
-  },
 };

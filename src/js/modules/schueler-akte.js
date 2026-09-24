@@ -1,212 +1,50 @@
 // ══════════════════════════════════════════════════════════════
-//  SCHÜLER-AKTE: Bemerkungen, Dateien & Aktenvermerk-Export
+//  SCHÜLER-AKTE: Bemerkungen je Azubi (Freitext mit Zeitstempel und Prüfer)
+//  und Aktenvermerk als PDF. Der Datei-Upload wurde entfernt – Dateien
+//  gehören nicht in die Berichtsheftkontrolle; alte Dateien unter
+//  _bhk/dateien/ bleiben unangetastet liegen.
 // ══════════════════════════════════════════════════════════════
 
 const SchuelerAkte = {
-
-  // ── Dateien-Verzeichnis für einen Schüler holen/erstellen ──
-  async _getDateienDir(schuelerId) {
-    if (!App.bhkDirHandle) return null;
-    try {
-      const dateienDir = await App.bhkDirHandle.getDirectoryHandle('dateien', { create: true });
-      return await dateienDir.getDirectoryHandle(String(schuelerId), { create: true });
-    } catch (e) {
-      console.warn('Dateien-Verzeichnis:', e);
-      return null;
-    }
-  },
-
-  // ── Modal: Bemerkungen & Dateien ──
   open(schuelerId) {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return;
-
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am DESC', [schuelerId]);
-    const dateien = App.query('SELECT * FROM schueler_dateien WHERE schueler_id=? ORDER BY erstellt_am DESC', [schuelerId]);
-    const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
-
     App.openModal(`Akte: ${s.nachname}, ${s.vorname}`, `
-      <div class="modal-tabs">
-        <button class="modal-tab-btn active" onclick="_switchModalTab('mAkteTab1',this)">Bemerkungen <span style="font-size:10px;color:var(--clr-text-light)">(${bemerkungen.length})</span></button>
-        <button class="modal-tab-btn" onclick="_switchModalTab('mAkteTab2',this)">Dateien <span style="font-size:10px;color:var(--clr-text-light)">(${dateien.length})</span></button>
+      <div class="form-group">
+        <label>Neue Bemerkung</label>
+        <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
       </div>
-
-      <!-- Tab 1: Bemerkungen -->
-      <div id="mAkteTab1" class="modal-tab-content active">
-        <div class="form-group">
-          <label>Neue Bemerkung</label>
-          <textarea class="form-control" id="mAkteNeueNotiz" rows="3" maxlength="5000" placeholder="Bemerkung eingeben..." style="resize:vertical"></textarea>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="SchuelerAkte.addBemerkung(${schuelerId})" style="margin-bottom:12px">Bemerkung speichern</button>
-
-        <div id="mAkteBemerkungen" style="max-height:300px;overflow-y:auto">
-          ${bemerkungen.length ? bemerkungen.map(b => `
-            <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:var(--clr-warm)">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                <span style="font-size:11px;color:var(--clr-text-light)">${b.erstellt_von ? esc(b.erstellt_von) + ' · ' : ''}${SchuelerAkte._formatDate(b.erstellt_am)}</span>
-                <button class="btn btn-sm" style="color:var(--clr-red);padding:1px 5px;font-size:10px" onclick="SchuelerAkte.deleteBemerkung(${b.id},${schuelerId})" title="Löschen">&#10005;</button>
-              </div>
-              <div style="font-size:13px;white-space:pre-wrap;word-break:break-word">${esc(b.text)}</div>
+      <button class="btn btn-primary btn-sm" onclick="SchuelerAkte.addBemerkung(${schuelerId})" style="margin-bottom:12px">Bemerkung speichern</button>
+      <div id="mAkteBemerkungen" style="max-height:300px;overflow-y:auto">
+        ${bemerkungen.length ? bemerkungen.map(b => `
+          <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:var(--clr-warm)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:11px;color:var(--clr-text-light)">${b.erstellt_von ? esc(b.erstellt_von) + ' · ' : ''}${SchuelerAkte._formatDate(b.erstellt_am)}</span>
+              <button class="btn btn-sm" style="color:var(--clr-red);padding:1px 5px;font-size:10px" onclick="SchuelerAkte.deleteBemerkung(${b.id},${schuelerId})">Löschen</button>
             </div>
-          `).join('') : '<p style="color:var(--clr-text-light);font-size:13px">Noch keine Bemerkungen.</p>'}
-        </div>
-      </div>
-
-      <!-- Tab 2: Dateien -->
-      <div id="mAkteTab2" class="modal-tab-content">
-        <div class="drop-zone" id="akteDropZone" style="min-height:80px;margin-bottom:12px;padding:16px"
-             onclick="document.getElementById('akteDateiInput').click()"
-             ondragover="event.preventDefault();this.classList.add('dragover')"
-             ondragleave="this.classList.remove('dragover')"
-             ondrop="event.preventDefault();this.classList.remove('dragover');SchuelerAkte.handleFileDrop(event,${schuelerId})">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <p style="margin:4px 0 0;font-size:12px">Dateien hierher ziehen oder klicken<br><span style="font-size:11px;color:var(--clr-text-light)">E-Mails (.msg, .eml), PDFs, Bilder, Dokumente...</span></p>
-          <input type="file" id="akteDateiInput" multiple style="display:none" onchange="SchuelerAkte.handleFileSelect(this.files,${schuelerId})">
-        </div>
-
-        ${!App.bhkDirHandle ? '<div style="padding:8px 12px;background:var(--clr-amber-light);border-radius:var(--radius);font-size:12px;margin-bottom:8px;color:var(--clr-amber)">Dateien können erst nach dem Öffnen einer Datenbank gespeichert werden.</div>' : ''}
-
-        <div id="mAkteDateien">
-          ${dateien.length ? `<table class="data-table"><thead><tr><th>Datei</th><th>Beschreibung</th><th>Datum</th><th style="width:80px"></th></tr></thead><tbody>
-            ${dateien.map(d => `<tr>
-              <td>
-                <div style="font-size:12px;font-weight:600">${SchuelerAkte._fileIcon(d.dateityp)} ${esc(d.original_name)}</div>
-                <div style="font-size:10px;color:var(--clr-text-light)">${SchuelerAkte._formatSize(d.groesse)}</div>
-              </td>
-              <td><input class="form-control" value="${esc(d.beschreibung)}" style="font-size:11px;padding:3px 6px" onchange="SchuelerAkte.updateDateiBeschreibung(${d.id},this.value)"></td>
-              <td style="font-size:11px;white-space:nowrap">${SchuelerAkte._formatDate(d.erstellt_am)}</td>
-              <td class="btn-group" style="white-space:nowrap">
-                <button class="btn btn-sm btn-secondary" style="padding:2px 6px;font-size:10px" onclick="SchuelerAkte.downloadDatei(${d.id},${schuelerId})" title="Herunterladen">&#8595;</button>
-                <button class="btn btn-sm" style="color:var(--clr-red);padding:2px 6px;font-size:10px" onclick="SchuelerAkte.deleteDatei(${d.id},${schuelerId})" title="Löschen">&#10005;</button>
-              </td>
-            </tr>`).join('')}
-          </tbody></table>` : '<p style="color:var(--clr-text-light);font-size:13px">Noch keine Dateien.</p>'}
-        </div>
+            <div style="font-size:13px;white-space:pre-wrap;word-break:break-word">${esc(b.text)}</div>
+          </div>
+        `).join('') : '<p style="color:var(--clr-text-light);font-size:13px">Noch keine Bemerkungen.</p>'}
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
         <button class="btn btn-primary" onclick="SchuelerAkte.exportAktenvermerk(${schuelerId})">Aktenvermerk exportieren</button>`);
     _makeModalWide();
   },
 
-  // ── Bemerkung hinzufügen ──
   addBemerkung(schuelerId) {
     const text = document.getElementById('mAkteNeueNotiz')?.value?.trim();
     if (!text) return App.toast('Bitte Bemerkung eingeben', 'warning');
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
     App.run('INSERT INTO schueler_bemerkungen (schueler_id, text, erstellt_von) VALUES (?,?,?)', [schuelerId, text, pruefer]);
     App.toast('Bemerkung gespeichert', 'success');
-    this.open(schuelerId); // Refresh
+    this.open(schuelerId);
   },
 
   deleteBemerkung(id, schuelerId) {
     if (!confirm('Bemerkung löschen?')) return;
     App.run('DELETE FROM schueler_bemerkungen WHERE id=?', [id]);
     this.open(schuelerId);
-  },
-
-  // ── Dateien hochladen ──
-  handleFileDrop(event, schuelerId) {
-    const files = event.dataTransfer?.files;
-    if (files?.length) this.handleFileSelect(files, schuelerId);
-  },
-
-  async handleFileSelect(files, schuelerId) {
-    const count = await this.speichereDateien(files, schuelerId);
-    if (count > 0) {
-      App.toast(`${count} Datei(en) gespeichert`, 'success');
-      this.open(schuelerId); // Refresh
-    }
-  },
-
-  // Dateien in die Akte legen (auch aus anderen Dialogen, z.B. Nachweis einer
-  // Wiedervorlage). opts.beschreibung wird an jeder Datei vermerkt. Liefert die
-  // Anzahl gespeicherter Dateien.
-  async speichereDateien(files, schuelerId, opts = {}) {
-    if (!files?.length) return 0;
-    if (!App.bhkDirHandle) { App.toast('Bitte zuerst eine Datenbank öffnen', 'error'); return 0; }
-
-    const maxSize = 100 * 1024 * 1024; // 100 MB
-    for (const file of files) {
-      if (file.size > maxSize) {
-        App.toast(`Datei "${file.name}" zu groß (max 100 MB)`, 'error');
-        return 0;
-      }
-    }
-
-    const dir = await this._getDateienDir(schuelerId);
-    if (!dir) { App.toast('Dateien-Verzeichnis konnte nicht erstellt werden', 'error'); return 0; }
-
-    const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || '';
-    let count = 0;
-
-    for (const file of files) {
-      try {
-        // Unique filename: timestamp + original name
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-        const safeName = file.name.replace(/[<>:"/\\|?*]/g, '_');
-        const dateiname = `${ts}_${safeName}`;
-
-        // Write file to disk
-        const fileHandle = await dir.getFileHandle(dateiname, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(file);
-        await writable.close();
-
-        // Track in DB
-        const ext = file.name.split('.').pop().toLowerCase();
-        App.run('INSERT INTO schueler_dateien (schueler_id, dateiname, original_name, beschreibung, dateityp, groesse, erstellt_von) VALUES (?,?,?,?,?,?,?)',
-          [schuelerId, dateiname, file.name, opts.beschreibung || '', ext, file.size, pruefer]);
-        count++;
-      } catch (e) {
-        console.warn('Datei-Upload:', file.name, e); App.toast('Fehler beim Speichern der Datei', 'error');
-      }
-    }
-    return count;
-  },
-
-  async downloadDatei(dateiId, schuelerId) {
-    const d = App.query('SELECT * FROM schueler_dateien WHERE id=?', [dateiId])[0];
-    if (!d) return;
-
-    try {
-      const dir = await this._getDateienDir(schuelerId);
-      if (!dir) throw new Error('Verzeichnis nicht gefunden');
-
-      const fileHandle = await dir.getFileHandle(d.dateiname);
-      const file = await fileHandle.getFile();
-
-      // Trigger download via FileSaver or blob URL
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = d.original_name;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.warn('Download:', e); App.toast('Datei nicht gefunden', 'error');
-    }
-  },
-
-  async deleteDatei(dateiId, schuelerId) {
-    if (!confirm('Datei löschen?')) return;
-    const d = App.query('SELECT * FROM schueler_dateien WHERE id=?', [dateiId])[0];
-    if (!d) return;
-
-    // Try to delete from disk
-    try {
-      const dir = await this._getDateienDir(schuelerId);
-      if (dir) await dir.removeEntry(d.dateiname);
-    } catch (e) {
-      console.warn('Datei auf Disk nicht löschbar:', e);
-    }
-
-    App.run('DELETE FROM schueler_dateien WHERE id=?', [dateiId]);
-    App.toast('Datei gelöscht', 'success');
-    this.open(schuelerId);
-  },
-
-  updateDateiBeschreibung(dateiId, beschreibung) {
-    App.run('UPDATE schueler_dateien SET beschreibung=? WHERE id=?', [beschreibung.trim(), dateiId]);
   },
 
   // ── Aktenvermerk als PDF exportieren ──
@@ -225,7 +63,6 @@ const SchuelerAkte = {
     const jahrgang = s.jahrgang_id ? App.query('SELECT * FROM abschlussjahrgaenge WHERE id=?', [s.jahrgang_id])[0] : null;
     const fr = s.fachrichtung_id ? App.query('SELECT * FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0] : null;
     const bemerkungen = App.query('SELECT * FROM schueler_bemerkungen WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
-    const dateien = App.query('SELECT * FROM schueler_dateien WHERE schueler_id=? ORDER BY erstellt_am ASC', [schuelerId]);
     // kontrolltermine hat keine Spalte "name" – die Abfrage warf deshalb
     // "no such column" und der Export-Knopf tat kommentarlos nichts.
     const kontrollen = App.query(`SELECT ke.*, kt.geplant_datum, kt.bemerkung as termin_name
@@ -345,29 +182,6 @@ const SchuelerAkte = {
       y += 2;
     }
 
-    // ── Dateien-Verzeichnis ──
-    if (dateien.length) {
-      checkPage(15);
-      doc.setFillColor(240, 237, 230);
-      doc.rect(LM - 2, y - 4, RM - LM + 4, 7, 'F');
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(10);
-      doc.text(`Anlagen / Dateien (${dateien.length})`, LM, y);
-      y += 5;
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(8);
-
-      dateien.forEach((d, i) => {
-        checkPage(8);
-        doc.text(`${i + 1}. ${d.original_name}${d.beschreibung ? ' – ' + d.beschreibung : ''}`, LM + 2, y);
-        y += 3.5;
-        doc.setTextColor(100);
-        doc.text(`   ${SchuelerAkte._formatSize(d.groesse)} · ${SchuelerAkte._formatDate(d.erstellt_am)}`, LM + 2, y);
-        doc.setTextColor(0);
-        y += 4;
-      });
-    }
-
     // ── Wiedervorlagen ──
     const wvGrouped = {};
     wiedervorlagen.forEach(w => {
@@ -430,28 +244,8 @@ const SchuelerAkte = {
     } catch (e) { return dateStr; }
   },
 
-  _formatSize(bytes) {
-    if (!bytes) return '–';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  },
-
-  _fileIcon(ext) {
-    const icons = {
-      pdf: svgIcon('datei', 13), doc: svgIcon('datei', 13), docx: svgIcon('datei', 13), odt: svgIcon('datei', 13),
-      msg: '✉︎', eml: '✉︎',
-      jpg: svgIcon('bild', 13), jpeg: svgIcon('bild', 13), png: svgIcon('bild', 13), gif: svgIcon('bild', 13), bmp: svgIcon('bild', 13),
-      xlsx: svgIcon('tabelle', 13), xls: svgIcon('tabelle', 13), csv: svgIcon('tabelle', 13),
-      zip: svgIcon('archiv', 13), rar: svgIcon('archiv', 13), '7z': svgIcon('archiv', 13)
-    };
-    return icons[ext] || svgIcon('datei', 13);
-  },
-
   // ── Zähler für Badge ──
   getCount(schuelerId) {
-    const b = App.scalar('SELECT COUNT(*) FROM schueler_bemerkungen WHERE schueler_id=?', [schuelerId]) || 0;
-    const d = App.scalar('SELECT COUNT(*) FROM schueler_dateien WHERE schueler_id=?', [schuelerId]) || 0;
-    return b + d;
+    return App.scalar('SELECT COUNT(*) FROM schueler_bemerkungen WHERE schueler_id=?', [schuelerId]) || 0;
   }
 };
