@@ -170,7 +170,7 @@ const Konsole = {
       else if (schreib.art === 'verweigert') befunde.push('Schreiben verweigert: Ordnerberechtigung nur lesend oder Zugriff abgelaufen – Ordner erneut verbinden.');
       else befunde.push(`Schreiben fehlgeschlagen (${BhkSpur.artText(schreib.art)}): ${schreib.fehler && schreib.fehler.message || ''}`);
     }
-    if (liste.ok && liste.ms > 2000) befunde.push(`Langsame Leitung: Das Auflisten des Ordners dauert ${liste.ms} ms (Büro-LAN: unter 100 ms). Einstellungen → Verbindung → „Langsame Leitung“ empfohlen.`);
+    if (liste.ok && liste.ms > 2000) befunde.push(`Langsame Leitung: Das Auflisten des Ordners dauert ${liste.ms} ms (Büro-LAN: unter 100 ms). Wartung → Verbindung → „Langsame Leitung“ empfohlen.`);
     else if (liste.ok && liste.ms > 500) befunde.push(`Leitung mittel: Auflisten ${liste.ms} ms – der Abgleich braucht länger, das ist über VPN normal.`);
     if (versatz != null && Math.abs(versatz) > 60000) befunde.push(`Uhrversatz von etwa ${Math.round(Math.abs(versatz) / 60000)} min zwischen diesem Rechner und dem Dateiserver: Die Online-Anzeige der Kollegen und die Reihenfolge gleichzeitiger Änderungen können falsch sein. Uhr per Domäne synchronisieren.`);
     if (App._tabIsPrimary === false) befunde.push('Zweit-Registerkarte: Diese Registerkarte kann keinen Snapshot schreiben, Import und Datenbank-Tools sind gesperrt.');
@@ -189,7 +189,7 @@ const Konsole = {
     return { schritte, befunde, versatzMs: versatz, abgleich: abgleich.ok, meta: meta.ok };
   },
 
-  // Verbindungstest mit Ergebnisfenster (Einstellungen → Verbindung)
+  // Verbindungstest mit Ergebnisfenster (Wartung → Verbindung)
   async testDialog() {
     App.showLoading && App.showLoading('Verbindungstest läuft…');
     let r;

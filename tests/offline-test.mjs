@@ -142,7 +142,7 @@ console.log('\n══ Quelltext: Offline-Start, Puffer, Cache ══');
   check(/Date\.now\(\) - record\.ts < 30 \* 86400000/.test(APP_SRC), 'Änderungspuffer hält 30 Tage');
   check(/createObjectStore\('snapshot'/.test(APP_SRC) && /_offlineCachePlanen\(\)/.test(APP_SRC), 'Lokaler Stand wird im Browser gesichert und regelmäßig aufgefrischt');
   check(/if \(this\.offlineModus\) \{\n      \/\/ Offline: nur lokal puffern/.test(APP_SRC), 'Offline schreibt nur in den lokalen Puffer');
-  check(/App\.offlineUmschalten\(\)/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'Offline-Schalter in der Kopfzeile');
+  check(/App\.closeModal\(\);App\.offlineUmschalten\(\)/.test(APP_SRC) && !/App\.offlineUmschalten\(\)/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'Offline-Schalter im Dialog hinter dem Speicherstatus (nicht mehr in der Kopfzeile)');
 }
 
 console.log(`\n═══ Ergebnis: ${state.passed} OK, ${state.failed} Fehler ═══`);

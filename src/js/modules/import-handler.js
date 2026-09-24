@@ -1324,7 +1324,7 @@ const ImportHandler = {
     if (s.aktiv) text += `\n\nHinweis: Für beendete Ausbildungen ist „Ausbildung beenden" (Status inaktiv) meist die bessere Wahl – der Verlauf bleibt dann auswertbar.`;
     if (!confirm(text)) return;
     App.deleteSchuelerKaskade(id);
-    App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Einstellungen → Papierkorb`, 'success');
+    App.toast(`${s.nachname}, ${s.vorname} gelöscht – wiederherstellbar unter Wartung → Papierkorb`, 'success');
     try { App.navigate('stammdaten'); } catch(e) {}
   },
   // Durch einen Re-Import überschriebene Felder ins Änderungs-Logbuch – aber
@@ -1673,7 +1673,7 @@ const ImportHandler = {
   deleteAllJahrgang() {
     const jahrgaenge = App.query('SELECT j.*, (SELECT COUNT(*) FROM schueler s WHERE s.jahrgang_id=j.id) AS n FROM abschlussjahrgaenge j ORDER BY j.jahr DESC');
     App.openModal('Jahrgang komplett löschen', `
-      <p style="font-size:13px;margin-bottom:12px">Alle Azubis eines Jahrgangs samt Kontrollergebnissen, Wiedervorlagen, Kalenderwochen, Phasen und Bemerkungen <strong>endgültig</strong> löschen – z.B. vor einem Neu-Import. Termine bleiben bestehen. Für ein Archiv mit Rückholung: Einstellungen → Datenbank-Tools → „Jahrgang mit Archiv löschen“.</p>
+      <p style="font-size:13px;margin-bottom:12px">Alle Azubis eines Jahrgangs samt Kontrollergebnissen, Wiedervorlagen, Kalenderwochen, Phasen und Bemerkungen <strong>endgültig</strong> löschen – z.B. vor einem Neu-Import. Termine bleiben bestehen. Für ein Archiv mit Rückholung: Wartung → Datenbank-Tools → „Jahrgang mit Archiv löschen“.</p>
       <div class="form-group"><label>Jahrgang</label><select class="form-control" id="mDelJG">
         ${jahrgaenge.map(j => `<option value="${j.id}">${esc(j.bezeichnung)} (${j.n} Azubis)</option>`).join('')}
       </select></div>

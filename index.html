@@ -113,22 +113,17 @@
       <h1>Berichtsheftkontrolle</h1>
     </div>
     <div class="topbar-status">
-      <button class="topbar-filter-toggle" id="filterPanelToggle" onclick="App.toggleFilterPanel()" title="Filter ein-/ausblenden" aria-label="Filter ein- oder ausblenden" aria-controls="filterPanel">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        Filter <span id="filterActiveCount" style="font-size:12px;opacity:0.7"></span>
-      </button>
       <button class="topbar-btn" onclick="GlobalSearch.open()" title="Suche (Ctrl+K)" aria-label="Suche öffnen (Strg+K)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <kbd>Ctrl+K</kbd>
       </button>
       <span id="dbStatusIndicator" style="cursor:pointer" onclick="App.wartendeAenderungenDialog()" title="Klick: wartende Änderungen ansehen, jetzt schreiben oder als Datei sichern"><span class="dot dot-green"></span>Verbunden</span>
       <span id="networkQuality" style="display:none;font-size:12px;white-space:nowrap"></span>
-      <button class="btn btn-sm btn-secondary" style="font-size:12px;padding:1px 6px" onclick="App.offlineUmschalten()" title="Offline-Modus: ohne Netzlaufwerk weiterarbeiten, Änderungen beim Wiederverbinden zusammenführen">⇅ Offline</button>
       <select id="topbarUserSelect" class="topbar-user-select" onchange="App.switchUser(this.value)" title="Angemeldeter Sachbearbeiter – Einstellungen werden pro Person gespeichert">
         <option value="">Prüfer</option>
       </select>
       <span id="dbFileName" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">–</span>
-      <span id="autoSaveIndicator" style="font-size:12px;opacity:0.7">Auto-Save</span>
+      <span id="autoSaveIndicator" style="display:none">Auto-Save</span>
       <button id="btnSwitchDB" class="topbar-btn" style="display:none;font-size:12px;padding:2px 8px" onclick="App.switchDB()" title="Datenbank wechseln">
         ↻ DB
       </button>
@@ -184,7 +179,8 @@
       <div id="extraFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px;max-height:400px;overflow-y:auto"></div>
     </div>
     <div id="extraFilterChips" style="display:contents"></div>
-    <span id="dbLastSaved" style="margin-left:auto;font-size:12px;color:var(--tb-muted)">–</span>
+    <span id="dbLastSaved" style="display:none">–</span>
+    <a href="#" id="filterReset" style="display:none;margin-left:auto;font-size:12px;color:var(--clr-forest);text-decoration:underline;white-space:nowrap" onclick="App.filterZuruecksetzen();return false" title="Alle Filter auf die Vorgabe zurücksetzen">✕ Filter zurücksetzen</a>
   </div>
 
   <div class="app-layout">
@@ -237,6 +233,10 @@
       <button class="sidebar-item" data-view="einstellungen" onclick="App.navigate('einstellungen')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         Einstellungen
+      </button>
+      <button class="sidebar-item" data-view="wartung" onclick="App.navigate('wartung')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        Wartung
       </button>
       <button class="sidebar-item" data-view="hilfe" onclick="App.navigate('hilfe')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>

@@ -71,7 +71,7 @@ console.log('\n══ Tastatur und Vorleseprogramm ══');
   check(/aria-label="\$\{esc\(title \|\| 'Weitere Aktionen'\)\}" aria-haspopup="menu"/.test(APP), 'Menüknöpfe tragen Beschriftung und Menü-Rolle');
   const icons = [...ST.matchAll(/<button class="btn-icon btn-sm"[^>]*>/g)].map(m => m[0]);
   check(icons.length >= 8 && icons.every(b => /aria-label="/.test(b)), `Stammdaten: alle ${icons.length} Symbolknöpfe beschriftet`);
-  check(/id="hamburgerBtn"[^>]*aria-label="Menü ein- oder ausblenden"/.test(HTML) && /id="filterPanelToggle"[^>]*aria-label="Filter ein- oder ausblenden" aria-controls="filterPanel"/.test(HTML) && /aria-label="Suche öffnen \(Strg\+K\)"/.test(HTML), 'Kopfzeile: Menü, Filter und Suche beschriftet');
+  check(/id="hamburgerBtn"[^>]*aria-label="Menü ein- oder ausblenden"/.test(HTML) && /aria-label="Suche öffnen \(Strg\+K\)"/.test(HTML), 'Kopfzeile: Menü und Suche beschriftet');
 }
 
 console.log('\n══ Große Schrift ══');

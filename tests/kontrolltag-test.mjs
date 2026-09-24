@@ -381,11 +381,11 @@ console.log('\n══ UI-Paket 1: Kontrolltag ══');
   check(/\['lockableContent', 'lockableLeiste'\]\.forEach/.test(K_SRC) && (K_SRC.match(/\['lockableContent', 'lockableLeiste'\]/g) || []).length === 2, 'Sperre durch Kollegen deckt auch die feste Leiste ab');
   check(/id="keGesichert"/.test(K_SRC) && /id="quickNavGrid"/.test(K_SRC) && /data-sync-progress-bar/.test(K_SRC) && /id="fehlGesamt"/.test(K_SRC) && /id="fehlPauschalAnzeige"/.test(K_SRC) && /fehlSumAj\$\{aj\}_display/.test(K_SRC), 'Kennungen für Live-Sync, Verlustschutz und Fehltage bleiben erhalten');
   check(/const sel = document\.getElementById\('selKontrolltermin'\);\n    if \(sel\) \{\n      \/\/ Aktuellen Termin vorwählen/.test(K_SRC), '„Termin wechseln“ wählt den aktuellen Termin vor');
-  const toc = V_SRC.match(/const helpSections = \[([^\]]*)\]/)[1].split(',').map(x => x.trim().replace(/'/g, ''));
+  const toc = [...V_SRC.match(/const helpSections = \[([^\]]*)\]/)[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1]);
   const ids = [...V_SRC.matchAll(/id="help_(\d+)"/g)].map(m => +m[1]);
-  check(!toc.includes('Azubi-Dashboard') && !toc.includes('Azubi-Rechner & Tarife') && !toc.includes('Phasen-Editor') && toc.includes('Ausbildungsverlauf (Phasen)') && toc.includes('Azubi-Akte'), 'Hilfe-Inhaltsverzeichnis ohne entfernte Module, Phasen-Editor im Ausbildungsverlauf');
+  check(!toc.includes('Azubi-Dashboard') && !toc.includes('Azubi-Rechner & Tarife') && !toc.includes('Phasen-Editor') && toc.includes('Azubis und Stammdaten') && /<h4 class="help-untertitel">[^<]*Ausbildungsverlauf \(Phasen\)<\/h4>/.test(V_SRC), 'Hilfe-Inhaltsverzeichnis ohne entfernte Module, Ausbildungsverlauf als Abschnitt unter Azubis und Stammdaten');
   check(toc.length === ids.length && ids.every((n, i) => n === i) && !/⇄ Phasen-Editor/.test(V_SRC) && /Import-Schutz:/.test(V_SRC), `Jeder Eintrag hat genau ein Kapitel (${toc.length}), Kapitel fortlaufend nummeriert`);
-  check(APP_SRC.includes("nacherfassung: 'help_20', wiedervorlagen: 'help_11', berichte: 'help_12', einstellungen: 'help_21'"), 'Kontexthilfe zeigt auf die neu nummerierten Kapitel');
+  check(APP_SRC.includes("kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10'"), 'Kontexthilfe zeigt auf die neu nummerierten Kapitel');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

@@ -156,7 +156,7 @@ console.log('\n══ Stufe 2 (4): Vorjahresvergleich, Filter, Dialoge, Glossar 
   check(/setAttribute\('aria-live', 'polite'\)/.test(APP) && /setAttribute\('role', 'alert'\)/.test(APP), 'Toasts: aria-live, Fehler als alert');
   check(/if \(hashView && validViews\.includes\(hashView\)\) \{ this\.navigate\(hashView\); restored = true; \}/.test(APP), 'Ausdrücklicher Hash gewinnt gegen die gemerkte Ansicht');
   check(/this\.filterZp = \[\];\n    this\.filterFachrichtungen = \[\];\n    this\.filterAmt = \[\];\n    this\.filterBavStatus = 'aktiv';\n    this\.extraFilters = \[\];/.test(APP), 'Datenbank-Wechsel setzt alle globalen Filter zurück');
-  check(/§ Standard: \$\{esc\(this\.amtLabel\(this\.filterAmt\[0\]\)\)\}/.test(APP), 'Standardfilter (eigenes Amt) erscheint als Standard-Chip ohne ✕');
+  check(/filterBadgeHtml\(\) \{ return ''; \}/.test(APP) && /filterZuruecksetzen\(\) \{/.test(APP), 'Keine zweite Filterzeile auf den Seiten – der Filterbalken ist die einzige Darstellung, Zurücksetzen als Funktion');
   const VIEWS = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
   check(/id="help_glossar"/.test(VIEWS) && /<h2>Durchführung<\/h2>/.test(VIEWS) && /role="button" tabindex="0"/.test(VIEWS) && /Azubis gesamt/.test(VIEWS), 'Glossar in der Hilfe, Seitentitel = Sidebar-Label, Arbeitsliste per Tastatur bedienbar, „Azubis" statt „Schüler"');
 }

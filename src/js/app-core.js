@@ -1155,93 +1155,21 @@ const App = {
   },
 
   // Filter indicator badge for views
-  filterBadgeHtml() {
-    const parts = [];
-    // Combined JG+ZP badge
-    if (this.filterJahrgang.length || this.filterZp.length) {
-      const subParts = [];
-      if (this.filterJahrgang.length) {
-        if (this.filterJahrgang[0] === -1) subParts.push('Keine AP');
-        else {
-          const names = this.filterJahrgang.map(id => this.scalar('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [id])).filter(Boolean);
-          subParts.push(names.length <= 2 ? 'AP: ' + names.join(', ') : names.length + ' AP');
-        }
-      }
-      if (this.filterZp.length) {
-        if (this.filterZp[0] === '---') subParts.push('Keine ZP');
-        else subParts.push(this.filterZp.length <= 2 ? 'ZP: ' + this.filterZp.join(', ') : this.filterZp.length + ' ZP');
-      }
-      const hasNone = (this.filterJahrgang[0] === -1) || (this.filterZp[0] === '---');
-      const bg = hasNone ? 'var(--clr-red-light)' : 'var(--clr-amber-light)';
-      parts.push(`<span style="padding:3px 8px;background:${bg};border-radius:8px;font-size:12px">${esc(subParts.join(' + '))} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterJahrgang=[];App.filterZp=[];App._updateJgButton();App._updateFilterCount();App.renderCurrentView();return false" title="Jahrgangs-Filter entfernen">✕</span></span>`);
-    }
-    if (this.filterFachrichtungen.length) {
-      if (this.filterFachrichtungen[0] === -1) {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:12px">Keine Berufe <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
-      } else {
-        const btn = document.getElementById('bgFilterBtn');
-        const label = btn ? btn.textContent.replace(' ▾','').replace(/^(?:||§|▤|✎)\s*/,'').trim() : this.filterFachrichtungen.length + ' Berufe';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-amber-light);border-radius:8px;font-size:12px">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterFachrichtungen=[];App._applyBgFilter();return false" title="Filter entfernen">✕</span></span>`);
-      }
-    }
-    if (this.filterAmt.length) {
-      if (this.filterAmt[0] === '-1') {
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-red-light);border-radius:8px;font-size:12px">§ Kein Amt <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
-      } else if (this.filterAmt.length === 1 && this.filterAmt[0] === this.EIGENES_AMT) {
-        // Standardfilter (eigenes Amt) – kein „✕": er ist die Normalansicht,
-        // andere Ämter über die Amt-Auswahl in der Topbar
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-warm);border:1px dashed var(--clr-sand);border-radius:8px;font-size:12px;color:var(--clr-text-light)" title="Standard: nur Azubis des eigenen Amts. Andere Ämter über „§" in der Topbar wählen">§ Standard: ${esc(this.amtLabel(this.filterAmt[0]))}</span>`);
-      } else {
-        const label = this.filterAmt.length === 1 ? this.amtLabel(this.filterAmt[0]) : this.filterAmt.length + ' Ämter';
-        parts.push(`<span style="padding:3px 8px;background:var(--clr-blue-light);border-radius:8px;font-size:12px">§ ${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterAmt=[];App._applyAmtFilter();return false" title="Filter entfernen">✕</span></span>`);
-      }
-    }
-    if (this.filterBavStatus !== 'aktiv') {
-      const bavLabel = this.filterBavStatus === 'alle' ? 'Alle BAV (inkl. beendete)' : 'Nur beendete BAV';
-      parts.push(`<span style="padding:3px 8px;background:${this.filterBavStatus === 'ende' ? 'var(--clr-red-light)' : 'var(--clr-blue-light)'};border-radius:8px;font-size:12px;font-weight:600">▤ ${bavLabel} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App.filterBavStatus='aktiv';var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV';bb.classList.remove('active');bb.style.fontWeight='400';}App.renderCurrentView();return false" title="Zurück auf 'Aktive BAV'">✕</span></span>`);
-    }
-    // Extra filter badges
-    this.extraFilters.forEach((f, idx) => {
-      if (!this._efAktiv(f)) return;
-      const def = this.extraFilterDefs[f.field];
-      if (!def) return;
-      let label;
-      if (Array.isArray(f.value)) {
-        const namen = (f.labels && f.labels.length === f.value.length ? f.labels : f.value).map(String);
-        const kurz = namen.join(', ');
-        label = def.label + ': ' + (kurz.length > 40 ? namen.length + ' gewählt' : kurz);
-      } else {
-        label = def.label + ': ' + f.value;
-        if (def.type === 'toggle') { const opt = def.options.find(o => o.v === f.value); if (opt) label = def.label + ': ' + opt.l; }
-      }
-      parts.push(`<span style="padding:3px 8px;background:var(--clr-purple-light);border:1px solid var(--clr-purple-line);border-radius:8px;font-size:12px;color:var(--clr-text)">${esc(label)} <span style="cursor:pointer;color:var(--clr-red);font-weight:bold;margin-left:2px" onclick="App._removeExtraFilter(${idx});return false" title="Filter entfernen">✕</span></span>`);
-    });
-    if (!parts.length) return '';
-    const hasMultiple = parts.length > 1;
-    return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--clr-text-light);text-transform:uppercase;letter-spacing:0.05em">Aktive Filter:</span>
-      ${parts.join('')}
-      ${hasMultiple ? `<span style="font-size:12px;color:var(--clr-forest);cursor:pointer;text-decoration:underline" onclick="App.filterFachrichtungen=[];App.filterJahrgang=[];App.filterAmt=[];App.filterZp=[];App.filterBavStatus='aktiv';App.extraFilters=[];App._renderExtraFilterChips();var bb=document.getElementById('bavFilterBtn');if(bb){bb.textContent='▤ Aktive BAV ▾';bb.classList.remove('active');}App.refreshJgDropdown();App._updateJgButton();App._applyBgFilter();App._applyAmtFilter()">Alle zurücksetzen</span>` : ''}
-    </div>`;
+  // Früher stand auf jeder Seite eine zweite Zeile „Aktive Filter: …“ – der
+  // Filterbalken unter der Kopfzeile ist jetzt die einzige Darstellung
+  // (immer sichtbar, aktive Chips schwarz, „Filter zurücksetzen“ rechts).
+  filterBadgeHtml() { return ''; },
+  filterZuruecksetzen() {
+    this.filterFachrichtungen = []; this.filterJahrgang = []; this.filterAmt = []; this.filterZp = []; this.filterBavStatus = 'aktiv'; this.extraFilters = [];
+    this._renderExtraFilterChips();
+    const bb = document.getElementById('bavFilterBtn'); if (bb) { bb.textContent = '▤ Aktive BAV ▾'; bb.classList.remove('active'); }
+    this.refreshJgDropdown(); this._updateJgButton(); this._applyBgFilter(); this._applyAmtFilter();
   },
 
   // Font scale (persisted in localStorage, not DB)
-  toggleFilterPanel() {
-    const panel = document.getElementById('filterPanel');
-    const btn = document.getElementById('filterPanelToggle');
-    if (!panel) return;
-    const isOpen = panel.classList.toggle('open');
-    btn?.classList.toggle('active', isOpen);
-    try { App.uSet('filter_panel', isOpen ? '1' : ''); } catch(e) {}
-  },
-  _restoreFilterPanel() {
-    try {
-      if (App.uGet('filter_panel') === '1') {
-        document.getElementById('filterPanel')?.classList.add('open');
-        document.getElementById('filterPanelToggle')?.classList.add('active');
-      }
-    } catch(e) {}
-  },
+  // Der Filterbalken ist immer sichtbar – die Umschalter bleiben als Leerfunktionen für alte Aufrufer
+  toggleFilterPanel() {},
+  _restoreFilterPanel() {},
   _updateFilterCount() {
     let cnt = 0;
     if (this.filterJahrgang.length || this.filterZp.length) cnt++;
@@ -1251,8 +1179,8 @@ const App = {
     cnt += this.extraFilters.filter(f => this._efAktiv(f)).length;
     const el = document.getElementById('filterActiveCount');
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
-    const btn = document.getElementById('filterPanelToggle');
-    if (btn) btn.classList.toggle('active', cnt > 0 || document.getElementById('filterPanel')?.classList.contains('open'));
+    const reset = document.getElementById('filterReset');
+    if (reset) reset.style.display = cnt > 0 ? '' : 'none';
   },
 
   // ── Dashboard Drill-Down (click chart → filter Azubi list) ──
@@ -3087,7 +3015,7 @@ const App = {
     try {
       if (navigator.connection && navigator.connection.saveData && this.verbindungsStufe === 'auto' && !this.lsGet('bhk_sparhinweis')) {
         this.lsSet('bhk_sparhinweis', '1');
-        this.toast('Der Browser meldet eine getaktete Verbindung – Tipp: Einstellungen → Verbindung → „Getaktete Verbindung“', 'info');
+        this.toast('Der Browser meldet eine getaktete Verbindung – Tipp: Wartung → Verbindung → „Getaktete Verbindung“', 'info');
       }
     } catch(e) {}
     // Sync-v3: erst Snapshot-Meta + Logs einziehen, dann Polling starten
@@ -3467,7 +3395,7 @@ const App = {
       console.log(`[Network] Quality: ${prev} → ${this._networkQuality} (${(dur/1000).toFixed(1)}s)`);
       if (this._networkQuality === 'very-slow' && !this.feldmodus && !this._feldmodusHinweis) {
         this._feldmodusHinweis = true;
-        this.toast('Sehr langsame Verbindung – Tipp: Einstellungen → Verbindung → „Langsame Leitung“ oder „Getaktete Verbindung“ (oder offline weiterarbeiten)', 'warning');
+        this.toast('Sehr langsame Verbindung – Tipp: Wartung → Verbindung → „Langsame Leitung“ oder „Getaktete Verbindung“ (oder offline weiterarbeiten)', 'warning');
       }
     }
     this._updateNetworkUI();
@@ -3948,6 +3876,7 @@ const App = {
       ` : `<div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Keine wartenden Änderungen.</div>`}
       ${this._compactGrund ? `<div style="font-size:12px;color:var(--clr-amber);margin-top:8px">Kompaktierung: ${esc(this._compactGrund)}</div>` : ''}`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+       ${this.demoMode ? '' : `<button class="btn btn-secondary" onclick="App.closeModal();App.offlineUmschalten()" title="${this.offlineModus ? 'Zurück ans Netzlaufwerk und zusammenführen' : 'Ohne Netzlaufwerk weiterarbeiten – Änderungen werden später zusammengeführt'}">${this.offlineModus ? '↻ Wiederverbinden & zusammenführen' : '⇅ Offline weiterarbeiten'}</button>`}
        ${offen.length ? `<button class="btn btn-secondary" onclick="App.exportOpPuffer()" title="Wartende Änderungen als Datei sichern (Notausgang)">Änderungen als Datei</button>
        <button class="btn btn-primary" onclick="App.closeModal();App.sofortSpeichern('von Hand').then(ok=>App.toast(ok?'Alle Änderungen auf dem Netzlaufwerk':'Noch nicht alles geschrieben – Versuch läuft weiter','' + (ok?'success':'warning')))">Jetzt schreiben</button>` : ''}`);
   },
@@ -7935,7 +7864,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_3', stammdaten: 'help_4', import: 'help_5', planung: 'help_6', kontrolle: 'help_7', nacherfassung: 'help_20', wiedervorlagen: 'help_11', berichte: 'help_12', einstellungen: 'help_21', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
@@ -8257,7 +8186,7 @@ const App = {
     a.href = URL.createObjectURL(blob);
     a.download = this.safeFilename(['bhk_aenderungen', this.autoLoadedDbName || 'db', this._getClientId(), new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')], 'jsonl');
     a.click();
-    this.toast('Änderungen als Datei gesichert – auf einem verbundenen Rechner unter Einstellungen → Verbindung einspielen', 'success');
+    this.toast('Änderungen als Datei gesichert – auf einem verbundenen Rechner unter Wartung → Verbindung einspielen', 'success');
   },
   // Datei eines anderen Rechners einspielen: lokal anwenden (Last-Write-Wins)
   // und ins eigene Protokoll übernehmen, damit alle Kollegen sie bekommen
@@ -9617,6 +9546,7 @@ Anlagen: {anlagen}` },
       wiedervorlagen: Views.wiedervorlagen,
       berichte: Views.berichte,
       einstellungen: Views.einstellungen,
+      wartung: Views.wartung,
       hilfe: Views.hilfe,
     };
     const fn = views[this.currentView];
