@@ -163,6 +163,7 @@ Die Suiten laufen ohne npm-Abhängigkeiten gegen sql.js aus `libs/`:
 **Nach jeder Änderung:** `./build.sh` und alle Suiten laufen lassen.
 
 ### Regeln
+- **Arbeitsweise mit der Entwicklung (Vorgabe des Auftraggebers):** Änderungen kommen als Draft-PR auf `main`; sind Build, alle Suiten und der Smoke-Test grün, wird **sofort automatisch gemerged** (Merge-Commit `Merge PR #n: …`, Branch danach neu von `main` aufsetzen) – kein Warten auf eine Freigabe je PR.
 - **Build nach jeder Änderung** – `./build.sh` ausführen, `dist/` mit committen
 - **Keine npm-Dependencies** – Libraries als einzelne Dateien in `libs/`
 - **Datenschutz beachten** – Niemals `.sqlite`-Dateien committen!
