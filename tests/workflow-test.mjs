@@ -340,7 +340,7 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   const notizen = () => App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=950');
   check(notizen() === 1 && /Mängelmitteilung per E-Mail versendet/.test(App.scalar('SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=950')), 'Notiz „Mängelmitteilung per E-Mail versendet“');
   check(App.scalar('SELECT nachbereitet_am FROM kontrolltermine WHERE id=900') === App._heuteIso(), 'Alle Betriebe mit E-Mail geöffnet → Termin nachbereitet');
-  check(Workflows._betriebMailOffen().length === 0 && /Alle 1 E-Mails geöffnet/.test(Workflows._betriebMailFussHtml()), 'Fußzeile: alle geöffnet');
+  check(Workflows._betriebMailOffen().length === 0 && /Alle 1 E-Mails erledigt/.test(Workflows._betriebMailFussHtml()), 'Fußzeile: alle erledigt');
   check(/✓ geöffnet/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)) && /Erneut öffnen/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile zeigt „geöffnet“ und „Erneut öffnen“');
   Workflows._openIndividualEmail(900, 0);
   check(notizen() === 1 && App.scalar('SELECT mahnstufe FROM wiedervorlagen WHERE id=950') === 1, 'Erneutes Öffnen ist kein zweites Anschreiben (keine zweite Notiz, Mahnstufe bleibt)');
@@ -359,6 +359,58 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/^An: mail@example\.org\nBetreff: /.test(clip[clip.length - 1]), '„▤ Text“ kopiert Empfänger, Betreff und Text');
   check(/E-Mails an die Betriebe nach der Kontrolle/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Arbeitsliste');
   App.toast = () => {};
+}
+
+console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ══');
+{
+  const W_SRC = read('src/js/modules/workflows.js');
+  // .eml-Aufbau
+  const b64dec = (s) => Buffer.from(s.replace(/\s/g, ''), 'base64').toString('utf8');
+  const eml = App.emlErzeugen({ to: 'mail@example.org', subject: 'Berichtsheftkontrolle – Ergebnis für Müller, Jörg', body: 'Sehr geehrte Damen und Herren,\n\nÄnderung nötig.\n', anhaenge: [{ name: 'BH-Durchsicht_Müller Jörg.pdf', bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]) }] });
+  check(/^X-Unsent: 1\r\n/.test(eml) && /\r\nTo: mail@example\.org\r\n/.test(eml) && /\r\nMIME-Version: 1\.0\r\n/.test(eml), 'Kopf: X-Unsent (Outlook öffnet als Entwurf), Empfänger, MIME, CRLF');
+  const subj = eml.match(/\r\nSubject: =\?UTF-8\?B\?([^?]+)\?=\r\n/);
+  check(subj && b64dec(subj[1]) === 'Berichtsheftkontrolle – Ergebnis für Müller, Jörg', 'Betreff mit Umlauten als kodiertes Wort');
+  const grenze = eml.match(/boundary="([^"]+)"/)[1];
+  const teile = eml.split('--' + grenze).slice(1, -1);
+  check(teile.length === 2 && /Content-Type: text\/plain; charset="utf-8"\r\nContent-Transfer-Encoding: base64/.test(teile[0]), 'Zwei Teile: Text (base64, utf-8) und Anhang');
+  check(b64dec(teile[0].split('\r\n\r\n')[1]) === 'Sehr geehrte Damen und Herren,\n\nÄnderung nötig.\n', 'Text kommt unverändert zurück (Umlaute, Zeilenumbrüche)');
+  check(/Content-Type: application\/pdf; name="BH-Durchsicht_Mueller_Joerg\.pdf"\r\nContent-Disposition: attachment; filename="BH-Durchsicht_Mueller_Joerg\.pdf"\r\nContent-Transfer-Encoding: base64/.test(teile[1]) && b64dec(teile[1].split('\r\n\r\n')[1]) === '%PDF-', 'PDF-Anhang mit sicherem Dateinamen, Inhalt base64');
+  check(/\r\n--[^\r\n]+--\r\n$/.test(eml), 'Abschluss-Grenze am Ende');
+  const ohne = App.emlErzeugen({ to: 'a@b.de', subject: 'Test', body: 'kurz' });
+  check(!/multipart/.test(ohne) && /Content-Type: text\/plain; charset="utf-8"/.test(ohne) && /Subject: Test\r\n/.test(ohne), 'Ohne Anhang: einfacher Text-Teil, ASCII-Betreff unkodiert');
+  check(/\r\n\r\n[A-Za-z0-9+\/=\r\n]+$/.test(App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'ä'.repeat(3000) })) && App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'ä'.repeat(3000) }).split('\r\n').every(z => z.length <= 78), 'Langer Text: base64 in Zeilen von höchstens 76 Zeichen – keine Längengrenze');
+  // ZIP je Termin: eine .eml je Betrieb mit E-Mail, Bögen der bewerteten Azubis, LIESMICH
+  vm.runInContext(read('libs/pizzip.js'), sandbox, { filename: 'pizzip.js' });
+  check(typeof sandbox.PizZip === 'function', 'PizZip aus libs/ steht bereit');
+  sandbox.PDFExport = { bogenBytes: (tid, sid) => ({ name: `BH-Durchsicht_${sid}.pdf`, bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, sid & 255]) }) };
+  let download = null; App.downloadBlob = (bytes, name, mime) => { download = { bytes, name, mime }; };
+  db.run("UPDATE kontrolltermine SET nachbereitet_am='' WHERE id=900");
+  db.run("UPDATE wiedervorlagen SET versand_datum='', versand_art='', mahnstufe=0 WHERE id=950");
+  db.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=950');
+  App.invalidateTerminCache();
+  Workflows.emailBetriebIndividuell(900);
+  const d = Workflows._individualData;
+  d.status = {};
+  check(/btn-primary" onclick="Workflows\.betriebMailsAlsZip\(\)"[^>]*>⬇ Alle 1 als Outlook-Entwürfe \(ZIP\)/.test(Workflows._betriebMailFussHtml()) && /btn-secondary" onclick="Workflows\._naechsteBetriebMail\(\)"/.test(Workflows._betriebMailFussHtml()), 'ZIP ist der Hauptknopf, „Nächste öffnen“ der zweite Weg');
+  Workflows.betriebMailsAlsZip();
+  check(download && download.name === 'E-Mails_Betriebe_BS_Freiburg_Hauptstelle_2026-09-16.zip' && download.mime === 'application/zip', `ZIP heruntergeladen (${download && download.name})`);
+  const zip = new sandbox.PizZip(download.bytes);
+  const namen = Object.keys(zip.files).sort();
+  check(namen.length === 2 && namen[0] === '01_Gaertnerei_Mail.eml' && namen[1] === 'LIESMICH.txt', `Inhalt: eine .eml je Betrieb mit E-Mail (ohne E-Mail = Brief) + LIESMICH (${namen.join(', ')})`);
+  const emlB = zip.file('01_Gaertnerei_Mail.eml').asText();
+  check(/^X-Unsent: 1\r\n/.test(emlB) && /To: mail@example\.org/.test(emlB) && /filename="BH-Durchsicht_901\.pdf"/.test(emlB) && /filename="BH-Durchsicht_902\.pdf"/.test(emlB) && (emlB.match(/Content-Disposition: attachment/g) || []).length === 2, 'Entwurf des Betriebs: Empfänger, je ein Bogen für die bewerteten Azubis (901 mit Mängeln, 902 in Ordnung)');
+  const textTeil = emlB.split('--' + emlB.match(/boundary="([^"]+)"/)[1])[1];
+  check(/Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(b64dec(textTeil.split('\r\n\r\n')[1])), 'Text des Entwurfs = Mängelmitteilung mit kompaktem Mängel-Block');
+  check(/Doppelklick|doppelklicken/.test(zip.file('LIESMICH.txt').asText()) && /2 Durchsichtsbögen/.test(zip.file('LIESMICH.txt').asText()), 'LIESMICH erklärt den Weg und zählt die Bögen');
+  check(d.status[0] && d.status[0].entwurf === true && /Entwurf \(\.eml\) erzeugt/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile zeigt „Entwurf (.eml) erzeugt“');
+  const w = App.query('SELECT * FROM wiedervorlagen WHERE id=950')[0];
+  check(w.versand_datum === '2026-09-15' && w.mahnstufe === 1 && /Entwurf \(\.eml\) erzeugt/.test(App.scalar('SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=950')), 'Versandnachweis mit Notiz „Entwurf (.eml) erzeugt“');
+  check(App.scalar('SELECT nachbereitet_am FROM kontrolltermine WHERE id=900') === App._heuteIso() && /Alle 1 E-Mails erledigt/.test(Workflows._betriebMailFussHtml()), 'Termin nachbereitet, Fußzeile „alle erledigt“');
+  Workflows.betriebMailsAlsZip();
+  check(App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=950') === 1, 'Erneutes Erzeugen ist kein zweites Anschreiben');
+  check(/opts && opts\.bytes\) return \{ name: dateiname, bytes: new Uint8Array\(doc\.output\('arraybuffer'\)\) \}/.test(read('src/js/modules/pdf-export.js')) && /bogenBytes\(terminId, schuelerId\) \{/.test(read('src/js/modules/pdf-export.js')), 'PDFExport liefert den Bogen als Bytes für den Anhang');
+  check(!/emlProbe/.test(APP_SRC) && !/Probe-E-Mail/.test(read('src/js/modules/views.js')), 'Kein Probe-Knopf – der Weg ist direkt eingebaut');
+  check(/Alle als Outlook-Entwürfe \(ZIP\)/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Entwürfe');
 }
 
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);

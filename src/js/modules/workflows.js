@@ -352,7 +352,7 @@ const Workflows = {
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
       <div id="betriebMailListe" style="max-height:420px;overflow-y:auto">${this._betriebMailListeHtml()}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es.${isDone ? ' Jedes Öffnen wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
+      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <span id="betriebMailFuss">${this._betriebMailFussHtml()}</span>`);
   },
@@ -365,9 +365,74 @@ const Workflows = {
     const mit = d.betriebe.filter(g => g.email).length;
     const offen = this._betriebMailOffen();
     if (!mit) return '';
-    if (!offen.length) return `<span style="color:var(--clr-green);font-weight:600;padding:0 8px">✓ Alle ${mit} E-Mails geöffnet</span>`;
+    // Hauptweg: ZIP mit Outlook-Entwürfen (keine Längengrenze, Bögen als
+    // Anhang); „Nächste öffnen“ (mailto) bleibt als zweiter Weg
+    const zipKnopf = typeof PizZip !== 'undefined'
+      ? `<button class="btn btn-primary" onclick="Workflows.betriebMailsAlsZip()" title="Je Betrieb eine .eml-Datei mit Empfänger, Betreff, Text${d.isDone ? ' und den Durchsichtsbögen als PDF-Anhang' : ''} – ZIP entpacken, in Outlook per Doppelklick als Entwurf öffnen und senden. Keine Längengrenze, kein Strg+V.">⬇ Alle ${mit} als Outlook-Entwürfe (ZIP)</button>`
+      : '';
+    if (!offen.length) return `${zipKnopf}<span style="color:var(--clr-green);font-weight:600;padding:0 8px">✓ Alle ${mit} E-Mails erledigt</span>`;
     const n = mit - offen.length + 1;
-    return `<button class="btn btn-primary" onclick="Workflows._naechsteBetriebMail()" title="Öffnet die nächste noch nicht geöffnete E-Mail (${esc(offen[0].g.name)})">✉︎ Nächste öffnen (${n} von ${mit})</button>`;
+    return `${zipKnopf}<button class="btn ${zipKnopf ? 'btn-secondary' : 'btn-primary'}" onclick="Workflows._naechsteBetriebMail()" title="Alternativ einzeln über den E-Mail-Link: öffnet die nächste noch nicht geöffnete E-Mail (${esc(offen[0].g.name)})">✉︎ Nächste öffnen (${n} von ${mit})</button>`;
+  },
+  // Alle E-Mails eines Termins als .eml-Entwürfe in einer ZIP-Datei: je Betrieb
+  // Empfänger, Betreff, Text und (nach der Kontrolle) die Durchsichtsbögen der
+  // genannten Azubis als PDF. Outlook (klassisch) öffnet .eml mit „X-Unsent: 1“
+  // als neuen Entwurf mit „Senden“ – ohne mailto-Grenze, ohne Zwischenablage.
+  betriebMailsAlsZip() {
+    const d = this._individualData; if (!d) return;
+    if (typeof PizZip === 'undefined') return App.toast('ZIP-Bibliothek nicht geladen', 'error');
+    const mit = d.betriebe.map((g, idx) => ({ g, idx })).filter(x => x.g.email);
+    if (!mit.length) return App.toast('Kein Betrieb mit E-Mail-Adresse', 'warning');
+    const zip = new PizZip();
+    let pdfs = 0;
+    const zeit = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    mit.forEach(({ g, idx }, i) => {
+      const m = this._betriebMailInhalt(idx); if (!m) return;
+      const anhaenge = [];
+      if (d.isDone && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
+        g.azubis.forEach(a => {
+          if (!a.ke || !a.ke.ergebnis) return;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
+          try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
+        });
+      }
+      const eml = App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, anhaenge });
+      zip.file(App.safeFilename([String(i + 1).padStart(2, '0'), g.name], 'eml'), eml);
+      pdfs += anhaenge.length;
+      const erstesMal = !d.status[idx];
+      d.status[idx] = { zeit, entwurf: true };
+      if (erstesMal) this._betriebVersandVermerken(m, 'Entwurf (.eml) erzeugt');
+    });
+    zip.file('LIESMICH.txt', [
+      'E-Mail-Entwürfe der Berichtsheftkontrolle',
+      '',
+      `Termin: ${d.t.ctx.datum} – ${d.t.ctx.schule}`,
+      `${mit.length} Entwürfe, ${pdfs} Durchsichtsbögen als Anhang`,
+      '',
+      'So geht es weiter:',
+      '1. Diese ZIP-Datei entpacken (Rechtsklick → „Alle extrahieren“).',
+      '2. Jede .eml-Datei doppelklicken: Outlook öffnet sie als neuen Entwurf mit Empfänger, Betreff, Text und Anhängen.',
+      '3. Prüfen, bei Bedarf ergänzen, „Senden“.',
+      '',
+      'Öffnet Outlook die Datei nur zum Lesen (ohne „Senden“), in der Berichtsheftkontrolle den Weg „Öffnen“ je Betrieb nutzen.',
+      `Erzeugt am ${new Date().toLocaleString('de-DE')} von ${App.currentUser || ''}`,
+    ].join('\r\n'));
+    const bytes = zip.generate({ type: 'uint8array', compression: 'DEFLATE' });
+    App.downloadBlob(bytes, App.safeFilename(['E-Mails_Betriebe', d.t.ctx.schule, d.t.termin.geplant_datum], 'zip'), 'application/zip');
+    if (d.isDone && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(e) {} }
+    const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
+    const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
+    App.toast(`ZIP mit ${mit.length} E-Mail-Entwürfen${pdfs ? ` und ${pdfs} Durchsichtsbögen` : ''} erzeugt – entpacken, .eml doppelklicken, in Outlook senden`, 'success', 10000);
+  },
+  // Versandnachweis an den offenen Wiedervorlagen der Azubis eines Betriebs
+  // (Mängelmitteilung / Nachhol-Aufforderung nach der Kontrolle)
+  _betriebVersandVermerken(m, zusatz) {
+    const d = this._individualData; if (!d || !d.isDone) return;
+    if (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung') return;
+    m.g.azubis.forEach(a => {
+      if (!a.ke) return;
+      App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [a.ke.id])
+        .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung', zusatz));
+    });
   },
   _betriebMailListeHtml() {
     const d = this._individualData; if (!d) return '';
@@ -390,7 +455,8 @@ const Workflows = {
     const art = this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)];
     const passt = g.email ? this._betriebMailPasst(idx) : true;
     let status = '';
-    if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
+    if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
+    else if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
     else if (g.email && !passt) status = '<span style="color:var(--clr-amber)" title="Der Text ist zu lang für den E-Mail-Link. Beim Öffnen startet Outlook mit Empfänger und Betreff, der Text wird in die Zwischenablage kopiert.">Text zu lang für den Link → wird beim Öffnen kopiert (Strg+V in Outlook)</span>';
     return `<div id="betriebMail_${idx}" style="padding:8px 10px;margin-bottom:6px;background:${st ? 'var(--clr-green-light)' : g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">
@@ -464,13 +530,7 @@ const Workflows = {
     d.status[betriebIdx] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), zwischenablage: !!r.zwischenablage };
     // Versandnachweis an den Wiedervorlagen der Azubis dieses Betriebs (nur
     // beim ersten Öffnen – ein zweites Öffnen ist kein zweites Anschreiben)
-    if (d.isDone && erstesMal && (m.typ === 'betrieb_maengel' || m.typ === 'nachholung')) {
-      m.g.azubis.forEach(a => {
-        if (!a.ke) return;
-        App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [a.ke.id])
-          .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung'));
-      });
-    }
+    if (erstesMal) this._betriebVersandVermerken(m, '');
     // Alle Betriebe angeschrieben → Nachbereitung des Termins erledigt
     if (d.isDone && !this._betriebMailOffen().length) {
       try { App.terminSchritt(terminId, 'nachbereitet'); } catch(e) {}
