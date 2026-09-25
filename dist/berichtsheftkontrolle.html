@@ -6891,6 +6891,25 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 }
 .connect-box .btn { font-size: 15px; padding: 12px 28px; }
 .connect-box .btn + .btn { margin-left: 12px; }
+/* Startbildschirm: ein Hauptknopf, Nebenwege eingeklappt */
+.connect-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; max-width: 360px; margin-left: auto; margin-right: auto; }
+.connect-actions .btn + .btn { margin-left: 0; }
+.connect-actions .connect-main { width: 100%; font-size: 16px; padding: 14px 28px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.connect-actions .connect-main small { display: block; font-size: 12px; font-weight: 400; opacity: .85; }
+.connect-hinweis { font-size: 13px; color: var(--clr-text-light); line-height: 1.5; text-align: center; }
+.connect-hinweis code { font-size: 12px; word-break: break-all; }
+.connect-mehr { margin-top: 6px; font-size: 13px; }
+.connect-mehr summary { cursor: pointer; color: var(--clr-forest); list-style: none; padding: 6px; border-radius: var(--radius); }
+.connect-mehr summary::-webkit-details-marker { display: none; }
+.connect-mehr summary::before { content: '▸ '; }
+.connect-mehr[open] summary::before { content: '▾ '; }
+.connect-mehr summary:hover { background: var(--clr-warm); }
+.connect-mehr summary:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
+.connect-mehr > div { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 0; }
+.connect-mehr .btn { width: 100%; font-size: 13px; padding: 9px 16px; }
+.connect-status { padding: 8px 12px; border-radius: var(--radius); font-size: 13px; text-align: left; line-height: 1.5; max-width: 360px; margin: 0 auto 12px; }
+.connect-status.ok { background: var(--clr-green-light); border-left: 4px solid var(--clr-green); }
+.connect-status.warn { background: var(--clr-amber-light, #fff7ed); border-left: 4px solid var(--clr-amber); }
 
 /* ── Search ── */
 .search-box {
@@ -7223,26 +7242,25 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
   <div class="connect-box">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2C6.48 2 2 6 2 10.5c0 2.5 1.5 4.5 3 6L3 22l4-2c1.5.6 3.2 1 5 1 5.52 0 10-4 10-8.5S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
     <h1>Berichtsheftkontrolle</h1>
-    <p>Ausbildungsberater Gärtner<br>Planen, durchführen und nachverfolgen von Berichtsheftdurchsichten</p>
+    <p>Ausbildungsberater Gärtner</p>
     <div id="connectInfo"></div>
-    <div id="connectOrdnerHinweis" style="display:none;margin:8px auto 0;max-width:360px;padding:8px 12px;background:var(--clr-green-light);border-left:4px solid var(--clr-green);border-radius:var(--radius);font-size:13px;text-align:left;line-height:1.5"></div>
-    <div id="connectActions" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto">
-      <button class="btn btn-primary" onclick="App.start()" style="font-size:15px;padding:12px 28px;width:100%">
+    <div id="connectActions" class="connect-actions">
+      <!-- EIN Hauptknopf: „Erneut verbinden“ mit gemerktem Ordner, sonst Ordner wählen (App._startKnopf) -->
+      <button id="btnConnectMain" class="btn btn-primary connect-main" onclick="App.start()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="20" height="20"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-        Arbeitsordner auswählen
+        <span id="btnConnectMainText">Arbeitsordner öffnen</span>
       </button>
-      <button class="btn btn-secondary" onclick="App.promptNewDb()" style="font-size:13px;padding:8px 16px;width:100%">
-        Neue Datenbank erstellen
-      </button>
-      <button class="btn btn-secondary" onclick="App.startDemo()" style="font-size:12px;padding:8px 16px;width:100%">
-        Demo-Modus (ohne Datenbank)
-      </button>
+      <div id="connectOrdnerHinweis" class="connect-hinweis" style="display:none"></div>
+      <details id="connectMehr" class="connect-mehr">
+        <summary>Weitere Möglichkeiten</summary>
+        <div id="connectMehrListe">
+          <button id="btnConnectAnderer" class="btn btn-secondary" onclick="App.start()" style="display:none">Anderen Arbeitsordner wählen</button>
+          <button class="btn btn-secondary" onclick="App.promptNewDb()">Neue Datenbank erstellen</button>
+          <button class="btn btn-secondary" onclick="App.startDemo()">Demo-Modus (ohne Datenbank)</button>
+        </div>
+      </details>
     </div>
-    <p style="font-size:12px;color:var(--clr-text-light);margin-top:12px">
-      Datenbanken werden im Unterordner <strong>Datenbanken/</strong> gespeichert.<br>
-      App-Daten (Sync, Backups) liegen in <strong>_bhk/</strong>.
-    </p>
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
       <a href="#" onclick="document.getElementById('startHilfe').style.display=document.getElementById('startHilfe').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">Hilfe & Dokumentation</a>
       <a href="#" onclick="document.getElementById('startDatenschutz').style.display=document.getElementById('startDatenschutz').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">⊘ Datenschutz & Sicherheit</a>
     </div>
@@ -7257,11 +7275,12 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
     </div>
     <div id="startHilfe" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
       <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">Kurzanleitung</p>
-      <p><strong>1.</strong> Arbeitsordner auswählen (oder neu erstellen)</p>
-      <p><strong>2.</strong> IBYKUS-CSV importieren (Schüler-Import)</p>
+      <p><strong>1.</strong> Arbeitsordner öffnen – der Ordner, in dem diese Datei liegt (Chrome fragt einmal nach der Berechtigung)</p>
+      <p><strong>2.</strong> IBYKUS-CSV importieren (Azubi-Import)</p>
       <p><strong>3.</strong> Kontrolltermine planen (Kontrollplanung)</p>
       <p><strong>4.</strong> Berichtshefte kontrollieren (Durchführung)</p>
       <p><strong>5.</strong> Wiedervorlagen bearbeiten + Berichte exportieren</p>
+      <p style="margin-top:8px">Die Datenbank liegt im Unterordner <strong>Datenbanken/</strong>, Protokolle und Sicherungen in <strong>_bhk/</strong>. Alle Kollegen öffnen denselben Arbeitsordner – dann sehen alle denselben Stand.</p>
       <p style="margin-top:8px">Ausführliche Hilfe mit allen Funktionen finden Sie nach dem Start unter <strong>Sidebar → Hilfe</strong>.</p>
     </div>
     <p id="browserHint" style="font-size:12px;color:var(--clr-amber);margin-top:8px;display:none">
@@ -7721,7 +7740,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 12:35 UTC',
+  BUILD: '2026-09-25 12:45 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -9248,22 +9267,10 @@ const App = {
             // Gemeinsame Datenbank des Ordners (Marker) vor der Browser-Erinnerung
             if (await this.dbImOrdnerOeffnen('Start')) return;
           } else {
-            // Permission not active – show quick-reconnect instead of full connect screen
-            const folderName = stored.name || 'gespeicherter Ordner';
-            const lastDb = this.restoreLastDb();
-            const dbLabel = lastDb?.dbName || '';
-            document.getElementById('connectInfo').innerHTML = `
-              <div style="padding:12px;background:var(--clr-green-light);border-radius:var(--radius);border-left:4px solid var(--clr-green);margin-bottom:12px">
-                ${dbLabel ? `<strong style="font-size:15px">${esc(dbLabel)}</strong>
-                <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">in ${esc(folderName)}${lastDb?.dbPath ? '/'+lastDb.dbPath : ''}</div>` :
-                `<strong>Ordner: "${esc(folderName)}"</strong>`}
-                <div style="margin-top:6px">
-                  <button class="btn btn-primary" onclick="App.reconnectStored()" style="padding:10px 24px;font-size:15px">
-                    Erneut verbinden
-                  </button>
-                </div>
-                <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Chrome benötigt bei jedem Neustart eine einmalige Bestätigung.</div>
-              </div>`;
+            // Berechtigung nicht mehr aktiv: der EINE Hauptknopf wird zu
+            // „Weiter mit ‹Ordner›“ (Chrome fragt einmal nach), ein anderer
+            // Ordner ist ein Nebenweg unter „Weitere Möglichkeiten“
+            this._startKnopf({ ordner: stored.name || '' });
           }
         } catch(e) { console.log('Auto-reconnect:', e.message); }
       }
@@ -9387,10 +9394,35 @@ const App = {
     // Show connect screen
     document.getElementById('appMain').style.display = 'none';
     document.getElementById('connectScreen').style.display = '';
-    document.getElementById('connectInfo').innerHTML = `
-      <div style="padding:8px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-        ✓ Verbindung getrennt. Wählen Sie einen Ordner mit einer .sqlite-Datei.
-      </div>`;
+    this._startMeldung('Verbindung getrennt.', 'ok');
+    this._startKnopf({ ordner: '' });
+  },
+  // ── Startbildschirm: ein Hauptknopf, eine Meldung ──
+  // ordner = gemerkter Arbeitsordner, dessen Berechtigung Chrome erneut
+  // bestätigen lässt („Weiter mit …“); ohne Ordner „Arbeitsordner öffnen“.
+  _startKnopf({ ordner = '' } = {}) {
+    try {
+      const btn = document.getElementById('btnConnectMain'), txt = document.getElementById('btnConnectMainText');
+      const anderer = document.getElementById('btnConnectAnderer');
+      if (!btn || !txt) return;
+      if (ordner) {
+        txt.innerHTML = `Weiter mit „${esc(ordner)}“<small>Chrome fragt einmal nach der Berechtigung</small>`;
+        btn.setAttribute('onclick', 'App.reconnectStored()');
+        if (anderer) anderer.style.display = '';
+      } else {
+        txt.textContent = 'Arbeitsordner öffnen';
+        btn.setAttribute('onclick', 'App.start()');
+        if (anderer) anderer.style.display = 'none';
+      }
+      this._erwarteterOrdnerHinweis();
+    } catch(e) {}
+  },
+  // Kurze Meldung über dem Hauptknopf (art: ok | warn); leer = ausblenden
+  _startMeldung(html, art) {
+    try {
+      const el = document.getElementById('connectInfo'); if (!el) return;
+      el.innerHTML = html ? `<div class="connect-status ${art || 'ok'}">${html}</div>` : '';
+    } catch(e) {}
   },
 
   _cleanupDB() {
@@ -9518,7 +9550,8 @@ const App = {
       try { BhkSpur.notiere('netz', 'Unterordner als Arbeitsordner abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: n }); } catch(e) {}
       try { await this.storeDirHandle(null); } catch(e) {}
       this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null; this._ordnerUnzulaessig = '';
-      try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen (er enthält „Datenbanken“ und „_bhk“).</div>`; } catch(e) {}
+      try { this._startMeldung(`„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen – den Ordner, in dem diese Datei liegt.`, 'warn'); } catch(e) {}
+      this._startKnopf({ ordner: '' });
       return false;
     }
     // Liegt in dem gewählten Ordner die HTML-Datei, aus der das Programm
@@ -9534,7 +9567,8 @@ const App = {
         try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
         try { await this.storeDirHandle(null); } catch(e) {}
         this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null;
-        try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(gewaehlt)}“ enthält nicht „${esc(erw.datei)}“. Bitte den Ordner <strong>„${esc(erw.ordner)}“</strong> wählen:<br><code style="font-size:12px">${esc(erw.pfad)}</code></div>`; } catch(e) {}
+        try { this._startMeldung(`„${esc(gewaehlt)}“ ist nicht der richtige Ordner. Bitte <strong>„${esc(erw.ordner)}“</strong> wählen – dort liegt diese Datei.`, 'warn'); } catch(e) {}
+        this._startKnopf({ ordner: '' });
         return false;
       }
       try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei trotzdem verwendet', { ok: true, info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
@@ -9638,7 +9672,10 @@ const App = {
       const erw = this._erwarteterOrdner();
       if (!erw.ordner) { el.style.display = 'none'; return; }
       el.style.display = '';
-      el.innerHTML = `Erwarteter Arbeitsordner: <strong>${esc(erw.ordner)}</strong> – der Ordner, in dem diese Datei liegt<br><code style="font-size:12px;word-break:break-all">${esc(erw.pfad)}</code>`;
+      // Eine Zeile, kein Pfad: Der Name reicht zum Wiedererkennen im
+      // Ordnerdialog (Chrome öffnet ihn beim zuletzt gewählten Ort); der
+      // volle Pfad steht als Tooltip und unter Wartung → Verbindung.
+      el.innerHTML = `Der Arbeitsordner ist <strong title="${esc(erw.pfad)}">„${esc(erw.ordner)}“</strong> – der Ordner, in dem diese Datei liegt.`;
     } catch(e) {}
   },
   _ordnerZulaessig(handle) {
@@ -16724,10 +16761,12 @@ const App = {
   async _offlineStartAnbieten() {
     try {
       const rec = await this._offlineCacheLesen();
-      const box = document.getElementById('connectActions');
+      // Nebenweg unter „Weitere Möglichkeiten“ (vorher ein vierter Knopf
+      // auf dem Startbildschirm)
+      const box = document.getElementById('connectMehrListe') || document.getElementById('connectActions');
       if (!rec || !box || document.getElementById('btnOfflineStart')) return;
       const wann = new Date(rec.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-      box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="font-size:13px;padding:8px 16px;width:100%;border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
+      box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
         ⇅ Offline weiterarbeiten<div style="font-size:12px;font-weight:400;color:var(--clr-text-light)">„${esc(rec.name)}", lokaler Stand vom ${wann}</div></button>`);
     } catch(e) {}
   },
@@ -21126,11 +21165,10 @@ const Views = {
 
           <div class="help-abschnitt">
             <h4 class="help-untertitel">⌂ Startbildschirm</h4>
-            <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
-            <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
-            <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
-            <p>• <strong>Neue Datenbank erstellen</strong> – Leere DB mit wählbarem Namen anlegen</p>
-            <p>• <strong>Demo-Modus</strong> – Testdaten im Arbeitsspeicher, ohne Speicherung</p>
+            <p>Beim Öffnen der HTML-Datei zeigt der Startbildschirm <strong>einen Knopf</strong>:</p>
+            <p>• <strong>Weiter mit „Ordner“</strong> – der zuletzt benutzte Arbeitsordner (Chrome fragt einmal nach der Berechtigung); beim ersten Mal <strong>Arbeitsordner öffnen</strong> – bitte den Ordner wählen, in dem die Programmdatei liegt. Die gemeinsame Datenbank öffnet sich dann von selbst.</p>
+            <p>• Unter <strong>Weitere Möglichkeiten</strong>: anderen Arbeitsordner wählen, neue Datenbank erstellen, offline weiterarbeiten (wenn ein lokaler Stand vorliegt), Demo-Modus mit Testdaten ohne Speicherung.</p>
+            <p>• Ein falscher Ordner (Unterordner, Kopie, Nachbarordner) wird abgewiesen – der Hinweis nennt den richtigen Ordner.</p>
             <p style="margin-top:8px;color:var(--clr-amber)">⚠︎ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
           </div>
 

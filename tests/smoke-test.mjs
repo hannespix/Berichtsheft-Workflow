@@ -46,8 +46,14 @@ const check = (c, m) => { if (c) { passed++; console.log('  ✓ ' + m); } else {
 
 await page.goto(APP, { waitUntil: 'load' });
 await page.waitForTimeout(1500);
+// Startbildschirm: ein sichtbarer Hauptknopf, Demo unter „Weitere Möglichkeiten“
+const haupt = await page.evaluate(() => Array.from(document.querySelectorAll('#connectScreen .btn-primary')).filter(b => b.offsetParent !== null).length);
+check(haupt === 1, `Startbildschirm zeigt genau einen Hauptknopf (${haupt})`);
 const demo = page.locator('button:has-text("Demo-Modus")');
-check(await demo.count() > 0, 'Startbildschirm mit Demo-Modus geladen');
+check(await demo.count() > 0 && !(await demo.first().isVisible()), 'Demo-Modus liegt eingeklappt unter „Weitere Möglichkeiten“');
+await page.locator('#connectMehr summary').click();
+await page.waitForTimeout(200);
+check(await demo.first().isVisible(), '„Weitere Möglichkeiten“ klappt die Nebenwege auf');
 await demo.first().click();
 await page.waitForTimeout(2500);
 check(await page.locator('#appMain').isVisible(), 'App nach Demo-Start sichtbar');

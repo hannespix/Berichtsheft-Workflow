@@ -2348,11 +2348,10 @@ const Views = {
 
           <div class="help-abschnitt">
             <h4 class="help-untertitel">⌂ Startbildschirm</h4>
-            <p>Beim Öffnen der HTML-Datei wird der Startbildschirm angezeigt:</p>
-            <p>• <strong>Erneut verbinden</strong> – Lädt die zuletzt geöffnete Datenbank (1 Klick, Chrome fragt einmal nach Berechtigung)</p>
-            <p>• <strong>Arbeitsordner auswählen</strong> – Ordner wählen, dann eine der gefundenen Datenbanken öffnen</p>
-            <p>• <strong>Neue Datenbank erstellen</strong> – Leere DB mit wählbarem Namen anlegen</p>
-            <p>• <strong>Demo-Modus</strong> – Testdaten im Arbeitsspeicher, ohne Speicherung</p>
+            <p>Beim Öffnen der HTML-Datei zeigt der Startbildschirm <strong>einen Knopf</strong>:</p>
+            <p>• <strong>Weiter mit „Ordner“</strong> – der zuletzt benutzte Arbeitsordner (Chrome fragt einmal nach der Berechtigung); beim ersten Mal <strong>Arbeitsordner öffnen</strong> – bitte den Ordner wählen, in dem die Programmdatei liegt. Die gemeinsame Datenbank öffnet sich dann von selbst.</p>
+            <p>• Unter <strong>Weitere Möglichkeiten</strong>: anderen Arbeitsordner wählen, neue Datenbank erstellen, offline weiterarbeiten (wenn ein lokaler Stand vorliegt), Demo-Modus mit Testdaten ohne Speicherung.</p>
+            <p>• Ein falscher Ordner (Unterordner, Kopie, Nachbarordner) wird abgewiesen – der Hinweis nennt den richtigen Ordner.</p>
             <p style="margin-top:8px;color:var(--clr-amber)">⚠︎ Nur <strong>Google Chrome</strong> und <strong>Microsoft Edge</strong> werden unterstützt (File System Access API).</p>
           </div>
 

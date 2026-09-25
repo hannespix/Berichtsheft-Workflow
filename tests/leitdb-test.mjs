@@ -270,6 +270,42 @@ console.log('\n══ Ordnerwahl gegen den Pfad der Programmdatei prüfen ══
   check((A.match(/id: 'bhk_arbeitsordner'/g) || []).length >= 2 && /this\._erwarteterOrdnerHinweis\(\)/.test(A) && /id="connectOrdnerHinweis"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'Ordnerdialog mit Kennung, Hinweis auf dem Startbildschirm');
 }
 
+console.log('\n══ Startbildschirm: ein Hauptknopf, Nebenwege eingeklappt ══');
+{
+  const H = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const screen = H.slice(H.indexOf('id="connectScreen"'), H.indexOf('id="browserHint"'));
+  check((screen.match(/btn-primary/g) || []).length === 1 && /id="btnConnectMain"/.test(screen), 'Genau ein Hauptknopf auf dem Startbildschirm');
+  check(/<details id="connectMehr"/.test(screen) && /<summary>Weitere Möglichkeiten<\/summary>/.test(screen), 'Nebenwege unter „Weitere Möglichkeiten“ eingeklappt');
+  const mehr = screen.slice(screen.indexOf('id="connectMehrListe"'), screen.indexOf('</details>'));
+  check(/App\.promptNewDb\(\)/.test(mehr) && /App\.startDemo\(\)/.test(mehr) && /id="btnConnectAnderer"/.test(mehr), 'Neue Datenbank, Demo und „anderer Ordner“ liegen im eingeklappten Teil');
+  check(!/Datenbanken werden im Unterordner/.test(screen) && !/App-Daten \(Sync, Backups\)/.test(screen), 'Kein Erklärtext über Unterordner mehr auf dem Startbildschirm');
+  const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
+  check(/connectMehrListe/.test(A.slice(A.indexOf('async _offlineStartAnbieten'))), '„Offline weiterarbeiten“ erscheint unter „Weitere Möglichkeiten“, nicht als vierter Knopf');
+  check(!/Erneut verbinden\s*<\/button>\s*<\/div>\s*<div[^>]*>Chrome benötigt/.test(A), 'Keine eigene „Erneut verbinden“-Box mehr neben dem Hauptknopf');
+  // _startKnopf schaltet den Hauptknopf um
+  const s = makeStore(); s.now = () => T; s.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const c = await makeClient(SQL, s, 'Knopf', new Uint8Array(seedBytes), { quiet: true, clientId: 'knopf', skipBootstrap: true });
+  c._sandbox.esc = (x) => String(x ?? '');
+  const els = {
+    btnConnectMain: { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
+    btnConnectMainText: { innerHTML: '', textContent: '' },
+    btnConnectAnderer: { style: {} },
+    connectInfo: { innerHTML: '' },
+    connectOrdnerHinweis: { style: {}, innerHTML: '' },
+  };
+  c._sandbox.document.getElementById = (id) => els[id] || { textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {} } };
+  c._startKnopf({ ordner: 'Berichtsheftkontrolle Workflow Pix' });
+  check(/Weiter mit „Berichtsheftkontrolle Workflow Pix“/.test(els.btnConnectMainText.innerHTML) && els.btnConnectMain.attrs.onclick === 'App.reconnectStored()' && els.btnConnectAnderer.style.display === '', 'Gemerkter Ordner: Hauptknopf „Weiter mit …“ verbindet erneut, „anderer Ordner“ als Nebenweg');
+  c._startKnopf({ ordner: '' });
+  check(els.btnConnectMainText.textContent === 'Arbeitsordner öffnen' && els.btnConnectMain.attrs.onclick === 'App.start()' && els.btnConnectAnderer.style.display === 'none', 'Ohne gemerkten Ordner: Hauptknopf „Arbeitsordner öffnen“');
+  c._startMeldung('„Kopie“ ist nicht der richtige Ordner.', 'warn');
+  check(/connect-status warn/.test(els.connectInfo.innerHTML) && /Kopie/.test(els.connectInfo.innerHTML), 'Meldung als eine Zeile über dem Hauptknopf');
+  c._startMeldung('');
+  check(els.connectInfo.innerHTML === '', 'Leere Meldung blendet aus');
+  // Abweisung eines Unterordners nutzt Meldung + Hauptknopf
+  check(/try \{ this\._startMeldung\(`„\$\{esc\(n\)\}“ ist ein Unterordner/.test(A) && /try \{ this\._startMeldung\(`„\$\{esc\(gewaehlt\)\}“ ist nicht der richtige Ordner/.test(A) && /this\._startKnopf\(\{ ordner: stored\.name/.test(A), 'Abweisungen und Wiederverbinden laufen über _startMeldung/_startKnopf');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');

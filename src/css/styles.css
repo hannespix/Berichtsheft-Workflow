@@ -1171,6 +1171,25 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 }
 .connect-box .btn { font-size: 15px; padding: 12px 28px; }
 .connect-box .btn + .btn { margin-left: 12px; }
+/* Startbildschirm: ein Hauptknopf, Nebenwege eingeklappt */
+.connect-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; max-width: 360px; margin-left: auto; margin-right: auto; }
+.connect-actions .btn + .btn { margin-left: 0; }
+.connect-actions .connect-main { width: 100%; font-size: 16px; padding: 14px 28px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.connect-actions .connect-main small { display: block; font-size: 12px; font-weight: 400; opacity: .85; }
+.connect-hinweis { font-size: 13px; color: var(--clr-text-light); line-height: 1.5; text-align: center; }
+.connect-hinweis code { font-size: 12px; word-break: break-all; }
+.connect-mehr { margin-top: 6px; font-size: 13px; }
+.connect-mehr summary { cursor: pointer; color: var(--clr-forest); list-style: none; padding: 6px; border-radius: var(--radius); }
+.connect-mehr summary::-webkit-details-marker { display: none; }
+.connect-mehr summary::before { content: '▸ '; }
+.connect-mehr[open] summary::before { content: '▾ '; }
+.connect-mehr summary:hover { background: var(--clr-warm); }
+.connect-mehr summary:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
+.connect-mehr > div { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 0; }
+.connect-mehr .btn { width: 100%; font-size: 13px; padding: 9px 16px; }
+.connect-status { padding: 8px 12px; border-radius: var(--radius); font-size: 13px; text-align: left; line-height: 1.5; max-width: 360px; margin: 0 auto 12px; }
+.connect-status.ok { background: var(--clr-green-light); border-left: 4px solid var(--clr-green); }
+.connect-status.warn { background: var(--clr-amber-light, #fff7ed); border-left: 4px solid var(--clr-amber); }
 
 /* ── Search ── */
 .search-box {

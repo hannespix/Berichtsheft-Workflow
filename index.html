@@ -49,26 +49,25 @@
   <div class="connect-box">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2C6.48 2 2 6 2 10.5c0 2.5 1.5 4.5 3 6L3 22l4-2c1.5.6 3.2 1 5 1 5.52 0 10-4 10-8.5S17.52 2 12 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
     <h1>Berichtsheftkontrolle</h1>
-    <p>Ausbildungsberater Gärtner<br>Planen, durchführen und nachverfolgen von Berichtsheftdurchsichten</p>
+    <p>Ausbildungsberater Gärtner</p>
     <div id="connectInfo"></div>
-    <div id="connectOrdnerHinweis" style="display:none;margin:8px auto 0;max-width:360px;padding:8px 12px;background:var(--clr-green-light);border-left:4px solid var(--clr-green);border-radius:var(--radius);font-size:13px;text-align:left;line-height:1.5"></div>
-    <div id="connectActions" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto">
-      <button class="btn btn-primary" onclick="App.start()" style="font-size:15px;padding:12px 28px;width:100%">
+    <div id="connectActions" class="connect-actions">
+      <!-- EIN Hauptknopf: „Erneut verbinden“ mit gemerktem Ordner, sonst Ordner wählen (App._startKnopf) -->
+      <button id="btnConnectMain" class="btn btn-primary connect-main" onclick="App.start()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="20" height="20"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-        Arbeitsordner auswählen
+        <span id="btnConnectMainText">Arbeitsordner öffnen</span>
       </button>
-      <button class="btn btn-secondary" onclick="App.promptNewDb()" style="font-size:13px;padding:8px 16px;width:100%">
-        Neue Datenbank erstellen
-      </button>
-      <button class="btn btn-secondary" onclick="App.startDemo()" style="font-size:12px;padding:8px 16px;width:100%">
-        Demo-Modus (ohne Datenbank)
-      </button>
+      <div id="connectOrdnerHinweis" class="connect-hinweis" style="display:none"></div>
+      <details id="connectMehr" class="connect-mehr">
+        <summary>Weitere Möglichkeiten</summary>
+        <div id="connectMehrListe">
+          <button id="btnConnectAnderer" class="btn btn-secondary" onclick="App.start()" style="display:none">Anderen Arbeitsordner wählen</button>
+          <button class="btn btn-secondary" onclick="App.promptNewDb()">Neue Datenbank erstellen</button>
+          <button class="btn btn-secondary" onclick="App.startDemo()">Demo-Modus (ohne Datenbank)</button>
+        </div>
+      </details>
     </div>
-    <p style="font-size:12px;color:var(--clr-text-light);margin-top:12px">
-      Datenbanken werden im Unterordner <strong>Datenbanken/</strong> gespeichert.<br>
-      App-Daten (Sync, Backups) liegen in <strong>_bhk/</strong>.
-    </p>
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--clr-sand);display:flex;justify-content:center;gap:16px;font-size:12px">
       <a href="#" onclick="document.getElementById('startHilfe').style.display=document.getElementById('startHilfe').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">Hilfe & Dokumentation</a>
       <a href="#" onclick="document.getElementById('startDatenschutz').style.display=document.getElementById('startDatenschutz').style.display==='none'?'block':'none';return false" style="color:var(--clr-forest);text-decoration:none">⊘ Datenschutz & Sicherheit</a>
     </div>
@@ -83,11 +82,12 @@
     </div>
     <div id="startHilfe" style="display:none;text-align:left;margin-top:12px;padding:16px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;max-width:520px;margin-left:auto;margin-right:auto">
       <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">Kurzanleitung</p>
-      <p><strong>1.</strong> Arbeitsordner auswählen (oder neu erstellen)</p>
-      <p><strong>2.</strong> IBYKUS-CSV importieren (Schüler-Import)</p>
+      <p><strong>1.</strong> Arbeitsordner öffnen – der Ordner, in dem diese Datei liegt (Chrome fragt einmal nach der Berechtigung)</p>
+      <p><strong>2.</strong> IBYKUS-CSV importieren (Azubi-Import)</p>
       <p><strong>3.</strong> Kontrolltermine planen (Kontrollplanung)</p>
       <p><strong>4.</strong> Berichtshefte kontrollieren (Durchführung)</p>
       <p><strong>5.</strong> Wiedervorlagen bearbeiten + Berichte exportieren</p>
+      <p style="margin-top:8px">Die Datenbank liegt im Unterordner <strong>Datenbanken/</strong>, Protokolle und Sicherungen in <strong>_bhk/</strong>. Alle Kollegen öffnen denselben Arbeitsordner – dann sehen alle denselben Stand.</p>
       <p style="margin-top:8px">Ausführliche Hilfe mit allen Funktionen finden Sie nach dem Start unter <strong>Sidebar → Hilfe</strong>.</p>
     </div>
     <p id="browserHint" style="font-size:12px;color:var(--clr-amber);margin-top:8px;display:none">
