@@ -211,6 +211,9 @@ body {
   white-space: nowrap;
 }
 .topbar-btn:hover { background: var(--tb-chip-hover); }
+/* Vollbild-Knopf: im Vollbild hervorgehoben */
+.topbar-btn.active { background: var(--tb-fg); color: var(--tb-bg, #1B1917); }
+body.vollbild .topbar-btn#btnVollbild svg { transform: rotate(180deg); }
 .topbar-btn kbd { font-size: 12px; font-weight: 700; padding: 1px 5px; background: transparent; border: 1px solid var(--tb-fg); border-radius: 3px; color: var(--tb-fg); font-family: var(--font-body); }
 .topbar-status .dot {
   width: 8px; height: 8px;
