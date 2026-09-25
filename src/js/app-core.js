@@ -1770,25 +1770,8 @@ const App = {
           if (perm === 'granted') {
             this.dirHandle = stored;
             await this.ensureAppDirs();
-            // Try last-used DB directly
-            const lastDb = this.restoreLastDb();
-            if (lastDb && lastDb.dbName) {
-              try {
-                const targetDir = lastDb.dbPath === 'Datenbanken' && this.dbDirHandle ? this.dbDirHandle : this.dirHandle;
-                const fh = await targetDir.getFileHandle(lastDb.dbName, { create: false });
-                await this.loadDatabaseFromHandle(fh, lastDb.dbPath);
-                return;
-              } catch(e) { console.log('Last DB not found, scanning...'); }
-            }
-            // Fallback: scan
-            const dbFiles = await this.scanForDatabases();
-            if (dbFiles.length === 1) {
-              await this.loadDatabaseFromHandle(dbFiles[0].handle, dbFiles[0].subDir);
-              return;
-            } else if (dbFiles.length > 1) {
-              this.showDbSelection(dbFiles);
-              return;
-            }
+            // Gemeinsame Datenbank des Ordners (Marker) vor der Browser-Erinnerung
+            if (await this.dbImOrdnerOeffnen('Start')) return;
           } else {
             // Permission not active – show quick-reconnect instead of full connect screen
             const folderName = stored.name || 'gespeicherter Ordner';
@@ -1823,23 +1806,7 @@ const App = {
       if (perm === 'granted') {
         this.dirHandle = stored;
         await this.ensureAppDirs();
-        const lastDb = this.restoreLastDb();
-        if (lastDb && lastDb.dbName) {
-          try {
-            const targetDir = lastDb.dbPath === 'Datenbanken' && this.dbDirHandle ? this.dbDirHandle : this.dirHandle;
-            const fh = await targetDir.getFileHandle(lastDb.dbName, { create: false });
-            await this.loadDatabaseFromHandle(fh, lastDb.dbPath);
-            return;
-          } catch(e) { /* fall through to scan */ }
-        }
-        const dbFiles = await this.scanForDatabases();
-        if (dbFiles.length === 1) {
-          await this.loadDatabaseFromHandle(dbFiles[0].handle, dbFiles[0].subDir);
-        } else if (dbFiles.length > 1) {
-          this.showDbSelection(dbFiles);
-        } else {
-          App.toast('Keine Datenbank gefunden', 'warning');
-        }
+        if (!(await this.dbImOrdnerOeffnen('Wiederverbinden'))) App.toast('Keine Datenbank gefunden', 'warning');
       }
     } catch(e) { console.warn('Verbindung:', e); App.toast('Verbindung fehlgeschlagen', 'error'); }
   },
@@ -1929,14 +1896,7 @@ const App = {
       this.dirHandle = dirHandle;
       await this.storeDirHandle(dirHandle);
       await this.ensureAppDirs();
-      const dbFiles = await this.scanForDatabases();
-      if (dbFiles.length === 1) {
-        await this.loadDatabaseFromHandle(dbFiles[0].handle, dbFiles[0].subDir);
-      } else if (dbFiles.length > 1) {
-        this.showDbSelection(dbFiles);
-      } else {
-        this.promptNewDb();
-      }
+      await this.dbImOrdnerOeffnen('Ordnerwechsel', { neuBeiLeer: true });
     } catch(e) {
       if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
@@ -2035,6 +1995,109 @@ const App = {
 
   restoreLastDb() {
     try { const r = localStorage.getItem('bhk_lastDb'); return r ? JSON.parse(r) : null; } catch(e) { return null; }
+  },
+
+  // ── Gemeinsame Datenbank je Ordner (Leitdatenbank) ──
+  // Jeder Browser merkte sich bisher nur SEINE zuletzt geöffnete Datei. Lagen
+  // unter Datenbanken/ zwei .sqlite-Dateien, öffneten zwei Kollegen im selben
+  // Ordner verschiedene Datenbanken – keiner sah den anderen (Feldfall: 8 vs.
+  // 16 Protokolle beim Start). Jetzt steht im Ordner selbst, welche Datei die
+  // gemeinsame ist: _bhk/datenbank.json { name, subDir, gesetztVon, am }.
+  // Beim Öffnen des Ordners gewinnt dieser Marker vor der Browser-Erinnerung;
+  // fehlt er, setzt ihn der erste Rechner (eine Datei: automatisch, mehrere:
+  // nach der Auswahl). Wer eine andere Datei öffnet, wird gefragt und beim
+  // Arbeiten deutlich gewarnt.
+  LEIT_DATEI: 'datenbank.json',
+  _leitDb: null,
+  async leitDbLesen() {
+    try {
+      const dir = this.bhkDirHandle; if (!dir) return null;
+      const h = await dir.getFileHandle(this.LEIT_DATEI, { create: false });
+      const j = JSON.parse(await (await h.getFile()).text());
+      return j && typeof j.name === 'string' && j.name ? { name: j.name, subDir: j.subDir || '', gesetztVon: j.gesetztVon || '', am: j.am || '' } : null;
+    } catch(e) { return null; }
+  },
+  async leitDbSetzen(name, subDir, quelle) {
+    const rec = { name, subDir: subDir || '', gesetztVon: this.currentUser || this._getClientId(), am: new Date().toISOString(), quelle: quelle || '' };
+    try {
+      const dir = this.bhkDirHandle; if (!dir) return false;
+      const h = await dir.getFileHandle(this.LEIT_DATEI, { create: true });
+      const w = await h.createWritable(); await w.write(JSON.stringify(rec)); await w.close();
+      this._leitDb = rec;
+      try { BhkSpur.notiere('netz', 'Gemeinsame Datenbank festgelegt', { ok: true, info: `${name} (${quelle || ''})` }); } catch(e) {}
+      return true;
+    } catch(e) { console.warn('[DB] Gemeinsame Datenbank konnte nicht festgelegt werden:', e && e.message); return false; }
+  },
+  // Ist die geöffnete Datei die gemeinsame? (null = kein Marker)
+  istLeitDb() { return this._leitDb ? (this.autoLoadedDbName || '') === this._leitDb.name : null; },
+  // Datenbank im verbundenen Ordner öffnen – EIN Weg für Start, Wiederverbinden,
+  // Ordnerwechsel und Auto-Reconnect. Liefert true, wenn eine Datenbank geladen
+  // wurde (oder die Auswahl angezeigt wird).
+  async dbImOrdnerOeffnen(quelle, { neuBeiLeer = false } = {}) {
+    let leit = await this.leitDbLesen();
+    this._leitDb = leit;
+    const last = this.restoreLastDb();
+    if (leit) {
+      try {
+        const dir = leit.subDir === 'Datenbanken' && this.dbDirHandle ? this.dbDirHandle : this.dirHandle;
+        const fh = await dir.getFileHandle(leit.name, { create: false });
+        await this.loadDatabaseFromHandle(fh, leit.subDir);
+        if (last && last.dbName && last.dbName !== leit.name) this.toast(`Gemeinsame Datenbank „${leit.name}“ geöffnet – nicht „${last.dbName}“, die dieser Browser zuletzt hatte. Alle Kollegen arbeiten jetzt in derselben Datei.`, 'info', 12000);
+        return true;
+      } catch(e) {
+        console.warn('[DB] Gemeinsame Datenbank nicht gefunden:', leit.name, e && e.message);
+        this.toast(`Die gemeinsame Datenbank „${leit.name}“ liegt nicht mehr im Ordner – bitte auswählen`, 'warning', 10000);
+        leit = null; this._leitDb = null; // ungültiger Marker zählt wie keiner
+      }
+    }
+    const dbFiles = await this.scanForDatabases();
+    if (dbFiles.length === 1) {
+      await this.loadDatabaseFromHandle(dbFiles[0].handle, dbFiles[0].subDir);
+      if (!leit) await this.leitDbSetzen(dbFiles[0].name, dbFiles[0].subDir, quelle + ' (einzige Datei)');
+      return true;
+    }
+    if (dbFiles.length === 0) { if (neuBeiLeer) this.promptNewDb(); return false; }
+    // Mehrere Dateien und kein (gültiger) Marker: EINMAL auswählen – die Wahl
+    // wird zur gemeinsamen Datenbank für alle. Die Browser-Erinnerung reicht
+    // hier absichtlich nicht mehr, sie hat den Feldfall verursacht.
+    this.showDbSelection(dbFiles);
+    return true;
+  },
+  // Klick in der Auswahl: gemeinsame Datenbank öffnen, sonst nachfragen
+  async dbAuswahlOeffnen(i) {
+    const f = this._dbChoices && this._dbChoices[i]; if (!f) return;
+    const leit = this._leitDb;
+    if (leit && f.name !== leit.name) {
+      const ok = await this.confirm(`„${f.name}“ ist NICHT die gemeinsame Datenbank dieses Ordners – das ist „${leit.name}“, mit der alle Kollegen arbeiten. Änderungen in „${f.name}“ sieht sonst niemand.\n\nTrotzdem öffnen?`, { titel: 'Andere Datenbank', ok: 'Trotzdem öffnen', abbrechen: 'Abbrechen', gefaehrlich: true });
+      if (!ok) return;
+    }
+    this.closeModal();
+    await this.loadDatabaseFromHandle(f.handle, f.subDir);
+    if (!leit) { await this.leitDbSetzen(f.name, f.subDir, 'Auswahl'); this.toast(`„${f.name}“ ist jetzt die gemeinsame Datenbank dieses Ordners – alle Kollegen öffnen sie ab sofort automatisch.`, 'success', 10000); }
+  },
+  // Diese (geöffnete) Datenbank zur gemeinsamen machen
+  async dieseAlsLeitDb() {
+    if (!this.autoLoadedDbName || !this.dbFileHandle) return this.toast('Keine Datenbankdatei verbunden', 'warning');
+    const alt = this._leitDb;
+    const ok = await this.confirm(`„${this.autoLoadedDbName}“ als gemeinsame Datenbank dieses Ordners festlegen?${alt && alt.name !== this.autoLoadedDbName ? ` Bisher war es „${alt.name}“ – Kollegen, die dort noch arbeiten, wechseln beim nächsten Start hierher.` : ''}`, { titel: 'Gemeinsame Datenbank', ok: 'Festlegen' });
+    if (!ok) return;
+    if (await this.leitDbSetzen(this.autoLoadedDbName, this._dbSubDir || '', 'Wartung')) { this.toast('Gemeinsame Datenbank festgelegt', 'success'); try { this.renderCurrentView(); } catch(e) {} }
+    else this.toast('Konnte nicht festgelegt werden (Schreibfehler im Ordner)', 'error');
+  },
+  // Zur gemeinsamen Datenbank wechseln (Neustart, der Marker gewinnt)
+  async zurLeitDb() {
+    if (!this._leitDb) return;
+    try { await this.sofortSpeichern('Wechsel zur gemeinsamen Datenbank'); } catch(e) {}
+    this.storeLastDb(this._leitDb.name, this._leitDb.subDir);
+    location.reload();
+  },
+  // Nach dem Laden: Abweichung von der gemeinsamen Datenbank deutlich machen
+  _leitPruefen() {
+    if (this.istLeitDb() !== false) return;
+    const el = typeof document !== 'undefined' && document.getElementById('dbFileName');
+    if (el && !/nicht die gemeinsame/.test(el.textContent)) el.textContent += ' ⚠ nicht die gemeinsame Datenbank';
+    this.toast(`Achtung: Geöffnet ist „${this.autoLoadedDbName}“, die gemeinsame Datenbank dieses Ordners ist aber „${this._leitDb.name}“. Kollegen sehen Änderungen hier nicht. Wechsel unter Wartung → Verbindung.`, 'warning', 15000);
+    try { BhkSpur.notiere('netz', 'Nicht die gemeinsame Datenbank', { ok: false, fehler: 'andere Datenbank', info: `${this.autoLoadedDbName} statt ${this._leitDb.name}` }); } catch(e) {}
   },
 
   async ensureAppDirs() {
@@ -2640,30 +2703,28 @@ const App = {
       this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', startIn });
       await this.storeDirHandle(this.dirHandle);
       await this.ensureAppDirs();
-      const dbFiles = await this.scanForDatabases();
-      if (dbFiles.length === 1) {
-        await this.loadDatabaseFromHandle(dbFiles[0].handle, dbFiles[0].subDir);
-      } else if (dbFiles.length === 0) {
-        this.promptNewDb();
-      } else {
-        this.showDbSelection(dbFiles);
-      }
+      await this.dbImOrdnerOeffnen('Start', { neuBeiLeer: true });
     } catch (e) {
       if (e.name !== 'AbortError') { console.warn('Fehler:', e); this.toast('Ein Fehler ist aufgetreten', 'error'); }
     }
   },
 
   showDbSelection(dbFiles) {
+    const leit = this._leitDb;
+    // Gemeinsame Datenbank zuerst
+    dbFiles = [...dbFiles].sort((a, b) => (leit && b.name === leit.name) - (leit && a.name === leit.name));
     this._dbChoices = dbFiles;
     const body = `
       <p style="font-size:13px;color:var(--clr-text-light);margin-bottom:12px">
         ${dbFiles.length} Datenbank${dbFiles.length>1?'en':''} gefunden in <strong>${esc(this.dirHandle?.name||'Ordner')}</strong>
       </p>
+      ${leit ? `<p style="font-size:13px;margin-bottom:10px">Gemeinsame Datenbank dieses Ordners: <strong>${esc(leit.name)}</strong> – mit ihr arbeiten alle Kollegen.</p>`
+             : `<p style="font-size:13px;margin-bottom:10px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed)">Für diesen Ordner ist noch keine gemeinsame Datenbank festgelegt. <strong>Die Datei, die Sie jetzt wählen, wird für alle Kollegen die gemeinsame</strong> – sie öffnen sie ab dann automatisch.</p>`}
       ${dbFiles.map((f, i) => `
-        <button class="btn btn-secondary" style="width:100%;margin-bottom:8px;text-align:left;padding:10px 14px" onclick="App.loadDatabaseFromHandle(App._dbChoices[${i}].handle,App._dbChoices[${i}].subDir);App.closeModal()">
+        <button class="btn ${leit && f.name === leit.name ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-bottom:8px;text-align:left;padding:10px 14px" onclick="App.dbAuswahlOeffnen(${i})">
           <div style="display:flex;align-items:center;gap:10px;width:100%">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-            <div><strong>${esc(f.name)}</strong><div style="font-size:12px;color:var(--clr-text-light)">${f.subDir?f.subDir+'/':'Hauptordner'}</div></div>
+            <div><strong>${esc(f.name)}</strong>${leit && f.name === leit.name ? ' <span style="font-size:12px;font-weight:600">★ gemeinsame Datenbank</span>' : leit ? ' <span style="font-size:12px;color:var(--clr-amber)">nicht die gemeinsame</span>' : ''}<div style="font-size:12px;opacity:.8">${f.subDir?f.subDir+'/':'Hauptordner'}</div></div>
           </div>
         </button>
       `).join('')}
@@ -2708,9 +2769,12 @@ const App = {
       await this.writeDatabaseToFile(true);
       this.storeLastDb(fileName, subDir);
       this.autoLoadedDbName = fileName;
+      this._dbSubDir = subDir;
       document.getElementById('dbFileName').textContent = fileName;
       this.showApp();
       this.toast('Neue Datenbank erstellt im Ordner', 'success');
+      // Erste Datenbank im Ordner wird die gemeinsame
+      try { if (!this._leitDb) this._leitDb = await this.leitDbLesen(); if (!this._leitDb) await this.leitDbSetzen(fileName, subDir, 'neu angelegt'); else this._leitPruefen(); } catch(e) {}
     } catch (e) {
       console.warn('DB-Erstellung:', e); this.toast('Fehler beim Erstellen der Datenbank', 'error');
     }
@@ -2737,12 +2801,15 @@ const App = {
 
       document.getElementById('dbFileName').textContent = file.name;
       this.autoLoadedDbName = file.name;
+      this._dbSubDir = subDir || '';
       // Ensure _bhk/ dirs + use for backups
       await this.ensureAppDirs();
       // Remember which DB we opened
       this.storeLastDb(file.name, subDir || '');
       this.showApp();
       this.toast(`Datenbank "${file.name}" geladen – Auto-Save aktiv`, 'success');
+      // Ist das die gemeinsame Datenbank des Ordners? (Marker ggf. nachlesen)
+      try { if (!this._leitDb) this._leitDb = await this.leitDbLesen(); this._leitPruefen(); } catch(e) {}
     } catch (e) {
       console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }
