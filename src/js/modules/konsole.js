@@ -21,6 +21,8 @@ const Konsole = {
     ['bhk.dateien()', 'Inhalt von _bhk/ mit Größe und Alter (liest das Netzlaufwerk)'],
     ['bhk.test()', 'Verbindungstest: Auflisten, Lesen, Schreibprobe, Uhrversatz, Lebenszeichen'],
     ['bhk.jetzt()', 'Abgleich sofort ausführen'],
+    ['bhk.pruefen(azubiId)', 'Prüfung je Azubi: lokale Wochen und Ergebnisse, Ops in allen Protokollen und welche dieser Rechner nie angewendet hat'],
+    ['bhk.vollabgleich()', 'Alle Protokolle ab dem Snapshot-Stand neu einlesen (heilt verlorene Lesestände; Neueres bleibt erhalten)'],
     ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage (zur Weitergabe an die Entwicklung)'],
     ['bhk.debug(true)', 'jeden Netzvorgang sofort in der Konsole zeigen (bleibt bis bhk.debug(false))'],
   ],
@@ -152,6 +154,7 @@ const Konsole = {
       const zurueck = await f.text();
       if (zurueck !== inhalt) throw new Error('Zurückgelesener Inhalt weicht ab (Offlinedateien oder Zwischenspeicher?)');
       versatz = f.lastModified - geschrieben;
+      try { App._uhrVersatzLernen(versatz); } catch(e) {}
       try { await dir.removeEntry(probeName); } catch(e) {}
       return `Uhrversatz zum Dateiserver etwa ${Math.round(versatz / 1000)} s (geschätzt)`;
     });
@@ -172,7 +175,7 @@ const Konsole = {
     }
     if (liste.ok && liste.ms > 2000) befunde.push(`Langsame Leitung: Das Auflisten des Ordners dauert ${liste.ms} ms (Büro-LAN: unter 100 ms). Wartung → Verbindung → „Langsame Leitung“ empfohlen.`);
     else if (liste.ok && liste.ms > 500) befunde.push(`Leitung mittel: Auflisten ${liste.ms} ms – der Abgleich braucht länger, das ist über VPN normal.`);
-    if (versatz != null && Math.abs(versatz) > 60000) befunde.push(`Uhrversatz von etwa ${Math.round(Math.abs(versatz) / 60000)} min zwischen diesem Rechner und dem Dateiserver: Die Online-Anzeige der Kollegen und die Reihenfolge gleichzeitiger Änderungen können falsch sein. Uhr per Domäne synchronisieren.`);
+    if (versatz != null && Math.abs(versatz) > 60000) befunde.push(`Uhrversatz von etwa ${Math.round(Math.abs(versatz) / 60000)} min zwischen diesem Rechner und dem Dateiserver. Änderungen werden ab jetzt mit der Serverzeit gestempelt; bis dahin konnte dieser Rechner Konflikte um dasselbe Feld falsch gewinnen oder verlieren. Uhr per Domäne synchronisieren.`);
     if (App._tabIsPrimary === false) befunde.push('Zweit-Registerkarte: Diese Registerkarte kann keinen Snapshot schreiben, Import und Datenbank-Tools sind gesperrt.');
     if (App._neuladenNoetig) befunde.push('Der Zugriff auf das Netzlaufwerk ist veraltet – nur Neuladen (F5) hilft.');
     if (App._netzWeg) befunde.push('Netzabriss-Zustand aktiv: Abgleich und Speichern sind pausiert, Probe alle 30 s.');
@@ -181,7 +184,8 @@ const Konsole = {
     if (typeof document !== 'undefined' && document.hidden) befunde.push('Das Fenster gilt als verdeckt – in diesem Zustand setzt der Abgleich-Takt aus.');
     const s = BhkSpur.stat;
     ['anhaengen', 'abgleich', 'backup'].forEach(k => { if (s[k] && s[k].fehler && s[k].letzteArt) befunde.push(`Bereich ${k}: ${s[k].fehler} Fehler in dieser Sitzung, zuletzt ${BhkSpur.artText(s[k].letzteArt)}.`); });
-    if (!befunde.length) befunde.push('Keine Auffälligkeiten: Lesen, Schreiben und Abgleich funktionieren.');
+    if (!befunde.length) befunde.push(`Keine Auffälligkeiten: Lesen, Schreiben und Abgleich funktionieren (Programmstand ${App.BUILD}).`);
+    else befunde.push(`Programmstand dieses Rechners: ${App.BUILD} – bitte mit den Kollegen vergleichen (alle müssen dieselbe Datei vom Netzlaufwerk starten).`);
 
     this._tabelle(schritte);
     console.log('%cBefunde', 'font-weight:bold');
@@ -215,6 +219,37 @@ const Konsole = {
     return { abgleichMs: App._lastPollMs || 0 };
   },
   kopieren() { return App.kopieren(App.diagnoseText({ zeilen: 150 }), 'Zustandsbild kopiert – bei der Entwicklung einfügen'); },
+  // Prüfung je Azubi (Konsole): lokaler Stand gegen die Protokolle auf dem Laufwerk
+  async pruefen(sid) {
+    if (sid == null) { console.log('Aufruf: bhk.pruefen(<Azubi-Kennung>) – die Kennung steht in der Adresszeile der Azubi-Seite oder in der Konsole über App.query("SELECT id,nachname FROM schueler WHERE nachname LIKE ?", ["Muster%"])'); return null; }
+    const r = await App.azubiPruefen(sid);
+    console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s`, 'font-weight:bold');
+    console.log(`Lokal: ${r.lokal.wochen.length} Wochenzeilen, davon ${r.lokal.wochenMitCodes} mit Codes; ${r.lokal.ergebnisse.length} Kontrollergebnis(se); ${r.lokal.stempel} Zeilen mit Stempeln`);
+    this._tabelle(r.lokal.wochen.filter(w => w.codes || w.bemerkung).map(w => ({ AJ: w.aj, KW: w.kw, Codes: w.codes, Fehltage: w.fehltage, Bemerkung: w.bemerkung })));
+    this._tabelle(r.lokal.ergebnisse.map(e => ({ Termin: e.termin, Ergebnis: e.ergebnis, Geändert: e.geaendert_am, Von: e.geaendert_von })));
+    if (r.hinweis) console.log(r.hinweis);
+    else {
+      console.log(`Protokolle auf dem Laufwerk: ${r.gesamtOps} Op(s) zu diesem Azubi, davon ${r.unbekanntGesamt} auf diesem Rechner NICHT angewendet`);
+      this._tabelle(r.protokolle.filter(p => p.ops || p.fehler).map(p => ({ Protokoll: p.protokoll, Ops: p.ops, NichtAngewendet: p.unbekannt, Lesestand: p.lesestand, Größe: p.groesse, Fehler: p.fehler || '' })));
+      if (r.unbekannt.length) { console.log('%cNicht angewendete Ops (Auszug)', 'font-weight:bold'); this._tabelle(r.unbekannt); }
+      if (r.unbekanntGesamt) console.log('→ bhk.vollabgleich() liest die Protokolle ab dem Snapshot-Stand neu ein.');
+      else console.log('Alle Ops zu diesem Azubi sind hier angewendet. Fehlt trotzdem etwas, wurde es auf dem anderen Rechner nie ins Protokoll geschrieben (dort: Speicherstatus „n wartend“, bhk.status(), Wartung → „Änderungen als Datei“).');
+    }
+    return r;
+  },
+  async vollabgleich() {
+    const r = await App.vollabgleich('Konsole');
+    if (!r.ok) console.log('Vollabgleich nicht möglich: ' + r.grund);
+    else console.log(`Vollabgleich: ${r.dateien} Protokolle, ${r.gelesen} Ops gelesen, ${r.angewendet} angewendet, ${r.fehler} Lesefehler, ${r.ms} ms`);
+    return r;
+  },
+  async vollabgleichDialog() {
+    App.showLoading && App.showLoading('Vollabgleich läuft…');
+    let r; try { r = await App.vollabgleich('Wartung'); } finally { App.hideLoading && App.hideLoading(); }
+    if (!r.ok) return App.toast('Vollabgleich nicht möglich: ' + r.grund, 'warning');
+    App.toast(`Vollabgleich: ${r.gelesen} Änderungen aus ${r.dateien} Protokollen gelesen, ${r.angewendet} übernommen${r.fehler ? `, ${r.fehler} Protokoll(e) nicht lesbar` : ''}`, r.fehler ? 'warning' : 'success');
+    return r;
+  },
   debug(an) {
     const neu = BhkSpur.setDebug(an !== false);
     console.log(neu ? 'Debug an: Jeder Netzvorgang erscheint ab jetzt als [Spur:…] in der Konsole.' : 'Debug aus.');

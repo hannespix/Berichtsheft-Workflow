@@ -245,6 +245,10 @@ BhkSpur.installieren();
 const App = {
   // Versionsangabe für Handbuch/PDF-Fußzeilen – EINE Stelle statt fester Texte
   VERSION: '2.1',
+  // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
+  // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
+  // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
+  BUILD: 'dev',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -2513,7 +2517,7 @@ const App = {
   diagnose() {
     const z = (sql) => { try { return this.scalar(sql) || 0; } catch(e) { return 0; } };
     const d = {
-      programm: { version: this.VERSION, zeitpunkt: new Date().toISOString() },
+      programm: { version: this.VERSION, build: this.BUILD, zeitpunkt: new Date().toISOString(), uhrVersatzS: Math.round((this._uhrVersatzMs || 0) / 1000) },
       browser: { kennung: (typeof navigator !== 'undefined' && navigator.userAgent) || '', sprache: (typeof navigator !== 'undefined' && navigator.language) || '' },
       sitzung: {
         ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
@@ -3958,12 +3962,70 @@ const App = {
   // einsortieren – deshalb stempelt ein Client nie hinter das Maximum dessen,
   // was er von anderen gesehen hat (_maxSeenTs wird in _applyOps gepflegt).
   _maxSeenTs: 0,
+  // Uhrversatz dieses Rechners zum Dateiserver (Server − lokal, ms). Ops
+  // werden mit SERVERZEIT gestempelt: Ging die Uhr eines Rechners 30 Minuten
+  // vor, gewann er jeden Konflikt um dasselbe Feld – auch gegen eine Änderung,
+  // die der Kollege erst später (und in Kenntnis seiner) gemacht hatte; die
+  // Lamport-Uhr schützt nur, wenn die fremde Op vorher gesehen wurde. Der
+  // Versatz wird nach jedem gelungenen Anhängen aus der Änderungszeit des
+  // eigenen Protokolls gelernt (Median der letzten Messungen) und auch von der
+  // Schreibprobe des Verbindungstests gespeist.
+  _uhrVersatzMs: 0,
+  _uhrVersatzProben: null,
+  _uhrVersatzGemessen: 0,
+  UHRVERSATZ_WARNUNG_MS: 5 * 60000,
+  _uhrVersatzLernen(ms) {
+    if (typeof ms !== 'number' || !isFinite(ms) || Math.abs(ms) > 7 * 86400000) return this._uhrVersatzMs;
+    if (!this._uhrVersatzProben) this._uhrVersatzProben = [];
+    this._uhrVersatzProben.push(ms);
+    if (this._uhrVersatzProben.length > 5) this._uhrVersatzProben.shift();
+    const s = [...this._uhrVersatzProben].sort((a, b) => a - b);
+    const median = s[Math.floor(s.length / 2)];
+    // Kleine Abweichungen (Dateisystem-Auflösung, Latenz) sind kein Versatz
+    this._uhrVersatzMs = Math.abs(median) < 2000 ? 0 : median;
+    this._uhrVersatzGemessen = Date.now();
+    if (Math.abs(this._uhrVersatzMs) >= this.UHRVERSATZ_WARNUNG_MS && !this._uhrVersatzGewarnt) {
+      this._uhrVersatzGewarnt = true;
+      const min = Math.round(Math.abs(this._uhrVersatzMs) / 60000);
+      const richtung = this._uhrVersatzMs > 0 ? 'nach' : 'vor';
+      BhkSpur.notiere('netz', 'Uhrversatz erkannt', { ok: false, fehler: `Uhr dieses Rechners geht etwa ${min} min ${richtung}`, art: 'zustand' });
+      try { this.toast(`Die Uhr dieses Rechners geht etwa ${min} Minuten ${richtung}. Änderungen werden mit der Zeit des Dateiservers gestempelt; bitte die Uhr per Domäne synchronisieren lassen.`, 'warning'); } catch(e) {}
+    }
+    return this._uhrVersatzMs;
+  },
+  _serverJetzt() { return Date.now() + (this._uhrVersatzMs || 0); },
+  // Versatz beim Start messen (Probedatei schreiben, Änderungszeit lesen,
+  // löschen): Die ersten eigenen Ops sollen schon Serverzeit tragen – ein
+  // einziger Stempel aus einer vorgehenden Uhr hebt sonst über die Lamport-
+  // Regel die Zeitbasis ALLER Rechner an, bis die echte Zeit ihn einholt.
+  async _uhrVersatzMessen(quelle = 'start') {
+    const dir = this._syncDirV3();
+    if (!dir) return null;
+    const name = 'probe_' + this._dbSlug() + '_' + this._getClientId() + '.txt';
+    const t0 = Date.now();
+    try {
+      const h = await dir.getFileHandle(name, { create: true });
+      const w = await h.createWritable();
+      await w.write('bhk-uhr ' + t0);
+      await w.close();
+      const f = await (await dir.getFileHandle(name, { create: false })).getFile();
+      const versatz = f.lastModified - Date.now();
+      try { await dir.removeEntry(name); } catch(e) {}
+      this._uhrVersatzLernen(versatz);
+      BhkSpur.notiere('probe', 'Uhrversatz messen', { ok: true, ms: Date.now() - t0, info: `${quelle}: ${Math.round(versatz / 1000)} s`, nurStat: Math.abs(versatz) < 2000 });
+      return versatz;
+    } catch(e) {
+      try { await dir.removeEntry(name); } catch(_) {}
+      BhkSpur.notiere('probe', 'Uhrversatz messen', { ok: false, ms: Date.now() - t0, fehler: e });
+      return null;
+    }
+  },
   _stampTs() {
-    const t = Date.now();
+    const t = this._serverJetzt();
     return t > (this._maxSeenTs || 0) ? t : (this._maxSeenTs || 0) + 1;
   },
   _frozenNow() {
-    const d = new Date();
+    const d = new Date(this._serverJetzt());
     const p2 = (n) => String(n).padStart(2, '0');
     return {
       local: `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`,
@@ -4026,18 +4088,20 @@ const App = {
   _prepareOp(sql, params) {
     const out = { sql, params: [...params], opSql: sql, opParams: [...params], pre: [], post: [] };
     const now = this._frozenNow();
-    if (out.opSql.includes("datetime('now'")) {
-      out.opSql = out.opSql
-        .replace(/datetime\('now',\s*'localtime'\)/g, `'${now.local}'`)
-        .replace(/datetime\('now'\)/g, `'${now.utc}'`);
+    // Auch LOKAL einfrieren (Serverzeit): sonst stand bei diesem Rechner die
+    // eigene Uhr (z.B. 30 min vor) in geaendert_am, bei allen anderen die
+    // eingefrorene Serverzeit – und der Notfall-Vergleich über geaendert_am
+    // (_lwwSkip ohne Stempel) urteilte auf zwei Rechnern verschieden.
+    if (out.sql.includes("datetime('now'")) {
+      const f = (s) => s.replace(/datetime\('now',\s*'localtime'\)/g, `'${now.local}'`).replace(/datetime\('now'\)/g, `'${now.utc}'`);
+      out.sql = f(out.sql); out.opSql = f(out.opSql);
     }
     // date('now') ebenso einfrieren – sonst wertet der Empfänger es bei sich
     // NEU aus (anderer Tag über Mitternacht, dazu UTC statt lokal) und z.B.
     // ein "Nacherfasst am …"-Terminname divergiert zwischen den Clients.
-    if (out.opSql.includes("date('now'")) {
-      out.opSql = out.opSql
-        .replace(/date\('now',\s*'localtime'\)/g, `'${now.local.slice(0, 10)}'`)
-        .replace(/date\('now'\)/g, `'${now.utc.slice(0, 10)}'`);
+    if (out.sql.includes("date('now'")) {
+      const f = (s) => s.replace(/date\('now',\s*'localtime'\)/g, `'${now.local.slice(0, 10)}'`).replace(/date\('now'\)/g, `'${now.utc.slice(0, 10)}'`);
+      out.sql = f(out.sql); out.opSql = f(out.opSql);
     }
     // ── INSERT ──
     const mIns = sql.match(/^\s*INSERT(\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\(/i);
@@ -4562,6 +4626,11 @@ const App = {
       this._netzLangsam = false; this._langsamStufe = 0;
       this._myLogSize = size + bytes.length;
       this._lastAppendMs = Date.now() - jetzt;
+      // Uhrversatz zum Dateiserver aus der Änderungszeit des eigenen Protokolls
+      // (höchstens jede Minute ein zusätzlicher Lesezugriff)
+      if (Date.now() - (this._uhrVersatzGemessen || 0) > 60000) {
+        try { const fNach = await handle.getFile(); if (fNach.lastModified) this._uhrVersatzLernen(fNach.lastModified - Date.now()); } catch(e) {}
+      }
       // Ein gelungenes Anhängen IST die Speichermessung im v3-Betrieb – vorher
       // blieb ein Fehlversuch (30 s) für den Rest der Sitzung als Netzqualität
       // stehen und pinnte den Abgleich auf 30-Sekunden-Takt
@@ -4823,6 +4892,98 @@ const App = {
       this._lastPollMs = Date.now() - pollStart;
       try { this._updateNetworkQuality(); } catch(e) {}
     }
+  },
+
+  // ── Vollabgleich: alle Protokolle ab dem Stand des Snapshots neu einlesen ──
+  // Heilt einen Rechner, dessen Lesestand an Ops vorbeigelaufen ist (Lesefehler,
+  // Absturz zwischen Anwenden und Merken, verworfener Schub): Jede Op wird
+  // erneut angeboten; die Stempel (Last-Write-Wins je Spalte) sorgen dafür,
+  // dass nichts Neueres überschrieben wird, Upserts und Natural-Key-Updates
+  // sind wiederholbar. Ops, die der Snapshot laut snapmeta schon enthält,
+  // werden NICHT erneut eingespielt (sie sind im Snapshot, ein Wiederholen
+  // könnte bei fehlendem Stempel Neueres zurückdrehen).
+  async vollabgleich(quelle = 'manuell') {
+    const dir = this._syncDirV3();
+    if (!dir || !this.db || !this._v3Ready) return { ok: false, grund: 'Kein Ordner verbunden oder Abgleich nicht bereit' };
+    if (this._pollBusy) return { ok: false, grund: 'Abgleich läuft gerade – bitte gleich noch einmal' };
+    this._pollBusy = true;
+    const t0 = Date.now();
+    let gelesen = 0, angewendet = 0, dateien = 0, fehler = 0;
+    try {
+      let meta = null;
+      try { meta = JSON.parse(await (await dir.getFileHandle(this._snapMetaName(), { create: false })).getFile().then(f => f.text())); } catch(e) {}
+      const base = (meta && meta.offsets) || {};
+      const prefix = this._oplogPrefix();
+      const mine = this._myOplogName();
+      const batch = [];
+      const neueOffsets = [];
+      for await (const [name, h] of dir.entries()) {
+        if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+        try {
+          const r = await this._leseLogDatei(h, base[name] || 0);
+          dateien++;
+          if (!r) continue;
+          batch.push(...r.lines);
+          gelesen += r.lines.length;
+          if (name !== mine) neueOffsets.push([name, r.gelesen]);
+        } catch(e) { fehler++; }
+      }
+      // uid-Mengen kurz beiseitelegen, damit bereits gesehene Ops erneut angeboten
+      // werden; die Stempel entscheiden, was wirklich geschrieben wird
+      const fremd = this._appliedForeignUids, eigen = this._ownLogUids;
+      this._appliedForeignUids = new Set(); this._ownLogUids = new Set();
+      try { angewendet = this._applyOps(batch); }
+      finally {
+        batch.forEach(l => { try { const op = JSON.parse(l); if (op && op.uid) (fremd || (this._appliedForeignUids)).add(op.uid); } catch(e) {} });
+        this._appliedForeignUids = fremd || this._appliedForeignUids; this._ownLogUids = eigen || new Set();
+      }
+      neueOffsets.forEach(([name, off]) => { if ((this._logOffsets[name] || 0) < off) this._logOffsets[name] = off; });
+      try { this._entdoppleWiedervorlagen(); } catch(e) {}
+      BhkSpur.notiere('abgleich', 'Vollabgleich', { ok: !fehler, ms: Date.now() - t0, fehler: fehler ? `${fehler} Protokoll(e) nicht lesbar` : null, info: `${quelle}: ${dateien} Protokolle, ${gelesen} Ops gelesen, ${angewendet} angewendet` });
+      if (angewendet) { try { this._smartRefresh(); } catch(e) {} }
+      return { ok: true, dateien, gelesen, angewendet, fehler, ms: Date.now() - t0 };
+    } catch(e) {
+      BhkSpur.notiere('abgleich', 'Vollabgleich', { ok: false, ms: Date.now() - t0, fehler: e });
+      return { ok: false, grund: e && e.message || String(e) };
+    } finally {
+      this._pollBusy = false;
+    }
+  },
+  // Prüfung je Azubi: Was steht lokal, welche Ops zu diesem Azubi liegen in den
+  // Protokollen, und welche davon hat dieser Rechner nie angewendet?
+  async azubiPruefen(sid) {
+    sid = parseInt(sid);
+    const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], gesamtOps: 0, versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
+    out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
+    out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
+    out.lokal.stempel = this._rowStamps ? [...this._rowStamps.keys()].filter(k => k.startsWith('kw_status|schueler_id:' + sid + '|') || k.startsWith('kontrollergebnisse|') && k.includes('schueler_id:' + sid)).length : 0;
+    const dir = this._syncDirV3();
+    if (!dir) { out.hinweis = 'Kein Ordner verbunden – nur lokaler Stand'; return out; }
+    const bekannt = (uid) => (this._appliedForeignUids && this._appliedForeignUids.has(uid)) || (this._ownLogUids && this._ownLogUids.has(uid));
+    const prefix = this._oplogPrefix();
+    for await (const [name, h] of dir.entries()) {
+      if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+      const eintrag = { protokoll: name, ops: 0, unbekannt: 0, lesestand: this._logOffsets[name] || (name === this._myOplogName() ? this._myLogSize : 0), groesse: 0 };
+      try {
+        const f = await h.getFile();
+        eintrag.groesse = f.size;
+        const text = await f.text();
+        text.split('\n').forEach(l => {
+          if (!l.trim()) return;
+          let op; try { op = JSON.parse(l); } catch(e) { return; }
+          if (!op || !op.sql) return;
+          const opSid = op.sid != null ? op.sid : this._azubiAusOp(op.sql, op.params);
+          if (opSid !== sid) return;
+          eintrag.ops++; out.gesamtOps++;
+          if (op.uid && !bekannt(op.uid)) { eintrag.unbekannt++; if (out.unbekannt.length < 40) out.unbekannt.push({ protokoll: name, zeit: op.ts ? new Date(op.ts).toLocaleString('de-DE') : '', rechner: op.c || '', sql: String(op.sql).slice(0, 70) }); }
+        });
+      } catch(e) { eintrag.fehler = e && e.message || String(e); }
+      out.protokolle.push(eintrag);
+    }
+    out.unbekanntGesamt = out.protokolle.reduce((n, p) => n + (p.unbekannt || 0), 0);
+    return out;
   },
 
   // Eine Log-Datei ab Offset lesen: liefert vollständige Zeilen + Lesestand
@@ -5148,6 +5309,8 @@ const App = {
     this._ownLogUids = new Set();
     this._logOffsets = {};
     this._myLogSize = 0;
+    // Uhrversatz zum Dateiserver vor der ersten eigenen Op kennen
+    try { await this._uhrVersatzMessen('start'); } catch(e) {}
     // Eigene Log-Generation fortsetzen (nach Reload/Neustart)
     try {
       const eigen = this._oplogPrefix() + this._getClientId() + '_g';

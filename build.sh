@@ -178,9 +178,11 @@ FONTS
 
   # ── Embed App Modules ──
   echo "<script>"
+  BUILD_STAMP="$(date -u +'%Y-%m-%d %H:%M UTC')"
   for mod in "${APP_MODULES[@]}"; do
     echo "// ── $(basename "$mod") ──"
-    cat "$mod"
+    # Programmstand in App.BUILD eintragen (nur app-core.js enthält die Zeile)
+    sed "s/BUILD: 'dev',/BUILD: '$BUILD_STAMP',/" "$mod"
     echo ""
   done
   echo "</script>"

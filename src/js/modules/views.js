@@ -1536,7 +1536,8 @@ const Views = {
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <button class="btn btn-secondary" onclick="Konsole.testDialog()" title="Auflisten, Lesen, Schreibprobe, Uhrversatz und Lebenszeichen messen – mit Befunden in Klartext">⚙ Verbindungstest</button>
           <button class="btn btn-secondary" onclick="Konsole.kopieren()" title="Zustandsbild, Ereignisspur und Konsolenprotokoll in die Zwischenablage (Namen geschwärzt)">▤ Zustandsbild kopieren</button>
-          <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code></span>
+          <button class="btn btn-secondary" onclick="Konsole.vollabgleichDialog()" title="Alle Protokolle der Kollegen ab dem Snapshot-Stand neu einlesen – wenn ein Rechner Änderungen der anderen nicht zeigt. Neuere eigene Werte bleiben erhalten.">⟳ Vollabgleich</button>
+          <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
         </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
       </div>
