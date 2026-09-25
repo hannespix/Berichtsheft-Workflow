@@ -31,7 +31,7 @@ const sandbox = {
   Date, Math, JSON, Promise, Set, Map, TextEncoder, TextDecoder, Uint8Array, confirm: () => true,
   document: { getElementById: (id) => elems[id] || null, querySelector: () => null, querySelectorAll: () => [], createElement: el,
     addEventListener() {}, hidden: false, activeElement: null, body: { classList: { add() {}, remove() {}, contains: () => false } } },
-  navigator: {}, localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  navigator: {}, localStorage: (() => { const m = new Map(); return { getItem: (k) => m.has(k) ? m.get(k) : null, setItem(k, v) { m.set(k, String(v)); }, removeItem(k) { m.delete(k); } }; })(),
   initSqlJs: async () => SQL, TableSort: { init() {}, initAll() {} },
   UndoManager: {
     _stack: [], _redo: [],
@@ -274,6 +274,31 @@ console.log('\n══ Stufe 2 (2): Prüferaufteilung, Ergebnis-Kürzel, heutige 
   KH.setzeErgebnisKurz(0);
   check(App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE id=300') === '', 'Shift+0 setzt zurück');
   check(/\/\^Digit\[0-6\]\$\/\.test\(e\.code\)/.test(KS_SRC) && /KontrolleHandler\.springeZuAktuellerKW\(\)/.test(KS_SRC), 'Tastenkürzel Shift+1–6 und J sind verdrahtet');
+  // Nach „Fertig“ / „In Ordnung“: Standard zurück zur Übersicht (Hefte liegen nicht in Listenreihenfolge)
+  {
+    const alt = { renderUebersicht: KH.renderUebersicht, nextOffen: KH.nextOffen, saveAndRelease: KH.saveAndRelease };
+    let uebersicht = 0, naechster = 0, frei = 0;
+    KH.renderUebersicht = () => { uebersicht++; }; KH.nextOffen = () => { naechster++; }; KH.saveAndRelease = () => { frei++; };
+    check(KH.weiterModus() === 'uebersicht', 'Standard: nach „Fertig“ zur Übersicht');
+    KH._viewMode = 'einzeln'; KH.currentIndex = 2;
+    KH.fertig();
+    check(uebersicht === 1 && frei === 1 && naechster === 0 && KH._viewMode === 'uebersicht', '„Fertig“ schreibt/gibt frei und öffnet die Übersicht');
+    KH._viewMode = 'einzeln'; App.currentView = 'kontrolle';
+    KH.saveField('ergebnis', 'in_ordnung');
+    check(uebersicht === 2 && naechster === 0, '„In Ordnung“ führt (Sandkasten: sofort) zur Übersicht, nicht zum nächsten Azubi');
+    KH.weiterModusSetzen('naechster');
+    check(KH.weiterModus() === 'naechster', 'Einstellung „zum nächsten offenen“');
+    KH._viewMode = 'einzeln'; KH.fertig();
+    check(naechster === 1, 'Dann geht „Fertig“ zum nächsten offenen Azubi');
+    KH.weiterModusSetzen('bleiben'); KH._viewMode = 'einzeln'; KH.fertig();
+    check(naechster === 1 && uebersicht === 2 && KH._viewMode === 'einzeln', '„hier bleiben“ wechselt die Ansicht nicht');
+    KH.autoWeiterUmschalten();
+    check(KH.weiterModus() === 'naechster', 'Umschalter wechselt zwischen nächster und Übersicht');
+    App.uSet('weiter_nach', 'uebersicht');
+    KH.saveField('ergebnis', '');
+    Object.assign(KH, alt);
+    check(/KontrolleHandler\.fertig\(\)/.test(K_SRC) && /✓ Fertig → Übersicht/.test(K_SRC) && /WEITER_MODI/.test(K_SRC), 'Fußzeile: „✓ Fertig → Übersicht“, Modus im ⋯-Menü');
+  }
   // i.O. in der Einzelansicht markiert bis zur Vorwoche
   // (die Wochen von Azubi 1 im AJ 2 stammen ausschließlich aus dem
   //  „In Ordnung" der Einzelansicht in Abschnitt C3 – _markOK lief nur für 2 und 3)
@@ -386,7 +411,7 @@ console.log('\n══ UI-Paket 1: Kontrolltag ══');
   check(/onclick="event\.stopPropagation\(\)"/.test(K_SRC) && /display:\$\{zu \? 'none' : 'flex'\}/.test(K_SRC), 'Bereichsauswahl nur im aufgeklappten Jahr, Klick darauf klappt nicht zu');
   check(/<div class="ke-leiste" id="lockableLeiste"/.test(K_SRC) && /id="keBemerkung"/.test(K_SRC) && /id="wvSection" class="ke-wv"/.test(K_SRC) && /id="wvDatum"/.test(K_SRC) && /name="ergebnis"/.test(K_SRC) && /class="erg-pill/.test(K_SRC), 'Feste Leiste unten: Ergebnis-Pillen, Bemerkung, Wiedervorlage (Kennungen für Kürzel und saveField unverändert)');
   check(/\.ke-leiste \{ position: sticky; bottom: calc\(-1 \* var\(--gutter-unten\)\);/.test(CSS) && /\.erg-pill:has\(input:checked\)/.test(CSS), 'Leiste haftet am unteren Rand, gewählte Pille hebt sich ab');
-  check(/‹ Zurück<\/button>/.test(K_SRC) && /✓ Fertig, nächster offener<\/button>/.test(K_SRC) && /Weiter ›<\/button>/.test(K_SRC) && !/Freigeben<\/button>/.test(K_SRC) && /Freigeben ohne Wechsel/.test(K_SRC) && /PDFExport\.generateSingle\(\$\{this\.currentTerminId\},\$\{s\.id\}\)/.test(K_SRC), 'Fußzeile: drei Knöpfe; PDFs und Freigeben ohne Wechsel im ⋯-Menü');
+  check(/‹ Zurück<\/button>/.test(K_SRC) && /'✓ Fertig, nächster offener'/.test(K_SRC) && /onclick="KontrolleHandler\.fertig\(\)"/.test(K_SRC) && /Weiter ›<\/button>/.test(K_SRC) && !/Freigeben<\/button>/.test(K_SRC) && /Freigeben ohne Wechsel/.test(K_SRC) && /PDFExport\.generateSingle\(\$\{this\.currentTerminId\},\$\{s\.id\}\)/.test(K_SRC), 'Fußzeile: drei Knöpfe; PDFs und Freigeben ohne Wechsel im ⋯-Menü');
   check(/\['lockableContent', 'lockableLeiste'\]\.forEach/.test(K_SRC) && (K_SRC.match(/\['lockableContent', 'lockableLeiste'\]/g) || []).length === 2, 'Sperre durch Kollegen deckt auch die feste Leiste ab');
   check(/id="keGesichert"/.test(K_SRC) && /id="quickNavGrid"/.test(K_SRC) && /data-sync-progress-bar/.test(K_SRC) && /id="fehlGesamt"/.test(K_SRC) && /id="fehlPauschalAnzeige"/.test(K_SRC) && /fehlSumAj\$\{aj\}_display/.test(K_SRC), 'Kennungen für Live-Sync, Verlustschutz und Fehltage bleiben erhalten');
   check(/const sel = document\.getElementById\('selKontrolltermin'\);\n    if \(sel\) \{\n      \/\/ Aktuellen Termin vorwählen/.test(K_SRC), '„Termin wechseln“ wählt den aktuellen Termin vor');

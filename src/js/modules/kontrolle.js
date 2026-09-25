@@ -158,9 +158,33 @@ const KontrolleHandler = {
     ta.value = ta.value ? (ta.value + '. ' + b) : b;
     this.saveField('bemerkung', ta.value);
   },
+  // Was passiert nach „Fertig“ bzw. nach dem Ergebnis „In Ordnung“?
+  // Standard: zurück zur Übersicht – die Hefte liegen am Kontrolltag nicht in
+  // Listenreihenfolge, der Prüfer greift das nächste selbst. Alternativ zum
+  // nächsten offenen Azubi (frühere Vorgabe) oder in der Ansicht bleiben.
+  WEITER_MODI: [['uebersicht', 'zur Übersicht'], ['naechster', 'zum nächsten offenen Azubi'], ['bleiben', 'hier bleiben']],
+  weiterModus() {
+    const m = App.uGet('weiter_nach', '');
+    if (this.WEITER_MODI.some(x => x[0] === m)) return m;
+    return App.uGet('auto_next', '1') === '0' ? 'bleiben' : 'uebersicht';
+  },
+  weiterModusSetzen(m) {
+    if (!this.WEITER_MODI.some(x => x[0] === m)) return;
+    App.uSet('weiter_nach', m);
+    App.toast('Nach „Fertig“ / „In Ordnung“: ' + this.WEITER_MODI.find(x => x[0] === m)[1], 'info');
+  },
+  // Kompatibilität: Auto-Weiter nach „In Ordnung“ umschalten (nächster ↔ Übersicht)
   autoWeiterUmschalten() {
-    App.uSet('auto_next', App.uGet('auto_next', '1') !== '0' ? '0' : '1');
-    App.toast(App.uGet('auto_next', '1') !== '0' ? 'Auto-Weiter an: nach „In Ordnung“ geht es zum nächsten offenen Azubi' : 'Auto-Weiter aus', 'info');
+    this.weiterModusSetzen(this.weiterModus() === 'naechster' ? 'uebersicht' : 'naechster');
+  },
+  // „Fertig“: sofort schreiben und freigeben, dann je nach Modus weiter
+  fertig() {
+    const m = this.weiterModus();
+    if (m === 'naechster') return this.nextOffen();
+    this.saveAndRelease();
+    if (m === 'bleiben') { App.toast('Gespeichert und freigegeben', 'success'); return; }
+    this._viewMode = 'uebersicht';
+    this.renderUebersicht();
   },
 
   _viewMode: 'uebersicht', // 'uebersicht' or 'einzeln'
@@ -1729,10 +1753,11 @@ const KontrolleHandler = {
           <textarea class="form-control" rows="1" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="this.rows=1" aria-label="Bemerkung zum Berichtsheft">${esc(ke.bemerkung)}</textarea>
           ${App.getTextbausteine().length ? this._menue('✎', App.getTextbausteine().map((b, i) => ({ label: esc(b), onclick: `KontrolleHandler.textbausteinEinfuegen(${i})` })), 'Textbaustein an die Bemerkung anhängen', 'klein oben') : ''}
           <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
-          <button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.nextOffen()" title="Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet">✓ Fertig, nächster offener</button>
+          ${(() => { const m = this.weiterModus(); const lbl = m === 'naechster' ? '✓ Fertig, nächster offener' : m === 'bleiben' ? '✓ Fertig (speichern)' : '✓ Fertig → Übersicht'; const t = m === 'naechster' ? 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet' : 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben' + (m === 'bleiben' ? '' : ' und die Übersicht geöffnet – das nächste Heft wählen Sie dort'); return `<button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.fertig()" title="${t}">${lbl}</button>`; })()}
           <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
           ${this._menue('⋯', [
-            { label: `${App.uGet('auto_next', '1') !== '0' ? '☑' : '☐'} Auto-Weiter nach „In Ordnung“`, onclick: 'KontrolleHandler.autoWeiterUmschalten()', title: 'Nach der Auswahl „In Ordnung“ automatisch zum nächsten offenen Azubi springen' },
+            { label: 'Nach „Fertig“ / Auto-Weiter nach „In Ordnung“:', onclick: '', title: 'Was nach dem Ergebnis passiert – die Berichtshefte liegen am Kontrolltag nicht in Listenreihenfolge vor' },
+            ...this.WEITER_MODI.map(([k, l]) => ({ label: `${this.weiterModus() === k ? '◉' : '○'} ${l}`, onclick: `KontrolleHandler.weiterModusSetzen('${k}');KontrolleHandler.renderSchueler()` })),
             { trenner: true },
             { label: '▤ Durchsichtsbogen dieses Azubis (PDF)', onclick: `PDFExport.generateSingle(${this.currentTerminId},${s.id})` },
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
@@ -1874,11 +1899,19 @@ const KontrolleHandler = {
       // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
       const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
       if (btn) { btn.classList.toggle('btn-success', !!value); }
-      // Nach "In Ordnung" automatisch zum nächsten offenen Azubi (abschaltbar)
-      if (value === 'in_ordnung' && App.uGet('auto_next', '1') !== '0') {
-        App.toast('✓ In Ordnung – weiter zum nächsten offenen Azubi', 'success');
+      // Nach "In Ordnung" je nach Einstellung: zur Übersicht (Standard), zum
+      // nächsten offenen Azubi oder in der Ansicht bleiben
+      const weiter = this.weiterModus();
+      if (value === 'in_ordnung' && weiter !== 'bleiben') {
+        App.toast(weiter === 'naechster' ? '✓ In Ordnung – weiter zum nächsten offenen Azubi' : '✓ In Ordnung – zurück zur Übersicht', 'success');
         const tidAuto = this.currentTerminId;
-        setTimeout(() => { if (App.currentView === 'kontrolle' && this._viewMode === 'einzeln' && this.currentTerminId === tidAuto) this.nextOffen(); }, 700);
+        setTimeout(() => {
+          if (!(App.currentView === 'kontrolle' && this._viewMode === 'einzeln' && this.currentTerminId === tidAuto)) return;
+          if (weiter === 'naechster') { if (this.currentTerminId === tidAuto) this.nextOffen(); return; }
+          this.saveAndRelease();
+          this._viewMode = 'uebersicht';
+          this.renderUebersicht();
+        }, 700);
       }
 
       // Auto-erledige offene Wiedervorlagen wenn "in Ordnung"
