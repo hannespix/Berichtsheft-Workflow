@@ -7720,7 +7720,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 10:03 UTC',
+  BUILD: '2026-09-25 10:17 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -9576,7 +9576,16 @@ const App = {
     if (!this.dirHandle) return;
     try { this.bhkDirHandle = await this.dirHandle.getDirectoryHandle('_bhk', { create: true });
       this.backupsDirHandle = await this.bhkDirHandle.getDirectoryHandle('backups', { create: true });
-    } catch(e) { console.warn('_bhk/ dir failed:', e); }
+      this._bhkFehlt = '';
+    } catch(e) {
+      // Nicht still zurückfallen: ohne _bhk schreibt dieser Rechner seine
+      // Protokolle in den Hauptordner, die Kollegen lesen dort nicht – beide
+      // Seiten sehen einander nicht und melden „keine Änderungen“.
+      this._bhkFehlt = (e && e.message) || String(e);
+      console.warn('_bhk/ dir failed:', e);
+      try { BhkSpur.notiere('netz', 'Ordner _bhk nicht zugänglich', { ok: false, fehler: this._bhkFehlt, art: BhkSpur.fehlerArt ? BhkSpur.fehlerArt(e) : '' }); } catch(_) {}
+      this.toast(`Achtung: Der Unterordner „_bhk“ konnte nicht geöffnet oder angelegt werden (${this._bhkFehlt}). Änderungen werden dann NICHT mit den Kollegen geteilt. Bitte Ordnerrechte prüfen und neu verbinden.`, 'error', 20000);
+    }
     try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true });
     } catch(e) { console.warn('Datenbanken/ dir failed:', e); }
   },
@@ -12493,7 +12502,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', hauptordner: this.dirHandle ? (this.dirHandle.name || '') : '', bhkFehlt: this._bhkFehlt || '', protokolleAusserhalb: (this._protokolleAusserhalb || []).map(e => ({ datei: e.name, groesse: e.groesse, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -13054,6 +13063,7 @@ const App = {
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
       this._fremdeDatenbankenPruefen([...fremde.values()]);
+      await this._protokolleAusserhalbPruefen();
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts).
       // Zufällig 20–80 s verzögert: Starten zwei Kollegen morgens zur selben
       // Minute, kompaktierten sonst beide gleichzeitig um das Lock.
@@ -13083,6 +13093,34 @@ const App = {
       console.warn('[SyncV3] ' + text);
       try { BhkSpur.notiere('netz', 'Andere Datenbank im Ordner', { ok: false, fehler: 'andere Datenbank', info: namen }); } catch(e) {}
       if (!this._fremdeDbGewarnt) { this._fremdeDbGewarnt = true; this.toast(text, 'warning', 15000); }
+    } catch(e) {}
+  },
+
+  // ── Protokolle außerhalb von _bhk ──
+  // Konnte ein Rechner den Unterordner _bhk nicht öffnen, fällt _syncDirV3()
+  // auf den Hauptordner zurück: seine Protokolle liegen dann neben der
+  // HTML-Datei, die Kollegen lesen nur in _bhk – wieder sieht keiner den
+  // anderen (Feldfall: „8 Protokolle bei Zilz, 16 bei Pix“ bei EINER Datei).
+  // Wer _bhk hat, schaut deshalb beim Start auch in den Hauptordner.
+  _protokolleAusserhalb: [],
+  async _protokolleAusserhalbPruefen() {
+    try {
+      const root = this.dirHandle, sync = this._syncDirV3();
+      if (!root || !sync || root === sync) return;
+      const prefix = this._oplogPrefix();
+      const grenze = Date.now() - this.FREMDE_DB_TAGE * 86400000;
+      const liste = [];
+      for await (const [name, h] of root.entries()) {
+        if (!name.startsWith('oplog_') || !name.endsWith('.jsonl')) continue;
+        try { const f = await h.getFile(); liste.push({ name, groesse: f.size, juengste: f.lastModified, eigeneDb: name.startsWith(prefix) }); } catch(e) {}
+      }
+      this._protokolleAusserhalb = liste.filter(e => e.juengste >= grenze).sort((a, b) => b.juengste - a.juengste);
+      if (!this._protokolleAusserhalb.length) return;
+      const n = this._protokolleAusserhalb.length;
+      const text = `Achtung: Im Hauptordner (neben der HTML-Datei) liegen ${n} aktuelle Protokoll-Datei(en), die nicht in „_bhk“ stehen (zuletzt ${new Date(this._protokolleAusserhalb[0].juengste).toLocaleString('de-DE')}). Ein Rechner konnte „_bhk“ offenbar nicht öffnen und schreibt daneben – seine Änderungen kommen hier nicht an. Dort: Ordnerrechte prüfen, neu verbinden; danach die Dateien in „_bhk“ verschieben.`;
+      console.warn('[SyncV3] ' + text);
+      try { BhkSpur.notiere('netz', 'Protokolle außerhalb von _bhk', { ok: false, fehler: 'Hauptordner', info: this._protokolleAusserhalb.map(e => e.name).join(', ') }); } catch(e) {}
+      if (!this._ausserhalbGewarnt) { this._ausserhalbGewarnt = true; this.toast(text, 'warning', 20000); }
     } catch(e) {}
   },
 
@@ -19857,6 +19895,8 @@ const Views = {
             ${App.istLeitDb() !== true && App.autoLoadedDbName ? `<button class="btn btn-secondary btn-sm" onclick="App.dieseAlsLeitDb()" title="Die hier geöffnete Datei wird für alle Kollegen die gemeinsame">Diese Datenbank als gemeinsame festlegen</button>` : ''}
           </div>
         </div>
+        ${App._bhkFehlt ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-red, #b00020);background:#fdecea;font-size:13px;line-height:1.6"><strong>⚠ Unterordner „_bhk“ nicht zugänglich</strong> (${esc(App._bhkFehlt)}). Dieser Rechner schreibt seine Protokolle in den Hauptordner – die Kollegen lesen dort nicht. Ordnerrechte prüfen, Verbindung trennen und neu verbinden.</div>` : ''}
+        ${(App._protokolleAusserhalb || []).length ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6"><strong>⚠ Protokolle außerhalb von „_bhk“:</strong> Im Hauptordner liegen ${App._protokolleAusserhalb.length} aktuelle Protokoll-Datei(en) (zuletzt ${esc(new Date(App._protokolleAusserhalb[0].juengste).toLocaleString('de-DE'))}). Ein anderer Rechner konnte „_bhk“ offenbar nicht öffnen und schreibt daneben – seine Änderungen kommen hier nicht an. Dort Ordnerrechte prüfen und neu verbinden; danach die Dateien nach „_bhk“ verschieben.</div>` : ''}
         ${(App._fremdeDatenbanken || []).length ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6">
           <strong>⚠ Andere Datenbank im selben Ordner:</strong> Hier ist „${esc(App.autoLoadedDbName || '?')}“ geöffnet, im Ordner werden aber auch Protokolle für ${App._fremdeDatenbanken.map(e => `„${esc(e.slug)}“ (${e.dateien} Protokolle, zuletzt ${esc(new Date(e.juengste).toLocaleString('de-DE'))})`).join(', ')} geschrieben. Dort arbeitet vermutlich ein Kollege – und keiner sieht die Änderungen des anderen. Alle müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile; beim Start die Datenbank auswählen).
         </div>` : ''}
@@ -36629,7 +36669,10 @@ const Konsole = {
   async pruefen(sid) {
     if (sid == null) { console.log('Aufruf: bhk.pruefen(<Azubi-Kennung>) – die Kennung steht in der Adresszeile der Azubi-Seite oder in der Konsole über App.query("SELECT id,nachname FROM schueler WHERE nachname LIKE ?", ["Muster%"])'); return null; }
     const r = await App.azubiPruefen(sid);
-    console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s, Datenbank ${r.datenbank || '?'}${r.ordner ? ` in Ordner „${r.ordner}“` : ''}`, 'font-weight:bold');
+    console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s, Datenbank ${r.datenbank || '?'}, Protokolle in Ordner „${r.ordner || '?'}“ (Hauptordner „${r.hauptordner || '?'}“)`, 'font-weight:bold');
+    if (r.bhkFehlt) console.log(`%cACHTUNG: Der Unterordner _bhk konnte nicht geöffnet werden (${r.bhkFehlt}) – dieser Rechner schreibt seine Protokolle in den Hauptordner, die Kollegen lesen dort nicht.`, 'color:#A94E00;font-weight:bold');
+    if (r.ordner && r.ordner !== '_bhk') console.log('%cACHTUNG: Die Protokolle dieses Rechners liegen NICHT in _bhk – Kollegen sehen seine Änderungen nicht. Ordnerrechte für _bhk prüfen, Verbindung trennen und neu verbinden.', 'color:#A94E00;font-weight:bold');
+    if (r.protokolleAusserhalb && r.protokolleAusserhalb.length) { console.log('%cACHTUNG: Im Hauptordner liegen aktuelle Protokolle außerhalb von _bhk – ein anderer Rechner schreibt daneben (er konnte _bhk nicht öffnen):', 'color:#A94E00;font-weight:bold'); this._tabelle(r.protokolleAusserhalb); }
     if (App._leitDb) console.log(`Gemeinsame Datenbank dieses Ordners: „${App._leitDb.name}“${App.istLeitDb() === false ? ' – HIER IST ABER EINE ANDERE GEÖFFNET (Wartung → Verbindung → „Zur gemeinsamen Datenbank wechseln“)' : ' (hier geöffnet)'}`);
     if (r.andereDatenbanken && r.andereDatenbanken.length) { console.log('%cACHTUNG: Im selben Ordner werden Protokolle für eine ANDERE Datenbank geschrieben – dort arbeitet vermutlich der Kollege. Alle müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile):', 'color:#A94E00;font-weight:bold'); this._tabelle(r.andereDatenbanken); }
     console.log(`Lokal: ${r.lokal.wochen.length} Wochenzeilen, davon ${r.lokal.wochenMitCodes} mit Codes; ${r.lokal.ergebnisse.length} Kontrollergebnis(se); ${r.lokal.stempel} Zeilen mit Stempeln`);

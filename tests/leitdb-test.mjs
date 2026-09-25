@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════════════════════════════
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeStore, getSQL, makeSeed, makeClient, makeChecker, ROOT } from './_sync-harness.mjs';
+import { makeStore, getSQL, makeSeed, makeClient, makeChecker, FakeDir, ROOT } from './_sync-harness.mjs';
 
 const { check, state } = makeChecker();
 const SQL = await getSQL();
@@ -111,6 +111,40 @@ console.log('\n══ Ungültiger Marker (Datei fehlt) ══');
   store.files.delete('berichtsheft (1).sqlite'); store.files.delete('datenbank.json'); store.files.delete('test.sqlite');
   check((await d.dbImOrdnerOeffnen('Start')) === false && !d.neuVerlangt, 'Ohne Datei: false, keine Neuanlage beim Auto-Start');
   check((await d.dbImOrdnerOeffnen('Start', { neuBeiLeer: true })) === false && d.neuVerlangt === true, 'Mit neuBeiLeer: Neuanlage angeboten');
+}
+
+console.log('\n══ Protokolle außerhalb von _bhk und unzugänglicher Ordner (Feldfall: eine Datei, 8 vs. 16 Protokolle) ══');
+{
+  // Zilz’ Rechner konnte _bhk nicht öffnen und schreibt in den Hauptordner
+  const rootStore = makeStore(); rootStore.now = () => T;
+  const bhkStore = makeStore(); bhkStore.now = () => T;
+  bhkStore.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const pix = await makeClient(SQL, bhkStore, 'Pix9', new Uint8Array(seedBytes), { quiet: true, clientId: 'pix9', skipBootstrap: true });
+  pix.dirHandle = new FakeDir(rootStore); pix.bhkDirHandle = new FakeDir(bhkStore); pix.dbDirHandle = pix.bhkDirHandle;
+  const meld = []; pix.toast = (m, t, d) => meld.push({ m, t, d });
+  rootStore.files.set('oplog_test_zilz9_g1.jsonl', { data: new TextEncoder().encode('{"uid":"x","ts":1,"seq":1,"c":"zilz9","sql":"SELECT 1","params":[]}\n'), mtime: T - 3600000 });
+  tick(); await pix._bootstrapV3();
+  check(pix._protokolleAusserhalb.length === 1 && pix._protokolleAusserhalb[0].name === 'oplog_test_zilz9_g1.jsonl' && pix._protokolleAusserhalb[0].eigeneDb === true, 'Protokoll im Hauptordner erkannt');
+  check(meld.some(x => x.t === 'warning' && /Hauptordner/.test(x.m) && /_bhk/.test(x.m) && x.d >= 15000), 'Deutliche Warnung');
+  const pr = await pix.azubiPruefen(1);
+  check(pr.protokolleAusserhalb.length === 1 && pr.protokolleAusserhalb[0].datei === 'oplog_test_zilz9_g1.jsonl' && pr.bhkFehlt === '', 'bhk.pruefen nennt die Datei außerhalb');
+  // Alte Datei (> 7 Tage) ist kein Grund zur Warnung
+  rootStore.files.get('oplog_test_zilz9_g1.jsonl').mtime = T - 10 * 86400000;
+  const meld2 = []; pix.toast = (m, t, d) => meld2.push({ m, t, d }); pix._ausserhalbGewarnt = false;
+  await pix._protokolleAusserhalbPruefen();
+  check(pix._protokolleAusserhalb.length === 0 && meld2.length === 0, 'Alte Datei außerhalb: keine Warnung');
+  // _bhk lässt sich nicht öffnen → laute Meldung statt stillem Rückfall
+  const kaputt = await makeClient(SQL, bhkStore, 'Zilz9', new Uint8Array(seedBytes), { quiet: true, clientId: 'zilz9', skipBootstrap: true });
+  const meld3 = []; kaputt.toast = (m, t, d) => meld3.push({ m, t, d });
+  kaputt.dirHandle = { name: 'Hauptordner', getDirectoryHandle: async (n) => { if (n === '_bhk') throw new Error('NotAllowedError: keine Rechte'); return new FakeDir(bhkStore); }, async *entries() {}, async *values() {} };
+  kaputt.bhkDirHandle = null;
+  await kaputt.ensureAppDirs();
+  check(/keine Rechte/.test(kaputt._bhkFehlt) && !kaputt.bhkDirHandle && meld3.some(x => x.t === 'error' && /_bhk/.test(x.m) && /NICHT mit den Kollegen geteilt/.test(x.m) && x.d >= 15000), `Unzugängliches _bhk wird laut gemeldet (${kaputt._bhkFehlt})`);
+  const pr2 = await kaputt.azubiPruefen(1);
+  check(/keine Rechte/.test(pr2.bhkFehlt) && pr2.hauptordner === 'Hauptordner', 'bhk.pruefen nennt den Fehler und den Hauptordner');
+  const V = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  const K = fs.readFileSync(path.join(ROOT, 'src/js/modules/konsole.js'), 'utf8');
+  check(/App\._bhkFehlt/.test(V) && /App\._protokolleAusserhalb/.test(V) && /r\.bhkFehlt/.test(K) && /r\.protokolleAusserhalb/.test(K) && /r\.ordner !== '_bhk'/.test(K), 'Wartung und Konsole zeigen beide Befunde');
 }
 
 console.log('\n══ Verdrahtung ══');
