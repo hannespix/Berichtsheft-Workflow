@@ -2465,6 +2465,82 @@ const App = {
   // Die Auswahl zeigt nur eine davon – die andere ist fast immer eine
   // vergessene alte Kopie, die nach einem Zugriffsfehler fälschlich geöffnet
   // werden konnte. Einmal je Sitzung deutlich sagen.
+  // ── Arbeitsordner: Kennung, Wechsel, Unterordner mit weiterer Datenbank ──
+  // Der Marker der gemeinsamen Datenbank gilt nur INNERHALB eines Ordners.
+  // Wählt ein Rechner beim Start einen anderen Ordner (Unterordner mit einer
+  // Kopie, alter Stand daneben), hat er seine eigene Welt: eigenes _bhk,
+  // eigene Protokolle – und niemand merkt es. Deshalb: (1) jeder Ordner trägt
+  // eine Kennung in _bhk/ordner.json, der Browser merkt sich die zuletzt
+  // benutzte und warnt beim Wechsel; (2) beim Start wird eine Ebene tief nach
+  // Unterordnern gesucht, die selbst eine Datenbank tragen; (3) der Ordnername
+  // steht in der Kopfzeile neben der Datenbank.
+  ORDNER_DATEI: 'ordner.json',
+  _ordnerKennung: null,
+  _unterordnerMitDb: [],
+  async _ordnerKennungLesen() {
+    try { const h = await this.bhkDirHandle.getFileHandle(this.ORDNER_DATEI, { create: false }); const j = JSON.parse(await (await h.getFile()).text()); return j && j.id ? j : null; } catch(e) { return null; }
+  },
+  async _ordnerKennungPruefen() {
+    if (!this.bhkDirHandle || !this.dirHandle) return null;
+    let k = await this._ordnerKennungLesen();
+    if (!k) {
+      k = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), name: this.dirHandle.name || '', angelegt: new Date().toISOString(), von: this.currentUser || this._getClientId() };
+      try { const h = await this.bhkDirHandle.getFileHandle(this.ORDNER_DATEI, { create: true }); const w = await h.createWritable(); await w.write(JSON.stringify(k)); await w.close(); } catch(e) {}
+    }
+    this._ordnerKennung = k;
+    let zuletzt = null;
+    try { zuletzt = JSON.parse(localStorage.getItem('bhk_ordner') || 'null'); } catch(e) {}
+    if (zuletzt && zuletzt.id && zuletzt.id !== k.id) {
+      const text = `Achtung: Dieser Rechner hat einen ANDEREN Arbeitsordner geöffnet als zuletzt – jetzt „${this.dirHandle.name || '?'}“, zuletzt „${zuletzt.name || '?'}“. Jeder Ordner hat seine eigene Datenbank und eigene Protokolle: Kollegen im anderen Ordner sehen nichts von dieser Arbeit. Wenn das nicht beabsichtigt ist: Verbindung trennen und den gemeinsamen Ordner wählen.`;
+      console.warn('[DB] ' + text);
+      try { BhkSpur.notiere('netz', 'Anderer Arbeitsordner als zuletzt', { ok: false, fehler: 'Ordnerwechsel', info: `${zuletzt.name} → ${this.dirHandle.name}` }); } catch(e) {}
+      this.toast(text, 'warning', 20000);
+      this._ordnerGewechselt = { von: zuletzt.name || '', nach: this.dirHandle.name || '' };
+    }
+    try { localStorage.setItem('bhk_ordner', JSON.stringify({ id: k.id, name: this.dirHandle.name || '', am: new Date().toISOString() })); } catch(e) {}
+    return k;
+  },
+  // Eine Ebene tief: Unterordner, die selbst eine Datenbank tragen (Datenbanken/,
+  // _bhk/ oder eine .sqlite-Datei) – klassische Falle: „Kopie vom Juni“ neben
+  // dem echten Bestand, ein Kollege wählt beim Start den falschen Ordner
+  UNTERORDNER_MAX: 40,
+  async _unterordnerPruefen() {
+    this._unterordnerMitDb = [];
+    const dir = this.dirHandle; if (!dir || !dir.entries) return [];
+    const funde = [];
+    let n = 0;
+    try {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind !== 'directory' || name === '_bhk' || name === 'Datenbanken' || name === 'backups' || name.startsWith('.')) continue;
+        if (++n > this.UNTERORDNER_MAX) break;
+        try {
+          let sqlite = 0, datenbanken = false, bhk = false, unterMax = 0;
+          for await (const [n2, h2] of h.entries()) {
+            if (++unterMax > 300) break;
+            if (h2.kind === 'directory') { if (n2 === 'Datenbanken') datenbanken = true; else if (n2 === '_bhk') bhk = true; }
+            else if (/\.(sqlite|db)$/i.test(n2)) sqlite++;
+          }
+          if (sqlite || datenbanken || bhk) funde.push({ ordner: name, sqlite, datenbanken, bhk });
+        } catch(e) {}
+      }
+    } catch(e) {}
+    this._unterordnerMitDb = funde;
+    if (funde.length) {
+      const text = `Achtung: ${funde.length === 1 ? 'Der Unterordner' : 'Die Unterordner'} ${funde.map(f => `„${f.ordner}“`).join(', ')} ${funde.length === 1 ? 'enthält' : 'enthalten'} eine eigene Datenbank. Wählt ein Kollege beim Start diesen Ordner, arbeitet er getrennt von allen anderen. Bitte alte Kopien wegräumen (außerhalb des Arbeitsordners) – es darf nur EINEN Arbeitsordner geben.`;
+      console.warn('[DB] ' + text);
+      try { BhkSpur.notiere('netz', 'Unterordner mit eigener Datenbank', { ok: false, fehler: 'Unterordner', info: funde.map(f => f.ordner).join(', ') }); } catch(e) {}
+      if (!this._unterordnerGewarnt) { this._unterordnerGewarnt = true; this.toast(text, 'warning', 20000); }
+    }
+    return funde;
+  },
+  // Ordnername sichtbar neben der Datenbank (Kopfzeile)
+  _ordnerAnzeigen() {
+    const el = typeof document !== 'undefined' && document.getElementById('dbFileName');
+    if (!el || !this.dirHandle) return;
+    const ordner = this.dirHandle.name || '';
+    if (ordner && !el.textContent.startsWith(ordner + ' › ')) el.textContent = `${ordner} › ${el.textContent}`;
+    el.title = `Arbeitsordner „${ordner}“ · Datenbank „${this.autoLoadedDbName || ''}“ – alle Kollegen müssen denselben Ordner und dieselbe Datei öffnen`;
+  },
   _doppelkopie: null,
   async _doppelkopiePruefen() {
     try {
@@ -2851,6 +2927,10 @@ const App = {
       try { if (!this._leitDb) this._leitDb = await this.leitDbLesen(); this._leitPruefen(); } catch(e) {}
       // Gleichnamige Kopie im anderen Ordner? (führte über einen Zugriffsfehler zum stillen Dateiwechsel)
       try { await this._doppelkopiePruefen(); } catch(e) {}
+      // Anderer Arbeitsordner als zuletzt? Weitere Datenbank in einem Unterordner?
+      try { await this._ordnerKennungPruefen(); } catch(e) {}
+      try { await this._unterordnerPruefen(); } catch(e) {}
+      try { this._ordnerAnzeigen(); } catch(e) {}
     } catch (e) {
       console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }

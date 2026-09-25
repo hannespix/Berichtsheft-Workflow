@@ -147,6 +147,55 @@ console.log('\n══ Protokolle außerhalb von _bhk und unzugänglicher Ordner 
   check(/App\._bhkFehlt/.test(V) && /App\._protokolleAusserhalb/.test(V) && /r\.bhkFehlt/.test(K) && /r\.protokolleAusserhalb/.test(K) && /r\.ordner !== '_bhk'/.test(K), 'Wartung und Konsole zeigen beide Befunde');
 }
 
+console.log('\n══ Arbeitsordner: Kennung, Wechsel, Unterordner mit eigener Datenbank ══');
+{
+  const storeA = makeStore(); storeA.now = () => T; storeA.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const storeB = makeStore(); storeB.now = () => T; storeB.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const a = await makeClient(SQL, storeA, 'Pix', new Uint8Array(seedBytes), { quiet: true, clientId: 'pixo', skipBootstrap: true });
+  a.bhkDirHandle = a.dirHandle; a.dbDirHandle = a.dirHandle; a.dirHandle.name = 'Berichtsheftkontrolle';
+  const m1 = []; a.toast = (m, t, d) => m1.push({ m, t, d });
+  const k1 = await a._ordnerKennungPruefen();
+  check(k1 && k1.id && storeA.files.has('ordner.json') && JSON.parse(a._sandbox.localStorage.getItem('bhk_ordner')).id === k1.id && m1.length === 0, `Erster Start: Ordner-Kennung angelegt und gemerkt (${k1 && k1.id}), keine Warnung`);
+  const k1b = await a._ordnerKennungPruefen();
+  check(k1b.id === k1.id && m1.length === 0, 'Gleicher Ordner erneut: dieselbe Kennung, keine Warnung');
+  // Derselbe Browser öffnet einen anderen Ordner (Unterordner mit Kopie)
+  const b = await makeClient(SQL, storeB, 'Pix', new Uint8Array(seedBytes), { quiet: true, clientId: 'pixo', skipBootstrap: true });
+  b.bhkDirHandle = b.dirHandle; b.dbDirHandle = b.dirHandle; b.dirHandle.name = 'Kopie Juni';
+  b._sandbox.localStorage.setItem('bhk_ordner', a._sandbox.localStorage.getItem('bhk_ordner'));
+  const m2 = []; b.toast = (m, t, d) => m2.push({ m, t, d });
+  const k2 = await b._ordnerKennungPruefen();
+  check(k2.id !== k1.id && m2.some(x => x.t === 'warning' && /ANDEREN Arbeitsordner/.test(x.m) && /Kopie Juni/.test(x.m) && /Berichtsheftkontrolle/.test(x.m) && x.d >= 15000) && b._ordnerGewechselt && b._ordnerGewechselt.von === 'Berichtsheftkontrolle', 'Anderer Ordner als zuletzt: deutliche Warnung mit beiden Namen');
+  // Unterordner mit eigener Datenbank (eine Ebene tief)
+  const unter = (name, eintraege) => ({ kind: 'directory', name, async *entries() { for (const e of eintraege) yield e; } });
+  const datei = (name) => [name, { kind: 'file', name }];
+  const root = { name: 'Berichtsheftkontrolle', async *entries() {
+    yield ['_bhk', unter('_bhk', [])]; yield ['Datenbanken', unter('Datenbanken', [datei('test.sqlite')])];
+    yield ['Kopie Juni', unter('Kopie Juni', [['Datenbanken', unter('Datenbanken', [datei('test.sqlite')])], ['_bhk', unter('_bhk', [])]])];
+    yield ['Alt', unter('Alt', [datei('berichtsheft_alt.sqlite'), datei('notizen.txt')])];
+    yield ['Briefe', unter('Briefe', [datei('brief.docx')])];
+    yield datei('berichtsheftkontrolle.html');
+  } };
+  a.dirHandle = root;
+  const m3 = []; a.toast = (m, t, d) => m3.push({ m, t, d });
+  const funde = await a._unterordnerPruefen();
+  check(funde.length === 2 && funde.some(f => f.ordner === 'Kopie Juni' && f.datenbanken && f.bhk) && funde.some(f => f.ordner === 'Alt' && f.sqlite === 1) && !funde.some(f => f.ordner === 'Briefe'), `Unterordner mit Datenbank erkannt: ${funde.map(f => f.ordner).join(', ')}`);
+  check(m3.some(x => x.t === 'warning' && /Kopie Juni/.test(x.m) && /Alt/.test(x.m) && /nur EINEN Arbeitsordner/.test(x.m) && x.d >= 15000), 'Warnung nennt die Unterordner');
+  // Ohne verdächtige Unterordner keine Warnung
+  a.dirHandle = { name: 'Sauber', async *entries() { yield ['_bhk', unter('_bhk', [])]; yield ['Datenbanken', unter('Datenbanken', [datei('test.sqlite')])]; yield ['Briefe', unter('Briefe', [datei('b.docx')])]; } };
+  const m4 = []; a.toast = (m) => m4.push(m); a._unterordnerGewarnt = false;
+  check((await a._unterordnerPruefen()).length === 0 && m4.length === 0, 'Sauberer Ordner: nichts');
+  // Kopfzeile zeigt den Ordner vor der Datei
+  const el = { textContent: 'test.sqlite', title: '' };
+  a._sandbox.document.getElementById = (id) => id === 'dbFileName' ? el : { textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {} } };
+  a.autoLoadedDbName = 'test.sqlite';
+  a._ordnerAnzeigen(); a._ordnerAnzeigen();
+  check(el.textContent === 'Sauber › test.sqlite' && /Arbeitsordner „Sauber“/.test(el.title), `Kopfzeile: „${el.textContent}“ (nicht doppelt)`);
+  const V = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/Arbeitsordner:/.test(V) && /App\._ordnerGewechselt/.test(V) && /App\._unterordnerMitDb/.test(V), 'Wartung → Verbindung nennt Arbeitsordner, Wechsel und Unterordner');
+  const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
+  check(/await this\._ordnerKennungPruefen\(\)/.test(A) && /await this\._unterordnerPruefen\(\)/.test(A) && /this\._ordnerAnzeigen\(\)/.test(A), 'Prüfungen laufen beim Laden der Datenbank');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
