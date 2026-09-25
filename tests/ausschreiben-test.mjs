@@ -119,6 +119,41 @@ console.log('\n══ Ganzer Termin, Datei-Notausgang, Rechner ohne Protokoll �
   check(!zilz._opZwang && !pix._opZwang, 'Zwang-Schalter nach dem Ausschreiben wieder aus');
 }
 
+console.log('\n══ Dialog und Konsolenbefehl laufen wirklich durch (kein Absturz vor dem Schreiben) ══');
+{
+  // konsole.js in Zilz’ Sandkasten laden – der Dialog greift auf echte Spalten zu
+  // (Feldfall: „no such column: datum“ warf VOR der Rückfrage, nichts wurde geschrieben)
+  const vm = await import('node:vm');
+  const KSRC = fs.readFileSync(path.join(ROOT, 'src/js/modules/konsole.js'), 'utf8');
+  vm.runInContext(KSRC + '\n;globalThis.__Konsole = Konsole;', zilz._sandbox, { filename: 'konsole.js' });
+  const K = zilz._sandbox.__Konsole;
+  const fragen = [];
+  zilz._sandbox.confirm = (text) => { fragen.push(text); return fragen.length === 1; }; // 1. Rückfrage ja, Datei nein
+  tick(60000); setzeErgebnis(zilz, 3, 'in_ordnung', 'Zilz'); await sync(zilz, pix);
+  tick(60000); setzeErgebnis(pix, 3, 'post_an_rp', 'Pix'); await sync(pix, zilz); // beide: post_an_rp
+  // Pix' Stempel künstlich in die Zukunft, Zilz setzt lokal zurück → Divergenz
+  tick(60000); setzeErgebnis(zilz, 3, 'in_ordnung', 'Zilz');
+  pix._rowStamps.set('kontrollergebnisse|kontrolltermin_id:77|schueler_id:3', { ergebnis: { ts: T + 5 * 86400000, c: 'pix', seq: 9 }, bemerkung: { ts: T + 5 * 86400000, c: 'pix', seq: 9 }, geaendert_von: { ts: T + 5 * 86400000, c: 'pix', seq: 9 } });
+  await sync(zilz, pix);
+  check(ergebnis(zilz, 3) === 'in_ordnung' && ergebnis(pix, 3) === 'post_an_rp', 'Ausgangslage: Rechner zeigen verschiedene Ergebnisse');
+  fragen.length = 0;
+  const r = await K.ausschreibenDialog(77, 3);
+  check(r && r.ops > 0 && fragen.length === 2 && /Zilz|Azubi|Durchsicht von/.test(fragen[0]) && /Termin 01\.07\.2026|Termin 2026-07-01/.test(fragen[0]), `Dialog je Azubi: Rückfrage mit Termin, dann Datei-Frage, ${r ? r.ops : '?'} Ops (${(fragen[0] || '').slice(0, 60)}…)`);
+  await sync(zilz, pix);
+  check(ergebnis(pix, 3) === 'in_ordnung', 'Nach dem Dialog hat Pix Zilz’ Ergebnis');
+  fragen.length = 0;
+  const r2 = await K.ausschreibenDialog(77);
+  check(r2 && r2.azubis === 3 && fragen.length === 2 && /alle Durchsichten des Termins/.test(fragen[0]), `Dialog ganzer Termin: ${r2 ? r2.azubis : '?'} Azubis`);
+  zilz._sandbox.confirm = () => false;
+  const r3 = await K.ausschreibenDialog(77, 3);
+  check(r3 === null, 'Abbrechen schreibt nichts');
+  const r4 = K.ausschreiben(77, 3);
+  check(r4 && r4.ops > 0 && r4.azubis === 1, 'bhk.ausschreiben(termin, azubi) läuft');
+  check(K.ausschreiben() === null, 'bhk.ausschreiben() ohne Kennung erklärt den Aufruf');
+  const pr = await pix.azubiPruefen(3);
+  check(pr.zwangOps > 0 && typeof pr.ordner === 'string', 'bhk.pruefen sieht die Zwang-Ops');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const K = fs.readFileSync(path.join(ROOT, 'src/js/modules/konsole.js'), 'utf8');
