@@ -1775,22 +1775,10 @@ const App = {
             // Gemeinsame Datenbank des Ordners (Marker) vor der Browser-Erinnerung
             if (await this.dbImOrdnerOeffnen('Start')) return;
           } else {
-            // Permission not active – show quick-reconnect instead of full connect screen
-            const folderName = stored.name || 'gespeicherter Ordner';
-            const lastDb = this.restoreLastDb();
-            const dbLabel = lastDb?.dbName || '';
-            document.getElementById('connectInfo').innerHTML = `
-              <div style="padding:12px;background:var(--clr-green-light);border-radius:var(--radius);border-left:4px solid var(--clr-green);margin-bottom:12px">
-                ${dbLabel ? `<strong style="font-size:15px">${esc(dbLabel)}</strong>
-                <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">in ${esc(folderName)}${lastDb?.dbPath ? '/'+lastDb.dbPath : ''}</div>` :
-                `<strong>Ordner: "${esc(folderName)}"</strong>`}
-                <div style="margin-top:6px">
-                  <button class="btn btn-primary" onclick="App.reconnectStored()" style="padding:10px 24px;font-size:15px">
-                    Erneut verbinden
-                  </button>
-                </div>
-                <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Chrome benötigt bei jedem Neustart eine einmalige Bestätigung.</div>
-              </div>`;
+            // Berechtigung nicht mehr aktiv: der EINE Hauptknopf wird zu
+            // „Weiter mit ‹Ordner›“ (Chrome fragt einmal nach), ein anderer
+            // Ordner ist ein Nebenweg unter „Weitere Möglichkeiten“
+            this._startKnopf({ ordner: stored.name || '' });
           }
         } catch(e) { console.log('Auto-reconnect:', e.message); }
       }
@@ -1914,10 +1902,35 @@ const App = {
     // Show connect screen
     document.getElementById('appMain').style.display = 'none';
     document.getElementById('connectScreen').style.display = '';
-    document.getElementById('connectInfo').innerHTML = `
-      <div style="padding:8px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-        ✓ Verbindung getrennt. Wählen Sie einen Ordner mit einer .sqlite-Datei.
-      </div>`;
+    this._startMeldung('Verbindung getrennt.', 'ok');
+    this._startKnopf({ ordner: '' });
+  },
+  // ── Startbildschirm: ein Hauptknopf, eine Meldung ──
+  // ordner = gemerkter Arbeitsordner, dessen Berechtigung Chrome erneut
+  // bestätigen lässt („Weiter mit …“); ohne Ordner „Arbeitsordner öffnen“.
+  _startKnopf({ ordner = '' } = {}) {
+    try {
+      const btn = document.getElementById('btnConnectMain'), txt = document.getElementById('btnConnectMainText');
+      const anderer = document.getElementById('btnConnectAnderer');
+      if (!btn || !txt) return;
+      if (ordner) {
+        txt.innerHTML = `Weiter mit „${esc(ordner)}“<small>Chrome fragt einmal nach der Berechtigung</small>`;
+        btn.setAttribute('onclick', 'App.reconnectStored()');
+        if (anderer) anderer.style.display = '';
+      } else {
+        txt.textContent = 'Arbeitsordner öffnen';
+        btn.setAttribute('onclick', 'App.start()');
+        if (anderer) anderer.style.display = 'none';
+      }
+      this._erwarteterOrdnerHinweis();
+    } catch(e) {}
+  },
+  // Kurze Meldung über dem Hauptknopf (art: ok | warn); leer = ausblenden
+  _startMeldung(html, art) {
+    try {
+      const el = document.getElementById('connectInfo'); if (!el) return;
+      el.innerHTML = html ? `<div class="connect-status ${art || 'ok'}">${html}</div>` : '';
+    } catch(e) {}
   },
 
   _cleanupDB() {
@@ -2045,7 +2058,8 @@ const App = {
       try { BhkSpur.notiere('netz', 'Unterordner als Arbeitsordner abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: n }); } catch(e) {}
       try { await this.storeDirHandle(null); } catch(e) {}
       this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null; this._ordnerUnzulaessig = '';
-      try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen (er enthält „Datenbanken“ und „_bhk“).</div>`; } catch(e) {}
+      try { this._startMeldung(`„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen – den Ordner, in dem diese Datei liegt.`, 'warn'); } catch(e) {}
+      this._startKnopf({ ordner: '' });
       return false;
     }
     // Liegt in dem gewählten Ordner die HTML-Datei, aus der das Programm
@@ -2061,7 +2075,8 @@ const App = {
         try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
         try { await this.storeDirHandle(null); } catch(e) {}
         this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null;
-        try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(gewaehlt)}“ enthält nicht „${esc(erw.datei)}“. Bitte den Ordner <strong>„${esc(erw.ordner)}“</strong> wählen:<br><code style="font-size:12px">${esc(erw.pfad)}</code></div>`; } catch(e) {}
+        try { this._startMeldung(`„${esc(gewaehlt)}“ ist nicht der richtige Ordner. Bitte <strong>„${esc(erw.ordner)}“</strong> wählen – dort liegt diese Datei.`, 'warn'); } catch(e) {}
+        this._startKnopf({ ordner: '' });
         return false;
       }
       try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei trotzdem verwendet', { ok: true, info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
@@ -2165,7 +2180,10 @@ const App = {
       const erw = this._erwarteterOrdner();
       if (!erw.ordner) { el.style.display = 'none'; return; }
       el.style.display = '';
-      el.innerHTML = `Erwarteter Arbeitsordner: <strong>${esc(erw.ordner)}</strong> – der Ordner, in dem diese Datei liegt<br><code style="font-size:12px;word-break:break-all">${esc(erw.pfad)}</code>`;
+      // Eine Zeile, kein Pfad: Der Name reicht zum Wiedererkennen im
+      // Ordnerdialog (Chrome öffnet ihn beim zuletzt gewählten Ort); der
+      // volle Pfad steht als Tooltip und unter Wartung → Verbindung.
+      el.innerHTML = `Der Arbeitsordner ist <strong title="${esc(erw.pfad)}">„${esc(erw.ordner)}“</strong> – der Ordner, in dem diese Datei liegt.`;
     } catch(e) {}
   },
   _ordnerZulaessig(handle) {
@@ -9251,10 +9269,12 @@ const App = {
   async _offlineStartAnbieten() {
     try {
       const rec = await this._offlineCacheLesen();
-      const box = document.getElementById('connectActions');
+      // Nebenweg unter „Weitere Möglichkeiten“ (vorher ein vierter Knopf
+      // auf dem Startbildschirm)
+      const box = document.getElementById('connectMehrListe') || document.getElementById('connectActions');
       if (!rec || !box || document.getElementById('btnOfflineStart')) return;
       const wann = new Date(rec.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-      box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="font-size:13px;padding:8px 16px;width:100%;border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
+      box.insertAdjacentHTML('beforeend', `<button id="btnOfflineStart" class="btn btn-secondary" style="border-color:var(--clr-amber)" onclick="App.startOffline()" title="Ohne Netzlaufwerk mit dem zuletzt gesicherten Stand arbeiten; Änderungen werden beim Wiederverbinden zusammengeführt">
         ⇅ Offline weiterarbeiten<div style="font-size:12px;font-weight:400;color:var(--clr-text-light)">„${esc(rec.name)}", lokaler Stand vom ${wann}</div></button>`);
     } catch(e) {}
   },

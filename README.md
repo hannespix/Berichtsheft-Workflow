@@ -18,13 +18,13 @@ Regierungspräsidium Freiburg – Abteilung 3 / Referat 31
 
 1. `dist/berichtsheftkontrolle.html` auf das Netzlaufwerk kopieren
 2. Datei in **Chrome** oder **Edge** öffnen
-3. Arbeitsordner auswählen – fertig
+3. „Arbeitsordner öffnen“ und den Ordner wählen, in dem die HTML-Datei liegt – fertig (beim nächsten Start: „Weiter mit …“)
 
 ### Variante 2: Modulare Entwicklungsversion
 
 1. Gesamten Ordner auf ein Netzlaufwerk kopieren
 2. `index.html` in Chrome oder Edge öffnen
-3. Arbeitsordner auswählen
+3. „Arbeitsordner öffnen“ und den Projektordner wählen
 
 ## Systemanforderungen
 
