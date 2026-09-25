@@ -119,6 +119,14 @@ const KontrolleHandler = {
     kurz.style.display = ''; voll.style.display = 'none';
     try { document.querySelector('#mainContent .page-header')?.classList.add('kompakt'); } catch(e) {}
   },
+  // Terminzeile nach einer fremden Termin-Op nachziehen (Abschluss, Status,
+  // Nachbereitung durch einen Kollegen) – nur wenn die kurze Zeile sichtbar ist
+  _terminZeileAuffrischen() {
+    const kurz = document.getElementById('terminWahlKurz');
+    if (!kurz || kurz.style.display === 'none' || !this.currentTerminId) return;
+    try { App.invalidateTerminCache && App.invalidateTerminCache(); } catch(e) {}
+    this._terminZeile();
+  },
   terminWechseln() {
     const kurz = document.getElementById('terminWahlKurz'), voll = document.getElementById('terminWahlVoll');
     if (!kurz || !voll) return;

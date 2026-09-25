@@ -266,7 +266,11 @@ console.log('\n══ S10: Kennungen zweier Rechner im selben Moment (Sammelanla
   check(idsA.length === 600 && new Set(idsA).size === 600 && !idsA.includes(idB), `600 fortlaufende Nummern von A und B's Nummer sind verschieden (A ab ${idsA[0]}, B ${idB})`);
   check(idB > 1e15 && idB < 2 ** 53 && idsA[599] < 2 ** 53, 'Nummern bleiben ganzzahlig exakt (unter 2^53)');
   check(App_newIdMonoton(A), 'Nummern eines Clients steigen streng monoton');
-  t += 200; await A.mergeAndSave(true); await B.mergeAndSave(true);
+  // 600 Ops übersteigen APPEND_MAX_BYTES – wie die App hängt der Test in Häppchen an,
+  // bis der Puffer leer ist (der nächste Auto-Save folgt im Betrieb sofort)
+  t += 200; for (let i = 0; i < 10 && A._dirtyOps.length; i++) { await A.mergeAndSave(true); t += 50; }
+  await B.mergeAndSave(true);
+  check(A._dirtyOps.length === 0, 'A hat alle 600 Ops in Häppchen angehängt');
   t += 200; for (const c of [A, B, C]) await c._pollOplogs();
   check([A, B, C].every(c => c.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen') === 601), `Alle drei haben 601 Zeilen (${[A, B, C].map(c => c.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen')).join('/')})`);
   check([A, B, C].every(c => hatNotiz(c, 'S10-B')), 'B\'s Zeile aus dem gemeinsamen Moment fehlt nirgends');

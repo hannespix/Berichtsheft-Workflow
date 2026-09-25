@@ -179,7 +179,7 @@ export async function makeClient(SQL, store, pruefer, dbBytes, opts = {}) {
   app._persistDirtyOps = async () => {};
   app._showConflicts = () => {};
   app.tryReconnect = async () => {};
-  app._smartRefresh = () => {};
+  if (!opts.keepSmartRefresh) app._smartRefresh = () => {};
   app.markDirty = function () { this.unsavedChanges = true; };
   app.db = new SQL.Database(dbBytes);
   app.migrateDB();

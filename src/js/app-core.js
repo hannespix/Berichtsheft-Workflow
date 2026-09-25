@@ -2446,11 +2446,41 @@ const App = {
       try { await this.dbFileHandle.getFile(); return this.dbFileHandle; } catch(e) { /* Zugriffspunkt veraltet → frisch suchen */ }
     }
     let letzter = null;
-    for (const d of [this.dbDirHandle, this.dirHandle]) {
-      if (!d) continue;
+    for (const d of this._dbOrdnerKandidaten()) {
       try { const h = await d.getFileHandle(name, { create: false }); await h.getFile(); return h; } catch(e) { letzter = e; }
     }
     throw letzter || new Error('Datenbankdatei nicht gefunden');
+  },
+  // In welchem Ordner liegt die geöffnete Datenbank? Nur dort wird sie
+  // (wieder-)gesucht: _dbSubDir aus dem Laden, sonst der Marker der
+  // gemeinsamen Datenbank, sonst – wie früher, aber Datenbanken/ zuerst –
+  // beide. Nie eine gleichnamige Kopie aus dem anderen Ordner nehmen.
+  _dbOrdnerKandidaten() {
+    const sub = this._dbSubDir != null ? this._dbSubDir : (this._leitDb && this._leitDb.name === this.autoLoadedDbName ? this._leitDb.subDir : null);
+    if (sub === 'Datenbanken') return this.dbDirHandle ? [this.dbDirHandle] : [];
+    if (sub === '') return this.dirHandle ? [this.dirHandle] : [];
+    return [this.dbDirHandle, this.dirHandle].filter(Boolean);
+  },
+  // Gleichnamige Datei im jeweils anderen Ordner (Hauptordner ↔ Datenbanken/)?
+  // Die Auswahl zeigt nur eine davon – die andere ist fast immer eine
+  // vergessene alte Kopie, die nach einem Zugriffsfehler fälschlich geöffnet
+  // werden konnte. Einmal je Sitzung deutlich sagen.
+  _doppelkopie: null,
+  async _doppelkopiePruefen() {
+    try {
+      this._doppelkopie = null;
+      const name = this.autoLoadedDbName; if (!name || !this.dirHandle || !this.dbDirHandle || this.dirHandle === this.dbDirHandle) return null;
+      const anderer = this._dbSubDir === 'Datenbanken' ? this.dirHandle : this.dbDirHandle;
+      const wo = this._dbSubDir === 'Datenbanken' ? 'Hauptordner' : 'Datenbanken/';
+      let f = null;
+      try { f = await (await anderer.getFileHandle(name, { create: false })).getFile(); } catch(e) { return null; }
+      this._doppelkopie = { ordner: wo, groesse: f.size, geaendert: f.lastModified };
+      const text = `Achtung: Die Datei „${name}“ liegt auch im ${wo} (${Math.round(f.size / 1024)} KB, Stand ${new Date(f.lastModified).toLocaleString('de-DE')}). Geöffnet ist die aus ${this._dbSubDir === 'Datenbanken' ? 'Datenbanken/' : 'dem Hauptordner'}. Die zweite Kopie bitte entfernen oder umbenennen – sie führt zu verschiedenen Ständen auf verschiedenen Rechnern.`;
+      console.warn('[DB] ' + text);
+      try { BhkSpur.notiere('netz', 'Gleichnamige Datenbankkopie', { ok: false, fehler: 'Doppelkopie', info: `${wo}: ${f.size} B` }); } catch(e) {}
+      if (!this._doppelkopieGewarnt) { this._doppelkopieGewarnt = true; this.toast(text, 'warning', 20000); }
+      return this._doppelkopie;
+    } catch(e) { return null; }
   },
   _netzPruefenAsync(quelle) {
     if (this._netzPruefungLaeuft) return this._netzPruefungLaeuft;
@@ -2819,6 +2849,8 @@ const App = {
       this.toast(`Datenbank "${file.name}" geladen – Auto-Save aktiv`, 'success');
       // Ist das die gemeinsame Datenbank des Ordners? (Marker ggf. nachlesen)
       try { if (!this._leitDb) this._leitDb = await this.leitDbLesen(); this._leitPruefen(); } catch(e) {}
+      // Gleichnamige Kopie im anderen Ordner? (führte über einen Zugriffsfehler zum stillen Dateiwechsel)
+      try { await this._doppelkopiePruefen(); } catch(e) {}
     } catch (e) {
       console.warn('Fehler beim Laden:', e); this.toast('Fehler beim Laden der Datenbank', 'error');
     }
@@ -3236,8 +3268,14 @@ const App = {
     try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true }); } catch(e) {}
     const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
     if (name) {
-      for (const d of [this.dirHandle, this.dbDirHandle]) {
-        if (!d) continue;
+      // NUR in dem Ordner suchen, aus dem die Datenbank geladen wurde. Vorher
+      // stand der Hauptordner an erster Stelle: lag dort eine gleichnamige
+      // alte Kopie (die Auswahl blendet sie aus!), wechselte der Rechner nach
+      // einem Cache-Fehler still auf diese Kopie – kompaktierte hinein,
+      // während die Kollegen Datenbanken/… lasen. snapmeta (gemeinsam) und
+      // Snapshot-Datei passten nicht mehr zusammen: Änderungen kamen nie an,
+      // Vollabgleich und Neuladen halfen nicht, beide Puffer waren leer.
+      for (const d of this._dbOrdnerKandidaten()) {
         try { this.dbFileHandle = await d.getFileHandle(name, { create: false }); ok = true; break; } catch(e) {}
       }
     }
@@ -3613,7 +3651,8 @@ const App = {
         }
       } catch(e) {}
       if (o.ts && this._lwwSkip(op)) continue;
-      try { this.db.run(o.sql, o.params || []); n++; this._notiereStamp(o.sql, o.params, o.ts, cid, o.seq); }
+      const sqlR = o.ts ? this._zeitDefaultsEinfrieren(o.sql, this._lokalZeit(o.ts)) : o.sql;
+      try { this.db.run(sqlR, o.params || []); n++; this._notiereStamp(o.sql, o.params, o.ts, cid, o.seq); }
       catch(e) { console.warn('[Restore] Op nicht anwendbar:', e.message, (o.sql || '').slice(0, 60)); }
     }
     if (sp) { try { this.db.run('RELEASE bhk_restore'); } catch(e) {} }
@@ -3829,10 +3868,12 @@ const App = {
     // Don't interrupt active editing
     const active = document.activeElement;
     const isEditing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+    let neuGezeichnet = false;
 
     if (this.currentView === 'kontrolle') {
       if (KontrolleHandler._viewMode === 'uebersicht' && !isEditing) {
         KontrolleHandler.renderUebersicht();
+        neuGezeichnet = true;
       } else if (KontrolleHandler._viewMode === 'einzeln') {
         // Update quick-nav status (lock indicators, other prüfer positions)
         try { KontrolleHandler._updateQuickNavStatus(); } catch(e) {}
@@ -3845,11 +3886,23 @@ const App = {
           const s = KontrolleHandler.currentSchuelerList && KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex];
           if (s && this._betroffeneAzubis && this._betroffeneAzubis.has(s.id) && !isEditing) {
             KontrolleHandler.renderSchueler();
+            neuGezeichnet = true;
             this.toast(`Ein Kollege hat ${s.nachname}, ${s.vorname} gerade geändert – Ansicht aktualisiert`, 'info');
           }
         } catch(e) {}
       }
-      if (this._betroffeneAzubis) this._betroffeneAzubis.clear();
+      // Termin selbst geändert (Abschluss, Status, Nachbereitung durch einen
+      // Kollegen)? Terminzeile und Fortschrittskarte nachziehen – die Op trägt
+      // keinen Azubi und löste bisher nichts aus
+      try {
+        if (this._betroffeneTermine && KontrolleHandler.currentTerminId && this._betroffeneTermine.has(KontrolleHandler.currentTerminId)) {
+          if (KontrolleHandler._terminZeileAuffrischen) KontrolleHandler._terminZeileAuffrischen();
+          if (KontrolleHandler._viewMode === 'einzeln' && !isEditing && !neuGezeichnet) KontrolleHandler.renderSchueler();
+        }
+      } catch(e) {}
+      // Beim Tippen NICHT vergessen, was der Kollege geändert hat: der nächste
+      // Abgleich holt das Neuzeichnen nach (vorher wurde die Menge immer geleert)
+      if (!isEditing) { if (this._betroffeneAzubis) this._betroffeneAzubis.clear(); if (this._betroffeneTermine) this._betroffeneTermine.clear(); }
     } else if (!isEditing) {
       const mc = document.getElementById('mainContent');
       const scrollY = mc ? mc.scrollTop : 0;
@@ -4104,9 +4157,54 @@ const App = {
     const d = new Date(this._serverJetzt());
     const p2 = (n) => String(n).padStart(2, '0');
     return {
-      local: `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`,
+      local: this._zeitText(d),
       utc: `${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`,
     };
+  },
+  // 'YYYY-MM-DD HH:MM:SS' in Ortszeit – dasselbe Format wie datetime('now','localtime')
+  _zeitText(d) {
+    const p2 = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  },
+  _lokalZeit(ts) { return this._zeitText(new Date(ts)); },
+  // ── Zeit-Vorgaben in INSERTs einfrieren ──
+  // Spalten wie kontrollergebnisse.geaendert_am haben DEFAULT datetime('now',
+  // 'localtime'). Fehlt die Spalte im INSERT, füllt SQLite sie auf JEDEM
+  // Rechner mit dessen Uhr zum Zeitpunkt des Ausführens – beim Kollegen also
+  // später, beim Neuladen (Nachspielen aus dem Protokoll) mit der Uhrzeit des
+  // Neuladens. Die Rückfallregel von Last-Write-Wins ohne Stempel vergleicht
+  // genau diese Spalte mit dem eingefrorenen Zeitpunkt einer späteren
+  // Änderung und verwarf sie dann: Das Ergebnis eines Kontrollergebnisses kam
+  // beim Kollegen nie an und verschwand beim Urheber nach dem Neuladen.
+  // Deshalb bekommt jeder INSERT in diese Tabellen die fehlenden Zeitspalten
+  // als festen Wert – beim Schreiben (Serverzeit) und beim Nachspielen alter
+  // Protokollzeilen (Zeit der Op), damit jede Wiederholung dasselbe ergibt.
+  ZEIT_DEFAULTS: {
+    kontrollergebnisse: ['erstellt_am', 'geaendert_am'],
+    wiedervorlagen: ['erstellt_am', 'geaendert_am'],
+    durchsicht_snapshots: ['erstellt_am'],
+    wiedervorlage_notizen: ['erstellt_am'],
+    schueler_bemerkungen: ['erstellt_am'],
+  },
+  _zeitDefaultsEinfrieren(sql, lokal) {
+    try {
+      const m = sql.match(/^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+([A-Za-z_]+)\s*\(([^)]*)\)\s*VALUES\s*\(/i);
+      if (!m) return sql;
+      const spalten = this.ZEIT_DEFAULTS[m[1].toLowerCase()];
+      if (!spalten) return sql;
+      const cols = m[2].split(',').map(c => c.trim().toLowerCase());
+      const fehlend = spalten.filter(c => !cols.includes(c));
+      if (!fehlend.length) return sql;
+      // Ende des ersten VALUES-Tupels suchen (Klammertiefe)
+      let depth = 1, i = m.index + m[0].length;
+      for (; i < sql.length && depth > 0; i++) { if (sql[i] === '(') depth++; else if (sql[i] === ')') depth--; }
+      if (depth !== 0) return sql;
+      const ende = i - 1; // Index der schließenden Klammer
+      if (/^\s*,/.test(sql.slice(i))) return sql; // mehrzeiliges VALUES – nicht anfassen
+      const kopfEnde = m.index + m[0].length - m[0].match(/\)\s*VALUES\s*\($/i)[0].length; // vor „) VALUES (“
+      const wert = fehlend.map(() => `'${lokal}'`).join(',');
+      return sql.slice(0, kopfEnde) + ',' + fehlend.join(',') + sql.slice(kopfEnde, ende) + ',' + wert + sql.slice(ende);
+    } catch(e) { return sql; }
   },
   // VALUES-Inhalt (erstes Tupel) aus einem INSERT extrahieren
   _valuesContent(sql) {
@@ -4143,7 +4241,12 @@ const App = {
       if (!content) return -1;
       const tokens = this._splitTokens(content);
       if (ci >= tokens.length || tokens[ci] !== '?') return -1;
-      return tokens.slice(0, ci).filter(t => t === '?').length;
+      // ALLE Platzhalter vor der Spalte zählen – auch die in einem Subselect
+      // wie (SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND
+      // schueler_id=?), das _rewriteKeRef einsetzt. Vorher zählten nur reine
+      // „?“-Token: bei Wiedervorlagen und Archiv-Snapshots galt dadurch die
+      // Termin-Kennung als Azubi (Speicherstatus, bhk.pruefen, Auffrischen).
+      return tokens.slice(0, ci).reduce((n, t) => n + (t.match(/\?/g) || []).length, 0);
     }
     // Wortgrenze: „id=?“ darf nicht „klasse_id=?“ treffen (sonst zeigte der
     // Speicherstatus den falschen Azubi als „wird geschrieben“)
@@ -4196,6 +4299,10 @@ const App = {
         out.opParams.unshift(id);
         cols = ['id', ...cols];
       }
+      // Zeit-Vorgaben (erstellt_am/geaendert_am) fest eintragen – lokal und im
+      // Replay-Op derselbe Wert (Serverzeit), nie die Uhr des Ausführenden
+      out.sql = this._zeitDefaultsEinfrieren(out.sql, now.local);
+      out.opSql = this._zeitDefaultsEinfrieren(out.opSql, now.local);
       // Re-Anlage hebt eine frühere Löschung (Tombstone) auf
       if (this.TOMBSTONE_TABLES.has(table)) {
         const keyCols = this.NATURAL_KEYS[table] || ['id'];
@@ -5204,6 +5311,9 @@ const App = {
         // gesehen haben – sonst verliert ein Client mit nachgehender Uhr jede
         // kausal spätere Änderung in der ts-Sortierung der Empfänger.
         if (op.ts && op.ts > (this._maxSeenTs || 0)) this._maxSeenTs = op.ts;
+        // Alte Protokollzeilen ohne feste Zeitspalten: mit der Zeit der Op
+        // nachspielen, nicht mit der Uhr dieses Rechners (siehe _zeitDefaultsEinfrieren)
+        if (op.ts) op.sql = this._zeitDefaultsEinfrieren(op.sql, this._lokalZeit(op.ts));
         try {
           if (!this._lwwSkip(op)) {
             lauf(op.sql, op.params);
@@ -5333,7 +5443,11 @@ const App = {
       const sig = this._opSignatur(sql, params);
       if (!sig) return;
       if (!this._rowStamps) this._rowStamps = new Map();
-      if (this._rowStamps.size > this.STAMPS_MAX * 2) this._rowStamps.clear();
+      // Nie ALLE Stempel wegwerfen: vorher wurde die ganze Karte geleert, sobald
+      // sie 2 × STAMPS_MAX überschritt – danach fiel jede Kontrollergebnis-Zeile
+      // auf die Rückfallregel über geaendert_am zurück und kw_status hatte gar
+      // keinen Schutz mehr. Jetzt werden nur die ältesten Zeilen verdrängt.
+      if (this._rowStamps.size > this.STAMPS_MAX * 2) this._stampsEindampfen();
       const k = sig.table + '|' + sig.key;
       const eintrag = this._rowStamps.get(k) || {};
       const st = { ts, c: c || '', seq: seq || 0 };
@@ -5363,6 +5477,17 @@ const App = {
       v[teil.slice(0, i)] = { ts: Number(ts) || 0, c: c || '', seq: Number(seq) || 0 };
     });
     return v;
+  },
+  // Nur die jüngsten STAMPS_MAX Zeilen behalten (älteste Stempel verdrängen)
+  _stampsEindampfen() {
+    try {
+      if (!this._rowStamps || this._rowStamps.size <= this.STAMPS_MAX) return 0;
+      const juengster = (v) => Math.max(0, ...Object.values(v).map(s => s.ts || 0));
+      const eintraege = [...this._rowStamps].sort((a, b) => juengster(b[1]) - juengster(a[1]));
+      const weg = eintraege.length - this.STAMPS_MAX;
+      this._rowStamps = new Map(eintraege.slice(0, this.STAMPS_MAX));
+      return weg;
+    } catch(e) { return 0; }
   },
   _stampsSpeichern() {
     try {
@@ -5477,6 +5602,13 @@ const App = {
   _merkeBetroffenenAzubi(sql, params) {
     const sid = this._azubiAusOp(sql, params);
     if (sid != null) { if (!this._betroffeneAzubis) this._betroffeneAzubis = new Set(); this._betroffeneAzubis.add(sid); }
+    // Termin-Ops (Status, Abschluss, Nachbereitung, Aufteilung) merken
+    try {
+      if (/^\s*UPDATE\s+kontrolltermine\b/i.test(sql)) {
+        const pi = this._paramIndexForColumn(sql, 'id');
+        if (pi >= 0 && pi < (params || []).length) { if (!this._betroffeneTermine) this._betroffeneTermine = new Set(); this._betroffeneTermine.add(Number(params[pi])); }
+      }
+    } catch(e) {}
   },
 
   // ── Bootstrap nach dem Laden der Snapshot-Datei ──
@@ -5505,7 +5637,9 @@ const App = {
       const h = await dir.getFileHandle(this._snapMetaName(), { create: false });
       meta = JSON.parse(await (await h.getFile()).text());
     } catch(e) { /* erste Nutzung: kein Snapshot-Meta → Logs komplett anwenden */ }
-    const baseOffsets = (meta && meta.offsets) || {};
+    // Offsets aus der geladenen Datei selbst (bhk_meta), snapmeta.json nur als Rückfall
+    const wahl = this._snapshotMetaWaehlen(this._snapshotMetaIntern(), meta, 'Start');
+    const baseOffsets = wahl.offsets;
     const prefix = this._oplogPrefix();
     const mine = this._myOplogName();
     const batch = [];
@@ -5587,7 +5721,7 @@ const App = {
       this._ownLogUids = new Set();
       this._applyOps(batch);
       this._ownLogUids = ownUids;
-      this._snapGen = (meta && meta.gen) || 0;
+      this._snapGen = wahl.gen;
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
       this._fremdeDatenbankenPruefen([...fremde.values()]);
@@ -5764,6 +5898,15 @@ const App = {
       // stale und ein zweiter Client kompaktierte parallel.
       await this._refreshLock();
       this._stampsSpeichern();
+      // Offsets und Generation IN die Snapshot-Datei schreiben (bhk_meta):
+      // snapmeta.json und .sqlite waren bisher nicht gekoppelt. Wer eine
+      // ältere Datei mit neuerem snapmeta las (Start-Rennen, Zugriff auf eine
+      // gleichnamige Kopie, Windows-Zwischenspeicher), übersprang alle Ops
+      // zwischen beiden Ständen für immer. Jetzt liest jeder Lader die
+      // Offsets aus der Datei selbst – sie gehören garantiert zu ihr.
+      const neueGen = Math.max(diskGen, this._snapGen || 0) + 1;
+      const metaIntern = { offsets, gen: neueGen, t: new Date().toISOString(), by: this._getClientId(), grund: reason };
+      this._snapshotMetaSchreiben(metaIntern);
       const data = this.db.export();
       this.ladeText && this._ladeTimer && this.ladeText(`Datenbank schreiben (${Math.round(data.length / 1024 / 1024)} MB)…`);
       // Zeitlimit nach Größe (120 s + 10 s je MB) und Sperren-Herzschlag
@@ -5815,8 +5958,8 @@ const App = {
       await this._refreshLock();
       const metaHandle = await dir.getFileHandle(this._snapMetaName(), { create: true });
       const mw = await metaHandle.createWritable();
-      this._snapGen = Math.max(diskGen, this._snapGen || 0) + 1;
-      await mw.write(JSON.stringify({ offsets, gen: this._snapGen, t: new Date().toISOString(), by: this._getClientId(), grund: reason }));
+      this._snapGen = neueGen;
+      await mw.write(JSON.stringify(metaIntern));
       await mw.close();
       try { const f2 = await this.dbFileHandle.getFile(); this.dbLastModified = f2.lastModified; this._lastFileSize = f2.size; } catch(e) {}
       await this._writeSyncMarker();
@@ -5948,6 +6091,9 @@ const App = {
         const qc = neu.exec('PRAGMA quick_check(1)');
         if (!qc.length || qc[0].values[0][0] !== 'ok') throw new Error('quick_check: ' + (qc.length ? qc[0].values[0][0] : '?'));
       } catch(e) { neu.close(); console.warn('[SyncV3] Fremder Snapshot unbrauchbar – bleibe beim alten Stand:', e.message); return; }
+      // Offsets aus der DATEI (bhk_meta), nicht aus snapmeta.json – ist die
+      // Datei älter als das Meta, würde sonst alles dazwischen übersprungen
+      const wahl = this._snapshotMetaWaehlen(this._snapshotMetaIntern(neu), meta, 'Tausch');
       // Alles, was NICHT im Snapshot steckt, VOR dem Tausch einsammeln:
       // eigene Log-Enden (der Kompaktierer kannte unser Log nur bis zu
       // seinem Lesestand) UND fremde Log-Enden. Beides wird anschließend
@@ -5963,7 +6109,7 @@ const App = {
       let eigenesUnlesbar = false;
       for await (const [name, fh] of dir.entries()) {
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
-        const off = (meta.offsets || {})[name] || 0;
+        const off = wahl.offsets[name] || 0;
         const istEigenes = name.startsWith(eigenPrefix);
         try {
           const r = await this._leseLogDatei(fh, off);
@@ -5991,7 +6137,7 @@ const App = {
       this.migrateDB();
       this._keIdsLokalHalten(lokaleKe);
       this._stampsLaden();
-      this._snapGen = gen;
+      this._snapGen = wahl.gen;
       this._logOffsets = {};
       this._appliedForeignUids = new Set();
       this._ownLogUids = new Set();
@@ -6017,7 +6163,7 @@ const App = {
         let sp = false; try { this.db.run('SAVEPOINT bhk_puffer'); sp = true; } catch(e) {}
         for (const o of offen) {
           if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq, zwang: o.zwang })) continue;
-          try { this.db.run(o.sql, o.params || []); } catch(e) {}
+          try { this.db.run(o.ts ? this._zeitDefaultsEinfrieren(o.sql, this._lokalZeit(o.ts)) : o.sql, o.params || []); } catch(e) {}
         }
         if (sp) { try { this.db.run('RELEASE bhk_puffer'); } catch(e) {} }
       }
@@ -6044,6 +6190,39 @@ const App = {
     } finally {
       if (this._snapWechsel) { this._snapWechsel = false; if (this._dirtyOps.length && !this._netzWeg) setTimeout(() => this.scheduleAutoSave(), 200); }
     }
+  },
+  // ── Offsets/Generation in der Snapshot-Datei selbst (Tabelle bhk_meta) ──
+  _snapshotMetaSchreiben(meta) {
+    try {
+      this.db.run('CREATE TABLE IF NOT EXISTS bhk_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+      this.db.run("INSERT OR REPLACE INTO bhk_meta (k, v) VALUES ('snapmeta', ?)", [JSON.stringify(meta)]);
+      return true;
+    } catch(e) { console.warn('[SyncV3] bhk_meta schreiben:', e.message); return false; }
+  },
+  // Liest die in der Datenbank (db oder übergebene Instanz) hinterlegten
+  // Snapshot-Offsets; null bei alten Snapshots ohne bhk_meta.
+  _snapshotMetaIntern(db) {
+    try {
+      const r = (db || this.db).exec("SELECT v FROM bhk_meta WHERE k='snapmeta'");
+      if (!r.length || !r[0].values.length) return null;
+      const m = JSON.parse(r[0].values[0][0]);
+      return m && m.offsets ? m : null;
+    } catch(e) { return null; }
+  },
+  // Welche Offsets gelten für die geladene Datei? Die aus der Datei, wenn sie
+  // welche trägt; snapmeta.json nur für Snapshots ohne bhk_meta. Passt die
+  // Datei nicht zur Generation in snapmeta.json (älter), wird das gemeldet –
+  // gelesen wird ab dem Stand der DATEI, damit nichts übersprungen wird.
+  _snapshotMetaWaehlen(intern, extern, quelle) {
+    if (intern && intern.offsets) {
+      if (extern && (extern.gen || 0) > (intern.gen || 0)) {
+        const text = `Snapshot-Datei ist älter (Generation ${intern.gen}) als snapmeta.json (Generation ${extern.gen}) – Protokolle werden ab dem Stand der Datei gelesen (${quelle})`;
+        console.warn('[SyncV3] ' + text);
+        try { BhkSpur.notiere('snapshot', 'Snapshot älter als snapmeta', { ok: false, fehler: 'Generation ' + intern.gen + ' < ' + extern.gen, info: quelle }); } catch(e) {}
+      }
+      return { offsets: intern.offsets, gen: Math.max(intern.gen || 0, (extern && extern.gen) || 0), intern: true };
+    }
+    return { offsets: (extern && extern.offsets) || {}, gen: (extern && extern.gen) || 0, intern: false };
   },
   // Deckt der eigene Lesestand jedes Protokoll mindestens bis zu dem Offset
   // ab, den der Snapshot enthält? Nur für reine Protokoll-Kompaktierungen.
