@@ -3471,7 +3471,7 @@ const App = {
       // Last-Write-Wins gegen zwischenzeitliche Änderungen der Kollegen.
       const alle = [...(this._opsInFlight || []), ...this._dirtyOps];
       if (alle.length > 0) {
-        store.put({ id: this._idbOpsKey(), ops: alle.map(o => ({uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params})), ts: Date.now() });
+        store.put({ id: this._idbOpsKey(), ops: alle.map(o => ({uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params, ...(o.zwang ? { zwang: 1 } : {})})), ts: Date.now() });
       }
     } catch(e) { /* IndexedDB not available – non-critical */ }
   },
@@ -4226,7 +4226,7 @@ const App = {
       return;
     }
     const prep = this._prepareOp(sql, params);
-    const stamp = () => ({ uid: this._newUid(), ts: this._stampTs(), seq: this._nextSeq() });
+    const stamp = () => ({ uid: this._newUid(), ts: this._stampTs(), seq: this._nextSeq(), ...(this._opZwang ? { zwang: 1 } : {}) });
     prep.pre.forEach(x => {
       try { this.db.run(x.sql, x.params); this._dirtyOps.push({ ...stamp(), sql: x.sql, params: x.params }); }
       catch(e) { console.warn('[Sync] Vor-Op fehlgeschlagen:', e.message, x.sql.slice(0, 60)); }
@@ -4241,7 +4241,7 @@ const App = {
     const sid = this._azubiAusOp(rec.sql, rec.params);
     if (sid != null) { rec.sid = sid; this._ungesichertAzubis.add(sid); }
     this._dirtyOps.push(rec);
-    this._notiereStamp(rec.sql, rec.params, rec.ts, this._getClientId(), rec.seq);
+    this._notiereStamp(rec.sql, rec.params, rec.ts, this._getClientId(), rec.seq, rec.zwang);
     // Suchindex verwerfen – sonst zeigt die Suche veraltete Werte
     try { if (typeof GlobalSearch !== 'undefined') GlobalSearch._hayCache = null; } catch(e) {}
     this.markDirty();
@@ -4551,7 +4551,7 @@ const App = {
     const zeilen = [];
     let summe = 0, anzahl = 0;
     for (const o of this._dirtyOps) {
-      const z = JSON.stringify({ uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params }) + '\n';
+      const z = JSON.stringify({ uid: o.uid, ts: o.ts ?? jetzt, seq: o.seq ?? 0, c: cid, u: pruefer, sql: o.sql, params: o.params, ...(o.zwang ? { zwang: 1 } : {}) }) + '\n';
       if (anzahl > 0 && summe + z.length > this.APPEND_MAX_BYTES) break;
       zeilen.push(z); summe += z.length; anzahl++;
     }
@@ -4954,7 +4954,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], gesamtOps: 0, versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -4977,13 +4977,94 @@ const App = {
           const opSid = op.sid != null ? op.sid : this._azubiAusOp(op.sql, op.params);
           if (opSid !== sid) return;
           eintrag.ops++; out.gesamtOps++;
-          if (op.uid && !bekannt(op.uid)) { eintrag.unbekannt++; if (out.unbekannt.length < 40) out.unbekannt.push({ protokoll: name, zeit: op.ts ? new Date(op.ts).toLocaleString('de-DE') : '', rechner: op.c || '', sql: String(op.sql).slice(0, 70) }); }
+          const kurz = () => ({ protokoll: name, zeit: op.ts ? new Date(op.ts).toLocaleString('de-DE') : '', rechner: op.c || '', sql: String(op.sql).slice(0, 70) });
+          if (op.uid && !bekannt(op.uid)) { eintrag.unbekannt++; if (out.unbekannt.length < 40) out.unbekannt.push(kurz()); }
+          // „Bekannt“ heißt nur: gelesen. Eine Op, die beim Lesen älter war als
+          // der lokale Stempel derselben Spalten, wurde VERWORFEN (Last-Write-
+          // Wins) – der Rechner zeigt dann seinen eigenen Wert, obwohl er die
+          // Op kennt. Das ist der häufigste Grund für „bei mir steht etwas
+          // anderes“, und bhk.pruefen sagte bisher „alles angewendet“.
+          else if (op.uid && op.c !== this._getClientId() && this._lwwSkip(op)) { eintrag.verworfen = (eintrag.verworfen || 0) + 1; if (out.verworfen.length < 40) out.verworfen.push(kurz()); }
         });
       } catch(e) { eintrag.fehler = e && e.message || String(e); }
       out.protokolle.push(eintrag);
     }
     out.unbekanntGesamt = out.protokolle.reduce((n, p) => n + (p.unbekannt || 0), 0);
+    out.verworfenGesamt = out.protokolle.reduce((n, p) => n + (p.verworfen || 0), 0);
     return out;
+  },
+
+  // ── Stand DIESES Rechners für alle: Durchsicht eines Azubis oder eines
+  //    ganzen Termins als NEUESTE Änderung ins Protokoll schreiben ──
+  // Wenn zwei Rechner nach einem Konflikt dauerhaft verschiedene Stände zeigen
+  // (Uhrversatz, verlorener Lesestand, gegenseitig verworfene Ops), ist der
+  // Vollabgleich die sanfte Heilung – er dreht Neueres nicht zurück. Sollen
+  // die Kollegen aber genau DIESEN Stand haben, schreibt diese Funktion jede
+  // Zeile der Durchsicht (Kontrollergebnis, alle Wochen des Azubis, Mängel,
+  // Wiedervorlagen samt Notizen, die jüngsten Archiv-Snapshots) als Upsert mit
+  // frischem Stempel ins eigene Protokoll. Der Stempel liegt über allem, was
+  // dieser Rechner je gesehen hat (Lamport-Uhr, Serverzeit), deshalb übernimmt
+  // jeder Kollege den Stand – auch wenn dort etwas anderes stand. Lokal ändert
+  // sich nichts (gleiche Werte). Kein DELETE: Wochen, die nur beim Kollegen
+  // existieren, bleiben dort – Löschen und Neuanlegen änderte kw_status-
+  // Kennungen, an denen Wiedervorlagen hängen. Die Kennung des Kontroll-
+  // ergebnisses wird nicht mitgeschickt (natürlicher Schlüssel Termin+Azubi),
+  // Verweise darauf löst der Empfänger gegen seine Zeile auf (_rewriteKeRef).
+  // Rückgabe { azubis, zeilen, ops, text }: text = dieselben Ops als
+  // Änderungsdatei (Notausgang: Wartung → Verbindung → „Änderungsdatei
+  // einspielen“ auf dem anderen Rechner, falls das Protokoll ihn nicht erreicht).
+  standAusschreiben({ terminId, schuelerId } = {}) {
+    terminId = terminId != null ? Number(terminId) : null;
+    const sids = schuelerId != null ? [Number(schuelerId)]
+      : terminId != null ? this.query('SELECT schueler_id FROM kontrollergebnisse WHERE kontrolltermin_id=? ORDER BY schueler_id', [terminId]).map(r => r.schueler_id)
+      : [];
+    const ab = this._dirtyOps.length;
+    let zeilen = 0;
+    const upsert = (table, row, keyCols, mitId) => {
+      const cols = Object.keys(row).filter(c => mitId || c !== 'id');
+      const set = cols.filter(c => !keyCols.includes(c));
+      if (!set.length) return;
+      this.run(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')}) ON CONFLICT(${keyCols.join(',')}) DO UPDATE SET ${set.map(c => `${c}=excluded.${c}`).join(', ')}`, cols.map(c => row[c]));
+      zeilen++;
+    };
+    // Zwang: Die Ops tragen `zwang: 1`. Ein Empfänger wendet sie IMMER an und
+    // setzt seine Stempel darauf – auch wenn er für dieselben Felder einen
+    // Stempel aus der Zukunft hat (alte Uhr, die vorging), den dieser Rechner
+    // nie gesehen hat und mit der Lamport-Uhr deshalb nicht überbieten kann.
+    this._opZwang = true;
+    try {
+    for (const sid of sids) {
+      const kes = terminId != null
+        ? this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, sid])
+        : this.query('SELECT * FROM kontrollergebnisse WHERE schueler_id=? ORDER BY id', [sid]);
+      for (const ke of kes) {
+        upsert('kontrollergebnisse', ke, ['kontrolltermin_id', 'schueler_id'], false);
+        this.query('SELECT * FROM kw_maengel WHERE kontrollergebnis_id=?', [ke.id]).forEach(m => upsert('kw_maengel', m, ['kontrollergebnis_id', 'ausbildungsjahr', 'kalenderwoche'], false));
+        this.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [ke.id]).forEach(w => {
+          upsert('wiedervorlagen', w, ['id'], true);
+          this.query('SELECT * FROM wiedervorlage_notizen WHERE wiedervorlage_id=?', [w.id]).forEach(n => upsert('wiedervorlage_notizen', n, ['id'], true));
+        });
+        this.query('SELECT * FROM durchsicht_snapshots WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 3', [ke.id]).forEach(sn => upsert('durchsicht_snapshots', sn, ['id'], true));
+      }
+      this.query('SELECT * FROM kw_status WHERE schueler_id=? ORDER BY ausbildungsjahr, kalenderwoche', [sid]).forEach(k => upsert('kw_status', k, ['schueler_id', 'ausbildungsjahr', 'kalenderwoche'], false));
+    }
+    } finally { this._opZwang = false; }
+    const ops = this._dirtyOps.slice(ab);
+    const cid = this._getClientId();
+    const text = ops.map(o => JSON.stringify({ uid: o.uid, ts: o.ts, seq: o.seq, c: cid, sql: o.sql, params: o.params, zwang: 1 })).join('\n') + (ops.length ? '\n' : '');
+    try { BhkSpur.notiere('anhaengen', 'Stand ausgeschrieben', { ok: true, info: `${sids.length} Azubi(s), ${zeilen} Zeilen, ${ops.length} Ops${terminId != null ? ` (Termin ${terminId})` : ''}` }); } catch(e) {}
+    if (ops.length) this.sofortSpeichern('Stand ausschreiben').catch(() => {});
+    return { azubis: sids.length, zeilen, ops: ops.length, text };
+  },
+  // Die Ops eines Ausschreibens als Datei (Notausgang)
+  standAlsDatei(text, kennung) {
+    if (!text) return this.toast('Nichts auszuschreiben', 'info');
+    const blob = new Blob([text], { type: 'application/x-ndjson' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = this.safeFilename(['bhk_stand', this.autoLoadedDbName || 'db', kennung || '', this._getClientId(), new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')], 'jsonl');
+    a.click();
+    this.toast('Stand als Datei gesichert – auf dem anderen Rechner unter Wartung → Verbindung → „Änderungsdatei einspielen“', 'success');
   },
 
   // Eine Log-Datei ab Offset lesen: liefert vollständige Zeilen + Lesestand
@@ -5045,7 +5126,7 @@ const App = {
         try {
           if (!this._lwwSkip(op)) {
             lauf(op.sql, op.params);
-            this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq);
+            this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq, op.zwang);
             this._merkeBetroffenenAzubi(op.sql, op.params);
             applied++;
           }
@@ -5062,7 +5143,7 @@ const App = {
       for (const op of fehlgeschlagen) {
         try {
           lauf(op.sql, op.params);
-          this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq);
+          this._notiereStamp(op.sql, op.params, op.ts, op.c, op.seq, op.zwang);
           this._merkeBetroffenenAzubi(op.sql, op.params);
           applied++;
         } catch(e) {
@@ -5163,7 +5244,9 @@ const App = {
     if (ca !== cb) return ca.localeCompare(cb) > 0;
     return (a.seq || 0) > (b.seq || 0);
   },
-  _notiereStamp(sql, params, ts, c, seq) {
+  // zwang: Stempel dieser Op übernehmen, auch wenn lokal ein neuerer steht
+  // (Stand ausschreiben – siehe standAusschreiben)
+  _notiereStamp(sql, params, ts, c, seq, zwang) {
     try {
       if (!ts) return;
       const sig = this._opSignatur(sql, params);
@@ -5173,7 +5256,7 @@ const App = {
       const k = sig.table + '|' + sig.key;
       const eintrag = this._rowStamps.get(k) || {};
       const st = { ts, c: c || '', seq: seq || 0 };
-      sig.cols.forEach(col => { if (!eintrag[col] || this._stampNeuer(st, eintrag[col])) eintrag[col] = st; });
+      sig.cols.forEach(col => { if (zwang || !eintrag[col] || this._stampNeuer(st, eintrag[col])) eintrag[col] = st; });
       this._rowStamps.set(k, eintrag);
     } catch(e) {}
   },
@@ -5274,6 +5357,7 @@ const App = {
   // Tabellen werden dann angewendet.
   _lwwSkip(op) {
     try {
+      if (op.zwang) return false; // ausgeschriebener Stand gilt immer
       const sig = this._opSignatur(op.sql, op.params);
       if (!sig) return false;
       const eintrag = this._rowStamps && this._rowStamps.get(sig.table + '|' + sig.key);
@@ -5771,7 +5855,7 @@ const App = {
         // einzeln mit Autocommit dauerte das Sekunden
         let sp = false; try { this.db.run('SAVEPOINT bhk_puffer'); sp = true; } catch(e) {}
         for (const o of offen) {
-          if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq })) continue;
+          if (this._lwwSkip({ sql: o.sql, params: o.params, ts: o.ts, c: cid, seq: o.seq, zwang: o.zwang })) continue;
           try { this.db.run(o.sql, o.params || []); } catch(e) {}
         }
         if (sp) { try { this.db.run('RELEASE bhk_puffer'); } catch(e) {} }
@@ -8732,7 +8816,7 @@ const App = {
   _opPufferText() {
     const cid = this._getClientId();
     const alle = [...(this._opsInFlight || []), ...this._dirtyOps];
-    return alle.map(o => JSON.stringify({ uid: o.uid, ts: o.ts, seq: o.seq, c: cid, sql: o.sql, params: o.params })).join('\n') + (alle.length ? '\n' : '');
+    return alle.map(o => JSON.stringify({ uid: o.uid, ts: o.ts, seq: o.seq, c: cid, sql: o.sql, params: o.params, ...(o.zwang ? { zwang: 1 } : {}) })).join('\n') + (alle.length ? '\n' : '');
   },
   exportOpPuffer() {
     const text = this._opPufferText();
@@ -8753,7 +8837,7 @@ const App = {
     if (!ops.length) return { angewendet: 0, uebernommen: 0 };
     const neu = ops.filter(o => !o.uid || !((this._ownLogUids && this._ownLogUids.has(o.uid)) || (this._appliedForeignUids && this._appliedForeignUids.has(o.uid))));
     const angewendet = this._applyOps(neu.map(o => JSON.stringify(o)));
-    neu.forEach(o => this._dirtyOps.push({ uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params }));
+    neu.forEach(o => this._dirtyOps.push({ uid: o.uid, ts: o.ts, seq: o.seq, sql: o.sql, params: o.params, ...(o.zwang ? { zwang: 1 } : {}) }));
     try { this._entdoppleWiedervorlagen(); } catch(e) {}
     if (neu.length) { this.unsavedChanges = true; this.scheduleAutoSave(); this._smartRefresh(); }
     return { angewendet, uebernommen: neu.length };

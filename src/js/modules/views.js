@@ -1539,6 +1539,10 @@ const Views = {
           <button class="btn btn-secondary" onclick="Konsole.vollabgleichDialog()" title="Alle Protokolle der Kollegen ab dem Snapshot-Stand neu einlesen – wenn ein Rechner Änderungen der anderen nicht zeigt. Neuere eigene Werte bleiben erhalten.">⟳ Vollabgleich</button>
           <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
         </div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px;line-height:1.6">
+          <strong>Zwei Rechner zeigen für einen Azubi verschiedene Stände?</strong> Zuerst auf dem Rechner, dem etwas fehlt, „⟳ Vollabgleich“. Hilft das nicht, hat dieser Rechner die Änderungen des Kollegen <em>verworfen</em>, weil er für dieselben Felder eigene, neuere Werte hatte (Last-Write-Wins; <code>bhk.pruefen(id)</code> zeigt „verworfen“).
+          Dann auf dem Rechner mit dem <strong>richtigen</strong> Stand in der Durchsicht ⋯ → <strong>„Stand dieses Rechners für alle übernehmen“</strong> (je Azubi oder für den ganzen Termin über „Weitere Aktionen“): Ergebnis, Wochen, Mängel und Wiedervorlagen werden als neueste Änderung ins Protokoll geschrieben, alle anderen Rechner übernehmen sie. „Änderungen als Datei“ enthält dagegen nur, was dieser Rechner noch <em>nicht</em> ins Protokoll schreiben konnte – nach erfolgreichem Speichern ist die Liste leer.
+        </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
       </div>
 
@@ -2769,6 +2773,7 @@ const Views = {
             <p>• Jeder Sachbearbeiter öffnet dieselbe HTML-Datei im Browser und wählt denselben Arbeitsordner</p>
             <p>• Der Synchronisationsmarker in <code>_bhk/sync_*</code> darf im laufenden Betrieb nicht gelöscht werden</p>
             <p>• Bei Synchronisationsproblemen: Alle Browser-Instanzen schließen, <code>_bhk/sync_*</code> löschen, Anwendung neu starten</p>
+            <p>• <strong>Zwei Rechner zeigen für einen Azubi verschiedene Stände:</strong> erst auf dem Rechner, dem etwas fehlt, <em>Wartung → Verbindung → Vollabgleich</em>. Hilft das nicht, gilt dort ein eigener, neuerer Wert (Last-Write-Wins). Dann auf dem Rechner mit dem <em>richtigen</em> Stand in der Durchsicht ⋯ → <em>„Stand dieses Rechners für alle übernehmen“</em> (je Azubi oder über „Weitere Aktionen“ für den ganzen Termin) – Ergebnis, Wochen, Mängel und Wiedervorlagen gehen als neueste Änderung ins Protokoll, alle übernehmen sie. „Änderungen als Datei“ enthält nur noch nicht geschriebene Änderungen und ist nach erfolgreichem Speichern leer</p>
             <p style="margin-top:8px"><strong>Datenbank-Wartung:</strong></p>
             <p>• <em>Einstellungen → Betriebe zusammenführen</em>: Zusammenführung von Betriebsduplikaten (unterschiedliche Schreibweisen desselben Betriebs)</p>
             <p>• <em>IBYKUS Re-Import</em>: Bestehende Datensätze werden anhand der BAV-Identnummer aktualisiert, nicht dupliziert</p>
