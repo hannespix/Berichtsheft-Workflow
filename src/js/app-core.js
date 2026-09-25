@@ -2034,6 +2034,18 @@ const App = {
   // Ordnerwechsel und Auto-Reconnect. Liefert true, wenn eine Datenbank geladen
   // wurde (oder die Auswahl angezeigt wird).
   async dbImOrdnerOeffnen(quelle, { neuBeiLeer = false } = {}) {
+    // Unterordner der Arbeitsumgebung gewählt (Datenbanken, _bhk, backups)?
+    // Abweisen, nichts merken, zurück zum Startbildschirm – sonst entsteht
+    // dort ein verirrtes Datenbanken/Datenbanken samt eigenem _bhk
+    if (this._ordnerUnzulaessig) {
+      const n = this._ordnerUnzulaessig;
+      this.toast(`„${n}“ ist ein Unterordner der Arbeitsumgebung, kein Arbeitsordner. Bitte den Hauptordner wählen – den Ordner, der „Datenbanken“ enthält.`, 'error', 20000);
+      try { BhkSpur.notiere('netz', 'Unterordner als Arbeitsordner abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: n }); } catch(e) {}
+      try { await this.storeDirHandle(null); } catch(e) {}
+      this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null; this._ordnerUnzulaessig = '';
+      try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen (er enthält „Datenbanken“ und „_bhk“).</div>`; } catch(e) {}
+      return false;
+    }
     let leit = await this.leitDbLesen();
     this._leitDb = leit;
     const last = this.restoreLastDb();
@@ -2100,8 +2112,26 @@ const App = {
     try { BhkSpur.notiere('netz', 'Nicht die gemeinsame Datenbank', { ok: false, fehler: 'andere Datenbank', info: `${this.autoLoadedDbName} statt ${this._leitDb.name}` }); } catch(e) {}
   },
 
+  // Ordnernamen, die nie der Arbeitsordner sein dürfen: Unterordner der
+  // Arbeitsumgebung. Wählt jemand versehentlich „Datenbanken“ selbst, legte
+  // die App dort ein leeres Datenbanken/Datenbanken und ein eigenes _bhk an –
+  // derselbe Datenbestand, aber getrennte Protokolle (Feldfall).
+  UNTERORDNER_NAMEN: ['Datenbanken', '_bhk', 'backups'],
+  _ordnerUnzulaessig: '',
+  _ordnerZulaessig(handle) {
+    const n = (handle && handle.name) || '';
+    return !this.UNTERORDNER_NAMEN.some(u => u.toLowerCase() === n.toLowerCase());
+  },
   async ensureAppDirs() {
     if (!this.dirHandle) return;
+    if (!this._ordnerZulaessig(this.dirHandle)) {
+      // NICHTS anlegen – sonst entsteht genau der verirrte Unterordner
+      this._ordnerUnzulaessig = this.dirHandle.name || '';
+      this.bhkDirHandle = null; this.backupsDirHandle = null; this.dbDirHandle = null;
+      console.warn('[DB] Unzulässiger Arbeitsordner gewählt:', this._ordnerUnzulaessig);
+      return;
+    }
+    this._ordnerUnzulaessig = '';
     try { this.bhkDirHandle = await this.dirHandle.getDirectoryHandle('_bhk', { create: true });
       this.backupsDirHandle = await this.bhkDirHandle.getDirectoryHandle('backups', { create: true });
       this._bhkFehlt = '';
@@ -2114,8 +2144,17 @@ const App = {
       try { BhkSpur.notiere('netz', 'Ordner _bhk nicht zugänglich', { ok: false, fehler: this._bhkFehlt, art: BhkSpur.fehlerArt ? BhkSpur.fehlerArt(e) : '' }); } catch(_) {}
       this.toast(`Achtung: Der Unterordner „_bhk“ konnte nicht geöffnet oder angelegt werden (${this._bhkFehlt}). Änderungen werden dann NICHT mit den Kollegen geteilt. Bitte Ordnerrechte prüfen und neu verbinden.`, 'error', 20000);
     }
-    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true });
-    } catch(e) { console.warn('Datenbanken/ dir failed:', e); }
+    // Datenbanken/ NICHT auf Vorrat anlegen (nur öffnen, wenn vorhanden) –
+    // angelegt wird der Ordner erst, wenn dort wirklich eine Datenbank entsteht
+    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: false });
+    } catch(e) { this.dbDirHandle = null; }
+  },
+  // Datenbanken/ bei Bedarf anlegen (neue Datenbank)
+  async _datenbankenOrdnerAnlegen() {
+    if (this.dbDirHandle) return this.dbDirHandle;
+    if (!this.dirHandle || !this._ordnerZulaessig(this.dirHandle)) return null;
+    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true }); } catch(e) { this.dbDirHandle = null; }
+    return this.dbDirHandle;
   },
 
   async scanForDatabases() {
@@ -2524,9 +2563,22 @@ const App = {
         } catch(e) {}
       }
     } catch(e) {}
+    // Spuren einer Fehlwahl: jemand hat „Datenbanken“ selbst als Arbeitsordner
+    // gewählt – dann liegen dort Datenbanken/Datenbanken oder Datenbanken/_bhk
+    try {
+      if (this.dbDirHandle && this.dbDirHandle.entries) {
+        let m = 0;
+        for await (const [n2, h2] of this.dbDirHandle.entries()) {
+          if (++m > 300) break;
+          if (h2.kind === 'directory' && (n2 === 'Datenbanken' || n2 === '_bhk')) funde.push({ ordner: 'Datenbanken/' + n2, verirrt: true, sqlite: 0, datenbanken: n2 === 'Datenbanken', bhk: n2 === '_bhk' });
+        }
+      }
+    } catch(e) {}
     this._unterordnerMitDb = funde;
     if (funde.length) {
-      const text = `Achtung: ${funde.length === 1 ? 'Der Unterordner' : 'Die Unterordner'} ${funde.map(f => `„${f.ordner}“`).join(', ')} ${funde.length === 1 ? 'enthält' : 'enthalten'} eine eigene Datenbank. Wählt ein Kollege beim Start diesen Ordner, arbeitet er getrennt von allen anderen. Bitte alte Kopien wegräumen (außerhalb des Arbeitsordners) – es darf nur EINEN Arbeitsordner geben.`;
+      const verirrt = funde.filter(f => f.verirrt), echt = funde.filter(f => !f.verirrt);
+      const text = (echt.length ? `Achtung: ${echt.length === 1 ? 'Der Unterordner' : 'Die Unterordner'} ${echt.map(f => `„${f.ordner}“`).join(', ')} ${echt.length === 1 ? 'enthält' : 'enthalten'} eine eigene Datenbank. Wählt ein Kollege beim Start diesen Ordner, arbeitet er getrennt von allen anderen. Bitte alte Kopien wegräumen (außerhalb des Arbeitsordners) – es darf nur EINEN Arbeitsordner geben. ` : '')
+        + (verirrt.length ? `Verirrte Unterordner ${verirrt.map(f => `„${f.ordner}“`).join(', ')}: Spur davon, dass jemand „Datenbanken“ selbst als Arbeitsordner gewählt hat (die App weist das jetzt ab). Bitte prüfen und löschen – dort liegende Protokolle gehören zu einem getrennten Stand.` : '');
       console.warn('[DB] ' + text);
       try { BhkSpur.notiere('netz', 'Unterordner mit eigener Datenbank', { ok: false, fehler: 'Unterordner', info: funde.map(f => f.ordner).join(', ') }); } catch(e) {}
       if (!this._unterordnerGewarnt) { this._unterordnerGewarnt = true; this.toast(text, 'warning', 20000); }
@@ -2878,6 +2930,8 @@ const App = {
       this.db.run(`INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung, typ, jahr, aktiv) VALUES (?, 'Sommer', ?, 1)`, [`S${year+2}`, year+2]);
       this.db.run(`INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung, typ, jahr) VALUES (?, 'Sommer', ?)`, [`S${year+3}`, year+3]);
       await this.ensureAppDirs();
+      if (this._ordnerUnzulaessig) { this.toast(`„${this._ordnerUnzulaessig}“ ist ein Unterordner der Arbeitsumgebung – bitte den Hauptordner wählen (den Ordner, der „Datenbanken“ enthält)`, 'error', 15000); return; }
+      await this._datenbankenOrdnerAnlegen();
       const targetDir = this.dbDirHandle || this.dirHandle;
       const subDir = this.dbDirHandle ? 'Datenbanken' : '';
       this.dbFileHandle = await targetDir.getFileHandle(fileName, { create: true });
@@ -3345,7 +3399,7 @@ const App = {
     let ok = false;
     try { this.bhkDirHandle = await this.dirHandle.getDirectoryHandle('_bhk', { create: true }); ok = true; } catch(e) {}
     try { if (this.bhkDirHandle) this.backupsDirHandle = await this.bhkDirHandle.getDirectoryHandle('backups', { create: true }); } catch(e) {}
-    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true }); } catch(e) {}
+    try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: false }); } catch(e) {}
     const name = (this.dbFileHandle && this.dbFileHandle.name) || this.autoLoadedDbName;
     if (name) {
       // NUR in dem Ordner suchen, aus dem die Datenbank geladen wurde. Vorher
