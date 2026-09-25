@@ -1555,6 +1555,36 @@ const Views = {
         </div>
       </div>
 `,
+      uba: `      <!-- ÜBA-Sollzahlen je Fachrichtung -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">▣ ÜBA-Bescheinigungen: Sollzahl je Fachrichtung (Pflichtteil 1.5)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Je Zeile <code>Fachrichtungs-Code;Anzahl</code> (IBYKUS-Code, z.B. <code>036;6</code> = GaLaBau sechs Bescheinigungen). Leer = Standard des Programms (GaLaBau 6, Fachwerker 1, übrige 2). Die Zahl ist Praxis des RP, keine Rechtsvorgabe – die ÜBA selbst ist Vertragsanlage (AuGaLa/DEULA).</div>
+        <textarea class="form-control" id="setUbaSoll" rows="4" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.ubaSoll()).map(([c, n]) => `${c};${n}`).join('\n'))}</textarea>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.ubaSollSetzen(document.getElementById('setUbaSoll').value);App.toast(Object.keys(o).length+' Sollzahlen gespeichert','success')">Sollzahlen speichern</button></div>
+      </div>
+
+`,
+      fristen: `      <!-- Wiedervorlage-Fristen -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">◷ Wiedervorlage-Fristen (Tage)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Standardfristen der Wiedervorlagen je Nachweisweg und für Erinnerung, Nachholung und Beratungsgespräch – Praxis, keine Rechtsvorgabe. Je Zeile <code>Art;Tage</code>; leer = Standard.</div>
+        <textarea class="form-control" id="setWvFristen" rows="8" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.wvFristen()).map(([k, v]) => `${k};${v}`).join('\n'))}</textarea>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">${Object.entries(App.WV_FRISTEN_LABELS).map(([k, l]) => `<code>${k}</code> = ${esc(l)}`).join(' · ')}</div>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.wvFristenSetzen(document.getElementById('setWvFristen').value);App.toast(Object.keys(o).length+' Fristen gespeichert','success')">Fristen speichern</button></div>
+      </div>
+
+`,
+      kampagnen: `      <!-- Kampagnen-Hinweise -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">★ Kampagnen-Hinweise (Checkliste der Kontroll-Vorlagen)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Hersendungs-Schulen, Fachrichtungs-Ausnahmen und die Zuordnung der Zwischenprüfungen ändern sich jährlich. Eine Zeile je Hinweis; leer = Standard des Programms.</div>
+        ${Object.keys(App.KAMPAGNE_HINWEISE_STANDARD).map(k => `<div class="form-group" style="margin-bottom:8px"><label style="font-size:12px">${esc(App.KAMPAGNE_TITEL[k] || k)}</label>
+          <textarea class="form-control" id="setKampagne_${k}" rows="3" style="font-size:12px">${esc(App.kampagneHinweise(k).join('\n'))}</textarea></div>`).join('')}
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="Object.keys(App.KAMPAGNE_HINWEISE_STANDARD).forEach(k=>App.kampagneHinweiseSetzen(k,document.getElementById('setKampagne_'+k).value));App.toast('Kampagnen-Hinweise gespeichert','success')">Hinweise speichern</button>
+          <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='kampagne_hinweise'&quot;);App.toast('Standard wiederhergestellt','success');Views.einstellungen()">Standard</button></div>
+      </div>
+
+`,
       lfk: `      <!-- Landesfachklassen-Regeln -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
@@ -1567,7 +1597,7 @@ const Views = {
       ferien: `      <!-- Schulferien BW (für den Jahreskalender) -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
-        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms. <strong>Jedes Jahr im August prüfen</strong>, ob das neue Schuljahr eingetragen ist (Richtwerte reichen bis Sommer 2028).</div>
         <textarea class="form-control" id="setFerienBW" rows="6" style="font-size:12px;font-family:monospace">${esc(App.ferienBW().map(f => `${f.name};${f.von};${f.bis}`).join('\n'))}</textarea>
         <div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-secondary" onclick="Views.saveFerien()">Ferien speichern</button>
           <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='ferien_bw'&quot;);App.toast('Richtwerte wiederhergestellt','success');Views.einstellungen()">Richtwerte</button></div>
@@ -1638,6 +1668,10 @@ const Views = {
           <button class="btn btn-secondary btn-sm" onclick="Views.resetVorlage()">Standardtext wiederherstellen</button>
           <button class="btn btn-secondary btn-sm" onclick="Views.vorschauVorlage()">Vorschau mit Beispieldaten</button>
         </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-top:10px;padding-top:8px;border-top:1px solid var(--clr-sand)" title="Datenminimierung: Die Schule braucht Zahlen und die Abwesenden; Mängeldetails je Azubi gehen an die Betriebe">
+          <input type="checkbox" id="setSchuleErgebnisNamen" ${App.schuleErgebnisMitNamen() ? 'checked' : ''} style="accent-color:var(--clr-forest)" onchange="App.run(&quot;INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('schule_ergebnis_namen',?)&quot;,[this.checked?'1':'0']);App.toast(this.checked?'Ergebnis-Mail mit Namensliste':'Ergebnis-Mail nur mit Zahlen (Namen nur der Abwesenden)','success')">
+          Ergebnis-Mail an die Schule <strong>mit Namensliste je Ergebnis</strong> (Standard: nur Zahlen, Namen nur der Abwesenden)
+        </label>
       </div>
 
 `,
@@ -1774,7 +1808,7 @@ const Views = {
       <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
       <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
       <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.aemter}${t.vorlagen}${t.word}</div>
-      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.lfk}${t.ferien}${t.textbausteine}</div>
+      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.uba}${t.fristen}${t.kampagnen}${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
     setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
   },
@@ -2306,7 +2340,7 @@ const Views = {
             <div class="card-header" style="font-size:15px">Was ist neu (Version ${App.VERSION})</div>
             <p>• <strong>Dashboard:</strong> „Wo stehen wir?" mit nächstem Schritt, Arbeitsliste (überfällig, ohne Anschreiben, ohne Abschluss, nicht angefragt), Schnellstart bei leerer Datenbank.</p>
             <p>• <strong>Planung:</strong> Termin-Statuskette (angefragt → bestätigt → durchgeführt → nachbereitet), Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien, Doppeltermin-Prüfung, Kohortenjahre passend zum Kampagnenfenster, Nachholtermine aus Abwesenden, Ausschluss bereits kontrollierter Azubis.</p>
-            <p>• <strong>Kontrolltag:</strong> Prüferaufteilung („Mein Bereich"), Vorrang statt gegenseitiger Sperre, Tastenkürzel ⇧1–6 für das Ergebnis und J für die heutige KW, „In Ordnung" markiert die Wochen bis zur Vorwoche, Undo für alle Wege im Raster, Prüfer-Pflicht.</p>
+            <p>• <strong>Kontrolltag:</strong> Prüferaufteilung („Mein Bereich"), Vorrang statt gegenseitiger Sperre, Tastenkürzel ⇧1/⇧2 für den Befund und ⇧3–6 für den Nachweisweg, J für die heutige KW, „In Ordnung" markiert die Wochen bis zur Vorwoche, Undo für alle Wege im Raster, Prüfer-Pflicht.</p>
             <p>• <strong>Import:</strong> Vorschau (neu / geändert je Feld / fehlend / Neuverträge) vor dem Schreiben; ein Status-Modell für Azubis mit „Ausbildung beenden".</p>
             <p>• <strong>Nachbereitung:</strong> Vorlage je Betrieb (auch Nachhol-Aufforderung für Abwesende), Versandnachweis und Mahnstufe je Wiedervorlage, Nachweis-Dialog mit Datei in die Akte, Sammel-Erinnerung je Betrieb, fremde Ämter über die Übergabe.</p>
             <p>• <strong>Berichte &amp; Stammdaten:</strong> Vorjahresvergleich im Jahresbericht, Betriebs- und Schul-Ampel, Datenqualitäts-Regeln für Status und Amt.</p>
@@ -2487,7 +2521,7 @@ const Views = {
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
             <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
-            <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
+            <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; „Sachberichte/Wetter per E-Mail“ nur mit Zusatzvereinbarung). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
             <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und der Spalte <strong>Zul.</strong> = Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG). Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>

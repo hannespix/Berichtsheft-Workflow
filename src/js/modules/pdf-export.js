@@ -477,7 +477,8 @@ const PDFExport = {
       doc.text(`Gez. ${prName}`, RM, y, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Digitale Signatur', RM, y + 4, { align: 'right' });
+      // Namensvermerk, keine Signatur im Rechtssinn (§ 126a BGB) – deshalb „gez.“
+      doc.text('Ausbildungsberatung (Namensvermerk)', RM, y + 4, { align: 'right' });
 
       // Footer line
       doc.setDrawColor(...COL_GREEN);

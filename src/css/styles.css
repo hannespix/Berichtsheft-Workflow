@@ -1051,6 +1051,10 @@ body.grosse-schrift { zoom: 1.2; }
 .erg-pill:has(input:checked) { background: var(--clr-forest); color: #fff; border-color: var(--clr-forest); }
 .erg-pill.erg-ok:has(input:checked) { background: var(--clr-green); border-color: var(--clr-green); }
 .erg-pill.erg-offen:has(input:checked) { background: var(--clr-sage); border-color: var(--clr-sage); }
+.erg-pill.erg-mangel:has(input:checked) { background: var(--clr-red); border-color: var(--clr-red); }
+/* Befund + Nachweisweg (Logik-Audit Paket 4): Weg-Auswahl neben „Mängel“ */
+.ke-weg-label { font-size: 12px; color: var(--clr-text-light); margin-left: 4px; }
+.ke-weg { width: auto; max-width: 260px; padding: 3px 6px; font-size: 12px; }
 .erg-pill:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--clr-gelb); }
 .ke-wv { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .ke-wv label { font-size: 12px; color: var(--clr-text-light); }

@@ -7790,17 +7790,132 @@ const App = {
     return { gesamt, arbeitstage, arbeitstageBisher: bisher, prozent, prozentBisher, schwelle, warn: prozentBisher >= schwelle };
   },
 
+  // ── Befund + Nachweisweg (Logik-Audit Paket 4) ──
+  // Die sechs Ergebnisarten der Durchsicht kodieren zwei Fragen: WIE ist das
+  // Heft (in Ordnung / Mängel) und WIE kommt der Nachweis (nächste Durchsicht,
+  // E-Mail, Post, persönlich). Die Datenbank behält die alten Werte; die
+  // Oberfläche fragt die zwei Dinge getrennt. Mapping in beide Richtungen:
+  WEGE: [
+    { val: 'naechste_durchsicht', label: 'bis zur nächsten Durchsicht', ergebnis: 'nachholung_naechste_durchsicht' },
+    { val: 'email', label: 'per E-Mail nachreichen', ergebnis: 'berichte_bis_termin_email' },
+    { val: 'email_sachberichte', label: 'per E-Mail: Sachberichte/Wetter (nur mit Zusatzvereinbarung)', ergebnis: 'sachberichte_wetter_email' },
+    { val: 'post', label: 'per Post ans RP', ergebnis: 'post_an_rp' },
+    { val: 'persoenlich', label: 'persönliche Vorlage im RP', ergebnis: 'persoenliche_vorlage_rp' },
+  ],
+  befundAus(ergebnis) {
+    if (!ergebnis) return { befund: '', weg: '' };
+    if (ergebnis === 'in_ordnung') return { befund: 'ok', weg: '' };
+    const w = this.WEGE.find(x => x.ergebnis === ergebnis);
+    return { befund: 'maengel', weg: w ? w.val : 'naechste_durchsicht' };
+  },
+  ergebnisAus(befund, weg) {
+    if (!befund) return '';
+    if (befund === 'ok') return 'in_ordnung';
+    const w = this.WEGE.find(x => x.val === weg) || this.WEGE[0];
+    return w.ergebnis;
+  },
+
+  // ── Wiedervorlage-Fristen in Tagen (Logik-Audit Paket 5: Praxis, keine
+  //    Rechtsvorgabe – deshalb Einstellung `wv_fristen`, Standard wie bisher) ──
+  WV_FRISTEN_STANDARD: {
+    nachholung_naechste_durchsicht: 28, sachberichte_wetter_email: 28, berichte_bis_termin_email: 28,
+    persoenliche_vorlage_rp: 14, post_an_rp: 21,
+    erinnerung: 14, nachholung_abwesend: 21, beratung_betrieb: 14,
+  },
+  WV_FRISTEN_LABELS: {
+    nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
+    persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP',
+    erinnerung: 'Erinnerung (neue Frist nach Überschreitung)', nachholung_abwesend: 'Nachholung für Abwesende', beratung_betrieb: 'Beratungsgespräch Betrieb (§ 76)',
+  },
+  wvFristen() {
+    let o = {};
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='wv_fristen'"); if (j) o = JSON.parse(j) || {}; } catch(e) { o = {}; }
+    return { ...this.WV_FRISTEN_STANDARD, ...Object.fromEntries(Object.entries(o).filter(([k, v]) => k in this.WV_FRISTEN_STANDARD && v >= 1 && v <= 365)) };
+  },
+  wvFristTage(art) { const f = this.wvFristen(); return f[art] || this.WV_FRISTEN_STANDARD[art] || 28; },
+  wvFrist(art) { return addDaysStr(this.wvFristTage(art)); },
+  wvFristenSetzen(text) {
+    // Zeilen "art;tage"; leer = Standard
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [art, t] = z.split(/[;,\t ]+/); const n = parseInt(t);
+      if (art && art in this.WV_FRISTEN_STANDARD && n >= 1 && n <= 365) o[art] = n;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('wv_fristen',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='wv_fristen'");
+    return o;
+  },
+
+  // ── ÜBA-Sollzahlen je Fachrichtungs-Code (Praxis des RP, Einstellung `uba_soll`) ──
+  ubaSoll() {
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='uba_soll'"); if (j) { const o = JSON.parse(j); if (o && typeof o === 'object') return o; } } catch(e) {}
+    return {};
+  },
+  ubaSollSetzen(text) {
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [code, n] = z.split(/[;,\t ]+/); const v = parseInt(n);
+      if (code && v >= 0 && v <= 20) o[code.trim()] = v;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('uba_soll',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='uba_soll'");
+    return o;
+  },
   // ── Erforderliche ÜBA-Bescheinigungen nach Fachrichtung ──
-  // GaLaBau (Code 036, 176): 6 Bescheinigungen
-  // Alle anderen Produktionsgartenbau-FRs: 2 Bescheinigungen
+  // Einstellung `uba_soll` (Code;Anzahl) hat Vorrang; Standard: GaLaBau
+  // (Code 036, 176) 6, Fachwerker 1, alle anderen Fachrichtungen 2
   getRequiredUBA(fachrichtungId) {
     if (!fachrichtungId) return 2;
     const fr = this.query('SELECT code, bezeichnung, typ FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
     if (!fr) return 2;
+    const soll = this.ubaSoll();
+    if (fr.code && soll[fr.code] != null) return soll[fr.code];
     if (fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker')) return 1;
     if (fr.code === '036' || fr.code === '176' || (fr.bezeichnung||'').toLowerCase().includes('galabau')) return 6;
     return 2;
   },
+
+  // ── Kampagnen-Hinweise (Hersendungs-Schulen, Fachrichtungs-Ausnahmen, ZP-
+  //    Zuordnung): Praxis des RP, die sich jährlich ändert – Einstellung
+  //    `kampagne_hinweise` statt Code (Logik-Audit Paket 5) ──
+  KAMPAGNE_HINWEISE_STANDARD: {
+    kontrolle23: ['Alle Fachrichtungen 2.+3. AJ – Kontrolle an den Schulen',
+      'NICHT die Azubis, die im Herbst bereits an der ZP Produktion kontrolliert wurden (i.d.R. Gemüsebau, Obstbau, Friedhof am RPK)',
+      'Hersendung ans RP: Christiane-Herzog-Schule Heilbronn*, Johannes-Gutenberg-Schule Heidelberg*, Freie Landbauschule Bodensee Überlingen* (Standort erfragen!), Justus-von-Liebig-Schule Göppingen, Paulinenpflege Winnenden, Landw. Schule Stuttgart-Hohenheim, alle OHNE Beschulung',
+      '* nur die, die noch nicht an der ZP H kontrolliert wurden'],
+    zpF: ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+      'GaLaBau: immer · Zierpflanzenbau: ab ZP F27',
+      'Ggf. Kontrolle bei der ZP eines anderen RP (meist Friedhof)'],
+    zpH: ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+      'GaLaBau: immer · Produktion vorgezogen: Gemüsebau, Obstbau (Baumschule nur bis H25 – danach Schuländerung Offenburg)',
+      'Übrige Fachrichtungen erst bei der Nov./Dez.-Kontrolle (2.+3. AJ)'],
+    apS: ['Alle Fachrichtungen – Kontrolle an den Schulen',
+      'Hersendung ans RP: Heilbronn, Heidelberg, Überlingen, Göppingen, Winnenden, Stuttgart-Hohenheim, alle OHNE Beschulung',
+      'Anmeldeschluss Sommerprüfung 1. April – das Berichtsheft wird mit der Anmeldung vorgelegt'],
+    apW: ['Reguläre und Verkürzer senden ihre Berichtshefte per Post ans RP – mit der Anmeldung zum 1.11.',
+      'Eingang der Hefte bis 1.11. (Anmeldeschluss Winterprüfung), Durchsicht bis Mitte November'],
+  },
+  KAMPAGNE_TITEL: { kontrolle23: 'Kontrolle 2.+3. Ausbildungsjahr (Nov./Dez.)', zpF: 'Zwischenprüfung Frühjahr', zpH: 'Zwischenprüfung Herbst', apS: 'Zulassungskontrolle AP Sommer', apW: 'Zulassungskontrolle AP Winter' },
+  _kampagneHinweiseAlle() {
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='kampagne_hinweise'"); if (j) { const o = JSON.parse(j); if (o && typeof o === 'object') return o; } } catch(e) {}
+    return {};
+  },
+  kampagneHinweise(key) {
+    const o = this._kampagneHinweiseAlle();
+    const eigene = Array.isArray(o[key]) ? o[key].map(z => String(z).trim()).filter(Boolean) : null;
+    return eigene && eigene.length ? eigene : (this.KAMPAGNE_HINWEISE_STANDARD[key] || []);
+  },
+  kampagneHinweiseSetzen(key, text) {
+    if (!(key in this.KAMPAGNE_HINWEISE_STANDARD)) return;
+    const o = this._kampagneHinweiseAlle();
+    const zeilen = String(text || '').split('\n').map(z => z.trim()).filter(Boolean);
+    if (zeilen.length) o[key] = zeilen; else delete o[key];
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('kampagne_hinweise',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='kampagne_hinweise'");
+  },
+  // Ergebnis-Mail an die Schule: Namensliste je Ergebnis nur auf Wunsch
+  // (Datenminimierung – die Schule braucht Zahlen und die Abwesenden)
+  schuleErgebnisMitNamen() { return this.scalar("SELECT wert FROM einstellungen WHERE schluessel='schule_ergebnis_namen'") === '1'; },
 
   isFachwerker(fachrichtungId) {
     if (!fachrichtungId) return false;
@@ -9005,6 +9120,24 @@ Mit freundlichen Grüßen
 {rp_adresse}
 
 Anlagen: {anlagen}` },
+    beratung_betrieb: { titel: 'Betrieb: Einladung zum Beratungsgespräch (§ 76 BBiG)',
+      platzhalter: ['anrede','azubi','betrieb','anlass','frist','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Beratungsgespräch zur Berufsausbildung von {azubi}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+im Rahmen unserer Aufgabe, die Berufsausbildung zu überwachen und durch Beratung zu fördern (§ 76 Abs. 1 BBiG), möchten wir mit Ihnen ein Gespräch über die Berichtsheftführung und den Ausbildungsverlauf von {azubi} führen.
+
+Anlass:
+{anlass}
+
+Bitte schlagen Sie uns bis {frist} einen Termin vor – gerne telefonisch oder per E-Mail. Das Gespräch kann in Ihrem Betrieb oder im Regierungspräsidium stattfinden.
+
+Bitte halten Sie das Berichtsheft, den betrieblichen Ausbildungsplan und die Bescheinigungen der überbetrieblichen Ausbildung bereit. Ausbildende sind verpflichtet, die zur Überwachung erforderlichen Auskünfte zu erteilen und Unterlagen vorzulegen (§ 76 Abs. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
   },
   getVorlage(typ) {
     const def = this.VORLAGEN[typ];

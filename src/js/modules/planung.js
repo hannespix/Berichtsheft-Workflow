@@ -60,30 +60,24 @@ const PlanungHandler = {
     };
 
     return [
+      // Hinweise (Hersendungs-Schulen, Fachrichtungs-Ausnahmen, ZP-Zuordnung)
+      // kommen aus der Einstellung „Kampagnen-Hinweise“ (Standard: App.KAMPAGNE_HINWEISE_STANDARD)
       bau('kontrolle23', 'Kontrolle 2.+3. Ausbildungsjahr', 'Ende Nov. – Mitte Dez.',
         [['Sommer', folgeJahr, 'AP S' + folgeJahr]],
         ['F' + folgeJahr, 'H' + (folgeJahr - 1)],
-        ['Alle Fachrichtungen 2.+3. AJ – Kontrolle an den Schulen',
-         'NICHT die Azubis, die im Herbst bereits an der ZP Produktion kontrolliert wurden (i.d.R. Gemüsebau, Obstbau, Friedhof am RPK)',
-         'Hersendung ans RP: Christiane-Herzog-Schule Heilbronn*, Johannes-Gutenberg-Schule Heidelberg*, Freie Landbauschule Bodensee Überlingen* (Standort erfragen!), Justus-von-Liebig-Schule Göppingen, Paulinenpflege Winnenden, Landw. Schule Stuttgart-Hohenheim, alle OHNE Beschulung',
-         '* nur die, die noch nicht an der ZP H kontrolliert wurden']),
+        App.kampagneHinweise('kontrolle23')),
       bau('zpF', 'Kontrolle zur Zwischenprüfung Frühjahr', '~Februar',
         [], ['F' + zpFJahr],
-        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
-         'GaLaBau: immer · Zierpflanzenbau: ab ZP F27',
-         'Ggf. Kontrolle bei der ZP eines anderen RP (meist Friedhof)']),
+        App.kampagneHinweise('zpF')),
       bau('zpH', 'Kontrolle zur Zwischenprüfung Herbst', 'Sept. – Nov.',
         [], ['H' + zpHJahr],
-        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
-         'GaLaBau: immer · Produktion vorgezogen: Gemüsebau, Obstbau (Baumschule nur bis H25 – danach Schuländerung Offenburg)',
-         'Übrige Fachrichtungen erst bei der Nov./Dez.-Kontrolle (2.+3. AJ)']),
+        App.kampagneHinweise('zpH')),
       bau('apS', 'Zulassungskontrolle AP Sommer', 'zum April',
         [['Sommer', apSJahr, 'AP S' + apSJahr]], [],
-        ['Alle Fachrichtungen – Kontrolle an den Schulen',
-         'Hersendung ans RP: Heilbronn, Heidelberg, Überlingen, Göppingen, Winnenden, Stuttgart-Hohenheim, alle OHNE Beschulung']),
+        App.kampagneHinweise('apS')),
       bau('apW', 'Zulassungskontrolle AP Winter', 'zum November',
         [['Winter', null, 'AP Winter (nächster Jahrgang)']], [],
-        ['Reguläre und Verkürzer senden ihre Berichtshefte per Post ans RP – mit der Anmeldung zum 1.11.']),
+        App.kampagneHinweise('apW')),
     ];
   },
   _vorlagenButtonHtml() {
@@ -1070,7 +1064,7 @@ const PlanungHandler = {
     return { ok: true, id: neuId, anzahl: abwesende.length };
   },
   async nachholterminAnlegen(terminId) {
-    const datum = await App.prompt('Datum des Nachholtermins (JJJJ-MM-TT) – nur die am Kontrolltag abwesenden Azubis werden zugeordnet:', { titel: 'Nachholtermin anlegen', wert: addDaysStr(21) });
+    const datum = await App.prompt('Datum des Nachholtermins (JJJJ-MM-TT) – nur die am Kontrolltag abwesenden Azubis werden zugeordnet:', { titel: 'Nachholtermin anlegen', wert: App.wvFrist('nachholung_abwesend') });
     if (!datum) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return App.toast('Bitte ein Datum im Format JJJJ-MM-TT eingeben', 'warning');
     const r = this._nachholterminAnlegen(terminId, datum);

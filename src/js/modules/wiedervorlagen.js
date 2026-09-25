@@ -29,7 +29,28 @@ const WiedervorlagenHandler = {
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
-  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt', sonstig: 'sonstiger Nachweis' },
+  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt (nur mit anschließender Vorlage)', sonstig: 'sonstiger Nachweis' },
+  // Beratungsgespräch mit dem Betrieb (§ 76 Abs. 1 BBiG: Förderung durch
+  // Beratung) als Wiedervorlage vormerken – die Stufe zwischen Erinnerung und
+  // Prüfungsausschuss, die in der Akte bisher fehlte. Frist aus den
+  // Einstellungen, Notiz mit Anlass; Einladung über die Vorlage `beratung_betrieb`.
+  async beratungAnlegen(schuelerId, params) {
+    const s = App.query('SELECT s.*, b.name AS betrieb FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.id=?', [schuelerId])[0];
+    if (!s) return App.toast('Azubi nicht gefunden', 'error');
+    const p = params || {};
+    const frist = p.frist || await App.prompt(`Beratungsgespräch mit ${s.betrieb || s.ausbildungsstaette || 'dem Betrieb'} zu ${s.nachname}, ${s.vorname} – bis wann (JJJJ-MM-TT)?`, { titel: 'Beratungsgespräch Betrieb (§ 76 BBiG)', wert: App.wvFrist('beratung_betrieb') });
+    if (frist === null) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(frist)) { App.toast('Bitte ein Datum im Format JJJJ-MM-TT', 'warning'); return null; }
+    const anlass = p.anlass != null ? p.anlass : await App.prompt('Anlass (erscheint in der Wiedervorlage und in der Einladung):', { titel: 'Beratungsgespräch Betrieb (§ 76 BBiG)', platzhalter: 'z.B. wiederholte Beanstandungen, Mängel trotz zweifacher Erinnerung nicht behoben' });
+    if (anlass === null) return null;
+    App.run("INSERT INTO wiedervorlagen (schueler_id, art, frist_datum, status) VALUES (?,'beratung_betrieb',?,'offen')", [schuelerId, frist]);
+    const wvId = App.scalar('SELECT MAX(id) FROM wiedervorlagen WHERE schueler_id=? AND art=?', [schuelerId, 'beratung_betrieb']);
+    if (wvId && anlass.trim()) App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)", [wvId, `Anlass: ${anlass.trim()}`, (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '']);
+    App.toast('Beratungsgespräch als Wiedervorlage vorgemerkt', 'success');
+    try { if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen && AzubiSeite.istOffen(schuelerId)) AzubiSeite.render(); } catch(e) {}
+    try { if (App.currentView === 'wiedervorlagen') Views.wiedervorlagen(); } catch(e) {}
+    return wvId;
+  },
   // Direkt erledigen ohne Durchsicht – mit NACHWEIS: Art (E-Mail/Post/persönlich),
   // optional Datei in die Akte und „Mängel als behoben markieren", damit
   // Ampel und Zulassungsliste den Azubi als nachgewiesen erkennen
