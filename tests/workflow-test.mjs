@@ -411,6 +411,58 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(/opts && opts\.bytes\) return \{ name: dateiname, bytes: new Uint8Array\(doc\.output\('arraybuffer'\)\) \}/.test(read('src/js/modules/pdf-export.js')) && /bogenBytes\(terminId, schuelerId\) \{/.test(read('src/js/modules/pdf-export.js')), 'PDFExport liefert den Bogen als Bytes für den Anhang');
   check(!/emlProbe/.test(APP_SRC) && !/Probe-E-Mail/.test(read('src/js/modules/views.js')), 'Kein Probe-Knopf – der Weg ist direkt eingebaut');
   check(/Alle als Outlook-Entwürfe \(ZIP\)/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Entwürfe');
+
+  // ── Optionen: Ansprechpartner, Signatur, Bögen (je Person gemerkt) ──
+  const merker = new Map();
+  sandbox.localStorage = { getItem: (k) => merker.has(k) ? merker.get(k) : null, setItem(k, v) { merker.set(k, String(v)); }, removeItem(k) { merker.delete(k); } };
+  db.run("INSERT INTO pruefer (name,email,aktiv) VALUES ('Zweit, Zoe','zoe@rpf.bwl.de',1)");
+  Workflows.emailBetriebIndividuell(900);
+  const dd = Workflows._individualData;
+  check(dd.opts.anrede === false && dd.opts.signatur === 'ich' && dd.opts.boegen === true, 'Standard: keine namentliche Anrede, Signatur = angemeldete Person, Bögen anhängen');
+  const oh = Workflows._betriebMailOptionenHtml();
+  check(/betriebMailOption\('anrede', this\.checked\)/.test(oh) && /betriebMailOption\('signatur', this\.value\)/.test(oh) && /betriebMailOption\('boegen', this\.checked\)/.test(oh), 'Optionsleiste über der Liste: Anrede, Signatur, Bögen');
+  const wahl = Workflows._signaturWahl().map(w => w.wert);
+  check(wahl[0] === 'ich' && wahl.includes('p:Zweit, Zoe') && wahl[wahl.length - 1] === 'keine', `Signatur-Auswahl: ich, andere Prüfer, keine (${wahl.join(' · ')})`);
+  let inhalt = Workflows._betriebMailInhalt(0);
+  check(!/sehr geehrte\/r/.test(inhalt.body) && /Sehr geehrte Damen und Herren,\n/.test(inhalt.body), 'Standard: nur „Sehr geehrte Damen und Herren“, kein Ansprechpartner');
+  check(/Mit freundlichen Grüßen\nMuster, Max\nRegierungspräsidium Freiburg\nAbt\. 3$/.test(inhalt.body.trim()), 'Standard-Signatur: angemeldete Person mit RP-Adresse');
+  Workflows.betriebMailOption('anrede', true);
+  inhalt = Workflows._betriebMailInhalt(0);
+  check(/Sehr geehrte Damen und Herren,\nsehr geehrte\/r Frau Grün,/.test(inhalt.body) && merker.get(App.uKey('mail_anrede')) === '1', 'Anrede an: Ansprechpartner namentlich, Wahl gemerkt');
+  Workflows.betriebMailOption('signatur', 'p:Zweit, Zoe');
+  inhalt = Workflows._betriebMailInhalt(0);
+  check(/Mit freundlichen Grüßen\nZweit, Zoe\n/.test(inhalt.body) && !/Muster, Max/.test(inhalt.body), 'Anderer Prüfer als Signatur');
+  Workflows.betriebMailOption('signatur', 'keine');
+  inhalt = Workflows._betriebMailInhalt(0);
+  check(!/Mit freundlichen Grüßen/.test(inhalt.body) && !/Zweit, Zoe|Muster, Max|Abt\. 3/.test(inhalt.body) && /§ 43 Abs\. 1 Nr\. 2 BBiG\)\.\n$/.test(inhalt.body), 'Keine Signatur: Text endet vor der Grußformel – Outlook hängt die eigene an');
+  check(merker.get(App.uKey('mail_signatur')) === 'keine', 'Signaturwahl gemerkt');
+  Workflows.betriebMailOption('boegen', false);
+  dd.status = {};
+  Workflows.betriebMailsAlsZip();
+  const zip2 = new sandbox.PizZip(download.bytes);
+  const eml2 = zip2.file('01_Gaertnerei_Mail.eml').asText();
+  check(!/multipart/.test(eml2) && !/Content-Disposition: attachment/.test(eml2), 'Bögen abgewählt: Entwurf ohne Anhang');
+  Workflows.emailBetriebIndividuell(900);
+  check(Workflows._individualData.opts.anrede === true && Workflows._individualData.opts.signatur === 'keine' && Workflows._individualData.opts.boegen === false, 'Optionen beim nächsten Öffnen wieder da (je Person gemerkt)');
+  Workflows.betriebMailOption('anrede', false); Workflows.betriebMailOption('signatur', 'ich'); Workflows.betriebMailOption('boegen', true);
+  check(/Optionen<\/strong> über der Liste/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Optionen');
+}
+
+// ── Durchsichtsbogen (PDF): nur der aktuelle Stand, kompakte Codes, Landes-CI ──
+{
+  console.log('\n— Durchsichtsbogen: aktueller Stand, Codes, CI —');
+  const P = read('src/js/modules/pdf-export.js');
+  const raster = P.slice(P.indexOf('3) KW-RASTER'), P.indexOf('4) LEGENDE'));
+  check(!/behoben/.test(raster.replace(/\/\/.*$/gm, '')), 'Raster zeichnet keine behobenen Codes mehr (kein „(H)“ über „H1“) – nur der aktuelle Stand');
+  check(/const real = codes\.filter\(c => c !== 'H'\)/.test(raster) && /if \(fehl > 0 && !anzeige\.includes\('H'\)\) anzeige\.push\('H'\)/.test(raster) && /c === 'H' && fehl > 0 \? `H\$\{fehl\}` : c/.test(raster), 'Fehltage erscheinen genau einmal als H<n>, auch ohne H-Code');
+  check(/n <= 3 \? anzeige\.join\(' '\) : anzeige\.join\(''\)/.test(raster) && /while \(fs > 4\.5 && doc\.getTextWidth\(text\) > CW - 1\.5\)/.test(raster), 'Viele Codes kompakt und verkleinert – nichts läuft in die Nachbarzelle');
+  check(/App\.istZulassungsMangel\(real\.join\(','\), ke\)/.test(raster) && /COL_AMBER_LIGHT/.test(raster) && /COL_GREEN_LIGHT/.test(raster), 'Zulassungsmangel rot, Hinweis-Code orange, geprüft grün');
+  check(/inaktiv\.has\(kw\) && !codes\.length && !fehl/.test(raster) && /COL_INACTIVE/.test(raster), 'Wochen außerhalb der Ausbildungszeit grau – Einträge dort werden trotzdem gezeigt');
+  check(/App\.getAJKWBounds\(s\.id\)/.test(raster) && /Schuljahr \$\{b\.schoolYear\}/.test(raster) && /App\.lehrjahrLabel\(s\.id, aj, ljInfo\)/.test(raster), 'Rasterkopf: Ausbildungsjahr · Schuljahr · Lehrjahr (über lehrjahrLabel, nicht aus der Raster-Nummer)');
+  check(/schuelerAJs\.length >= 4 \? 8\.5 : CH_STD/.test(raster), 'Vier Raster (März-Beginner) mit niedrigeren Zellen');
+  check(/_logoDataUrl\(\) \{/.test(P) && /COL_GELB/.test(P) && /BaWue|Baden-Württemberg|topbar-logo/.test(P) && /doc\.addImage\(logo\.data/.test(P), 'Kopf mit Landeslogo und gelbem Akzent (Landes-CI)');
+  check(/lx \+= 3 \+ doc\.getTextWidth\(`=\$\{label\}`\) \+ 4/.test(P) && /Math\.max\(lx \+ 4, LM \+ 118\)/.test(P), 'Legende: Codes nach Textbreite gesetzt, Farbfelder erst dahinter (keine Überlappung)');
+  check(/const fzGesamt = ke\?\.fehltage_gesamt \|\| 0/.test(P) && /fz\.arbeitstageBisher/.test(P), 'Fehltage gesamt aus dem Kontrollergebnis mit Anteil an der bisherigen Ausbildungszeit');
 }
 
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
