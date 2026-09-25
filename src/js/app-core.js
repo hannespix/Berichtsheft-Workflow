@@ -2104,7 +2104,16 @@ const App = {
     if (!this.dirHandle) return;
     try { this.bhkDirHandle = await this.dirHandle.getDirectoryHandle('_bhk', { create: true });
       this.backupsDirHandle = await this.bhkDirHandle.getDirectoryHandle('backups', { create: true });
-    } catch(e) { console.warn('_bhk/ dir failed:', e); }
+      this._bhkFehlt = '';
+    } catch(e) {
+      // Nicht still zurückfallen: ohne _bhk schreibt dieser Rechner seine
+      // Protokolle in den Hauptordner, die Kollegen lesen dort nicht – beide
+      // Seiten sehen einander nicht und melden „keine Änderungen“.
+      this._bhkFehlt = (e && e.message) || String(e);
+      console.warn('_bhk/ dir failed:', e);
+      try { BhkSpur.notiere('netz', 'Ordner _bhk nicht zugänglich', { ok: false, fehler: this._bhkFehlt, art: BhkSpur.fehlerArt ? BhkSpur.fehlerArt(e) : '' }); } catch(_) {}
+      this.toast(`Achtung: Der Unterordner „_bhk“ konnte nicht geöffnet oder angelegt werden (${this._bhkFehlt}). Änderungen werden dann NICHT mit den Kollegen geteilt. Bitte Ordnerrechte prüfen und neu verbinden.`, 'error', 20000);
+    }
     try { this.dbDirHandle = await this.dirHandle.getDirectoryHandle('Datenbanken', { create: true });
     } catch(e) { console.warn('Datenbanken/ dir failed:', e); }
   },
@@ -5021,7 +5030,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', hauptordner: this.dirHandle ? (this.dirHandle.name || '') : '', bhkFehlt: this._bhkFehlt || '', protokolleAusserhalb: (this._protokolleAusserhalb || []).map(e => ({ datei: e.name, groesse: e.groesse, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -5582,6 +5591,7 @@ const App = {
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
       this._fremdeDatenbankenPruefen([...fremde.values()]);
+      await this._protokolleAusserhalbPruefen();
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts).
       // Zufällig 20–80 s verzögert: Starten zwei Kollegen morgens zur selben
       // Minute, kompaktierten sonst beide gleichzeitig um das Lock.
@@ -5611,6 +5621,34 @@ const App = {
       console.warn('[SyncV3] ' + text);
       try { BhkSpur.notiere('netz', 'Andere Datenbank im Ordner', { ok: false, fehler: 'andere Datenbank', info: namen }); } catch(e) {}
       if (!this._fremdeDbGewarnt) { this._fremdeDbGewarnt = true; this.toast(text, 'warning', 15000); }
+    } catch(e) {}
+  },
+
+  // ── Protokolle außerhalb von _bhk ──
+  // Konnte ein Rechner den Unterordner _bhk nicht öffnen, fällt _syncDirV3()
+  // auf den Hauptordner zurück: seine Protokolle liegen dann neben der
+  // HTML-Datei, die Kollegen lesen nur in _bhk – wieder sieht keiner den
+  // anderen (Feldfall: „8 Protokolle bei Zilz, 16 bei Pix“ bei EINER Datei).
+  // Wer _bhk hat, schaut deshalb beim Start auch in den Hauptordner.
+  _protokolleAusserhalb: [],
+  async _protokolleAusserhalbPruefen() {
+    try {
+      const root = this.dirHandle, sync = this._syncDirV3();
+      if (!root || !sync || root === sync) return;
+      const prefix = this._oplogPrefix();
+      const grenze = Date.now() - this.FREMDE_DB_TAGE * 86400000;
+      const liste = [];
+      for await (const [name, h] of root.entries()) {
+        if (!name.startsWith('oplog_') || !name.endsWith('.jsonl')) continue;
+        try { const f = await h.getFile(); liste.push({ name, groesse: f.size, juengste: f.lastModified, eigeneDb: name.startsWith(prefix) }); } catch(e) {}
+      }
+      this._protokolleAusserhalb = liste.filter(e => e.juengste >= grenze).sort((a, b) => b.juengste - a.juengste);
+      if (!this._protokolleAusserhalb.length) return;
+      const n = this._protokolleAusserhalb.length;
+      const text = `Achtung: Im Hauptordner (neben der HTML-Datei) liegen ${n} aktuelle Protokoll-Datei(en), die nicht in „_bhk“ stehen (zuletzt ${new Date(this._protokolleAusserhalb[0].juengste).toLocaleString('de-DE')}). Ein Rechner konnte „_bhk“ offenbar nicht öffnen und schreibt daneben – seine Änderungen kommen hier nicht an. Dort: Ordnerrechte prüfen, neu verbinden; danach die Dateien in „_bhk“ verschieben.`;
+      console.warn('[SyncV3] ' + text);
+      try { BhkSpur.notiere('netz', 'Protokolle außerhalb von _bhk', { ok: false, fehler: 'Hauptordner', info: this._protokolleAusserhalb.map(e => e.name).join(', ') }); } catch(e) {}
+      if (!this._ausserhalbGewarnt) { this._ausserhalbGewarnt = true; this.toast(text, 'warning', 20000); }
     } catch(e) {}
   },
 
