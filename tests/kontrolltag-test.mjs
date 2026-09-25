@@ -435,8 +435,8 @@ console.log('\n══ Automatische Bemerkung: fehlende Pflichtteile und Mängel-
   const t2 = App.bemerkungMitAutoZeilen(t1, { p_1_1_ausbildungsplan: F11 });
   check(t2 === 'Eigener Text\n' + F11 + '\n' + F15, 'Automatische Zeilen stehen hinter dem eigenen Text in fester Reihenfolge (1.1 vor 1.5)');
   check(App.bemerkungMitAutoZeilen(t2, { p_1_1_ausbildungsplan: null }) === 'Eigener Text\n' + F15, 'Schlüssel mit null entfernt nur seine Zeile');
-  check(App.bemerkungMitAutoZeilen('Eigener Text\n' + F15, { F: 'Fehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)' }).endsWith(F15 + '\nFehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)'), 'Code-Zeile mit Wochen in Klammern hinter den Pflichtteil-Zeilen');
-  check(App.bemerkungMitAutoZeilen('Fehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)\nNotiz', { F: 'Fehlende Tagesberichte nachholen (3 Wochen: AJ 1 KW 40, 41, 43)' }) === 'Notiz\nFehlende Tagesberichte nachholen (3 Wochen: AJ 1 KW 40, 41, 43)', 'Geänderte Wochenliste ersetzt die alte Zeile (erkannt am Stamm + Klammer)');
+  check(App.bemerkungMitAutoZeilen('Eigener Text\n' + F15, { F: 'Fehlende Tagesberichte nachholen (2 Wochen: AJ 1: KW 40, 41)' }).endsWith(F15 + '\nFehlende Tagesberichte nachholen (2 Wochen: AJ 1: KW 40, 41)'), 'Code-Zeile mit Wochen in Klammern hinter den Pflichtteil-Zeilen');
+  check(App.bemerkungMitAutoZeilen('Fehlende Tagesberichte nachholen (2 Wochen: AJ 1: KW 40, 41)\nNotiz', { F: 'Fehlende Tagesberichte nachholen (3 Wochen: AJ 1: KW 40, 41, 43)' }) === 'Notiz\nFehlende Tagesberichte nachholen (3 Wochen: AJ 1: KW 40, 41, 43)', 'Geänderte Wochenliste ersetzt die alte Zeile (erkannt am Stamm + Klammer)');
   check(App.bemerkungMitAutoZeilen('Fehlende Tagesberichte nachholen – bitte bis Freitag', { F: null }) === 'Fehlende Tagesberichte nachholen – bitte bis Freitag', 'Von Hand ergänzter Satz gilt als eigener Text und bleibt');
   check(App.bemerkungMitHinweis('X\n' + G11, 'p_1_1_gefuehrt', 'ja') === 'X' && App.bemerkungMitHinweis('X', 'p_1_1_gefuehrt', 'nein') === 'X\n' + G11, 'Alter Weg bemerkungMitHinweis läuft über dieselbe Logik');
   // Über die Eingabe (Azubi 2, KE 200)
@@ -462,27 +462,58 @@ console.log('\n══ Automatische Bemerkung: fehlende Pflichtteile und Mängel-
   KH.currentTerminId = 10;
   KWNav.persistCodes(200, 2, 40, 'F', 0, 2);
   let b = ke().bemerkung;
-  check(/^Heft sauber\nFehlende Tagesberichte nachholen \(1 Woche: SJ 2025\/26 KW 40\)$/.test(b), `Code F in KW 40 → Zeile mit Schuljahr und Woche (${JSON.stringify(b)})`);
+  check(/^Heft sauber\nFehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)$/.test(b), `Code F in KW 40 → Zeile mit Ausbildungsjahr und Woche (${JSON.stringify(b)})`);
   check(elems.keBemerkung.value === b, 'Bemerkungsfeld auf dem Bildschirm wird sofort nachgeführt');
   KWNav.persistCodes(200, 2, 41, 'A,F', 0, 2);
   b = ke().bemerkung;
-  check(/Unterschriften des\/der Auszubildenden nachholen \(1 Woche: SJ 2025\/26 KW 41\)/.test(b) && /Fehlende Tagesberichte nachholen \(2 Wochen: SJ 2025\/26 KW 40, 41\)/.test(b) && b.indexOf('Auszubildenden') < b.indexOf('Fehlende'), 'KW 41 mit A und F: A-Zeile neu, F-Zeile auf zwei Wochen erweitert, Reihenfolge A vor F');
+  check(/Unterschriften des\/der Auszubildenden nachholen \(1 Woche: AJ 2: KW 41\)/.test(b) && /Fehlende Tagesberichte nachholen \(2 Wochen: AJ 2: KW 40, 41\)/.test(b) && b.indexOf('Auszubildenden') < b.indexOf('Fehlende'), 'KW 41 mit A und F: A-Zeile neu, F-Zeile auf zwei Wochen erweitert, Reihenfolge A vor F');
   KWNav.persistCodes(200, 1, 50, 'F', 0, 2);
-  check(/Fehlende Tagesberichte nachholen \(3 Wochen: SJ 2024\/25 KW 50 · SJ 2025\/26 KW 40, 41\)/.test(ke().bemerkung), 'Woche im anderen Raster wird je Schuljahr gruppiert');
+  check(/Fehlende Tagesberichte nachholen \(3 Wochen: AJ 1: KW 50 · AJ 2: KW 40, 41\)/.test(ke().bemerkung), 'Woche im anderen Raster wird je Ausbildungsjahr gruppiert');
   KWNav.persistCodes(200, 2, 40, 'H', 1, 2);
-  check(/Fehlende Tagesberichte nachholen \(2 Wochen: SJ 2024\/25 KW 50 · SJ 2025\/26 KW 41\)/.test(ke().bemerkung) && !/Fehltage/.test(ke().bemerkung), 'F entfernt (nur noch H): Woche verschwindet aus der Zeile, H erzeugt keine Zeile');
+  check(/Fehlende Tagesberichte nachholen \(2 Wochen: AJ 1: KW 50 · AJ 2: KW 41\)/.test(ke().bemerkung) && !/Fehltage/.test(ke().bemerkung), 'F entfernt (nur noch H): Woche verschwindet aus der Zeile, H erzeugt keine Zeile');
   KWNav.persistCodes(200, 2, 41, '', 0, 2);
   KWNav.persistCodes(200, 1, 50, '', 0, 2);
   check(ke().bemerkung === 'Heft sauber', 'Letzter Code weg → Zeilen verschwinden, eigener Text bleibt');
   // Ergebnis „Mängel“ zieht alle offenen Codes nach (auch aus früheren Durchsichten)
   db.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,geprueft) VALUES (2,1,20,'B',1)");
   KH.saveField('ergebnis', 'nachholung_naechste_durchsicht');
-  check(/Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: SJ 2024\/25 KW 20\)/.test(ke().bemerkung), 'Mängel-Ergebnis übernimmt offene Codes früherer Wochen in die Bemerkung');
+  check(/Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: AJ 1: KW 20\)/.test(ke().bemerkung), 'Mängel-Ergebnis übernimmt offene Codes früherer Wochen in die Bemerkung');
   UndoManager.undo();
   check(ke().bemerkung === 'Heft sauber' && ke().ergebnis === '', 'Undo des Ergebnisses nimmt die Zeilen wieder heraus');
   App.run("UPDATE kontrollergebnisse SET bemerkung='' WHERE id=200"); db.run('DELETE FROM kw_status WHERE schueler_id=2'); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=200');
   check(/KontrolleHandler\.autoHinweiseCodesNachziehen\(keId, sid, betroffen\)/.test(read('src/js/modules/kw-nav.js')) && /Automatische Bemerkung:/.test(read('src/js/modules/views.js')), 'persistCodes zieht die Zeilen nach; Hilfe beschreibt die automatische Bemerkung');
   KH.currentIndex = 0;
+}
+
+console.log('\n══ Höhe der Ergebnisleiste: Bemerkung wächst, Griff, gemerkte Höhe ══');
+{
+  check(/<div class="ke-griff" id="keGriff" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="/.test(K_SRC), 'Griff an der Oberkante der Leiste, per Tastatur erreichbar und beschriftet');
+  check(/oninput="KontrolleHandler\.bemerkungWachsen\(this\)"/.test(K_SRC) && !/onfocus="this\.rows=3"/.test(K_SRC) && !/onblur="this\.rows=1"/.test(K_SRC), 'Bemerkungsfeld wächst beim Tippen statt beim Fokus auf drei Zeilen zu springen');
+  check(/try \{ this\._leisteInit\(\); \} catch\(e\) \{\}/.test(K_SRC) && /griff\.addEventListener\('pointerdown'/.test(K_SRC) && /griff\.addEventListener\('dblclick'/.test(K_SRC) && /e\.key === 'ArrowUp' \|\| e\.key === 'ArrowDown'/.test(K_SRC), 'Nach jedem Neuzeichnen verdrahtet: Ziehen, Doppelklick, Pfeiltasten');
+  const CSS = read('src/css/styles.css');
+  check(/\.ke-griff \{ height: 12px;[^}]*cursor: row-resize;/.test(CSS) && /\.ke-griff \{ display: none; \}/.test(CSS.split('@media (max-height: 720px), (max-width: 720px)')[1].split('}\n}')[0] + '}'), 'Griff gestaltet wie der Sidebar-Griff, bei kleinen Fenstern (statische Leiste) ausgeblendet');
+  // Automatik: so hoch wie der Text, bis zum Deckel
+  const feld = (scroll) => ({ style: {}, scrollHeight: scroll, value: '' });
+  App.uSet('leiste_h', '');
+  let f = feld(20); KH.bemerkungWachsen(f);
+  check(f.style.height === KH.LEISTE_BEM_MIN + 'px' && f.style.overflowY === 'hidden', 'Eine Zeile: Mindesthöhe');
+  f = feld(80); KH.bemerkungWachsen(f);
+  check(f.style.height === '80px', 'Mehr Text: Feld wächst auf den Text');
+  f = feld(400); KH.bemerkungWachsen(f);
+  check(f.style.height === KH.LEISTE_BEM_AUTO_MAX + 'px' && f.style.overflowY === 'auto', 'Sehr viel Text: Deckel der Automatik, Rest scrollt im Feld');
+  // Gemerkte Höhe je Person, mit Grenzen
+  sandbox.window.innerHeight = 900;
+  check(KH.leisteHoeheSetzen(240) === 240 && App.uGet('leiste_h', '') === '240', 'Gezogene Höhe wird je Person gemerkt');
+  f = feld(20); KH.bemerkungWachsen(f);
+  check(f.style.height === '240px' && f.style.overflowY === 'auto', 'Gemerkte Höhe gilt auch bei wenig Text');
+  check(KH.leisteHoeheSetzen(2000) === 450, 'Nie mehr als die halbe Fensterhöhe');
+  check(KH.leisteHoeheSetzen(5) === KH.LEISTE_BEM_MIN, 'Nie unter eine Zeile');
+  check(KH.leisteHoeheSetzen(0) === 0 && App.uGet('leiste_h', '') === '', 'Zurücksetzen = automatisch');
+  f = feld(80); KH.bemerkungWachsen(f);
+  check(f.style.height === '80px', 'Nach dem Zurücksetzen wieder Textgröße');
+  KH.bemerkungWachsen({ value: 'x' });
+  check(true, 'Feld ohne Stil (Test-Attrappe) stürzt nicht ab');
+  check(/Höhe der Ergebnisleiste:/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt Griff und gemerkte Höhe');
 }
 
 console.log('\n══ Wiedervorlage „nächste Durchsicht“ ohne Datum ══');

@@ -9828,15 +9828,13 @@ const App = {
     const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId])
       .filter(r => (r.maengel_codes || '').split(',').includes(code));
     if (!rows.length) return null;
-    let bounds = {};
-    try { bounds = this.getAJKWBounds(schuelerId) || {}; } catch(e) {}
+    // „AJ n: KW …“ wie überall in der Kontrolle (Rasterkopf, KW-Modal, Anschreiben)
     const je = {};
     rows.forEach(r => { (je[r.ausbildungsjahr] = je[r.ausbildungsjahr] || []).push(r.kalenderwoche); });
     const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
       const kws = je[aj];
       const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');
-      const sj = bounds[aj] && bounds[aj].schoolYear;
-      return `${sj ? 'SJ ' + sj : 'AJ ' + aj} KW ${liste}`;
+      return `AJ ${aj}: KW ${liste}`;
     });
     return `${stamm} (${rows.length} Woche${rows.length > 1 ? 'n' : ''}: ${teile.join(' · ')})`;
   },

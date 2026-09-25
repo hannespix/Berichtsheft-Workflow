@@ -164,7 +164,80 @@ const KontrolleHandler = {
     const b = App.getTextbausteine()[i]; const ta = document.getElementById('keBemerkung');
     if (b == null || !ta) return;
     ta.value = ta.value ? (ta.value + '. ' + b) : b;
+    this.bemerkungWachsen(ta);
     this.saveField('bemerkung', ta.value);
+  },
+
+  // ── Höhe der Ergebnisleiste: Bemerkung wächst mit dem Text, Griff zum
+  //    Hochziehen, Höhe je Person gemerkt (`leiste_h`, Pixel; leer = automatisch) ──
+  LEISTE_BEM_MIN: 28,          // eine Zeile
+  LEISTE_BEM_AUTO_MAX: 112,    // automatisch bis etwa sechs Zeilen
+  LEISTE_ANTEIL_MAX: 0.5,      // nie mehr als die halbe Fensterhöhe
+  leisteHoehe() {
+    const v = parseInt(App.uGet('leiste_h', ''));
+    return v > 0 ? v : 0;
+  },
+  _leisteHoeheMax() {
+    const h = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 900;
+    return Math.max(this.LEISTE_BEM_MIN, Math.round(h * this.LEISTE_ANTEIL_MAX));
+  },
+  // Höhe setzen (px) und merken; null/0 = zurück auf automatisch
+  leisteHoeheSetzen(px) {
+    const v = px ? Math.min(this._leisteHoeheMax(), Math.max(this.LEISTE_BEM_MIN, Math.round(px))) : 0;
+    App.uSet('leiste_h', v ? String(v) : '');
+    const ta = document.getElementById('keBemerkung');
+    if (ta) this.bemerkungWachsen(ta);
+    return v;
+  },
+  // Bemerkungsfeld: fest gemerkte Höhe, sonst so hoch wie der Text (bis zum Automatik-Deckel)
+  bemerkungWachsen(ta) {
+    if (!ta || !ta.style) return;
+    const fest = this.leisteHoehe();
+    if (fest) { ta.style.height = Math.min(fest, this._leisteHoeheMax()) + 'px'; ta.style.overflowY = 'auto'; return; }
+    ta.style.height = 'auto';
+    const inhalt = ta.scrollHeight || 0;
+    const h = Math.max(this.LEISTE_BEM_MIN, Math.min(inhalt, this.LEISTE_BEM_AUTO_MAX));
+    ta.style.height = h + 'px';
+    ta.style.overflowY = inhalt > h ? 'auto' : 'hidden';
+  },
+  // Griff an der Oberkante der Leiste: Ziehen ändert die Höhe des Bemerkungsfelds,
+  // Doppelklick setzt auf automatisch zurück. Nach jedem Neuzeichnen neu verdrahtet.
+  _leisteInit() {
+    const ta = document.getElementById('keBemerkung');
+    if (ta) this.bemerkungWachsen(ta);
+    const griff = document.getElementById('keGriff');
+    if (!griff || griff._verdrahtet) return;
+    griff._verdrahtet = true;
+    let startY = 0, startH = 0, aktiv = false;
+    griff.addEventListener('pointerdown', (e) => {
+      const feld = document.getElementById('keBemerkung'); if (!feld) return;
+      aktiv = true; startY = e.clientY; startH = feld.offsetHeight || this.LEISTE_BEM_MIN;
+      griff.classList.add('dragging');
+      try { griff.setPointerCapture(e.pointerId); } catch(err) {}
+      e.preventDefault();
+    });
+    griff.addEventListener('pointermove', (e) => {
+      if (!aktiv) return;
+      const feld = document.getElementById('keBemerkung'); if (!feld) return;
+      const h = Math.min(this._leisteHoeheMax(), Math.max(this.LEISTE_BEM_MIN, startH + (startY - e.clientY)));
+      feld.style.height = h + 'px'; feld.style.overflowY = 'auto';
+    });
+    const ende = (e) => {
+      if (!aktiv) return;
+      aktiv = false; griff.classList.remove('dragging');
+      const feld = document.getElementById('keBemerkung');
+      const h = feld ? feld.offsetHeight : 0;
+      // Zurück auf eine Zeile = wieder automatisch
+      this.leisteHoeheSetzen(h > this.LEISTE_BEM_MIN + 4 ? h : 0);
+    };
+    griff.addEventListener('pointerup', ende);
+    griff.addEventListener('pointercancel', ende);
+    griff.addEventListener('dblclick', () => { this.leisteHoeheSetzen(0); App.toast('Höhe der Ergebnisleiste: automatisch', 'info'); });
+    griff.addEventListener('keydown', (e) => {
+      const feld = document.getElementById('keBemerkung'); if (!feld) return;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); this.leisteHoeheSetzen((feld.offsetHeight || this.LEISTE_BEM_MIN) + (e.key === 'ArrowUp' ? 24 : -24)); }
+      if (e.key === 'Home' || e.key === 'Escape') { e.preventDefault(); this.leisteHoeheSetzen(0); }
+    });
   },
   // Was passiert nach „Fertig“ bzw. nach dem Ergebnis „In Ordnung“?
   // Standard: zurück zur Übersicht – die Hefte liegen am Kontrolltag nicht in
@@ -1745,6 +1818,7 @@ const KontrolleHandler = {
 
       <!-- Feste Leiste: Ergebnis, Bemerkung, Wiedervorlage, Navigation – bei jedem Azubi sofort erreichbar -->
       <div class="ke-leiste" id="lockableLeiste" style="${isLocked ? 'pointer-events:none;opacity:0.5' : ''}">
+        <div class="ke-griff" id="keGriff" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="Höhe der Ergebnisleiste – ziehen oder Pfeiltasten, Doppelklick setzt zurück" title="Ziehen: Bemerkungsfeld höher oder niedriger · Doppelklick: automatisch"></div>
         <div class="ke-ergebnis">
           <span class="ke-titel">Ergebnis</span>
           ${(() => { const bf = App.befundAus(ke.ergebnis); const zv = App.hatZusatzvereinbarung(ke); return `
@@ -1762,7 +1836,7 @@ const KontrolleHandler = {
           </span>
         </div>
         <div class="ke-zeile2">
-          <textarea class="form-control" rows="1" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" onfocus="this.rows=3" onblur="this.rows=1" aria-label="Bemerkung zum Berichtsheft">${esc(ke.bemerkung)}</textarea>
+          <textarea class="form-control" rows="1" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" oninput="KontrolleHandler.bemerkungWachsen(this)" aria-label="Bemerkung zum Berichtsheft">${esc(ke.bemerkung)}</textarea>
           ${App.getTextbausteine().length ? this._menue('✎', App.getTextbausteine().map((b, i) => ({ label: esc(b), onclick: `KontrolleHandler.textbausteinEinfuegen(${i})` })), 'Textbaustein an die Bemerkung anhängen', 'klein oben') : ''}
           <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
           ${(() => { const m = this.weiterModus(); const lbl = m === 'naechster' ? '✓ Fertig, nächster offener' : m === 'bleiben' ? '✓ Fertig (speichern)' : '✓ Fertig → Übersicht'; const t = m === 'naechster' ? 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet' : 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben' + (m === 'bleiben' ? '' : ' und die Übersicht geöffnet – das nächste Heft wählen Sie dort'); return `<button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.fertig()" title="${t}">${lbl}</button>`; })()}
@@ -1786,6 +1860,8 @@ const KontrolleHandler = {
     // fokussieren (ein Neuzeichnen durch den Abgleich darf den Cursor nicht
     // versetzen – der nächste Buchstabe träfe sonst die falsche Woche), sonst
     // die erste ungeprüfte aktive KW. Bei Kollegen-Sperre gar nicht.
+    // Ergebnisleiste: Bemerkung auf Textgröße bzw. gemerkte Höhe, Griff verdrahten
+    try { this._leisteInit(); } catch(e) {}
     setTimeout(() => {
       if (this.currentLock) return;
       const c = (fokusVorher && document.querySelector(`.kw-cell[data-aj="${fokusVorher.aj}"][data-kw="${fokusVorher.kw}"]`))
@@ -1841,7 +1917,7 @@ const KontrolleHandler = {
       App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [text, keId]);
       const ta = document.getElementById('keBemerkung');
       const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
-      if (ta && s && s.id === sid && this.currentTerminId && App.scalar('SELECT kontrolltermin_id FROM kontrollergebnisse WHERE id=?', [keId]) === this.currentTerminId) ta.value = text;
+      if (ta && s && s.id === sid && this.currentTerminId && App.scalar('SELECT kontrolltermin_id FROM kontrollergebnisse WHERE id=?', [keId]) === this.currentTerminId) { ta.value = text; this.bemerkungWachsen(ta); }
     } catch(e) { console.warn('Automatische Hinweise:', e); }
   },
 
@@ -1914,7 +1990,7 @@ const KontrolleHandler = {
     if (bemGeaendert) {
       App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
       const ta = document.getElementById('keBemerkung');
-      if (ta) ta.value = bemNeu;
+      if (ta) { ta.value = bemNeu; this.bemerkungWachsen(ta); }
       if (field !== 'ergebnis') {
         const sel = document.querySelector(`[data-field="${field}"]`);
         const fehlt = value === 'nein' || value === 'nicht_vorhanden';
