@@ -9823,10 +9823,17 @@ const App = {
   // Zeile zu einem Mängel-Code: Stamm + betroffene Wochen (offene Mängel des
   // Azubis über alle Raster – was noch nachzuholen ist)
   autoHinweisCode(schuelerId, code) {
-    const stamm = this.HINWEISE_CODES[code];
+    if (!this.HINWEISE_CODES[code]) return null;
+    const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId]);
+    return this.hinweisCodeZeile(rows, code);
+  },
+  // Dieselbe Zeile aus bereits gelesenen kw_status-Zeilen (Anschreiben an
+  // Betriebe nutzen sie – ein Wortlaut für Bemerkung, Bogen und Brief)
+  hinweisCodeZeile(kwRows, code, stammOverride) {
+    const stamm = stammOverride || this.HINWEISE_CODES[code];
     if (!stamm) return null;
-    const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId])
-      .filter(r => (r.maengel_codes || '').split(',').includes(code));
+    const rows = (kwRows || []).filter(r => (r.maengel_codes || '').split(',').map(c => c.trim()).includes(code))
+      .sort((a, b) => (a.ausbildungsjahr - b.ausbildungsjahr) || (a.kalenderwoche - b.kalenderwoche));
     if (!rows.length) return null;
     // „AJ n: KW …“ wie überall in der Kontrolle (Rasterkopf, KW-Modal, Anschreiben)
     const je = {};
