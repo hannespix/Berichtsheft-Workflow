@@ -2572,6 +2572,7 @@ const Views = {
             <p><strong>Allgemein:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:12px;margin-bottom:10px">
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+K</kbd><span>Globale Suche öffnen</span>
+              <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">F11</kbd><span>Vollbild (Browserleisten weg) – auch über den ⛶-Knopf in der Kopfzeile; Esc oder erneut F11 beendet es</span>
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Z</kbd><span>Rückgängig (Undo)</span>
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+Y</kbd><span>Wiederherstellen (Redo)</span>
               <kbd style="padding:2px 6px;background:var(--clr-sand);border-radius:3px;font-size:12px">Strg+S</kbd><span>Sofort speichern</span>

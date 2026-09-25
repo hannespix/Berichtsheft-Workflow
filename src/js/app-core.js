@@ -8165,6 +8165,43 @@ const App = {
     return k;
   },
 
+  // ── Vollbild (Fullscreen-API): Browserleisten weg, wie eine installierte
+  //    App – funktioniert auch auf file:// ohne Server. Esc oder F11 beenden
+  //    es; der Knopf in der Kopfzeile zeigt den Zustand. ──
+  vollbildAktiv() { return !!(document.fullscreenElement || document.webkitFullscreenElement); },
+  async vollbildUmschalten() {
+    try {
+      if (this.vollbildAktiv()) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      } else {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else return this.toast('Vollbild wird von diesem Browser nicht unterstützt – bitte F11 verwenden', 'warning');
+      }
+    } catch(e) {
+      this.toast('Vollbild nicht möglich: ' + (e.message || e) + ' – F11 versuchen', 'warning');
+    }
+  },
+  _vollbildInit() {
+    if (this._vollbildInitDone) return;
+    this._vollbildInitDone = true;
+    const zeigen = () => {
+      const an = this.vollbildAktiv();
+      document.body.classList.toggle('vollbild', an);
+      const b = document.getElementById('btnVollbild');
+      if (b) {
+        b.classList.toggle('active', an);
+        b.title = an ? 'Vollbild beenden (Esc oder F11)' : 'Vollbild: Browserleisten ausblenden (F11 oder Esc beendet)';
+        b.setAttribute('aria-pressed', an ? 'true' : 'false');
+      }
+    };
+    document.addEventListener('fullscreenchange', zeigen);
+    document.addEventListener('webkitfullscreenchange', zeigen);
+    zeigen();
+  },
+
   // ── Kopfzeile und Filterbalken gleiten beim Scrollen nach unten weg ──
   // Kein Schalter, keine Einstellung: nach unten scrollen versteckt, nach
   // oben scrollen zeigt (wie im Handy-Browser). Nach einem Wechsel wird der
@@ -9196,6 +9233,7 @@ Mit freundlichen Grüßen
   showApp() {
     document.getElementById('connectScreen').style.display = 'none';
     this._kopfInit();
+    try { this._vollbildInit(); } catch(e) {}
     const appEl = document.getElementById('appMain');
     appEl.style.display = 'flex';
     document.getElementById('btnSwitchDB').style.display = '';

@@ -32,6 +32,7 @@ console.log('\n══ Schlanke Kopfzeile ══');
   check(/#btnSwitchDB \{ display: none !important; \}/.test(CSS), 'Datenbankwechsel nur noch in der Seitenleiste');
   const topbar = HTML.split('<div class="topbar-status">')[1].split('</div>\n  </div>')[0];
   check(/GlobalSearch\.open\(\)/.test(topbar) && /id="dbStatusIndicator"/.test(topbar) && /id="topbarUserSelect"/.test(topbar) && /id="dbFileName"/.test(topbar), 'Kopfzeile: Suche, Speicherstatus, Person, Datenbankname');
+  check(/id="btnVollbild"[^>]*onclick="App\.vollbildUmschalten\(\)"[^>]*aria-label=/.test(topbar) && /vollbildUmschalten\(\) \{/.test(APP) && /requestFullscreen/.test(APP) && /exitFullscreen/.test(APP) && /fullscreenchange/.test(APP), 'Vollbild-Knopf in der Kopfzeile (Fullscreen-API, funktioniert auch auf file://)');
 }
 
 console.log('\n══ Startseite ══');
