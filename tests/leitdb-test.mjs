@@ -231,6 +231,45 @@ console.log('\n══ Unterordner als Arbeitsordner: abweisen, nichts anlegen; D
   check(!/getDirectoryHandle\('Datenbanken', \{ create: true \}\)/.test(A.replace(/_datenbankenOrdnerAnlegen\(\) \{[\s\S]*?\n  \},/, '')), 'Datenbanken/ wird nur in _datenbankenOrdnerAnlegen angelegt');
 }
 
+console.log('\n══ Ordnerwahl gegen den Pfad der Programmdatei prüfen ══');
+{
+  const s = makeStore(); s.now = () => T; s.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const c = await makeClient(SQL, s, 'Pfad', new Uint8Array(seedBytes), { quiet: true, clientId: 'pfad', skipBootstrap: true });
+  c.bhkDirHandle = c.dirHandle; c.dbDirHandle = c.dirHandle;
+  // Ohne file:// (Tests, Server): keine Erwartung, alles passt
+  check(c._erwarteterOrdner().datei === '' && await c._ordnerPasstZurHtml(c.dirHandle) === true, 'Ohne file://: keine Prüfung');
+  // Windows-Pfad wie im Feld
+  c._sandbox.location = { protocol: 'file:', pathname: '/P:/Ausbildung%20Agrar/07%20Berichtsheft/Berichtsheftkontrolle%20Workflow%20Pix/berichtsheftkontrolle.html' };
+  const erw = c._erwarteterOrdner();
+  check(erw.datei === 'berichtsheftkontrolle.html' && erw.ordner === 'Berichtsheftkontrolle Workflow Pix' && erw.pfad === 'P:\\Ausbildung Agrar\\07 Berichtsheft\\Berichtsheftkontrolle Workflow Pix', `Erwarteter Ordner aus dem Dateipfad (${erw.pfad})`);
+  const hinweis = { style: {}, innerHTML: '' };
+  c._sandbox.esc = (s) => String(s ?? '');
+  c._sandbox.document.getElementById = (id) => id === 'connectOrdnerHinweis' ? hinweis : { textContent: '', innerHTML: '', style: {}, classList: { add() {}, remove() {} } };
+  c._erwarteterOrdnerHinweis();
+  check(/Berichtsheftkontrolle Workflow Pix/.test(hinweis.innerHTML) && /P:\\Ausbildung Agrar/.test(hinweis.innerHTML) && hinweis.style.display === '', 'Startbildschirm nennt den erwarteten Ordner mit Pfad');
+  // Gewählter Ordner enthält die Programmdatei nicht → Rückfrage; Abbruch = abgewiesen
+  const meld = []; c.toast = (m, t, d) => meld.push({ m, t, d });
+  let gespeichert = 'unberührt'; c.storeDirHandle = async (h) => { gespeichert = h; };
+  c.dirHandle.name = 'Kopie Juni';
+  check(await c._ordnerPasstZurHtml(c.dirHandle) === false, 'Ordner ohne Programmdatei erkannt');
+  const fragen = []; c._sandbox.confirm = (t) => { fragen.push(t); return false; };
+  const ok = await c.dbImOrdnerOeffnen('Start');
+  check(ok === false && fragen.length === 1 && /enthält NICHT die Programmdatei/.test(fragen[0]) && /Berichtsheftkontrolle Workflow Pix/.test(fragen[0]) && gespeichert === null && !c.dirHandle, 'Rückfrage mit erwartetem Ordner, Abbruch weist ab und vergisst den Ordner');
+  // Ordner enthält die Programmdatei → keine Rückfrage
+  c.dirHandle = new FakeDir(s); c.bhkDirHandle = c.dirHandle; c.dbDirHandle = c.dirHandle; c.dirHandle.name = 'Berichtsheftkontrolle Workflow Pix';
+  s.files.set('berichtsheftkontrolle.html', { data: new TextEncoder().encode('<html>'), mtime: T });
+  c.loadDatabaseFromHandle = async (fh) => { c.autoLoadedDbName = fh.name; };
+  fragen.length = 0;
+  check(await c._ordnerPasstZurHtml(c.dirHandle) === true && await c.dbImOrdnerOeffnen('Start') === true && fragen.length === 0, 'Richtiger Ordner: keine Rückfrage, Datenbank geladen');
+  // „Trotzdem verwenden“ lässt den Ordner zu
+  c.dirHandle = new FakeDir(makeStore()); c.dirHandle.name = 'Anderswo'; c.bhkDirHandle = c.dirHandle; c.dbDirHandle = c.dirHandle;
+  c.dirHandle.store.now = () => T; c.dirHandle.store.files.set('x.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  c._sandbox.confirm = () => true;
+  check(await c.dbImOrdnerOeffnen('Start') === true && c.autoLoadedDbName === 'x.sqlite', '„Trotzdem verwenden“ öffnet den Ordner');
+  const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
+  check((A.match(/id: 'bhk_arbeitsordner'/g) || []).length >= 2 && /this\._erwarteterOrdnerHinweis\(\)/.test(A) && /id="connectOrdnerHinweis"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'Ordnerdialog mit Kennung, Hinweis auf dem Startbildschirm');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');

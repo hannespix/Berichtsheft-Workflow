@@ -1734,6 +1734,8 @@ const App = {
 
   // ── Initialize (auto-load DB from same folder) ──
   async init() {
+    // Erwarteten Arbeitsordner (Ordner der Programmdatei) auf dem Startbildschirm nennen
+    this._erwarteterOrdnerHinweis();
     // Lokaler Stand vorhanden? Dann „Offline weiterarbeiten" auf dem Startbildschirm anbieten
     this._offlineStartAnbieten();
     // Step 1: Try to auto-load .sqlite via fetch (only works via http/https server, not file://)
@@ -1891,7 +1893,7 @@ const App = {
       try { await this.doAutoSave(); } catch(e) { console.warn('Auto-Save vor Wechsel fehlgeschlagen:', e); }
     }
     try {
-      const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'bhk_arbeitsordner' });
       this._cleanupDB();
       this.dirHandle = dirHandle;
       await this.storeDirHandle(dirHandle);
@@ -2046,6 +2048,24 @@ const App = {
       try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(n)}“ ist ein Unterordner. Bitte den <strong>Hauptordner</strong> wählen (er enthält „Datenbanken“ und „_bhk“).</div>`; } catch(e) {}
       return false;
     }
+    // Liegt in dem gewählten Ordner die HTML-Datei, aus der das Programm
+    // gerade läuft? Sonst ist es fast sicher der falsche Ordner (Kopie,
+    // Unterordner, Nachbarordner). Ganz automatisch geht die Ordnerwahl im
+    // Browser nicht (file:// darf den eigenen Ordner nicht öffnen), aber
+    // prüfen können wir sie – die Datei-Kennung ist der Fingerabdruck.
+    if (!(await this._ordnerPasstZurHtml(this.dirHandle))) {
+      const erw = this._erwarteterOrdner();
+      const gewaehlt = this.dirHandle.name || '?';
+      const ok = await this.confirm(`Der gewählte Ordner „${gewaehlt}“ enthält NICHT die Programmdatei „${erw.datei}“. Erwartet wird der Ordner, in dem diese Datei liegt: „${erw.ordner}“ (${erw.pfad}).\n\nEin anderer Ordner ist eine eigene Welt mit eigener Datenbank und eigenen Protokollen – Kollegen sehen davon nichts.\n\nTrotzdem diesen Ordner verwenden?`, { titel: 'Falscher Arbeitsordner?', ok: 'Trotzdem verwenden', abbrechen: 'Ordner erneut wählen', gefaehrlich: true });
+      if (!ok) {
+        try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei abgewiesen', { ok: false, fehler: 'Ordnerwahl', info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
+        try { await this.storeDirHandle(null); } catch(e) {}
+        this.dirHandle = null; this.bhkDirHandle = null; this.dbDirHandle = null;
+        try { document.getElementById('connectInfo').innerHTML = `<div style="padding:8px 12px;background:var(--clr-amber-light, #fff7ed);border-left:4px solid var(--clr-amber);border-radius:var(--radius);font-size:13px">„${esc(gewaehlt)}“ enthält nicht „${esc(erw.datei)}“. Bitte den Ordner <strong>„${esc(erw.ordner)}“</strong> wählen:<br><code style="font-size:12px">${esc(erw.pfad)}</code></div>`; } catch(e) {}
+        return false;
+      }
+      try { BhkSpur.notiere('netz', 'Ordner ohne Programmdatei trotzdem verwendet', { ok: true, info: `${gewaehlt} statt ${erw.ordner}` }); } catch(e) {}
+    }
     let leit = await this.leitDbLesen();
     this._leitDb = leit;
     const last = this.restoreLastDb();
@@ -2118,6 +2138,36 @@ const App = {
   // derselbe Datenbestand, aber getrennte Protokolle (Feldfall).
   UNTERORDNER_NAMEN: ['Datenbanken', '_bhk', 'backups'],
   _ordnerUnzulaessig: '',
+  // Wo liegt die Programmdatei? (nur bei file://; sonst unbekannt)
+  // pfad = lesbarer Ordnerpfad, ordner = letzter Ordnername, datei = HTML-Name
+  _erwarteterOrdner() {
+    try {
+      if (typeof location === 'undefined' || location.protocol !== 'file:') return { datei: '', ordner: '', pfad: '' };
+      let p = decodeURIComponent(location.pathname || '');
+      p = p.replace(/^\/([A-Za-z]:)/, '$1');           // /P:/… → P:/…
+      const teile = p.split('/').filter(Boolean);
+      const datei = teile.pop() || '';
+      const ordner = teile[teile.length - 1] || '';
+      const pfad = (p.match(/^[A-Za-z]:/) ? teile.join('\\') : '/' + teile.join('/'));
+      return { datei, ordner, pfad };
+    } catch(e) { return { datei: '', ordner: '', pfad: '' }; }
+  },
+  // Enthält der Ordner die Programmdatei? Ohne file:// (Server, Tests): ja.
+  async _ordnerPasstZurHtml(dir) {
+    const erw = this._erwarteterOrdner();
+    if (!erw.datei || !dir || !dir.getFileHandle) return true;
+    try { await dir.getFileHandle(erw.datei, { create: false }); return true; } catch(e) { return false; }
+  },
+  // Startbildschirm: erwarteten Ordner anzeigen
+  _erwarteterOrdnerHinweis() {
+    try {
+      const el = document.getElementById('connectOrdnerHinweis'); if (!el) return;
+      const erw = this._erwarteterOrdner();
+      if (!erw.ordner) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      el.innerHTML = `Erwarteter Arbeitsordner: <strong>${esc(erw.ordner)}</strong> – der Ordner, in dem diese Datei liegt<br><code style="font-size:12px;word-break:break-all">${esc(erw.pfad)}</code>`;
+    } catch(e) {}
+  },
   _ordnerZulaessig(handle) {
     const n = (handle && handle.name) || '';
     return !this.UNTERORDNER_NAMEN.some(u => u.toLowerCase() === n.toLowerCase());
@@ -2867,7 +2917,8 @@ const App = {
   async start() {
     try {
       const startIn = await this.restoreDirHandle() || 'desktop';
-      this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', startIn });
+      // id: Chrome merkt sich je Kennung den zuletzt gewählten Ort des Dialogs
+      this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', startIn, id: 'bhk_arbeitsordner' });
       await this.storeDirHandle(this.dirHandle);
       await this.ensureAppDirs();
       await this.dbImOrdnerOeffnen('Start', { neuBeiLeer: true });
