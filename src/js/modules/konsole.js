@@ -254,17 +254,23 @@ const Konsole = {
   },
   // Dialog aus der Durchsicht / Wartung: erklärt, fragt nach, schreibt aus
   async ausschreibenDialog(terminId, schuelerId) {
-    const t = terminId != null ? App.query('SELECT datum, name FROM kontrolltermine WHERE id=?', [terminId])[0] : null;
-    const s = schuelerId != null ? App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0] : null;
-    const was = s ? `die Durchsicht von ${s.nachname}, ${s.vorname}${t ? ` (Termin ${App.formatDate ? App.formatDate(t.datum) : t.datum})` : ''}`
-      : t ? `alle Durchsichten des Termins ${App.formatDate ? App.formatDate(t.datum) : t.datum}${t.name ? ` „${t.name}“` : ''}` : 'diese Durchsicht';
+    // Nichts darf hier werfen – ein Fehler vor der Rückfrage hieße: nichts wird
+    // ausgeschrieben, und der Nutzer hält es für erledigt
+    let t = null, s = null;
+    try { t = terminId != null ? App.query('SELECT geplant_datum, bemerkung FROM kontrolltermine WHERE id=?', [terminId])[0] : null; } catch(e) {}
+    try { s = schuelerId != null ? App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0] : null; } catch(e) {}
+    const datum = (d) => { try { return typeof formatDate === 'function' ? formatDate(d) : d; } catch(e) { return d; } };
+    const was = s ? `die Durchsicht von ${s.nachname}, ${s.vorname}${t ? ` (Termin ${datum(t.geplant_datum)})` : ''}`
+      : t ? `alle Durchsichten des Termins ${datum(t.geplant_datum)}${t.bemerkung ? ` „${t.bemerkung}“` : ''}` : 'diese Durchsicht';
     const ok = await App.confirm(
       `Der Stand DIESES Rechners für ${was} wird als neueste Änderung ins Protokoll geschrieben: Ergebnis, alle Wochen des Azubis, Mängel, Wiedervorlagen und Archiv.\n\n` +
       'Alle anderen Rechner übernehmen diesen Stand – auch dort, wo gerade etwas anderes steht. Hier ändert sich nichts.\n\n' +
       'Vorher sicherstellen, dass HIER der richtige Stand steht.',
       { titel: 'Stand dieses Rechners für alle übernehmen', ok: 'Jetzt ausschreiben', abbrechen: 'Abbrechen' });
     if (!ok) return null;
-    const r = App.standAusschreiben({ terminId, schuelerId });
+    let r;
+    try { r = App.standAusschreiben({ terminId, schuelerId }); }
+    catch(e) { console.error('[Ausschreiben]', e); App.toast('Ausschreiben fehlgeschlagen: ' + (e && e.message || e) + ' – nichts wurde geschrieben', 'error'); return null; }
     if (!r.ops) { App.toast('Nichts auszuschreiben (keine Durchsicht zu diesem Termin/Azubi)', 'info'); return r; }
     App.toast(`${r.zeilen} Zeilen für ${r.azubis} Azubi(s) ausgeschrieben – die Kollegen übernehmen sie mit dem nächsten Abgleich`, 'success');
     const datei = await App.confirm(
