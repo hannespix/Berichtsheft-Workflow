@@ -521,6 +521,7 @@ const KontrolleHandler = {
               offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
               { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
               { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()' },
+              { label: '⇈ Stand dieses Rechners für alle übernehmen (ganzer Termin)', onclick: `Konsole.ausschreibenDialog(${terminId})`, title: 'Zeigen die Rechner verschiedene Stände: den Stand DIESES Rechners für alle Durchsichten dieses Termins als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
               { trenner: true },
               ...this._terminAktionen(termin, fremdeCount),
             ].filter(Boolean), 'Anwesenheit, Sammelaktionen, Anfrage, Betriebe, PDFs und Druck')}
@@ -1763,6 +1764,7 @@ const KontrolleHandler = {
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
             { trenner: true },
             { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
+            { label: '⇈ Stand dieses Rechners für alle übernehmen', onclick: `Konsole.ausschreibenDialog(${this.currentTerminId},${s.id})`, title: 'Zeigt ein Kollege für diesen Azubi einen anderen Stand: den Stand DIESES Rechners (Ergebnis, alle Wochen, Mängel, Wiedervorlagen) als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
             { trenner: true },
             { label: '☎ Beratungsgespräch Betrieb vormerken (§ 76)', onclick: `WiedervorlagenHandler.beratungAnlegen(${s.id})`, title: 'Beratungsgespräch mit dem Ausbildungsbetrieb als Wiedervorlage vormerken (§ 76 Abs. 1 BBiG) – die Stufe vor dem Prüfungsausschuss' },
           ], 'Auto-Weiter, PDFs, Freigabe und Beratung', 'oben')}

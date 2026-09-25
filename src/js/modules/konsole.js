@@ -23,6 +23,7 @@ const Konsole = {
     ['bhk.jetzt()', 'Abgleich sofort ausführen'],
     ['bhk.pruefen(azubiId)', 'Prüfung je Azubi: lokale Wochen und Ergebnisse, Ops in allen Protokollen und welche dieser Rechner nie angewendet hat'],
     ['bhk.vollabgleich()', 'Alle Protokolle ab dem Snapshot-Stand neu einlesen (heilt verlorene Lesestände; Neueres bleibt erhalten)'],
+    ['bhk.ausschreiben(terminId, azubiId?)', 'Stand DIESES Rechners (Durchsicht eines Termins oder eines Azubis) als neueste Änderung ins Protokoll schreiben – alle Kollegen übernehmen ihn'],
     ['bhk.kopieren()', 'Zustandsbild samt Spur und Protokoll in die Zwischenablage (zur Weitergabe an die Entwicklung)'],
     ['bhk.debug(true)', 'jeden Netzvorgang sofort in der Konsole zeigen (bleibt bis bhk.debug(false))'],
   ],
@@ -232,9 +233,42 @@ const Konsole = {
       console.log(`Protokolle auf dem Laufwerk: ${r.gesamtOps} Op(s) zu diesem Azubi, davon ${r.unbekanntGesamt} auf diesem Rechner NICHT angewendet`);
       this._tabelle(r.protokolle.filter(p => p.ops || p.fehler).map(p => ({ Protokoll: p.protokoll, Ops: p.ops, NichtAngewendet: p.unbekannt, Lesestand: p.lesestand, Größe: p.groesse, Fehler: p.fehler || '' })));
       if (r.unbekannt.length) { console.log('%cNicht angewendete Ops (Auszug)', 'font-weight:bold'); this._tabelle(r.unbekannt); }
+      if (r.verworfenGesamt) {
+        console.log(`%c${r.verworfenGesamt} Op(s) der Kollegen wurden hier VERWORFEN, weil dieser Rechner für dieselben Felder neuere eigene Werte hat (Last-Write-Wins).`, 'font-weight:bold');
+        this._tabelle(r.verworfen);
+        console.log('→ Soll der Stand des ANDEREN Rechners gelten: dort bhk.ausschreiben(terminId, azubiId) bzw. in der Durchsicht ⋯ → „Stand dieses Rechners für alle übernehmen“.');
+      }
       if (r.unbekanntGesamt) console.log('→ bhk.vollabgleich() liest die Protokolle ab dem Snapshot-Stand neu ein.');
-      else console.log('Alle Ops zu diesem Azubi sind hier angewendet. Fehlt trotzdem etwas, wurde es auf dem anderen Rechner nie ins Protokoll geschrieben (dort: Speicherstatus „n wartend“, bhk.status(), Wartung → „Änderungen als Datei“).');
+      else if (!r.verworfenGesamt) console.log('Alle Ops zu diesem Azubi sind hier angewendet. Fehlt trotzdem etwas, wurde es auf dem anderen Rechner nie ins Protokoll geschrieben (dort: Speicherstatus „n wartend“, bhk.status(), Wartung → „Änderungen als Datei“) – oder der andere Rechner arbeitet auf einer anderen Datenbankdatei (bhk.status() vergleichen).');
     }
+    return r;
+  },
+  // Stand dieses Rechners für alle (Konsole)
+  ausschreiben(terminId, schuelerId) {
+    if (terminId == null && schuelerId == null) { console.log('Aufruf: bhk.ausschreiben(<Termin-Kennung>[, <Azubi-Kennung>]) – Termin-Kennung über App.query("SELECT id,datum,name FROM kontrolltermine ORDER BY datum DESC LIMIT 10")'); return null; }
+    const r = App.standAusschreiben({ terminId, schuelerId });
+    console.log(`Stand ausgeschrieben: ${r.azubis} Azubi(s), ${r.zeilen} Zeilen, ${r.ops} Änderungen – werden jetzt angehängt (Speicherstatus in der Kopfzeile). Als Datei: App.standAlsDatei(r.text)`);
+    return r;
+  },
+  // Dialog aus der Durchsicht / Wartung: erklärt, fragt nach, schreibt aus
+  async ausschreibenDialog(terminId, schuelerId) {
+    const t = terminId != null ? App.query('SELECT datum, name FROM kontrolltermine WHERE id=?', [terminId])[0] : null;
+    const s = schuelerId != null ? App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0] : null;
+    const was = s ? `die Durchsicht von ${s.nachname}, ${s.vorname}${t ? ` (Termin ${App.formatDate ? App.formatDate(t.datum) : t.datum})` : ''}`
+      : t ? `alle Durchsichten des Termins ${App.formatDate ? App.formatDate(t.datum) : t.datum}${t.name ? ` „${t.name}“` : ''}` : 'diese Durchsicht';
+    const ok = await App.confirm(
+      `Der Stand DIESES Rechners für ${was} wird als neueste Änderung ins Protokoll geschrieben: Ergebnis, alle Wochen des Azubis, Mängel, Wiedervorlagen und Archiv.\n\n` +
+      'Alle anderen Rechner übernehmen diesen Stand – auch dort, wo gerade etwas anderes steht. Hier ändert sich nichts.\n\n' +
+      'Vorher sicherstellen, dass HIER der richtige Stand steht.',
+      { titel: 'Stand dieses Rechners für alle übernehmen', ok: 'Jetzt ausschreiben', abbrechen: 'Abbrechen' });
+    if (!ok) return null;
+    const r = App.standAusschreiben({ terminId, schuelerId });
+    if (!r.ops) { App.toast('Nichts auszuschreiben (keine Durchsicht zu diesem Termin/Azubi)', 'info'); return r; }
+    App.toast(`${r.zeilen} Zeilen für ${r.azubis} Azubi(s) ausgeschrieben – die Kollegen übernehmen sie mit dem nächsten Abgleich`, 'success');
+    const datei = await App.confirm(
+      'Zusätzlich als Änderungsdatei sichern? Nur nötig, wenn ein Rechner das Protokoll nicht bekommt: die Datei dort unter Wartung → Verbindung → „Änderungsdatei einspielen“ laden.',
+      { titel: 'Notausgang: Datei', ok: 'Datei speichern', abbrechen: 'Nicht nötig' });
+    if (datei) App.standAlsDatei(r.text, s ? `${s.nachname}` : (t ? `termin_${terminId}` : ''));
     return r;
   },
   async vollabgleich() {
