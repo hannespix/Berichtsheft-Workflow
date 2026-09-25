@@ -264,7 +264,7 @@ const AzubiSeite = {
     if (!rows.length) { el.innerHTML = beratungKnopf + '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
     const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
     el.innerHTML = beratungKnopf + `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
-      ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
+      ${rows.map(w => `<tr><td>${w.frist_datum ? esc(formatDate(w.frist_datum)) : 'nächste Durchsicht'}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
         <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>
         <td style="white-space:nowrap">${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td></tr>`).join('')}

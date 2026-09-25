@@ -8992,7 +8992,7 @@ const App = {
     k.mangelErgebnisse = mangel.length;
     k.mangelAzubis = new Set(mangel.map(r => r.schueler_id)).size;
     k.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status IN ('offen','ueberfaellig')", [betriebId]) || 0;
-    k.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))", [betriebId, heute]) || 0;
+    k.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))", [betriebId, heute]) || 0;
     const tage = this.scalar("SELECT AVG(julianday(w.erledigt_datum) - julianday(substr(w.erstellt_am,1,10))) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status='erledigt' AND w.erledigt_datum != ''", [betriebId]);
     k.nachweisTage = tage == null ? null : Math.max(0, Math.round(tage));
     k.wiederholer = k.mangelAzubis >= 2 || k.mangelErgebnisse >= 3;
@@ -9194,7 +9194,7 @@ const App = {
     st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
     st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
     st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
-    st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum < ?)", [heute]) || 0;
+    st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum != '' AND frist_datum < ?)", [heute]) || 0;
     st.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
     return st;
   },
@@ -9759,15 +9759,86 @@ const App = {
     p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
     p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
   },
+  // ── Fehlende Pflicht- und Hinweisteile („nein“ / „nicht vorhanden“) ──
+  HINWEISE_PFLICHT_FEHLT: {
+    p_1_1_ausbildungsplan: 'Individueller Ausbildungsplan (1.1) fehlt. Der Ausbildungsplan ist Anlage zum Ausbildungsvertrag, von Betrieb und Azubi zu unterschreiben und dem Berichtsheft beizufügen.',
+    p_1_4_auszubildende: 'Angaben zum/zur Auszubildenden (1.4) fehlen – Personalbogen ausfüllen.',
+    p_1_5_bescheinigungen: 'Zusammenstellung der Bescheinigungen (1.5) fehlt. Die Bescheinigungen der überbetrieblichen Ausbildung sind zusammenzustellen und dem Berichtsheft beizufügen.',
+    f_1_6_ausbildungsbetrieb: 'Angaben zum Ausbildungsbetrieb / Betriebsskizze (1.6) fehlen – bitte ergänzen.',
+  },
+  // ── Mängel-Codes im Raster → was nachzuholen ist (Stamm; die betroffenen
+  //    Wochen kommen in Klammern dahinter) ──
+  HINWEISE_CODES: {
+    A: 'Unterschriften des/der Auszubildenden nachholen',
+    B: 'Unterschriften des Ausbilders / der Ausbilderin nachholen',
+    C: 'Berufsschulthemen nachtragen',
+    D: 'Wetterangaben nachtragen',
+    E: 'Lückenhafte Tagesberichte vervollständigen',
+    F: 'Fehlende Tagesberichte nachholen',
+    G: 'Datum / Kalenderwoche berichtigen',
+  },
+  // Feste Reihenfolge der automatischen Zeilen am Ende der Bemerkung
+  HINWEISE_REIHENFOLGE: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb', 'A', 'B', 'C', 'D', 'E', 'F', 'G'],
+  autoHinweisStamm(key) {
+    return this.HINWEISE_NICHT_GEFUEHRT[key] || this.HINWEISE_PFLICHT_FEHLT[key] || this.HINWEISE_CODES[key] || null;
+  },
+  // Automatische Zeile zu einem Pflichtteil-Wert (null = keine)
+  autoHinweisPflicht(feld, wert) {
+    if (this.HINWEISE_NICHT_GEFUEHRT[feld]) return wert === 'nein' ? this.HINWEISE_NICHT_GEFUEHRT[feld] : null;
+    if (this.HINWEISE_PFLICHT_FEHLT[feld]) return (wert === 'nein' || wert === 'nicht_vorhanden') ? this.HINWEISE_PFLICHT_FEHLT[feld] : null;
+    return null;
+  },
+  // Erkennt eine automatische Zeile: genau der Stamm oder Stamm + „ (…)“.
+  // Von Hand veränderte Sätze gelten als eigener Text und bleiben stehen.
+  _autoZeileKey(zeile) {
+    const z = String(zeile || '').trim();
+    if (!z) return null;
+    for (const k of this.HINWEISE_REIHENFOLGE) {
+      const st = this.autoHinweisStamm(k);
+      if (z === st || (z.startsWith(st + ' (') && z.endsWith(')'))) return k;
+    }
+    return null;
+  },
+  // Bemerkung mit automatischen Zeilen: `neu` = { key: zeile | null } – nur
+  // diese Schlüssel werden ersetzt bzw. entfernt; andere automatische Zeilen
+  // bleiben (eine vom Nutzer gelöschte kommt so nicht zurück). Alle
+  // automatischen Zeilen stehen in fester Reihenfolge hinter dem eigenen Text.
+  bemerkungMitAutoZeilen(bemerkung, neu) {
+    const eigene = [], auto = {};
+    String(bemerkung || '').split('\n').forEach(z => {
+      const k = this._autoZeileKey(z);
+      if (k) auto[k] = z.trim(); else eigene.push(z);
+    });
+    Object.keys(neu || {}).forEach(k => { if (neu[k]) auto[k] = neu[k]; else delete auto[k]; });
+    let text = eigene.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    this.HINWEISE_REIHENFOLGE.forEach(k => { if (auto[k]) text = text ? text + '\n' + auto[k] : auto[k]; });
+    return text;
+  },
   // Bemerkung passend zum Wert: bei 'nein' Hinweis anhängen (genau einmal),
   // sonst einen vorhandenen Hinweis entfernen
   bemerkungMitHinweis(bemerkung, feld, wert) {
-    const hinweis = this.HINWEISE_NICHT_GEFUEHRT[feld];
-    const text = String(bemerkung || '');
-    if (!hinweis) return text;
-    const ohne = text.split('\n').filter(z => z.trim() !== hinweis).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-    if (wert === 'nein') return ohne ? ohne + '\n' + hinweis : hinweis;
-    return ohne;
+    if (!this.HINWEISE_NICHT_GEFUEHRT[feld]) return String(bemerkung || '');
+    return this.bemerkungMitAutoZeilen(bemerkung, { [feld]: this.autoHinweisPflicht(feld, wert) });
+  },
+  // Zeile zu einem Mängel-Code: Stamm + betroffene Wochen (offene Mängel des
+  // Azubis über alle Raster – was noch nachzuholen ist)
+  autoHinweisCode(schuelerId, code) {
+    const stamm = this.HINWEISE_CODES[code];
+    if (!stamm) return null;
+    const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId])
+      .filter(r => (r.maengel_codes || '').split(',').includes(code));
+    if (!rows.length) return null;
+    let bounds = {};
+    try { bounds = this.getAJKWBounds(schuelerId) || {}; } catch(e) {}
+    const je = {};
+    rows.forEach(r => { (je[r.ausbildungsjahr] = je[r.ausbildungsjahr] || []).push(r.kalenderwoche); });
+    const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
+      const kws = je[aj];
+      const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');
+      const sj = bounds[aj] && bounds[aj].schoolYear;
+      return `${sj ? 'SJ ' + sj : 'AJ ' + aj} KW ${liste}`;
+    });
+    return `${stamm} (${rows.length} Woche${rows.length > 1 ? 'n' : ''}: ${teile.join(' · ')})`;
   },
 
   // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
@@ -10861,7 +10932,7 @@ Mit freundlichen Grüßen
     const jf = this.jgWhere('s.jahrgang_id');
     // Gleiche Zählung wie Dashboard und WV-Liste: 'ueberfaellig' UND offene
     // mit abgelaufener Frist (der Status-Flip passiert erst beim Öffnen der Liste)
-    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
+    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
     const b1 = document.getElementById('badgeOverdue');
     const b2 = document.getElementById('badgeWV');
     if (overdue > 0) {

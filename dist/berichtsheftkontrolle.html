@@ -6782,6 +6782,7 @@ body.grosse-schrift { zoom: 1.2; }
 .ke-wv { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .ke-wv label { font-size: 12px; color: var(--clr-text-light); }
 .ke-wv input { width: auto; padding: 2px 6px; font-size: 12px; }
+.ke-wv .ke-wv-text { font-size: 12px; color: var(--clr-forest); font-weight: 600; white-space: nowrap; }
 .ke-zeile2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ke-zeile2 textarea { flex: 1 1 260px; font-size: 12px; padding: 5px 8px; resize: none; min-height: 0; line-height: 1.3; }
 .ke-zeile2 .btn { padding: 5px 12px; }
@@ -7740,7 +7741,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 12:45 UTC',
+  BUILD: '2026-09-25 13:15 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -16484,7 +16485,7 @@ const App = {
     k.mangelErgebnisse = mangel.length;
     k.mangelAzubis = new Set(mangel.map(r => r.schueler_id)).size;
     k.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status IN ('offen','ueberfaellig')", [betriebId]) || 0;
-    k.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))", [betriebId, heute]) || 0;
+    k.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))", [betriebId, heute]) || 0;
     const tage = this.scalar("SELECT AVG(julianday(w.erledigt_datum) - julianday(substr(w.erstellt_am,1,10))) FROM wiedervorlagen w JOIN schueler s ON s.id=w.schueler_id WHERE s.betrieb_id=? AND w.status='erledigt' AND w.erledigt_datum != ''", [betriebId]);
     k.nachweisTage = tage == null ? null : Math.max(0, Math.round(tage));
     k.wiederholer = k.mangelAzubis >= 2 || k.mangelErgebnisse >= 3;
@@ -16686,7 +16687,7 @@ const App = {
     st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
     st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
     st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
-    st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum < ?)", [heute]) || 0;
+    st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum != '' AND frist_datum < ?)", [heute]) || 0;
     st.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
     return st;
   },
@@ -17251,15 +17252,86 @@ const App = {
     p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
     p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
   },
+  // ── Fehlende Pflicht- und Hinweisteile („nein“ / „nicht vorhanden“) ──
+  HINWEISE_PFLICHT_FEHLT: {
+    p_1_1_ausbildungsplan: 'Individueller Ausbildungsplan (1.1) fehlt. Der Ausbildungsplan ist Anlage zum Ausbildungsvertrag, von Betrieb und Azubi zu unterschreiben und dem Berichtsheft beizufügen.',
+    p_1_4_auszubildende: 'Angaben zum/zur Auszubildenden (1.4) fehlen – Personalbogen ausfüllen.',
+    p_1_5_bescheinigungen: 'Zusammenstellung der Bescheinigungen (1.5) fehlt. Die Bescheinigungen der überbetrieblichen Ausbildung sind zusammenzustellen und dem Berichtsheft beizufügen.',
+    f_1_6_ausbildungsbetrieb: 'Angaben zum Ausbildungsbetrieb / Betriebsskizze (1.6) fehlen – bitte ergänzen.',
+  },
+  // ── Mängel-Codes im Raster → was nachzuholen ist (Stamm; die betroffenen
+  //    Wochen kommen in Klammern dahinter) ──
+  HINWEISE_CODES: {
+    A: 'Unterschriften des/der Auszubildenden nachholen',
+    B: 'Unterschriften des Ausbilders / der Ausbilderin nachholen',
+    C: 'Berufsschulthemen nachtragen',
+    D: 'Wetterangaben nachtragen',
+    E: 'Lückenhafte Tagesberichte vervollständigen',
+    F: 'Fehlende Tagesberichte nachholen',
+    G: 'Datum / Kalenderwoche berichtigen',
+  },
+  // Feste Reihenfolge der automatischen Zeilen am Ende der Bemerkung
+  HINWEISE_REIHENFOLGE: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb', 'A', 'B', 'C', 'D', 'E', 'F', 'G'],
+  autoHinweisStamm(key) {
+    return this.HINWEISE_NICHT_GEFUEHRT[key] || this.HINWEISE_PFLICHT_FEHLT[key] || this.HINWEISE_CODES[key] || null;
+  },
+  // Automatische Zeile zu einem Pflichtteil-Wert (null = keine)
+  autoHinweisPflicht(feld, wert) {
+    if (this.HINWEISE_NICHT_GEFUEHRT[feld]) return wert === 'nein' ? this.HINWEISE_NICHT_GEFUEHRT[feld] : null;
+    if (this.HINWEISE_PFLICHT_FEHLT[feld]) return (wert === 'nein' || wert === 'nicht_vorhanden') ? this.HINWEISE_PFLICHT_FEHLT[feld] : null;
+    return null;
+  },
+  // Erkennt eine automatische Zeile: genau der Stamm oder Stamm + „ (…)“.
+  // Von Hand veränderte Sätze gelten als eigener Text und bleiben stehen.
+  _autoZeileKey(zeile) {
+    const z = String(zeile || '').trim();
+    if (!z) return null;
+    for (const k of this.HINWEISE_REIHENFOLGE) {
+      const st = this.autoHinweisStamm(k);
+      if (z === st || (z.startsWith(st + ' (') && z.endsWith(')'))) return k;
+    }
+    return null;
+  },
+  // Bemerkung mit automatischen Zeilen: `neu` = { key: zeile | null } – nur
+  // diese Schlüssel werden ersetzt bzw. entfernt; andere automatische Zeilen
+  // bleiben (eine vom Nutzer gelöschte kommt so nicht zurück). Alle
+  // automatischen Zeilen stehen in fester Reihenfolge hinter dem eigenen Text.
+  bemerkungMitAutoZeilen(bemerkung, neu) {
+    const eigene = [], auto = {};
+    String(bemerkung || '').split('\n').forEach(z => {
+      const k = this._autoZeileKey(z);
+      if (k) auto[k] = z.trim(); else eigene.push(z);
+    });
+    Object.keys(neu || {}).forEach(k => { if (neu[k]) auto[k] = neu[k]; else delete auto[k]; });
+    let text = eigene.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    this.HINWEISE_REIHENFOLGE.forEach(k => { if (auto[k]) text = text ? text + '\n' + auto[k] : auto[k]; });
+    return text;
+  },
   // Bemerkung passend zum Wert: bei 'nein' Hinweis anhängen (genau einmal),
   // sonst einen vorhandenen Hinweis entfernen
   bemerkungMitHinweis(bemerkung, feld, wert) {
-    const hinweis = this.HINWEISE_NICHT_GEFUEHRT[feld];
-    const text = String(bemerkung || '');
-    if (!hinweis) return text;
-    const ohne = text.split('\n').filter(z => z.trim() !== hinweis).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-    if (wert === 'nein') return ohne ? ohne + '\n' + hinweis : hinweis;
-    return ohne;
+    if (!this.HINWEISE_NICHT_GEFUEHRT[feld]) return String(bemerkung || '');
+    return this.bemerkungMitAutoZeilen(bemerkung, { [feld]: this.autoHinweisPflicht(feld, wert) });
+  },
+  // Zeile zu einem Mängel-Code: Stamm + betroffene Wochen (offene Mängel des
+  // Azubis über alle Raster – was noch nachzuholen ist)
+  autoHinweisCode(schuelerId, code) {
+    const stamm = this.HINWEISE_CODES[code];
+    if (!stamm) return null;
+    const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId])
+      .filter(r => (r.maengel_codes || '').split(',').includes(code));
+    if (!rows.length) return null;
+    let bounds = {};
+    try { bounds = this.getAJKWBounds(schuelerId) || {}; } catch(e) {}
+    const je = {};
+    rows.forEach(r => { (je[r.ausbildungsjahr] = je[r.ausbildungsjahr] || []).push(r.kalenderwoche); });
+    const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
+      const kws = je[aj];
+      const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');
+      const sj = bounds[aj] && bounds[aj].schoolYear;
+      return `${sj ? 'SJ ' + sj : 'AJ ' + aj} KW ${liste}`;
+    });
+    return `${stamm} (${rows.length} Woche${rows.length > 1 ? 'n' : ''}: ${teile.join(' · ')})`;
   },
 
   // Warnung bei vielen Fehltagen – als eigene Konstante, weil sie sowohl in
@@ -18353,7 +18425,7 @@ Mit freundlichen Grüßen
     const jf = this.jgWhere('s.jahrgang_id');
     // Gleiche Zählung wie Dashboard und WV-Liste: 'ueberfaellig' UND offene
     // mit abgelaufener Frist (der Status-Flip passiert erst beim Öffnen der Liste)
-    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
+    const overdue = this.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
     const b1 = document.getElementById('badgeOverdue');
     const b2 = document.getElementById('badgeWV');
     if (overdue > 0) {
@@ -18901,7 +18973,8 @@ const Views = {
     const kontrolliert = kontrolliertIds.length;
     const offeneWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig')${jf.where}`, jf.params) || 0;
     // 'ueberfaellig' mitzählen — der Status-Flip passiert erst beim Öffnen der WV-View
-    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
+    // Wiedervorlagen ohne Datum („bei nächster Durchsicht“) sind nie überfällig
+    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
 
 
     const naechsteTermine = App.query(`SELECT kt.*, kt.id as termin_id
@@ -18913,7 +18986,7 @@ const Views = {
     const ueberfaelligeWV = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette
       FROM wiedervorlagen w
       JOIN schueler s ON w.schueler_id=s.id
-      WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}
+      WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}
       ORDER BY w.frist_datum LIMIT 10`, [today, ...jf.params]);
 
     // Betrieb-Ranking: Betriebe mit den meisten Mängeln
@@ -20091,7 +20164,8 @@ const Views = {
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
     // Nur schreiben, wenn es etwas zu ändern gibt – sonst hängt jedes Anzeigen der Liste eine Op ans Protokoll
-    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Ohne Datum („bei nächster Durchsicht“) nie überfällig – ein leerer Text wäre in SQLite kleiner als jedes Datum
+    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum != '' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum != '' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,
@@ -20101,7 +20175,7 @@ const Views = {
       LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       WHERE 1=1${jf.where}
-      ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum`, jf.params);
+      ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, CASE WHEN w.frist_datum='' THEN 1 ELSE 0 END, w.frist_datum`, jf.params);
 
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
@@ -20148,7 +20222,7 @@ const Views = {
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
-            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
+            <td data-sort="${w.frist_datum || '9999'}">${w.frist_datum ? formatDate(w.frist_datum) : '<span title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">nächste Durchsicht</span>'}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
             <td style="white-space:nowrap">
               ${(() => {
@@ -21359,6 +21433,8 @@ const Views = {
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
             <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
+            <p><strong>Automatische Bemerkung:</strong> Jedes „nein“ oder „nicht vorhanden“ bei 1.1, 1.4, 1.5 und 1.6 schreibt einen fertigen Satz in die Bemerkung („Individueller Ausbildungsplan (1.1) fehlt …“), „ja“ nimmt ihn wieder heraus. Ebenso jeder Mängel-Code im Raster: A → „Unterschriften des/der Auszubildenden nachholen“, B → „Unterschriften des Ausbilders / der Ausbilderin nachholen“, C → Berufsschulthemen, D → Wetterangaben, E → lückenhafte Tagesberichte, F → „Fehlende Tagesberichte nachholen“, G → Datum/KW – jeweils mit den betroffenen Wochen in Klammern, die bei jeder Änderung im Raster nachgeführt werden; verschwindet der letzte Code, verschwindet die Zeile. Beim Ergebnis „Mängel“ werden alle offenen Codes noch einmal in die Bemerkung übernommen. Die automatischen Zeilen stehen hinter Ihrem eigenen Text; was Sie selbst schreiben oder abändern, bleibt unangetastet, eine gelöschte Zeile kommt erst zurück, wenn sich ihr Code wieder ändert.</p>
+            <p><strong>Wiedervorlage ohne Datum:</strong> Beim Nachweisweg „nächste Durchsicht“ (geringe Mängel) bekommt die Wiedervorlage kein Datum – die Frist ist die nächste Kontrolle selbst. Sie erscheint in der Liste als „nächste Durchsicht“, wird nie überfällig und schließt sich, wenn das Berichtsheft bei der nächsten Durchsicht in Ordnung ist. Jeder andere Nachweisweg (E-Mail, Post, persönlich) bekommt wie bisher eine Frist aus den Einstellungen.</p>
             <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; „Sachberichte/Wetter per E-Mail“ nur mit Zusatzvereinbarung). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
             <p>6. <strong>✓ Fertig</strong> schreibt sofort auf das Netzlaufwerk, gibt den Azubi frei und führt <strong>zurück zur Übersicht</strong> – dort das nächste vorliegende Heft wählen (die Hefte liegen am Kontrolltag selten in Listenreihenfolge). Im ⋯-Menü der Leiste lässt sich das umstellen: zum nächsten offenen Azubi springen (frühere Vorgabe) oder in der Ansicht bleiben; dieselbe Einstellung gilt für das automatische Weitergehen nach „In Ordnung“. Blättern ohne Ergebnis: ‹ Zurück / Weiter › oder Strg+←/→.</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
@@ -27827,7 +27903,7 @@ const PDFExport = {
         curY += 5;
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
         doc.setTextColor(...COL_RED);
-        doc.text(`Wiedervorlage bis ${formatDate(wv[0].frist_datum)}`, LM + 3, curY);
+        doc.text(wv[0].frist_datum ? `Wiedervorlage bis ${formatDate(wv[0].frist_datum)}` : 'Wiedervorlage bei der nächsten Durchsicht', LM + 3, curY);
         curY += 3.5;
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
         doc.setTextColor(120, 50, 40);
@@ -29705,7 +29781,8 @@ const KontrolleHandler = {
           </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
-            <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <input type="date" class="form-control" id="wvDatum" value="${this.wvOhneDatum(ke.ergebnis) ? '' : this.getWVDate(ke.id)}" style="${this.wvOhneDatum(ke.ergebnis) ? 'display:none' : ''}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <span id="wvNaechste" class="ke-wv-text" style="${this.wvOhneDatum(ke.ergebnis) ? '' : 'display:none'}" title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">bei der nächsten Durchsicht</span>
           </span>
         </div>
         <div class="ke-zeile2">
@@ -29743,14 +29820,53 @@ const KontrolleHandler = {
   _wvDefaultFuer(ergebnis) {
     const termin = App.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    // Fristen aus den Einstellungen (App.wvFristen), Nachholung bevorzugt den nächsten geplanten Termin
-    if (ergebnis === 'nachholung_naechste_durchsicht' && nextTermin) return nextTermin;
+    // Fristen aus den Einstellungen (App.wvFristen). „Nachholung bei nächster
+    // Durchsicht“ hat KEIN Datum: die Frist ist die nächste Kontrolle selbst,
+    // ein Datum wäre nur geraten und machte die Wiedervorlage überfällig.
+    if (ergebnis === 'nachholung_naechste_durchsicht') return '';
     return App.wvFrist(ergebnis in App.WV_FRISTEN_STANDARD ? ergebnis : 'berichte_bis_termin_email');
+  },
+  // Hat diese Wiedervorlage ein Datum? (Nachholung bei nächster Durchsicht: nein)
+  wvOhneDatum(ergebnis) { return ergebnis === 'nachholung_naechste_durchsicht'; },
+  // Wiedervorlage-Feld in der Leiste: Datum oder Text „bei der nächsten Durchsicht“
+  _wvFeldAnzeigen(ergebnis) {
+    const sec = document.getElementById('wvSection'), inp = document.getElementById('wvDatum'), txt = document.getElementById('wvNaechste');
+    if (!sec) return;
+    sec.style.display = (ergebnis && ergebnis !== 'in_ordnung') ? '' : 'none';
+    const ohne = this.wvOhneDatum(ergebnis);
+    if (inp) { inp.style.display = ohne ? 'none' : ''; if (ohne) inp.value = ''; }
+    if (txt) txt.style.display = ohne ? '' : 'none';
   },
 
   getWVDate(keId) {
     const wv = App.query(`SELECT frist_datum FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1`, [keId]);
     return wv.length ? wv[0].frist_datum : '';
+  },
+
+  // Felder, deren Wert einen automatischen Satz in die Bemerkung schreibt
+  AUTO_HINWEIS_FELDER: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb'],
+  // Zeilen zu Mängel-Codes: { code: zeile | null } für die genannten Codes
+  _autoHinweiseCodes(sid, codes) {
+    const neu = {};
+    codes.forEach(c => { if (App.HINWEISE_CODES[c]) neu[c] = App.autoHinweisCode(sid, c); });
+    return neu;
+  },
+  // Nach jeder Code-Änderung im Raster (Tasten, Modal, Undo): die Zeilen der
+  // betroffenen Codes in der Bemerkung des Kontrollergebnisses nachziehen –
+  // aufgerufen aus KWNav.persistCodes
+  autoHinweiseCodesNachziehen(keId, sid, codes) {
+    try {
+      const ke = App.query('SELECT id, bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      if (!ke) return;
+      const neu = this._autoHinweiseCodes(sid, codes);
+      if (!Object.keys(neu).length) return;
+      const text = App.bemerkungMitAutoZeilen(ke.bemerkung, neu);
+      if (text === (ke.bemerkung || '')) return;
+      App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [text, keId]);
+      const ta = document.getElementById('keBemerkung');
+      const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
+      if (ta && s && s.id === sid && this.currentTerminId && App.scalar('SELECT kontrolltermin_id FROM kontrollergebnisse WHERE id=?', [keId]) === this.currentTerminId) ta.value = text;
+    } catch(e) { console.warn('Automatische Hinweise:', e); }
   },
 
   // Whitelist erlaubter Feldnamen für saveField() – schützt gegen SQL-Injection
@@ -29787,9 +29903,13 @@ const KontrolleHandler = {
       this.PFLICHT_AUTO_JA.forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
       wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
     }
-    // „nicht geführt“ schreibt/entfernt den festen Hinweis in der Bemerkung
+    // Automatische Hinweise in der Bemerkung: fehlende oder nicht geführte
+    // Pflichtteile schreiben/entfernen ihren Satz; ein Mängel-Ergebnis zieht
+    // die Zeilen zu allen offenen Mängel-Codes nach (was nachzuholen ist)
     const bemVorher = ke.bemerkung || '';
-    const bemNeu = (field === 'p_1_1_gefuehrt' || field === 'p_1_5_gefuehrt') ? App.bemerkungMitHinweis(bemVorher, field, value) : bemVorher;
+    let bemNeu = bemVorher;
+    if (this.AUTO_HINWEIS_FELDER.includes(field)) bemNeu = App.bemerkungMitAutoZeilen(bemVorher, { [field]: App.autoHinweisPflicht(field, value) });
+    else if (field === 'ergebnis' && value && value !== 'in_ordnung') bemNeu = App.bemerkungMitAutoZeilen(bemVorher, this._autoHinweiseCodes(s.id, Object.keys(App.HINWEISE_CODES)));
     const bemGeaendert = bemNeu !== bemVorher;
     const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '') + (bemGeaendert ? ' + Bemerkung' : '');
     const wvEigeneVorher = field === 'ergebnis' ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]) : null;
@@ -29819,9 +29939,12 @@ const KontrolleHandler = {
       App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
       const ta = document.getElementById('keBemerkung');
       if (ta) ta.value = bemNeu;
-      const sel = document.querySelector(`[data-field="${field}"]`);
-      if (sel) { sel.style.borderColor = value === 'nein' ? 'var(--clr-red)' : value === 'ja' ? 'var(--clr-green)' : ''; sel.style.color = value === 'nein' ? 'var(--clr-red)' : ''; }
-      App.toast(value === 'nein' ? 'Hinweis in die Bemerkung übernommen' : 'Hinweis aus der Bemerkung entfernt', 'info');
+      if (field !== 'ergebnis') {
+        const sel = document.querySelector(`[data-field="${field}"]`);
+        const fehlt = value === 'nein' || value === 'nicht_vorhanden';
+        if (sel) { sel.style.borderColor = fehlt ? 'var(--clr-red)' : value === 'ja' ? 'var(--clr-green)' : ''; sel.style.color = fehlt ? 'var(--clr-red)' : ''; }
+        App.toast(fehlt ? 'Hinweis in die Bemerkung übernommen' : 'Hinweis aus der Bemerkung entfernt', 'info');
+      } else App.toast('Nachzuholende Mängel in die Bemerkung übernommen', 'info');
     }
 
     // When "In Ordnung" → auto-set all Pflichtteile to "ja"
@@ -29847,14 +29970,13 @@ const KontrolleHandler = {
     }
     // Show/hide WV section
     if (field === 'ergebnis') {
-      const wvSec = document.getElementById('wvSection');
-      if (wvSec) wvSec.style.display = (value && value !== 'in_ordnung') ? '' : 'none';
+      this._wvFeldAnzeigen(value);
       // Wiedervorlage folgt dem Ergebnis: Art nachziehen, fehlende anlegen,
       // eine nach „In Ordnung" automatisch geschlossene wieder öffnen
       if (value && value !== 'in_ordnung') {
         const wvId = this._wvNachErgebnis(keId, s.id, value);
         const inp = document.getElementById('wvDatum');
-        if (inp && !inp.value && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
+        if (inp && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
       }
       // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
       const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
@@ -29902,8 +30024,9 @@ const KontrolleHandler = {
         count++;
       }
     });
-    // „Alle OK“ heißt auch: die Hinweise „nicht geführt“ sind erledigt
-    const bemOhne = App.bemerkungMitHinweis(App.bemerkungMitHinweis(ke.bemerkung, 'p_1_1_gefuehrt', 'ja'), 'p_1_5_gefuehrt', 'ja');
+    // „Alle OK“ heißt auch: die Hinweise „fehlt“ / „nicht geführt“ sind erledigt
+    const weg = {}; this.AUTO_HINWEIS_FELDER.forEach(f => { weg[f] = null; });
+    const bemOhne = App.bemerkungMitAutoZeilen(ke.bemerkung, weg);
     if (bemOhne !== (ke.bemerkung || '')) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemOhne, ke.id]);
     this.renderSchueler();
     App.toast(count ? `${count} Pflichtteile auf "Ja" gesetzt` : 'Alle Pflichtteile waren bereits "Ja"', count ? 'success' : 'info');
@@ -29917,8 +30040,11 @@ const KontrolleHandler = {
     const wv = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
     if (wv) {
       const wiederOeffnen = wv.status === 'erledigt' && /^Automatisch erledigt/.test(wv.erledigt_bemerkung || '');
-      if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, wv.id]);
-      else if (wv.art !== ergebnis) App.run('UPDATE wiedervorlagen SET art=? WHERE id=?', [ergebnis, wv.id]);
+      // Frist folgt der Art: „nächste Durchsicht“ ohne Datum, jede andere Art
+      // bekommt ein Datum (bestehendes bleibt, fehlendes wird ergänzt)
+      const frist = this.wvOhneDatum(ergebnis) ? '' : (wv.frist_datum || this._wvDefaultFuer(ergebnis));
+      if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, frist_datum=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, frist, wv.id]);
+      else if (wv.art !== ergebnis || (wv.frist_datum || '') !== frist) App.run('UPDATE wiedervorlagen SET art=?, frist_datum=? WHERE id=?', [ergebnis, frist, wv.id]);
       return wv.id;
     }
     App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",
@@ -31573,6 +31699,7 @@ const KWNav = {
     // ── kw_status (cumulative per student) ──
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+      const alteCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
       if (existing.length) {
         // Entfernte Mängel IMMER als behoben protokollieren – unabhängig davon,
         // ob sie über Entf, "Leeren", das Modal oder die O-Taste verschwinden.
@@ -31608,6 +31735,11 @@ const KWNav = {
       // nicht über Modal/O-Taste/Leeren -> fehltage_gesamt (und damit das PDF)
       // blieb auf dem alten Wert stehen.
       try { KontrolleHandler.autoUpdateFehltage(sid, keId); } catch(e) {}
+      // Automatische Hinweise in der Bemerkung: nur die Codes, die sich in
+      // dieser Woche geändert haben (hinzu oder weg)
+      const neueCodes = (codesStr || '').split(',').filter(Boolean);
+      const betroffen = [...new Set([...alteCodes, ...neueCodes])].filter(c => alteCodes.includes(c) !== neueCodes.includes(c));
+      if (betroffen.length) { try { KontrolleHandler.autoHinweiseCodesNachziehen(keId, sid, betroffen); } catch(e) {} }
     }
 
     // ── kw_maengel (backward compat per kontrollergebnis) ──
@@ -33182,7 +33314,7 @@ const Workflows = {
             a.maengel.forEach(m => { maengelListe += `  AJ ${m.ausbildungsjahr}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
           }
         });
-        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') ORDER BY w.frist_datum LIMIT 1`);
+        const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') AND w.frist_datum != '' ORDER BY w.frist_datum LIMIT 1`);
         try {
           const zip = new PizZip(bytes.buffer);
           const DocxTemplater = window.docxtemplater || window.Docxtemplater;
@@ -33280,7 +33412,7 @@ const Workflows = {
     // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
     const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
     const ctx = { ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
-      frist: formatDate(w.frist_datum), frist_alt: formatDate(w.frist_datum), frist_neu: formatDate(fristNeu),
+      frist: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_alt: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
       betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
       datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' };
@@ -33405,11 +33537,11 @@ const Workflows = {
       ${gruppen.map((g, i) => `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>${esc(g.name)}</strong> <span style="color:var(--clr-text-light)">${g.wvs.length} WV${g.wvs.some(w => w.ueberfaellig) ? ' · <span style="color:var(--clr-red)">überfällig</span>' : ''}</span>
           <span style="margin-left:auto">${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._sammelMail(${i})">✉︎ Senden</button>` : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}</span></div>
-        <div style="margin-top:4px">${g.wvs.map(w => `${esc(w.nachname)}, ${esc(w.vorname)} – ${esc(wvArtLabel(w.art))}, Frist ${formatDate(w.frist_datum)}${w.mahnstufe ? ` (${w.mahnstufe}× angeschrieben)` : ''}`).join('<br>')}</div>
+        <div style="margin-top:4px">${g.wvs.map(w => `${esc(w.nachname)}, ${esc(w.vorname)} – ${esc(wvArtLabel(w.art))}, ${w.frist_datum ? 'Frist ' + formatDate(w.frist_datum) : 'bis zur nächsten Durchsicht'}${w.mahnstufe ? ` (${w.mahnstufe}× angeschrieben)` : ''}`).join('<br>')}</div>
       </div>`).join('')}`, '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>');
   },
   _sammelBlock(g) {
-    return g.wvs.map(w => `  - ${w.nachname}, ${w.vorname}: ${wvArtLabel(w.art)}, Frist ${formatDate(w.frist_datum)}${w.ueberfaellig ? ' (überschritten)' : ''}`).join('\n');
+    return g.wvs.map(w => `  - ${w.nachname}, ${w.vorname}: ${wvArtLabel(w.art)}, ${w.frist_datum ? 'Frist ' + formatDate(w.frist_datum) : 'bis zur nächsten Durchsicht'}${w.ueberfaellig ? ' (überschritten)' : ''}`).join('\n');
   },
   _sammelMail(i) {
     const g = (this._sammel || [])[i];
@@ -33649,7 +33781,7 @@ const WiedervorlagenHandler = {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
         <div><strong>Art:</strong> ${wvArtLabel(w.art)}</div>
-        <div><strong>Frist:</strong> ${formatDate(w.frist_datum)}</div>
+        <div><strong>Frist:</strong> ${w.frist_datum ? formatDate(w.frist_datum) : 'bei der nächsten Durchsicht'}</div>
         ${w.versand_datum ? `<div><strong>Versand:</strong> ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} per ${esc(w.versand_art === 'email' ? 'E-Mail' : (w.versand_art || 'Brief'))}</div>` : '<div style="color:var(--clr-text-light)"><strong>Versand:</strong> noch kein Anschreiben vermerkt</div>'}
         <div><strong>Status:</strong> ${wvStatusBadge(w.status)}</div>
         ${w.erledigt_datum ? `<div><strong>Erledigt am:</strong> ${formatDate(w.erledigt_datum)}</div>` : ''}
@@ -33790,9 +33922,10 @@ const WiedervorlagenHandler = {
   },
 
   exportICS() {
+    // Ohne Datum („bei nächster Durchsicht“) gibt es keinen Kalendereintrag
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id
-      WHERE w.status IN ('offen','ueberfaellig')`);
-    if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen', 'warning');
+      WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum != ''`);
+    if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen mit Datum', 'warning');
     // Wiedervorlagen als AUFGABEN (VTODO) mit Fälligkeit, stabile UID je WV
     App.exportICS(wvs.map(w => ({
       uid: 'bhk-wv-' + w.id, todo: true,
@@ -36075,7 +36208,7 @@ const AzubiSeite = {
     if (!rows.length) { el.innerHTML = beratungKnopf + '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
     const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
     el.innerHTML = beratungKnopf + `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
-      ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
+      ${rows.map(w => `<tr><td>${w.frist_datum ? esc(formatDate(w.frist_datum)) : 'nächste Durchsicht'}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
         <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>
         <td style="white-space:nowrap">${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td></tr>`).join('')}

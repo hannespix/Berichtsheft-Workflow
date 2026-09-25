@@ -382,6 +382,7 @@ const KWNav = {
     // ── kw_status (cumulative per student) ──
     if (sid) {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+      const alteCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
       if (existing.length) {
         // Entfernte Mängel IMMER als behoben protokollieren – unabhängig davon,
         // ob sie über Entf, "Leeren", das Modal oder die O-Taste verschwinden.
@@ -417,6 +418,11 @@ const KWNav = {
       // nicht über Modal/O-Taste/Leeren -> fehltage_gesamt (und damit das PDF)
       // blieb auf dem alten Wert stehen.
       try { KontrolleHandler.autoUpdateFehltage(sid, keId); } catch(e) {}
+      // Automatische Hinweise in der Bemerkung: nur die Codes, die sich in
+      // dieser Woche geändert haben (hinzu oder weg)
+      const neueCodes = (codesStr || '').split(',').filter(Boolean);
+      const betroffen = [...new Set([...alteCodes, ...neueCodes])].filter(c => alteCodes.includes(c) !== neueCodes.includes(c));
+      if (betroffen.length) { try { KontrolleHandler.autoHinweiseCodesNachziehen(keId, sid, betroffen); } catch(e) {} }
     }
 
     // ── kw_maengel (backward compat per kontrollergebnis) ──

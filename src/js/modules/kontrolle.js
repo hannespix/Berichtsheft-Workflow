@@ -1757,7 +1757,8 @@ const KontrolleHandler = {
           </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
-            <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <input type="date" class="form-control" id="wvDatum" value="${this.wvOhneDatum(ke.ergebnis) ? '' : this.getWVDate(ke.id)}" style="${this.wvOhneDatum(ke.ergebnis) ? 'display:none' : ''}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <span id="wvNaechste" class="ke-wv-text" style="${this.wvOhneDatum(ke.ergebnis) ? '' : 'display:none'}" title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">bei der nächsten Durchsicht</span>
           </span>
         </div>
         <div class="ke-zeile2">
@@ -1795,14 +1796,53 @@ const KontrolleHandler = {
   _wvDefaultFuer(ergebnis) {
     const termin = App.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    // Fristen aus den Einstellungen (App.wvFristen), Nachholung bevorzugt den nächsten geplanten Termin
-    if (ergebnis === 'nachholung_naechste_durchsicht' && nextTermin) return nextTermin;
+    // Fristen aus den Einstellungen (App.wvFristen). „Nachholung bei nächster
+    // Durchsicht“ hat KEIN Datum: die Frist ist die nächste Kontrolle selbst,
+    // ein Datum wäre nur geraten und machte die Wiedervorlage überfällig.
+    if (ergebnis === 'nachholung_naechste_durchsicht') return '';
     return App.wvFrist(ergebnis in App.WV_FRISTEN_STANDARD ? ergebnis : 'berichte_bis_termin_email');
+  },
+  // Hat diese Wiedervorlage ein Datum? (Nachholung bei nächster Durchsicht: nein)
+  wvOhneDatum(ergebnis) { return ergebnis === 'nachholung_naechste_durchsicht'; },
+  // Wiedervorlage-Feld in der Leiste: Datum oder Text „bei der nächsten Durchsicht“
+  _wvFeldAnzeigen(ergebnis) {
+    const sec = document.getElementById('wvSection'), inp = document.getElementById('wvDatum'), txt = document.getElementById('wvNaechste');
+    if (!sec) return;
+    sec.style.display = (ergebnis && ergebnis !== 'in_ordnung') ? '' : 'none';
+    const ohne = this.wvOhneDatum(ergebnis);
+    if (inp) { inp.style.display = ohne ? 'none' : ''; if (ohne) inp.value = ''; }
+    if (txt) txt.style.display = ohne ? '' : 'none';
   },
 
   getWVDate(keId) {
     const wv = App.query(`SELECT frist_datum FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1`, [keId]);
     return wv.length ? wv[0].frist_datum : '';
+  },
+
+  // Felder, deren Wert einen automatischen Satz in die Bemerkung schreibt
+  AUTO_HINWEIS_FELDER: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb'],
+  // Zeilen zu Mängel-Codes: { code: zeile | null } für die genannten Codes
+  _autoHinweiseCodes(sid, codes) {
+    const neu = {};
+    codes.forEach(c => { if (App.HINWEISE_CODES[c]) neu[c] = App.autoHinweisCode(sid, c); });
+    return neu;
+  },
+  // Nach jeder Code-Änderung im Raster (Tasten, Modal, Undo): die Zeilen der
+  // betroffenen Codes in der Bemerkung des Kontrollergebnisses nachziehen –
+  // aufgerufen aus KWNav.persistCodes
+  autoHinweiseCodesNachziehen(keId, sid, codes) {
+    try {
+      const ke = App.query('SELECT id, bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      if (!ke) return;
+      const neu = this._autoHinweiseCodes(sid, codes);
+      if (!Object.keys(neu).length) return;
+      const text = App.bemerkungMitAutoZeilen(ke.bemerkung, neu);
+      if (text === (ke.bemerkung || '')) return;
+      App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [text, keId]);
+      const ta = document.getElementById('keBemerkung');
+      const s = this.currentSchuelerList && this.currentSchuelerList[this.currentIndex];
+      if (ta && s && s.id === sid && this.currentTerminId && App.scalar('SELECT kontrolltermin_id FROM kontrollergebnisse WHERE id=?', [keId]) === this.currentTerminId) ta.value = text;
+    } catch(e) { console.warn('Automatische Hinweise:', e); }
   },
 
   // Whitelist erlaubter Feldnamen für saveField() – schützt gegen SQL-Injection
@@ -1839,9 +1879,13 @@ const KontrolleHandler = {
       this.PFLICHT_AUTO_JA.forEach(pf => { pflichtVorher[pf] = ke[pf] || ''; });
       wvVorher = App.query("SELECT id, status FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]);
     }
-    // „nicht geführt“ schreibt/entfernt den festen Hinweis in der Bemerkung
+    // Automatische Hinweise in der Bemerkung: fehlende oder nicht geführte
+    // Pflichtteile schreiben/entfernen ihren Satz; ein Mängel-Ergebnis zieht
+    // die Zeilen zu allen offenen Mängel-Codes nach (was nachzuholen ist)
     const bemVorher = ke.bemerkung || '';
-    const bemNeu = (field === 'p_1_1_gefuehrt' || field === 'p_1_5_gefuehrt') ? App.bemerkungMitHinweis(bemVorher, field, value) : bemVorher;
+    let bemNeu = bemVorher;
+    if (this.AUTO_HINWEIS_FELDER.includes(field)) bemNeu = App.bemerkungMitAutoZeilen(bemVorher, { [field]: App.autoHinweisPflicht(field, value) });
+    else if (field === 'ergebnis' && value && value !== 'in_ordnung') bemNeu = App.bemerkungMitAutoZeilen(bemVorher, this._autoHinweiseCodes(s.id, Object.keys(App.HINWEISE_CODES)));
     const bemGeaendert = bemNeu !== bemVorher;
     const nebenwirkungen = (Object.keys(pflichtVorher).length ? ' + Pflichtteile' : '') + (wvVorher.length ? ` + ${wvVorher.length} WV` : '') + (bemGeaendert ? ' + Bemerkung' : '');
     const wvEigeneVorher = field === 'ergebnis' ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]) : null;
@@ -1871,9 +1915,12 @@ const KontrolleHandler = {
       App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
       const ta = document.getElementById('keBemerkung');
       if (ta) ta.value = bemNeu;
-      const sel = document.querySelector(`[data-field="${field}"]`);
-      if (sel) { sel.style.borderColor = value === 'nein' ? 'var(--clr-red)' : value === 'ja' ? 'var(--clr-green)' : ''; sel.style.color = value === 'nein' ? 'var(--clr-red)' : ''; }
-      App.toast(value === 'nein' ? 'Hinweis in die Bemerkung übernommen' : 'Hinweis aus der Bemerkung entfernt', 'info');
+      if (field !== 'ergebnis') {
+        const sel = document.querySelector(`[data-field="${field}"]`);
+        const fehlt = value === 'nein' || value === 'nicht_vorhanden';
+        if (sel) { sel.style.borderColor = fehlt ? 'var(--clr-red)' : value === 'ja' ? 'var(--clr-green)' : ''; sel.style.color = fehlt ? 'var(--clr-red)' : ''; }
+        App.toast(fehlt ? 'Hinweis in die Bemerkung übernommen' : 'Hinweis aus der Bemerkung entfernt', 'info');
+      } else App.toast('Nachzuholende Mängel in die Bemerkung übernommen', 'info');
     }
 
     // When "In Ordnung" → auto-set all Pflichtteile to "ja"
@@ -1899,14 +1946,13 @@ const KontrolleHandler = {
     }
     // Show/hide WV section
     if (field === 'ergebnis') {
-      const wvSec = document.getElementById('wvSection');
-      if (wvSec) wvSec.style.display = (value && value !== 'in_ordnung') ? '' : 'none';
+      this._wvFeldAnzeigen(value);
       // Wiedervorlage folgt dem Ergebnis: Art nachziehen, fehlende anlegen,
       // eine nach „In Ordnung" automatisch geschlossene wieder öffnen
       if (value && value !== 'in_ordnung') {
         const wvId = this._wvNachErgebnis(keId, s.id, value);
         const inp = document.getElementById('wvDatum');
-        if (inp && !inp.value && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
+        if (inp && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
       }
       // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
       const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
@@ -1954,8 +2000,9 @@ const KontrolleHandler = {
         count++;
       }
     });
-    // „Alle OK“ heißt auch: die Hinweise „nicht geführt“ sind erledigt
-    const bemOhne = App.bemerkungMitHinweis(App.bemerkungMitHinweis(ke.bemerkung, 'p_1_1_gefuehrt', 'ja'), 'p_1_5_gefuehrt', 'ja');
+    // „Alle OK“ heißt auch: die Hinweise „fehlt“ / „nicht geführt“ sind erledigt
+    const weg = {}; this.AUTO_HINWEIS_FELDER.forEach(f => { weg[f] = null; });
+    const bemOhne = App.bemerkungMitAutoZeilen(ke.bemerkung, weg);
     if (bemOhne !== (ke.bemerkung || '')) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemOhne, ke.id]);
     this.renderSchueler();
     App.toast(count ? `${count} Pflichtteile auf "Ja" gesetzt` : 'Alle Pflichtteile waren bereits "Ja"', count ? 'success' : 'info');
@@ -1969,8 +2016,11 @@ const KontrolleHandler = {
     const wv = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
     if (wv) {
       const wiederOeffnen = wv.status === 'erledigt' && /^Automatisch erledigt/.test(wv.erledigt_bemerkung || '');
-      if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, wv.id]);
-      else if (wv.art !== ergebnis) App.run('UPDATE wiedervorlagen SET art=? WHERE id=?', [ergebnis, wv.id]);
+      // Frist folgt der Art: „nächste Durchsicht“ ohne Datum, jede andere Art
+      // bekommt ein Datum (bestehendes bleibt, fehlendes wird ergänzt)
+      const frist = this.wvOhneDatum(ergebnis) ? '' : (wv.frist_datum || this._wvDefaultFuer(ergebnis));
+      if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, frist_datum=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, frist, wv.id]);
+      else if (wv.art !== ergebnis || (wv.frist_datum || '') !== frist) App.run('UPDATE wiedervorlagen SET art=?, frist_datum=? WHERE id=?', [ergebnis, frist, wv.id]);
       return wv.id;
     }
     App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,?,?,'offen')",

@@ -406,7 +406,7 @@ const PDFExport = {
         curY += 5;
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
         doc.setTextColor(...COL_RED);
-        doc.text(`Wiedervorlage bis ${formatDate(wv[0].frist_datum)}`, LM + 3, curY);
+        doc.text(wv[0].frist_datum ? `Wiedervorlage bis ${formatDate(wv[0].frist_datum)}` : 'Wiedervorlage bei der nächsten Durchsicht', LM + 3, curY);
         curY += 3.5;
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
         doc.setTextColor(120, 50, 40);

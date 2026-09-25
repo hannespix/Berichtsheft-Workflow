@@ -422,5 +422,94 @@ console.log('\n══ UI-Paket 1: Kontrolltag ══');
   check(APP_SRC.includes("kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10'"), 'Kontexthilfe zeigt auf die neu nummerierten Kapitel');
 }
 
+console.log('\n══ Automatische Bemerkung: fehlende Pflichtteile und Mängel-Codes ══');
+{
+  KH._pruefeAbgeschlossen = () => true;
+  KH.nextOffen = () => {};
+  const F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan, F15 = App.HINWEISE_PFLICHT_FEHLT.p_1_5_bescheinigungen, G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt;
+  check(/Ausbildungsplan \(1\.1\) fehlt/.test(F11) && /\(1\.4\)/.test(App.HINWEISE_PFLICHT_FEHLT.p_1_4_auszubildende) && /\(1\.5\) fehlt/.test(F15) && /\(1\.6\)/.test(App.HINWEISE_PFLICHT_FEHLT.f_1_6_ausbildungsbetrieb), 'Texte für 1.1, 1.4, 1.5 und 1.6 „fehlt“ vorhanden');
+  check(App.HINWEISE_CODES.F === 'Fehlende Tagesberichte nachholen' && /Auszubildenden nachholen/.test(App.HINWEISE_CODES.A) && /Ausbilders/.test(App.HINWEISE_CODES.B) && ['C', 'D', 'E', 'G'].every(c => App.HINWEISE_CODES[c]) && !App.HINWEISE_CODES.H && !App.HINWEISE_CODES.I, 'Texte je Mängel-Code A–G (H Fehltage und I Sonstiges ohne Satz)');
+  // Reine Textlogik
+  check(App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'nein') === F11 && App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'nicht_vorhanden') === F11 && App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'ja') === null && App.autoHinweisPflicht('p_1_1_gefuehrt', 'nein') === G11, '„nein“ und „nicht vorhanden“ ergeben den Satz, „ja“ keinen');
+  const t1 = App.bemerkungMitAutoZeilen('Eigener Text', { p_1_5_bescheinigungen: F15 });
+  const t2 = App.bemerkungMitAutoZeilen(t1, { p_1_1_ausbildungsplan: F11 });
+  check(t2 === 'Eigener Text\n' + F11 + '\n' + F15, 'Automatische Zeilen stehen hinter dem eigenen Text in fester Reihenfolge (1.1 vor 1.5)');
+  check(App.bemerkungMitAutoZeilen(t2, { p_1_1_ausbildungsplan: null }) === 'Eigener Text\n' + F15, 'Schlüssel mit null entfernt nur seine Zeile');
+  check(App.bemerkungMitAutoZeilen('Eigener Text\n' + F15, { F: 'Fehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)' }).endsWith(F15 + '\nFehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)'), 'Code-Zeile mit Wochen in Klammern hinter den Pflichtteil-Zeilen');
+  check(App.bemerkungMitAutoZeilen('Fehlende Tagesberichte nachholen (2 Wochen: AJ 1 KW 40, 41)\nNotiz', { F: 'Fehlende Tagesberichte nachholen (3 Wochen: AJ 1 KW 40, 41, 43)' }) === 'Notiz\nFehlende Tagesberichte nachholen (3 Wochen: AJ 1 KW 40, 41, 43)', 'Geänderte Wochenliste ersetzt die alte Zeile (erkannt am Stamm + Klammer)');
+  check(App.bemerkungMitAutoZeilen('Fehlende Tagesberichte nachholen – bitte bis Freitag', { F: null }) === 'Fehlende Tagesberichte nachholen – bitte bis Freitag', 'Von Hand ergänzter Satz gilt als eigener Text und bleibt');
+  check(App.bemerkungMitHinweis('X\n' + G11, 'p_1_1_gefuehrt', 'ja') === 'X' && App.bemerkungMitHinweis('X', 'p_1_1_gefuehrt', 'nein') === 'X\n' + G11, 'Alter Weg bemerkungMitHinweis läuft über dieselbe Logik');
+  // Über die Eingabe (Azubi 2, KE 200)
+  KH.currentIndex = 1;
+  const ke = () => App.query('SELECT * FROM kontrollergebnisse WHERE id=200')[0];
+  App.run("UPDATE kontrollergebnisse SET bemerkung='', ergebnis='', p_1_1_ausbildungsplan='', p_1_1_gefuehrt='', p_1_5_bescheinigungen='', p_1_5_gefuehrt='', p_1_4_auszubildende='', f_1_6_ausbildungsbetrieb='' WHERE id=200");
+  App.run('DELETE FROM kw_status WHERE schueler_id=2');
+  elems.keBemerkung = { value: '' };
+  KH.saveField('p_1_1_ausbildungsplan', 'nein');
+  check(ke().bemerkung === F11 && elems.keBemerkung.value === F11, 'Ausbildungsplan „nein“: Satz „fehlt“ steht in der Bemerkung und im Feld');
+  KH.saveField('p_1_5_bescheinigungen', 'nicht_vorhanden');
+  check(ke().bemerkung === F11 + '\n' + F15, '1.5 „nicht vorhanden“ ergänzt die zweite Zeile');
+  UndoManager.undo();
+  check(ke().p_1_5_bescheinigungen === '' && ke().bemerkung === F11, 'Rückgängig nimmt Wert und Zeile zurück');
+  UndoManager.redo();
+  KH.saveField('p_1_1_ausbildungsplan', 'ja');
+  check(ke().bemerkung === F15, '„ja“ entfernt nur die Zeile zu 1.1');
+  KH.setAllPflichtOK();
+  check(ke().bemerkung === '' && ke().p_1_5_bescheinigungen === 'ja', '„Alle OK“ räumt auch die „fehlt“-Zeilen aus');
+  // Mängel-Codes im Raster (Tasten, Modal, Undo laufen alle über persistCodes)
+  App.run("UPDATE kontrollergebnisse SET bemerkung='Heft sauber' WHERE id=200");
+  elems.keBemerkung.value = 'Heft sauber';
+  KH.currentTerminId = 10;
+  KWNav.persistCodes(200, 2, 40, 'F', 0, 2);
+  let b = ke().bemerkung;
+  check(/^Heft sauber\nFehlende Tagesberichte nachholen \(1 Woche: SJ 2025\/26 KW 40\)$/.test(b), `Code F in KW 40 → Zeile mit Schuljahr und Woche (${JSON.stringify(b)})`);
+  check(elems.keBemerkung.value === b, 'Bemerkungsfeld auf dem Bildschirm wird sofort nachgeführt');
+  KWNav.persistCodes(200, 2, 41, 'A,F', 0, 2);
+  b = ke().bemerkung;
+  check(/Unterschriften des\/der Auszubildenden nachholen \(1 Woche: SJ 2025\/26 KW 41\)/.test(b) && /Fehlende Tagesberichte nachholen \(2 Wochen: SJ 2025\/26 KW 40, 41\)/.test(b) && b.indexOf('Auszubildenden') < b.indexOf('Fehlende'), 'KW 41 mit A und F: A-Zeile neu, F-Zeile auf zwei Wochen erweitert, Reihenfolge A vor F');
+  KWNav.persistCodes(200, 1, 50, 'F', 0, 2);
+  check(/Fehlende Tagesberichte nachholen \(3 Wochen: SJ 2024\/25 KW 50 · SJ 2025\/26 KW 40, 41\)/.test(ke().bemerkung), 'Woche im anderen Raster wird je Schuljahr gruppiert');
+  KWNav.persistCodes(200, 2, 40, 'H', 1, 2);
+  check(/Fehlende Tagesberichte nachholen \(2 Wochen: SJ 2024\/25 KW 50 · SJ 2025\/26 KW 41\)/.test(ke().bemerkung) && !/Fehltage/.test(ke().bemerkung), 'F entfernt (nur noch H): Woche verschwindet aus der Zeile, H erzeugt keine Zeile');
+  KWNav.persistCodes(200, 2, 41, '', 0, 2);
+  KWNav.persistCodes(200, 1, 50, '', 0, 2);
+  check(ke().bemerkung === 'Heft sauber', 'Letzter Code weg → Zeilen verschwinden, eigener Text bleibt');
+  // Ergebnis „Mängel“ zieht alle offenen Codes nach (auch aus früheren Durchsichten)
+  db.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,geprueft) VALUES (2,1,20,'B',1)");
+  KH.saveField('ergebnis', 'nachholung_naechste_durchsicht');
+  check(/Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: SJ 2024\/25 KW 20\)/.test(ke().bemerkung), 'Mängel-Ergebnis übernimmt offene Codes früherer Wochen in die Bemerkung');
+  UndoManager.undo();
+  check(ke().bemerkung === 'Heft sauber' && ke().ergebnis === '', 'Undo des Ergebnisses nimmt die Zeilen wieder heraus');
+  App.run("UPDATE kontrollergebnisse SET bemerkung='' WHERE id=200"); db.run('DELETE FROM kw_status WHERE schueler_id=2'); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=200');
+  check(/KontrolleHandler\.autoHinweiseCodesNachziehen\(keId, sid, betroffen\)/.test(read('src/js/modules/kw-nav.js')) && /Automatische Bemerkung:/.test(read('src/js/modules/views.js')), 'persistCodes zieht die Zeilen nach; Hilfe beschreibt die automatische Bemerkung');
+  KH.currentIndex = 0;
+}
+
+console.log('\n══ Wiedervorlage „nächste Durchsicht“ ohne Datum ══');
+{
+  KH.currentIndex = 2;
+  App.run("UPDATE kontrollergebnisse SET ergebnis='' WHERE id=300"); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=300');
+  check(KH._wvDefaultFuer('nachholung_naechste_durchsicht') === '' && KH._wvDefaultFuer('post_an_rp') !== '', 'Standardfrist: nächste Durchsicht ohne Datum, Post mit Datum');
+  KH.saveField('ergebnis', 'nachholung_naechste_durchsicht');
+  let wv = wvVon(300);
+  check(wv.length === 1 && wv[0].frist_datum === '' && wv[0].status === 'offen', 'Ergebnis „nächste Durchsicht“ legt die WV ohne Datum an');
+  KH.saveField('ergebnis', 'post_an_rp');
+  wv = wvVon(300);
+  check(wv.length === 1 && wv[0].art === 'post_an_rp' && /^\d{4}-\d{2}-\d{2}$/.test(wv[0].frist_datum), 'Wechsel auf Post ergänzt ein Datum');
+  KH.saveField('ergebnis', 'nachholung_naechste_durchsicht');
+  wv = wvVon(300);
+  check(wv[0].frist_datum === '', 'Wechsel zurück auf nächste Durchsicht nimmt das Datum wieder weg');
+  // Nie überfällig: leerer Text ist in SQLite kleiner als jedes Datum
+  check(App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum != '' AND frist_datum < '2099-01-01' AND kontrollergebnis_id=300") === 0 && App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum < '2099-01-01' AND kontrollergebnis_id=300") === 1, 'Ohne die Sperre auf leeres Datum würde die WV sofort als überfällig zählen');
+  const V = read('src/js/modules/views.js'), WF = read('src/js/modules/workflows.js'), WV = read('src/js/modules/wiedervorlagen.js'), PE = read('src/js/modules/pdf-export.js');
+  check((APP_SRC.match(/frist_datum != '' AND (w\.)?frist_datum < \?/g) || []).length >= 3 && (V.match(/frist_datum != '' AND (w\.)?frist_datum < \?/g) || []).length >= 4, 'Alle Überfällig-Abfragen (Kern, Startseite, WV-Liste) schließen leere Fristen aus');
+  check(/nächste Durchsicht<\/span>/.test(V) && /CASE WHEN w\.frist_datum='' THEN 1 ELSE 0 END, w\.frist_datum/.test(V), 'WV-Liste zeigt „nächste Durchsicht“ und sortiert Einträge ohne Datum ans Ende');
+  check(/'bis zur nächsten Durchsicht'/.test(WF) && /'zur nächsten Durchsicht'/.test(WF) && /AND w\.frist_datum != '' ORDER BY w\.frist_datum LIMIT 1/.test(WF), 'Anschreiben und Sammel-Erinnerung formulieren ohne Datum, Serienbrief nimmt kein leeres Datum');
+  check(/AND w\.frist_datum != ''`\)/.test(WV) && /'bei der nächsten Durchsicht'/.test(WV) && /'Wiedervorlage bei der nächsten Durchsicht'/.test(PE), 'ICS ohne datumlose Einträge, Details und Durchsichtsbogen nennen die nächste Durchsicht');
+  check(/id="wvNaechste"/.test(K_SRC) && /_wvFeldAnzeigen\(value\)/.test(K_SRC) && /wvOhneDatum\(ke\.ergebnis\) \? '' : this\.getWVDate\(ke\.id\)/.test(K_SRC), 'Leiste: Datumsfeld weicht dem Text „bei der nächsten Durchsicht“');
+  App.run("UPDATE kontrollergebnisse SET ergebnis='' WHERE id=300"); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=300');
+  KH.currentIndex = 0;
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

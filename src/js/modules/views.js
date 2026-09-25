@@ -84,7 +84,8 @@ const Views = {
     const kontrolliert = kontrolliertIds.length;
     const offeneWV = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig')${jf.where}`, jf.params) || 0;
     // 'ueberfaellig' mitzählen — der Status-Flip passiert erst beim Öffnen der WV-View
-    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
+    // Wiedervorlagen ohne Datum („bei nächster Durchsicht“) sind nie überfällig
+    const ueberfaellig = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}`, [today, ...jf.params]) || 0;
 
 
     const naechsteTermine = App.query(`SELECT kt.*, kt.id as termin_id
@@ -96,7 +97,7 @@ const Views = {
     const ueberfaelligeWV = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette
       FROM wiedervorlagen w
       JOIN schueler s ON w.schueler_id=s.id
-      WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum < ?))${jf.where}
+      WHERE (w.status='ueberfaellig' OR (w.status='offen' AND w.frist_datum != '' AND w.frist_datum < ?))${jf.where}
       ORDER BY w.frist_datum LIMIT 10`, [today, ...jf.params]);
 
     // Betrieb-Ranking: Betriebe mit den meisten Mängeln
@@ -1274,7 +1275,8 @@ const Views = {
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
     // Nur schreiben, wenn es etwas zu ändern gibt – sonst hängt jedes Anzeigen der Liste eine Op ans Protokoll
-    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum < ?", [today]); } catch(e) {}
+    // Ohne Datum („bei nächster Durchsicht“) nie überfällig – ein leerer Text wäre in SQLite kleiner als jedes Datum
+    try { if (App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='offen' AND frist_datum != '' AND frist_datum < ?", [today])) App.run("UPDATE wiedervorlagen SET status='ueberfaellig' WHERE status='offen' AND frist_datum != '' AND frist_datum < ?", [today]); } catch(e) {}
 
     const jf = App.jgWhere('s.jahrgang_id');
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname, s.ausbildungsstaette,
@@ -1284,7 +1286,7 @@ const Views = {
       LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
       WHERE 1=1${jf.where}
-      ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum`, jf.params);
+      ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, CASE WHEN w.frist_datum='' THEN 1 ELSE 0 END, w.frist_datum`, jf.params);
 
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
@@ -1331,7 +1333,7 @@ const Views = {
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
-            <td data-sort="${w.frist_datum}">${formatDate(w.frist_datum)}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
+            <td data-sort="${w.frist_datum || '9999'}">${w.frist_datum ? formatDate(w.frist_datum) : '<span title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">nächste Durchsicht</span>'}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
             <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
             <td style="white-space:nowrap">
               ${(() => {
@@ -2542,6 +2544,8 @@ const Views = {
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
             <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
+            <p><strong>Automatische Bemerkung:</strong> Jedes „nein“ oder „nicht vorhanden“ bei 1.1, 1.4, 1.5 und 1.6 schreibt einen fertigen Satz in die Bemerkung („Individueller Ausbildungsplan (1.1) fehlt …“), „ja“ nimmt ihn wieder heraus. Ebenso jeder Mängel-Code im Raster: A → „Unterschriften des/der Auszubildenden nachholen“, B → „Unterschriften des Ausbilders / der Ausbilderin nachholen“, C → Berufsschulthemen, D → Wetterangaben, E → lückenhafte Tagesberichte, F → „Fehlende Tagesberichte nachholen“, G → Datum/KW – jeweils mit den betroffenen Wochen in Klammern, die bei jeder Änderung im Raster nachgeführt werden; verschwindet der letzte Code, verschwindet die Zeile. Beim Ergebnis „Mängel“ werden alle offenen Codes noch einmal in die Bemerkung übernommen. Die automatischen Zeilen stehen hinter Ihrem eigenen Text; was Sie selbst schreiben oder abändern, bleibt unangetastet, eine gelöschte Zeile kommt erst zurück, wenn sich ihr Code wieder ändert.</p>
+            <p><strong>Wiedervorlage ohne Datum:</strong> Beim Nachweisweg „nächste Durchsicht“ (geringe Mängel) bekommt die Wiedervorlage kein Datum – die Frist ist die nächste Kontrolle selbst. Sie erscheint in der Liste als „nächste Durchsicht“, wird nie überfällig und schließt sich, wenn das Berichtsheft bei der nächsten Durchsicht in Ordnung ist. Jeder andere Nachweisweg (E-Mail, Post, persönlich) bekommt wie bisher eine Frist aus den Einstellungen.</p>
             <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; „Sachberichte/Wetter per E-Mail“ nur mit Zusatzvereinbarung). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
             <p>6. <strong>✓ Fertig</strong> schreibt sofort auf das Netzlaufwerk, gibt den Azubi frei und führt <strong>zurück zur Übersicht</strong> – dort das nächste vorliegende Heft wählen (die Hefte liegen am Kontrolltag selten in Listenreihenfolge). Im ⋯-Menü der Leiste lässt sich das umstellen: zum nächsten offenen Azubi springen (frühere Vorgabe) oder in der Ansicht bleiben; dieselbe Einstellung gilt für das automatische Weitergehen nach „In Ordnung“. Blättern ohne Ergebnis: ‹ Zurück / Weiter › oder Strg+←/→.</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
