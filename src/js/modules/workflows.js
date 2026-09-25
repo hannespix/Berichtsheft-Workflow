@@ -73,6 +73,25 @@ const Workflows = {
     return { gruppen, gruppenKurz, azubiListe };
   },
 
+  // Ergebnisblock für die Schule (Logik-Audit Paket 6, Datenminimierung):
+  // Standard sind Zahlen je Ergebnis; Namen stehen nur bei den Abwesenden
+  // (die Nachholung findet an der Schule statt). Mit `mitNamen` wie früher
+  // die volle Namensliste je Ergebnisart.
+  _ergebnisseFuerSchule(terminId, schuelerList, mitNamen) {
+    const results = {};
+    const abwesend = [];
+    schuelerList.forEach(s => {
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
+      const e = ke?.ergebnis || (ke && ke.anwesend === 0 ? 'abwesend' : 'nicht kontrolliert');
+      if (e === 'abwesend') abwesend.push(`${s.nachname}, ${s.vorname}`);
+      (results[e] = results[e] || []).push(`${s.nachname}, ${s.vorname}`);
+    });
+    const lbl = e => e === 'abwesend' ? 'Am Kontrolltag nicht anwesend (Nachholung)' : (this._eLbl[e] || e);
+    if (mitNamen) return Object.entries(results).map(([e, names]) => `\n${lbl(e)} (${names.length}):\n  - ${names.join('\n  - ')}\n`).join('');
+    const zeilen = Object.entries(results).map(([e, names]) => `  - ${lbl(e)}: ${names.length}`).join('\n');
+    return zeilen + (abwesend.length ? `\n\nNicht anwesend – bitte beim nächsten Schultag auf die Nachholung hinweisen:\n  - ${abwesend.sort().join('\n  - ')}` : '') + '\n';
+  },
+
   // ── A) E-Mail an Schule (Terminanfrage / Ergebnis-Mitteilung) ──
   emailSchule(terminId) {
     const t = this._ctxTermin(terminId);
@@ -86,15 +105,7 @@ const Workflows = {
     const isDone = t.termin.status === 'durchgefuehrt';
     const { gruppen, gruppenKurz, azubiListe } = this._gruppenUndListe(t);
     const ctx = { ...t.ctx, gruppen, gruppen_kurz: gruppenKurz, azubi_liste: azubiListe };
-    if (isDone) {
-      const results = {};
-      t.schuelerList.forEach(s => {
-        const ke = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
-        const e = ke?.ergebnis || 'nicht kontrolliert';
-        (results[e] = results[e] || []).push(`${s.nachname}, ${s.vorname}`);
-      });
-      ctx.ergebnisse = Object.entries(results).map(([e, names]) => `\n${this._eLbl[e] || e} (${names.length}):\n  - ${names.join('\n  - ')}\n`).join('');
-    }
+    if (isDone) ctx.ergebnisse = this._ergebnisseFuerSchule(terminId, t.schuelerList, App.schuleErgebnisMitNamen());
     const { betreff, body } = App.renderVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
@@ -189,8 +200,10 @@ const Workflows = {
   // Vorlage zu einer Wiedervorlage: überfällig → Erinnerung; Nachholung
   // (am Kontrolltag abwesend) → Nachhol-Aufforderung, sonst Mängelmitteilung
   _wvVorlageTyp(w, ueberfaellig) {
-    if (ueberfaellig) return 'wv_erinnerung';
     const art = String(w?.art || '');
+    // Beratungsgespräch (§ 76 BBiG): Einladung statt Mahnung – auch überfällig
+    if (art === 'beratung_betrieb') return 'beratung_betrieb';
+    if (ueberfaellig) return 'wv_erinnerung';
     return art.startsWith('nachholung') ? 'nachholung' : 'wv_mahnung';
   },
   // Versandnachweis an der Wiedervorlage: Datum/Art des Anschreibens,
@@ -204,7 +217,7 @@ const Workflows = {
     const stufeNeu = erinnerung ? stufeAlt + 1 : Math.max(stufeAlt, 1);
     App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${stufeNeu}, geaendert_am=datetime('now','localtime') WHERE id=?`,
       [todayStr(), art || 'email', wvId]);
-    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung';
+    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : typ === 'beratung_betrieb' ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : 'Mängelmitteilung';
     App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)",
       [wvId, `${was} per ${art === 'email' ? 'E-Mail' : (art || 'Brief')} versendet${zusatz ? ', ' + zusatz : ''}`, (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '']);
   },
@@ -353,7 +366,7 @@ const Workflows = {
     const ctx = { ...d.t.ctx, anrede: this._anrede(g.ap),
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(addDaysStr(21)) };
+      frist: formatDate(App.wvFrist('nachholung_abwesend')) };
     const { betreff, body } = App.renderVorlage(typ, ctx);
     this.openMailto(g.email, betreff, body);
     App.toast('E-Mail an ' + g.name + ' geöffnet', 'success');
@@ -475,7 +488,7 @@ const Workflows = {
         azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
         azubi_block: this._azubiBlock(g.azubis, isDone),
         azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-        frist: formatDate(addDaysStr(21)) });
+        frist: formatDate(App.wvFrist('nachholung_abwesend')) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       // Zeilenweise mit Seitenumbruch – ein langer Azubi-Block lief sonst in die Fußzeile
@@ -510,25 +523,29 @@ const Workflows = {
       : '  (keine offenen Mängel)';
     const heute = todayStr();
     const ueberfaellig = w.status === 'ueberfaellig' || (w.status === 'offen' && w.frist_datum && w.frist_datum < heute);
-    const fristNeu = addDaysStr(14);
+    const fristNeu = App.wvFrist('erinnerung');
     const azubi = `${w.vorname} ${w.nachname}`;
     const ktSchule = w.kt_id ? App.getTerminSchule(w.kt_id) : null;
+    // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
+    const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
     const ctx = { ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
       frist: formatDate(w.frist_datum), frist_alt: formatDate(w.frist_datum), frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
+      betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
       datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' };
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
-    // keinen Mängel-Text
+    // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
     const { betreff, body } = App.renderVorlage(typ, ctx);
     const to = w.b_email || '';
-    window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig ? fristNeu : null };
-    App.openModal(`✉︎ ${ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
+    const istBeratung = typ === 'beratung_betrieb';
+    window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig && !istBeratung ? fristNeu : null };
+    App.openModal(`✉︎ ${istBeratung ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
       <div style="font-size:13px">
         <div><strong>An:</strong> ${to ? esc(to) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt!</span>'}</div>
         <div><strong>Betrieb:</strong> ${esc(w.b_name || w.ausbildungsstaette)} · <strong>Azubi:</strong> ${esc(w.nachname)}, ${esc(w.vorname)}</div>
         ${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)">Bisher: ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} (${esc(w.versand_art || '')})</div>` : ''}
-        ${ueberfaellig ? `<div style="margin-top:6px;padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius)">Frist ${formatDate(w.frist_datum)} ist überschritten → Erinnerung mit neuer Frist:
+        ${ueberfaellig && !istBeratung ? `<div style="margin-top:6px;padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius)">Frist ${formatDate(w.frist_datum)} ist überschritten → Erinnerung mit neuer Frist:
           <input type="date" class="form-control" id="wvFristNeu" value="${fristNeu}" style="display:inline-block;width:150px;padding:2px 6px;margin-left:6px" onchange="Workflows._wvFristNeuGeaendert(this.value)"> (wird in der Wiedervorlage gespeichert)</div>` : ''}
         <div style="margin-top:4px"><strong>Betreff:</strong> <span id="wvMailBetreff">${esc(betreff)}</span></div>
         <hr style="margin:8px 0;border-color:var(--clr-sand)">
@@ -586,7 +603,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const betroffen = betriebe.map(g => ({ ...g, azubis: g.azubis.filter(a => ids.has(a.id)) })).filter(g => g.azubis.length);
     if (!betroffen.length) return App.toast('Keine abwesenden Azubis', 'info');
-    const fristTxt = formatDate(frist || addDaysStr(21));
+    const fristTxt = formatDate(frist || App.wvFrist('nachholung_abwesend'));
     this._individualData = null;
     let listHtml = '';
     betroffen.forEach((g, idx) => {

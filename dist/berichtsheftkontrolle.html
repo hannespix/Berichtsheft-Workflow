@@ -6771,6 +6771,10 @@ body.grosse-schrift { zoom: 1.2; }
 .erg-pill:has(input:checked) { background: var(--clr-forest); color: #fff; border-color: var(--clr-forest); }
 .erg-pill.erg-ok:has(input:checked) { background: var(--clr-green); border-color: var(--clr-green); }
 .erg-pill.erg-offen:has(input:checked) { background: var(--clr-sage); border-color: var(--clr-sage); }
+.erg-pill.erg-mangel:has(input:checked) { background: var(--clr-red); border-color: var(--clr-red); }
+/* Befund + Nachweisweg (Logik-Audit Paket 4): Weg-Auswahl neben „Mängel“ */
+.ke-weg-label { font-size: 12px; color: var(--clr-text-light); margin-left: 4px; }
+.ke-weg { width: auto; max-width: 260px; padding: 3px 6px; font-size: 12px; }
 .erg-pill:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--clr-gelb); }
 .ke-wv { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .ke-wv label { font-size: 12px; color: var(--clr-text-light); }
@@ -15252,17 +15256,132 @@ const App = {
     return { gesamt, arbeitstage, arbeitstageBisher: bisher, prozent, prozentBisher, schwelle, warn: prozentBisher >= schwelle };
   },
 
+  // ── Befund + Nachweisweg (Logik-Audit Paket 4) ──
+  // Die sechs Ergebnisarten der Durchsicht kodieren zwei Fragen: WIE ist das
+  // Heft (in Ordnung / Mängel) und WIE kommt der Nachweis (nächste Durchsicht,
+  // E-Mail, Post, persönlich). Die Datenbank behält die alten Werte; die
+  // Oberfläche fragt die zwei Dinge getrennt. Mapping in beide Richtungen:
+  WEGE: [
+    { val: 'naechste_durchsicht', label: 'bis zur nächsten Durchsicht', ergebnis: 'nachholung_naechste_durchsicht' },
+    { val: 'email', label: 'per E-Mail nachreichen', ergebnis: 'berichte_bis_termin_email' },
+    { val: 'email_sachberichte', label: 'per E-Mail: Sachberichte/Wetter (nur mit Zusatzvereinbarung)', ergebnis: 'sachberichte_wetter_email' },
+    { val: 'post', label: 'per Post ans RP', ergebnis: 'post_an_rp' },
+    { val: 'persoenlich', label: 'persönliche Vorlage im RP', ergebnis: 'persoenliche_vorlage_rp' },
+  ],
+  befundAus(ergebnis) {
+    if (!ergebnis) return { befund: '', weg: '' };
+    if (ergebnis === 'in_ordnung') return { befund: 'ok', weg: '' };
+    const w = this.WEGE.find(x => x.ergebnis === ergebnis);
+    return { befund: 'maengel', weg: w ? w.val : 'naechste_durchsicht' };
+  },
+  ergebnisAus(befund, weg) {
+    if (!befund) return '';
+    if (befund === 'ok') return 'in_ordnung';
+    const w = this.WEGE.find(x => x.val === weg) || this.WEGE[0];
+    return w.ergebnis;
+  },
+
+  // ── Wiedervorlage-Fristen in Tagen (Logik-Audit Paket 5: Praxis, keine
+  //    Rechtsvorgabe – deshalb Einstellung `wv_fristen`, Standard wie bisher) ──
+  WV_FRISTEN_STANDARD: {
+    nachholung_naechste_durchsicht: 28, sachberichte_wetter_email: 28, berichte_bis_termin_email: 28,
+    persoenliche_vorlage_rp: 14, post_an_rp: 21,
+    erinnerung: 14, nachholung_abwesend: 21, beratung_betrieb: 14,
+  },
+  WV_FRISTEN_LABELS: {
+    nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
+    persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP',
+    erinnerung: 'Erinnerung (neue Frist nach Überschreitung)', nachholung_abwesend: 'Nachholung für Abwesende', beratung_betrieb: 'Beratungsgespräch Betrieb (§ 76)',
+  },
+  wvFristen() {
+    let o = {};
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='wv_fristen'"); if (j) o = JSON.parse(j) || {}; } catch(e) { o = {}; }
+    return { ...this.WV_FRISTEN_STANDARD, ...Object.fromEntries(Object.entries(o).filter(([k, v]) => k in this.WV_FRISTEN_STANDARD && v >= 1 && v <= 365)) };
+  },
+  wvFristTage(art) { const f = this.wvFristen(); return f[art] || this.WV_FRISTEN_STANDARD[art] || 28; },
+  wvFrist(art) { return addDaysStr(this.wvFristTage(art)); },
+  wvFristenSetzen(text) {
+    // Zeilen "art;tage"; leer = Standard
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [art, t] = z.split(/[;,\t ]+/); const n = parseInt(t);
+      if (art && art in this.WV_FRISTEN_STANDARD && n >= 1 && n <= 365) o[art] = n;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('wv_fristen',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='wv_fristen'");
+    return o;
+  },
+
+  // ── ÜBA-Sollzahlen je Fachrichtungs-Code (Praxis des RP, Einstellung `uba_soll`) ──
+  ubaSoll() {
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='uba_soll'"); if (j) { const o = JSON.parse(j); if (o && typeof o === 'object') return o; } } catch(e) {}
+    return {};
+  },
+  ubaSollSetzen(text) {
+    const o = {};
+    String(text || '').split('\n').map(z => z.trim()).filter(Boolean).forEach(z => {
+      const [code, n] = z.split(/[;,\t ]+/); const v = parseInt(n);
+      if (code && v >= 0 && v <= 20) o[code.trim()] = v;
+    });
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('uba_soll',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='uba_soll'");
+    return o;
+  },
   // ── Erforderliche ÜBA-Bescheinigungen nach Fachrichtung ──
-  // GaLaBau (Code 036, 176): 6 Bescheinigungen
-  // Alle anderen Produktionsgartenbau-FRs: 2 Bescheinigungen
+  // Einstellung `uba_soll` (Code;Anzahl) hat Vorrang; Standard: GaLaBau
+  // (Code 036, 176) 6, Fachwerker 1, alle anderen Fachrichtungen 2
   getRequiredUBA(fachrichtungId) {
     if (!fachrichtungId) return 2;
     const fr = this.query('SELECT code, bezeichnung, typ FROM fachrichtungen WHERE id=?', [fachrichtungId])[0];
     if (!fr) return 2;
+    const soll = this.ubaSoll();
+    if (fr.code && soll[fr.code] != null) return soll[fr.code];
     if (fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker')) return 1;
     if (fr.code === '036' || fr.code === '176' || (fr.bezeichnung||'').toLowerCase().includes('galabau')) return 6;
     return 2;
   },
+
+  // ── Kampagnen-Hinweise (Hersendungs-Schulen, Fachrichtungs-Ausnahmen, ZP-
+  //    Zuordnung): Praxis des RP, die sich jährlich ändert – Einstellung
+  //    `kampagne_hinweise` statt Code (Logik-Audit Paket 5) ──
+  KAMPAGNE_HINWEISE_STANDARD: {
+    kontrolle23: ['Alle Fachrichtungen 2.+3. AJ – Kontrolle an den Schulen',
+      'NICHT die Azubis, die im Herbst bereits an der ZP Produktion kontrolliert wurden (i.d.R. Gemüsebau, Obstbau, Friedhof am RPK)',
+      'Hersendung ans RP: Christiane-Herzog-Schule Heilbronn*, Johannes-Gutenberg-Schule Heidelberg*, Freie Landbauschule Bodensee Überlingen* (Standort erfragen!), Justus-von-Liebig-Schule Göppingen, Paulinenpflege Winnenden, Landw. Schule Stuttgart-Hohenheim, alle OHNE Beschulung',
+      '* nur die, die noch nicht an der ZP H kontrolliert wurden'],
+    zpF: ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+      'GaLaBau: immer · Zierpflanzenbau: ab ZP F27',
+      'Ggf. Kontrolle bei der ZP eines anderen RP (meist Friedhof)'],
+    zpH: ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
+      'GaLaBau: immer · Produktion vorgezogen: Gemüsebau, Obstbau (Baumschule nur bis H25 – danach Schuländerung Offenburg)',
+      'Übrige Fachrichtungen erst bei der Nov./Dez.-Kontrolle (2.+3. AJ)'],
+    apS: ['Alle Fachrichtungen – Kontrolle an den Schulen',
+      'Hersendung ans RP: Heilbronn, Heidelberg, Überlingen, Göppingen, Winnenden, Stuttgart-Hohenheim, alle OHNE Beschulung',
+      'Anmeldeschluss Sommerprüfung 1. April – das Berichtsheft wird mit der Anmeldung vorgelegt'],
+    apW: ['Reguläre und Verkürzer senden ihre Berichtshefte per Post ans RP – mit der Anmeldung zum 1.11.',
+      'Eingang der Hefte bis 1.11. (Anmeldeschluss Winterprüfung), Durchsicht bis Mitte November'],
+  },
+  KAMPAGNE_TITEL: { kontrolle23: 'Kontrolle 2.+3. Ausbildungsjahr (Nov./Dez.)', zpF: 'Zwischenprüfung Frühjahr', zpH: 'Zwischenprüfung Herbst', apS: 'Zulassungskontrolle AP Sommer', apW: 'Zulassungskontrolle AP Winter' },
+  _kampagneHinweiseAlle() {
+    try { const j = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='kampagne_hinweise'"); if (j) { const o = JSON.parse(j); if (o && typeof o === 'object') return o; } } catch(e) {}
+    return {};
+  },
+  kampagneHinweise(key) {
+    const o = this._kampagneHinweiseAlle();
+    const eigene = Array.isArray(o[key]) ? o[key].map(z => String(z).trim()).filter(Boolean) : null;
+    return eigene && eigene.length ? eigene : (this.KAMPAGNE_HINWEISE_STANDARD[key] || []);
+  },
+  kampagneHinweiseSetzen(key, text) {
+    if (!(key in this.KAMPAGNE_HINWEISE_STANDARD)) return;
+    const o = this._kampagneHinweiseAlle();
+    const zeilen = String(text || '').split('\n').map(z => z.trim()).filter(Boolean);
+    if (zeilen.length) o[key] = zeilen; else delete o[key];
+    if (Object.keys(o).length) this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('kampagne_hinweise',?)", [JSON.stringify(o)]);
+    else this.run("DELETE FROM einstellungen WHERE schluessel='kampagne_hinweise'");
+  },
+  // Ergebnis-Mail an die Schule: Namensliste je Ergebnis nur auf Wunsch
+  // (Datenminimierung – die Schule braucht Zahlen und die Abwesenden)
+  schuleErgebnisMitNamen() { return this.scalar("SELECT wert FROM einstellungen WHERE schluessel='schule_ergebnis_namen'") === '1'; },
 
   isFachwerker(fachrichtungId) {
     if (!fachrichtungId) return false;
@@ -16467,6 +16586,24 @@ Mit freundlichen Grüßen
 {rp_adresse}
 
 Anlagen: {anlagen}` },
+    beratung_betrieb: { titel: 'Betrieb: Einladung zum Beratungsgespräch (§ 76 BBiG)',
+      platzhalter: ['anrede','azubi','betrieb','anlass','frist','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Beratungsgespräch zur Berufsausbildung von {azubi}',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+im Rahmen unserer Aufgabe, die Berufsausbildung zu überwachen und durch Beratung zu fördern (§ 76 Abs. 1 BBiG), möchten wir mit Ihnen ein Gespräch über die Berichtsheftführung und den Ausbildungsverlauf von {azubi} führen.
+
+Anlass:
+{anlass}
+
+Bitte schlagen Sie uns bis {frist} einen Termin vor – gerne telefonisch oder per E-Mail. Das Gespräch kann in Ihrem Betrieb oder im Regierungspräsidium stattfinden.
+
+Bitte halten Sie das Berichtsheft, den betrieblichen Ausbildungsplan und die Bescheinigungen der überbetrieblichen Ausbildung bereit. Ausbildende sind verpflichtet, die zur Überwachung erforderlichen Auskünfte zu erteilen und Unterlagen vorzulegen (§ 76 Abs. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
   },
   getVorlage(typ) {
     const def = this.VORLAGEN[typ];
@@ -17708,6 +17845,7 @@ function wvArtLabel(art) {
     'berichte_bis_termin_email': 'Berichte per E-Mail bis Termin',
     'persoenliche_vorlage_rp': 'Persönliche Vorlage im RP',
     'post_an_rp': 'Per Post ans RP',
+    'beratung_betrieb': 'Beratungsgespräch Betrieb (§ 76 BBiG)',
   };
   return map[art] || art || '–';
 }
@@ -19313,6 +19451,36 @@ const Views = {
         </div>
       </div>
 `,
+      uba: `      <!-- ÜBA-Sollzahlen je Fachrichtung -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">▣ ÜBA-Bescheinigungen: Sollzahl je Fachrichtung (Pflichtteil 1.5)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Je Zeile <code>Fachrichtungs-Code;Anzahl</code> (IBYKUS-Code, z.B. <code>036;6</code> = GaLaBau sechs Bescheinigungen). Leer = Standard des Programms (GaLaBau 6, Fachwerker 1, übrige 2). Die Zahl ist Praxis des RP, keine Rechtsvorgabe – die ÜBA selbst ist Vertragsanlage (AuGaLa/DEULA).</div>
+        <textarea class="form-control" id="setUbaSoll" rows="4" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.ubaSoll()).map(([c, n]) => `${c};${n}`).join('\n'))}</textarea>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.ubaSollSetzen(document.getElementById('setUbaSoll').value);App.toast(Object.keys(o).length+' Sollzahlen gespeichert','success')">Sollzahlen speichern</button></div>
+      </div>
+
+`,
+      fristen: `      <!-- Wiedervorlage-Fristen -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">◷ Wiedervorlage-Fristen (Tage)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Standardfristen der Wiedervorlagen je Nachweisweg und für Erinnerung, Nachholung und Beratungsgespräch – Praxis, keine Rechtsvorgabe. Je Zeile <code>Art;Tage</code>; leer = Standard.</div>
+        <textarea class="form-control" id="setWvFristen" rows="8" style="font-size:12px;font-family:monospace">${esc(Object.entries(App.wvFristen()).map(([k, v]) => `${k};${v}`).join('\n'))}</textarea>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">${Object.entries(App.WV_FRISTEN_LABELS).map(([k, l]) => `<code>${k}</code> = ${esc(l)}`).join(' · ')}</div>
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="const o=App.wvFristenSetzen(document.getElementById('setWvFristen').value);App.toast(Object.keys(o).length+' Fristen gespeichert','success')">Fristen speichern</button></div>
+      </div>
+
+`,
+      kampagnen: `      <!-- Kampagnen-Hinweise -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">★ Kampagnen-Hinweise (Checkliste der Kontroll-Vorlagen)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Hersendungs-Schulen, Fachrichtungs-Ausnahmen und die Zuordnung der Zwischenprüfungen ändern sich jährlich. Eine Zeile je Hinweis; leer = Standard des Programms.</div>
+        ${Object.keys(App.KAMPAGNE_HINWEISE_STANDARD).map(k => `<div class="form-group" style="margin-bottom:8px"><label style="font-size:12px">${esc(App.KAMPAGNE_TITEL[k] || k)}</label>
+          <textarea class="form-control" id="setKampagne_${k}" rows="3" style="font-size:12px">${esc(App.kampagneHinweise(k).join('\n'))}</textarea></div>`).join('')}
+        <div style="margin-top:6px"><button class="btn btn-secondary" onclick="Object.keys(App.KAMPAGNE_HINWEISE_STANDARD).forEach(k=>App.kampagneHinweiseSetzen(k,document.getElementById('setKampagne_'+k).value));App.toast('Kampagnen-Hinweise gespeichert','success')">Hinweise speichern</button>
+          <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='kampagne_hinweise'&quot;);App.toast('Standard wiederhergestellt','success');Views.einstellungen()">Standard</button></div>
+      </div>
+
+`,
       lfk: `      <!-- Landesfachklassen-Regeln -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
@@ -19325,7 +19493,7 @@ const Views = {
       ferien: `      <!-- Schulferien BW (für den Jahreskalender) -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">▦ Schulferien Baden-Württemberg (Jahreskalender)</div>
-        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms.</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Eine Zeile je Ferienabschnitt: <code>Name;JJJJ-MM-TT;JJJJ-MM-TT</code>. Leer = Richtwerte des Programms. <strong>Jedes Jahr im August prüfen</strong>, ob das neue Schuljahr eingetragen ist (Richtwerte reichen bis Sommer 2028).</div>
         <textarea class="form-control" id="setFerienBW" rows="6" style="font-size:12px;font-family:monospace">${esc(App.ferienBW().map(f => `${f.name};${f.von};${f.bis}`).join('\n'))}</textarea>
         <div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-secondary" onclick="Views.saveFerien()">Ferien speichern</button>
           <button class="btn btn-secondary" onclick="App.run(&quot;DELETE FROM einstellungen WHERE schluessel='ferien_bw'&quot;);App.toast('Richtwerte wiederhergestellt','success');Views.einstellungen()">Richtwerte</button></div>
@@ -19396,6 +19564,10 @@ const Views = {
           <button class="btn btn-secondary btn-sm" onclick="Views.resetVorlage()">Standardtext wiederherstellen</button>
           <button class="btn btn-secondary btn-sm" onclick="Views.vorschauVorlage()">Vorschau mit Beispieldaten</button>
         </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-top:10px;padding-top:8px;border-top:1px solid var(--clr-sand)" title="Datenminimierung: Die Schule braucht Zahlen und die Abwesenden; Mängeldetails je Azubi gehen an die Betriebe">
+          <input type="checkbox" id="setSchuleErgebnisNamen" ${App.schuleErgebnisMitNamen() ? 'checked' : ''} style="accent-color:var(--clr-forest)" onchange="App.run(&quot;INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('schule_ergebnis_namen',?)&quot;,[this.checked?'1':'0']);App.toast(this.checked?'Ergebnis-Mail mit Namensliste':'Ergebnis-Mail nur mit Zahlen (Namen nur der Abwesenden)','success')">
+          Ergebnis-Mail an die Schule <strong>mit Namensliste je Ergebnis</strong> (Standard: nur Zahlen, Namen nur der Abwesenden)
+        </label>
       </div>
 
 `,
@@ -19532,7 +19704,7 @@ const Views = {
       <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
       <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
       <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.aemter}${t.vorlagen}${t.word}</div>
-      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.lfk}${t.ferien}${t.textbausteine}</div>
+      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.uba}${t.fristen}${t.kampagnen}${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
     setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
   },
@@ -20064,7 +20236,7 @@ const Views = {
             <div class="card-header" style="font-size:15px">Was ist neu (Version ${App.VERSION})</div>
             <p>• <strong>Dashboard:</strong> „Wo stehen wir?" mit nächstem Schritt, Arbeitsliste (überfällig, ohne Anschreiben, ohne Abschluss, nicht angefragt), Schnellstart bei leerer Datenbank.</p>
             <p>• <strong>Planung:</strong> Termin-Statuskette (angefragt → bestätigt → durchgeführt → nachbereitet), Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien, Doppeltermin-Prüfung, Kohortenjahre passend zum Kampagnenfenster, Nachholtermine aus Abwesenden, Ausschluss bereits kontrollierter Azubis.</p>
-            <p>• <strong>Kontrolltag:</strong> Prüferaufteilung („Mein Bereich"), Vorrang statt gegenseitiger Sperre, Tastenkürzel ⇧1–6 für das Ergebnis und J für die heutige KW, „In Ordnung" markiert die Wochen bis zur Vorwoche, Undo für alle Wege im Raster, Prüfer-Pflicht.</p>
+            <p>• <strong>Kontrolltag:</strong> Prüferaufteilung („Mein Bereich"), Vorrang statt gegenseitiger Sperre, Tastenkürzel ⇧1/⇧2 für den Befund und ⇧3–6 für den Nachweisweg, J für die heutige KW, „In Ordnung" markiert die Wochen bis zur Vorwoche, Undo für alle Wege im Raster, Prüfer-Pflicht.</p>
             <p>• <strong>Import:</strong> Vorschau (neu / geändert je Feld / fehlend / Neuverträge) vor dem Schreiben; ein Status-Modell für Azubis mit „Ausbildung beenden".</p>
             <p>• <strong>Nachbereitung:</strong> Vorlage je Betrieb (auch Nachhol-Aufforderung für Abwesende), Versandnachweis und Mahnstufe je Wiedervorlage, Nachweis-Dialog mit Datei in die Akte, Sammel-Erinnerung je Betrieb, fremde Ämter über die Übergabe.</p>
             <p>• <strong>Berichte &amp; Stammdaten:</strong> Vorjahresvergleich im Jahresbericht, Betriebs- und Schul-Ampel, Datenqualitäts-Regeln für Status und Amt.</p>
@@ -20245,7 +20417,7 @@ const Views = {
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
             <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
-            <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
+            <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; „Sachberichte/Wetter per E-Mail“ nur mit Zusatzvereinbarung). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
             <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
             <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und der Spalte <strong>Zul.</strong> = Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG). Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
@@ -24525,30 +24697,24 @@ const PlanungHandler = {
     };
 
     return [
+      // Hinweise (Hersendungs-Schulen, Fachrichtungs-Ausnahmen, ZP-Zuordnung)
+      // kommen aus der Einstellung „Kampagnen-Hinweise“ (Standard: App.KAMPAGNE_HINWEISE_STANDARD)
       bau('kontrolle23', 'Kontrolle 2.+3. Ausbildungsjahr', 'Ende Nov. – Mitte Dez.',
         [['Sommer', folgeJahr, 'AP S' + folgeJahr]],
         ['F' + folgeJahr, 'H' + (folgeJahr - 1)],
-        ['Alle Fachrichtungen 2.+3. AJ – Kontrolle an den Schulen',
-         'NICHT die Azubis, die im Herbst bereits an der ZP Produktion kontrolliert wurden (i.d.R. Gemüsebau, Obstbau, Friedhof am RPK)',
-         'Hersendung ans RP: Christiane-Herzog-Schule Heilbronn*, Johannes-Gutenberg-Schule Heidelberg*, Freie Landbauschule Bodensee Überlingen* (Standort erfragen!), Justus-von-Liebig-Schule Göppingen, Paulinenpflege Winnenden, Landw. Schule Stuttgart-Hohenheim, alle OHNE Beschulung',
-         '* nur die, die noch nicht an der ZP H kontrolliert wurden']),
+        App.kampagneHinweise('kontrolle23')),
       bau('zpF', 'Kontrolle zur Zwischenprüfung Frühjahr', '~Februar',
         [], ['F' + zpFJahr],
-        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
-         'GaLaBau: immer · Zierpflanzenbau: ab ZP F27',
-         'Ggf. Kontrolle bei der ZP eines anderen RP (meist Friedhof)']),
+        App.kampagneHinweise('zpF')),
       bau('zpH', 'Kontrolle zur Zwischenprüfung Herbst', 'Sept. – Nov.',
         [], ['H' + zpHJahr],
-        ['Kontrolle an den Zwischenprüfungen (an Frau Pfirsig zum Einsortieren in die Mappen)',
-         'GaLaBau: immer · Produktion vorgezogen: Gemüsebau, Obstbau (Baumschule nur bis H25 – danach Schuländerung Offenburg)',
-         'Übrige Fachrichtungen erst bei der Nov./Dez.-Kontrolle (2.+3. AJ)']),
+        App.kampagneHinweise('zpH')),
       bau('apS', 'Zulassungskontrolle AP Sommer', 'zum April',
         [['Sommer', apSJahr, 'AP S' + apSJahr]], [],
-        ['Alle Fachrichtungen – Kontrolle an den Schulen',
-         'Hersendung ans RP: Heilbronn, Heidelberg, Überlingen, Göppingen, Winnenden, Stuttgart-Hohenheim, alle OHNE Beschulung']),
+        App.kampagneHinweise('apS')),
       bau('apW', 'Zulassungskontrolle AP Winter', 'zum November',
         [['Winter', null, 'AP Winter (nächster Jahrgang)']], [],
-        ['Reguläre und Verkürzer senden ihre Berichtshefte per Post ans RP – mit der Anmeldung zum 1.11.']),
+        App.kampagneHinweise('apW')),
     ];
   },
   _vorlagenButtonHtml() {
@@ -25535,7 +25701,7 @@ const PlanungHandler = {
     return { ok: true, id: neuId, anzahl: abwesende.length };
   },
   async nachholterminAnlegen(terminId) {
-    const datum = await App.prompt('Datum des Nachholtermins (JJJJ-MM-TT) – nur die am Kontrolltag abwesenden Azubis werden zugeordnet:', { titel: 'Nachholtermin anlegen', wert: addDaysStr(21) });
+    const datum = await App.prompt('Datum des Nachholtermins (JJJJ-MM-TT) – nur die am Kontrolltag abwesenden Azubis werden zugeordnet:', { titel: 'Nachholtermin anlegen', wert: App.wvFrist('nachholung_abwesend') });
     if (!datum) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return App.toast('Bitte ein Datum im Format JJJJ-MM-TT eingeben', 'warning');
     const r = this._nachholterminAnlegen(terminId, datum);
@@ -26787,7 +26953,8 @@ const PDFExport = {
       doc.text(`Gez. ${prName}`, RM, y, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Digitale Signatur', RM, y + 4, { align: 'right' });
+      // Namensvermerk, keine Signatur im Rechtssinn (§ 126a BGB) – deshalb „gez.“
+      doc.text('Ausbildungsberatung (Namensvermerk)', RM, y + 4, { align: 'right' });
 
       // Footer line
       doc.setDrawColor(...COL_GREEN);
@@ -27329,7 +27496,7 @@ const KontrolleHandler = {
             ${this._menue('Weitere Aktionen', [
               { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(true)' },
               { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(false)' },
-              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], addDaysStr(14))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
+              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
               offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
               { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
               { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()' },
@@ -27484,15 +27651,47 @@ const KontrolleHandler = {
     { val: 'persoenliche_vorlage_rp', label: 'Persönliche Vorlage im RP Freiburg' },
     { val: 'post_an_rp', label: 'Per Post ans RP Freiburg senden' },
   ],
+  // Befund + Nachweisweg (Logik-Audit Paket 4): ⇧0 zurücksetzen · ⇧1 In
+  // Ordnung · ⇧2 Mängel (Weg bleibt bzw. „nächste Durchsicht“) · ⇧3–6 Weg
+  // (nächste Durchsicht, E-Mail, Post, persönlich) – setzt zugleich „Mängel“.
+  // Gespeichert wird weiterhin der alte Ergebniswert (App.ergebnisAus).
+  KURZ_WEGE: { 3: 'naechste_durchsicht', 4: 'email', 5: 'post', 6: 'persoenlich' },
   setzeErgebnisKurz(n) {
     if (this._viewMode !== 'einzeln' || !this.currentTerminId) return;
     if (this.currentLock) return; // Kollege bearbeitet diesen Azubi – Tastatur darf die Sperre nicht umgehen
-    const opt = n === 0 ? { val: '', label: 'zurückgesetzt' } : this.ERGEBNIS_OPTIONEN[n - 1];
-    if (!opt) return;
-    const radio = document.querySelector(`input[name="ergebnis"][value="${opt.val}"]`);
+    if (n === 0) { this.setzeBefund(''); App.toast('Ergebnis: zurückgesetzt', 'info'); return; }
+    if (n === 1) { this.setzeBefund('ok'); return; }
+    if (n === 2) { this.setzeBefund('maengel'); return; }
+    const weg = this.KURZ_WEGE[n];
+    if (weg) this.setzeWeg(weg);
+  },
+  _aktuellesErgebnis() {
+    const s = this.currentSchuelerList[this.currentIndex];
+    if (!s) return '';
+    return App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id]) || '';
+  },
+  setzeBefund(befund) {
+    const alt = App.befundAus(this._aktuellesErgebnis());
+    const weg = alt.weg || 'naechste_durchsicht';
+    const wert = App.ergebnisAus(befund, weg);
+    this._leisteAnzeigen(befund, weg);
+    this.saveField('ergebnis', wert);
+    if (befund) App.toast(`Ergebnis: ${befund === 'ok' ? 'Berichtsheft in Ordnung' : 'Mängel – Nachweis ' + (App.WEGE.find(w => w.val === weg) || App.WEGE[0]).label}`, 'info');
+  },
+  setzeWeg(weg) {
+    const wert = App.ergebnisAus('maengel', weg);
+    this._leisteAnzeigen('maengel', weg);
+    this.saveField('ergebnis', wert);
+    App.toast(`Nachweis ${(App.WEGE.find(w => w.val === weg) || App.WEGE[0]).label}`, 'info');
+  },
+  // Leiste ohne Neuzeichnen nachführen (Radio, Weg-Auswahl, Sichtbarkeit)
+  _leisteAnzeigen(befund, weg) {
+    const radio = document.querySelector(`input[name="ergebnis"][data-befund="${befund}"]`);
     if (radio) radio.checked = true;
-    this.saveField('ergebnis', opt.val);
-    App.toast(`Ergebnis: ${opt.label}`, 'info');
+    const sel = document.getElementById('keWeg');
+    if (sel) { sel.value = weg; sel.style.display = befund === 'maengel' ? '' : 'none'; }
+    const lbl = document.getElementById('keWegLabel');
+    if (lbl) lbl.style.display = befund === 'maengel' ? '' : 'none';
   },
   // ── Zur heutigen Kalenderwoche springen (Taste J) ──
   springeZuAktuellerKW() {
@@ -28434,7 +28633,7 @@ const KontrolleHandler = {
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
           <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
-            <span><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''}${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
+            <span title="Ein Raster ist ein Schuljahr (KW 36 bis 35). Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${bnd.schoolYear ? 'Schuljahr ' + bnd.schoolYear : 'Ausbildungsjahr ' + aj} <span style="font-weight:400;color:var(--clr-sage)">· ${aj}. Lehrjahr${ajs[0] !== 1 || ajs.length !== 3 ? ` · ${aj - ajs[0] + 1}. Vertragsjahr` : ''}</span>${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
             <span style="font-size:12px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>
@@ -28516,8 +28715,14 @@ const KontrolleHandler = {
       <div class="ke-leiste" id="lockableLeiste" style="${isLocked ? 'pointer-events:none;opacity:0.5' : ''}">
         <div class="ke-ergebnis">
           <span class="ke-titel">Ergebnis</span>
-          <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" ${!ke.ergebnis || ke.ergebnis === '' ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis','')">offen</label>
-          ${ergebnisOptions.map((o, oi) => `<label class="erg-pill${o.val === 'in_ordnung' ? ' erg-ok' : ''}" title="${esc(o.label)} (⇧${oi + 1})"><input type="radio" name="ergebnis" value="${o.val}" ${ke.ergebnis === o.val ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis',this.value)">${esc(ergebnisLabels[o.val] || o.label)}<kbd>⇧${oi + 1}</kbd></label>`).join('')}
+          ${(() => { const bf = App.befundAus(ke.ergebnis); const zv = App.hatZusatzvereinbarung(ke); return `
+          <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" data-befund="" ${!bf.befund ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('')">offen</label>
+          <label class="erg-pill erg-ok" title="Berichtsheft war in Ordnung (⇧1)"><input type="radio" name="ergebnis" value="in_ordnung" data-befund="ok" ${bf.befund === 'ok' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('ok')">✓ In Ordnung<kbd>⇧1</kbd></label>
+          <label class="erg-pill erg-mangel" title="Mängel festgestellt – Nachweisweg daneben wählen (⇧2, Weg ⇧3–6)"><input type="radio" name="ergebnis" value="maengel" data-befund="maengel" ${bf.befund === 'maengel' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('maengel')">✗ Mängel<kbd>⇧2</kbd></label>
+          <label id="keWegLabel" class="ke-weg-label" for="keWeg" style="${bf.befund === 'maengel' ? '' : 'display:none'}">Nachweis</label>
+          <select id="keWeg" class="form-control ke-weg" aria-label="Nachweisweg" title="Wie kommt der Nachweis? (⇧3 nächste Durchsicht · ⇧4 E-Mail · ⇧5 Post · ⇧6 persönlich)" style="${bf.befund === 'maengel' ? '' : 'display:none'}" onchange="KontrolleHandler.setzeWeg(this.value)">
+            ${App.WEGE.filter(w => w.val !== 'email_sachberichte' || zv || bf.weg === 'email_sachberichte').map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
+          </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
             <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
@@ -28536,7 +28741,9 @@ const KontrolleHandler = {
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
             { trenner: true },
             { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
-          ], 'Auto-Weiter, PDFs und Freigabe', 'oben')}
+            { trenner: true },
+            { label: '☎ Beratungsgespräch Betrieb vormerken (§ 76)', onclick: `WiedervorlagenHandler.beratungAnlegen(${s.id})`, title: 'Beratungsgespräch mit dem Ausbildungsbetrieb als Wiedervorlage vormerken (§ 76 Abs. 1 BBiG) – die Stufe vor dem Prüfungsausschuss' },
+          ], 'Auto-Weiter, PDFs, Freigabe und Beratung', 'oben')}
         </div>
       </div>
     </div>`;
@@ -28554,8 +28761,9 @@ const KontrolleHandler = {
   _wvDefaultFuer(ergebnis) {
     const termin = App.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const map = { nachholung_naechste_durchsicht: nextTermin || addDaysStr(28), sachberichte_wetter_email: addDaysStr(28), berichte_bis_termin_email: addDaysStr(28), persoenliche_vorlage_rp: addDaysStr(14), post_an_rp: addDaysStr(21) };
-    return map[ergebnis] || addDaysStr(28);
+    // Fristen aus den Einstellungen (App.wvFristen), Nachholung bevorzugt den nächsten geplanten Termin
+    if (ergebnis === 'nachholung_naechste_durchsicht' && nextTermin) return nextTermin;
+    return App.wvFrist(ergebnis in App.WV_FRISTEN_STANDARD ? ergebnis : 'berichte_bis_termin_email');
   },
 
   getWVDate(keId) {
@@ -29518,16 +29726,16 @@ const KontrolleHandler = {
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const plus4w = addDaysStr(28);
-    const plus2w = addDaysStr(14);
-    const plus3w = addDaysStr(21);
+    // Fristen aus den Einstellungen (App.wvFristen)
+    const plus4w = App.wvFrist('berichte_bis_termin_email');
     const wvDefaults = {
-      nachholung_naechste_durchsicht: nextTermin || plus4w,
-      sachberichte_wetter_email: plus4w,
-      berichte_bis_termin_email: plus4w,
-      persoenliche_vorlage_rp: plus2w,
-      post_an_rp: plus3w
+      nachholung_naechste_durchsicht: nextTermin || App.wvFrist('nachholung_naechste_durchsicht'),
+      sachberichte_wetter_email: App.wvFrist('sachberichte_wetter_email'),
+      berichte_bis_termin_email: App.wvFrist('berichte_bis_termin_email'),
+      persoenliche_vorlage_rp: App.wvFrist('persoenliche_vorlage_rp'),
+      post_an_rp: App.wvFrist('post_an_rp')
     };
+    const nachholFrist = App.wvFrist('nachholung_abwesend');
 
     App.openModal('Kontrolle abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
@@ -29543,7 +29751,7 @@ const KontrolleHandler = {
         <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname) + (App.istFremdesAmt(a) ? ' <span style="color:var(--clr-purple);font-size:12px" title="Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt">§ fremdes Amt</span>' : '')).join(' · ')}</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
           <input type="checkbox" id="wizNachholungWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Nachholung" anlegen, Frist
-          <input type="date" class="form-control" id="wizNachholungFrist" value="${addDaysStr(21)}" style="width:140px;padding:3px 6px;font-size:12px">
+          <input type="date" class="form-control" id="wizNachholungFrist" value="${nachholFrist}" style="width:140px;padding:3px 6px;font-size:12px">
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:4px">
           <input type="checkbox" id="wizNachholungMail" checked style="accent-color:var(--clr-forest)"> ✉︎ Nachhol-Aufforderung an die Betriebe öffnen
@@ -29629,7 +29837,7 @@ const KontrolleHandler = {
     // 1b) Abwesende → Wiedervorlage "Nachholung"
     const nachholIds = [];
     if (document.getElementById('wizNachholungWV')?.checked) {
-      const frist = document.getElementById('wizNachholungFrist')?.value || addDaysStr(21);
+      const frist = document.getElementById('wizNachholungFrist')?.value || App.wvFrist('nachholung_abwesend');
       this.currentSchuelerList.forEach(s => {
         const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
         if (!ke || ke.anwesend !== 0 || ke.ergebnis) return;
@@ -29951,7 +30159,7 @@ const KontrolleHandler = {
     doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(0);
     doc.text(`Gez. ${snapPrName}`, 196, y, { align: 'right' });
     doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(150);
-    doc.text('Digitale Signatur', 196, y+4, { align: 'right' });
+    doc.text('Ausbildungsberatung (Namensvermerk)', 196, y+4, { align: 'right' });
 
     const dateStr2 = snap.snapshot_datum.replace(/-/g,'');
     const fname = `BH-Archiv_${s.nachname}_${s.vorname}_${s.schule||'Schule'}_${dateStr2}_Pruefer-${snap.pruefer||'unbekannt'}.pdf`.replace(/[\/ \\:,;]/g,'_');
@@ -31626,6 +31834,25 @@ const Workflows = {
     return { gruppen, gruppenKurz, azubiListe };
   },
 
+  // Ergebnisblock für die Schule (Logik-Audit Paket 6, Datenminimierung):
+  // Standard sind Zahlen je Ergebnis; Namen stehen nur bei den Abwesenden
+  // (die Nachholung findet an der Schule statt). Mit `mitNamen` wie früher
+  // die volle Namensliste je Ergebnisart.
+  _ergebnisseFuerSchule(terminId, schuelerList, mitNamen) {
+    const results = {};
+    const abwesend = [];
+    schuelerList.forEach(s => {
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
+      const e = ke?.ergebnis || (ke && ke.anwesend === 0 ? 'abwesend' : 'nicht kontrolliert');
+      if (e === 'abwesend') abwesend.push(`${s.nachname}, ${s.vorname}`);
+      (results[e] = results[e] || []).push(`${s.nachname}, ${s.vorname}`);
+    });
+    const lbl = e => e === 'abwesend' ? 'Am Kontrolltag nicht anwesend (Nachholung)' : (this._eLbl[e] || e);
+    if (mitNamen) return Object.entries(results).map(([e, names]) => `\n${lbl(e)} (${names.length}):\n  - ${names.join('\n  - ')}\n`).join('');
+    const zeilen = Object.entries(results).map(([e, names]) => `  - ${lbl(e)}: ${names.length}`).join('\n');
+    return zeilen + (abwesend.length ? `\n\nNicht anwesend – bitte beim nächsten Schultag auf die Nachholung hinweisen:\n  - ${abwesend.sort().join('\n  - ')}` : '') + '\n';
+  },
+
   // ── A) E-Mail an Schule (Terminanfrage / Ergebnis-Mitteilung) ──
   emailSchule(terminId) {
     const t = this._ctxTermin(terminId);
@@ -31639,15 +31866,7 @@ const Workflows = {
     const isDone = t.termin.status === 'durchgefuehrt';
     const { gruppen, gruppenKurz, azubiListe } = this._gruppenUndListe(t);
     const ctx = { ...t.ctx, gruppen, gruppen_kurz: gruppenKurz, azubi_liste: azubiListe };
-    if (isDone) {
-      const results = {};
-      t.schuelerList.forEach(s => {
-        const ke = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
-        const e = ke?.ergebnis || 'nicht kontrolliert';
-        (results[e] = results[e] || []).push(`${s.nachname}, ${s.vorname}`);
-      });
-      ctx.ergebnisse = Object.entries(results).map(([e, names]) => `\n${this._eLbl[e] || e} (${names.length}):\n  - ${names.join('\n  - ')}\n`).join('');
-    }
+    if (isDone) ctx.ergebnisse = this._ergebnisseFuerSchule(terminId, t.schuelerList, App.schuleErgebnisMitNamen());
     const { betreff, body } = App.renderVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
@@ -31742,8 +31961,10 @@ const Workflows = {
   // Vorlage zu einer Wiedervorlage: überfällig → Erinnerung; Nachholung
   // (am Kontrolltag abwesend) → Nachhol-Aufforderung, sonst Mängelmitteilung
   _wvVorlageTyp(w, ueberfaellig) {
-    if (ueberfaellig) return 'wv_erinnerung';
     const art = String(w?.art || '');
+    // Beratungsgespräch (§ 76 BBiG): Einladung statt Mahnung – auch überfällig
+    if (art === 'beratung_betrieb') return 'beratung_betrieb';
+    if (ueberfaellig) return 'wv_erinnerung';
     return art.startsWith('nachholung') ? 'nachholung' : 'wv_mahnung';
   },
   // Versandnachweis an der Wiedervorlage: Datum/Art des Anschreibens,
@@ -31757,7 +31978,7 @@ const Workflows = {
     const stufeNeu = erinnerung ? stufeAlt + 1 : Math.max(stufeAlt, 1);
     App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${stufeNeu}, geaendert_am=datetime('now','localtime') WHERE id=?`,
       [todayStr(), art || 'email', wvId]);
-    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung';
+    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : typ === 'beratung_betrieb' ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : 'Mängelmitteilung';
     App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)",
       [wvId, `${was} per ${art === 'email' ? 'E-Mail' : (art || 'Brief')} versendet${zusatz ? ', ' + zusatz : ''}`, (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '']);
   },
@@ -31906,7 +32127,7 @@ const Workflows = {
     const ctx = { ...d.t.ctx, anrede: this._anrede(g.ap),
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(addDaysStr(21)) };
+      frist: formatDate(App.wvFrist('nachholung_abwesend')) };
     const { betreff, body } = App.renderVorlage(typ, ctx);
     this.openMailto(g.email, betreff, body);
     App.toast('E-Mail an ' + g.name + ' geöffnet', 'success');
@@ -32028,7 +32249,7 @@ const Workflows = {
         azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
         azubi_block: this._azubiBlock(g.azubis, isDone),
         azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-        frist: formatDate(addDaysStr(21)) });
+        frist: formatDate(App.wvFrist('nachholung_abwesend')) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       // Zeilenweise mit Seitenumbruch – ein langer Azubi-Block lief sonst in die Fußzeile
@@ -32063,25 +32284,29 @@ const Workflows = {
       : '  (keine offenen Mängel)';
     const heute = todayStr();
     const ueberfaellig = w.status === 'ueberfaellig' || (w.status === 'offen' && w.frist_datum && w.frist_datum < heute);
-    const fristNeu = addDaysStr(14);
+    const fristNeu = App.wvFrist('erinnerung');
     const azubi = `${w.vorname} ${w.nachname}`;
     const ktSchule = w.kt_id ? App.getTerminSchule(w.kt_id) : null;
+    // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
+    const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
     const ctx = { ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
       frist: formatDate(w.frist_datum), frist_alt: formatDate(w.frist_datum), frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
+      betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
       datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' };
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
-    // keinen Mängel-Text
+    // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
     const { betreff, body } = App.renderVorlage(typ, ctx);
     const to = w.b_email || '';
-    window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig ? fristNeu : null };
-    App.openModal(`✉︎ ${ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
+    const istBeratung = typ === 'beratung_betrieb';
+    window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig && !istBeratung ? fristNeu : null };
+    App.openModal(`✉︎ ${istBeratung ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
       <div style="font-size:13px">
         <div><strong>An:</strong> ${to ? esc(to) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt!</span>'}</div>
         <div><strong>Betrieb:</strong> ${esc(w.b_name || w.ausbildungsstaette)} · <strong>Azubi:</strong> ${esc(w.nachname)}, ${esc(w.vorname)}</div>
         ${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)">Bisher: ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} (${esc(w.versand_art || '')})</div>` : ''}
-        ${ueberfaellig ? `<div style="margin-top:6px;padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius)">Frist ${formatDate(w.frist_datum)} ist überschritten → Erinnerung mit neuer Frist:
+        ${ueberfaellig && !istBeratung ? `<div style="margin-top:6px;padding:6px 10px;background:var(--clr-amber-light);border-radius:var(--radius)">Frist ${formatDate(w.frist_datum)} ist überschritten → Erinnerung mit neuer Frist:
           <input type="date" class="form-control" id="wvFristNeu" value="${fristNeu}" style="display:inline-block;width:150px;padding:2px 6px;margin-left:6px" onchange="Workflows._wvFristNeuGeaendert(this.value)"> (wird in der Wiedervorlage gespeichert)</div>` : ''}
         <div style="margin-top:4px"><strong>Betreff:</strong> <span id="wvMailBetreff">${esc(betreff)}</span></div>
         <hr style="margin:8px 0;border-color:var(--clr-sand)">
@@ -32139,7 +32364,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const betroffen = betriebe.map(g => ({ ...g, azubis: g.azubis.filter(a => ids.has(a.id)) })).filter(g => g.azubis.length);
     if (!betroffen.length) return App.toast('Keine abwesenden Azubis', 'info');
-    const fristTxt = formatDate(frist || addDaysStr(21));
+    const fristTxt = formatDate(frist || App.wvFrist('nachholung_abwesend'));
     this._individualData = null;
     let listHtml = '';
     betroffen.forEach((g, idx) => {
@@ -32318,7 +32543,28 @@ const WiedervorlagenHandler = {
         '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-success" onclick="WiedervorlagenHandler.doErledigen(' + id + ')">Als erledigt markieren</button>');
     }
   },
-  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt', sonstig: 'sonstiger Nachweis' },
+  NACHWEIS_ARTEN: { email: 'E-Mail', post: 'Post', persoenlich: 'persönlich vorgelegt', telefon: 'telefonisch bestätigt (nur mit anschließender Vorlage)', sonstig: 'sonstiger Nachweis' },
+  // Beratungsgespräch mit dem Betrieb (§ 76 Abs. 1 BBiG: Förderung durch
+  // Beratung) als Wiedervorlage vormerken – die Stufe zwischen Erinnerung und
+  // Prüfungsausschuss, die in der Akte bisher fehlte. Frist aus den
+  // Einstellungen, Notiz mit Anlass; Einladung über die Vorlage `beratung_betrieb`.
+  async beratungAnlegen(schuelerId, params) {
+    const s = App.query('SELECT s.*, b.name AS betrieb FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id WHERE s.id=?', [schuelerId])[0];
+    if (!s) return App.toast('Azubi nicht gefunden', 'error');
+    const p = params || {};
+    const frist = p.frist || await App.prompt(`Beratungsgespräch mit ${s.betrieb || s.ausbildungsstaette || 'dem Betrieb'} zu ${s.nachname}, ${s.vorname} – bis wann (JJJJ-MM-TT)?`, { titel: 'Beratungsgespräch Betrieb (§ 76 BBiG)', wert: App.wvFrist('beratung_betrieb') });
+    if (frist === null) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(frist)) { App.toast('Bitte ein Datum im Format JJJJ-MM-TT', 'warning'); return null; }
+    const anlass = p.anlass != null ? p.anlass : await App.prompt('Anlass (erscheint in der Wiedervorlage und in der Einladung):', { titel: 'Beratungsgespräch Betrieb (§ 76 BBiG)', platzhalter: 'z.B. wiederholte Beanstandungen, Mängel trotz zweifacher Erinnerung nicht behoben' });
+    if (anlass === null) return null;
+    App.run("INSERT INTO wiedervorlagen (schueler_id, art, frist_datum, status) VALUES (?,'beratung_betrieb',?,'offen')", [schuelerId, frist]);
+    const wvId = App.scalar('SELECT MAX(id) FROM wiedervorlagen WHERE schueler_id=? AND art=?', [schuelerId, 'beratung_betrieb']);
+    if (wvId && anlass.trim()) App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)", [wvId, `Anlass: ${anlass.trim()}`, (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '']);
+    App.toast('Beratungsgespräch als Wiedervorlage vorgemerkt', 'success');
+    try { if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen && AzubiSeite.istOffen(schuelerId)) AzubiSeite.render(); } catch(e) {}
+    try { if (App.currentView === 'wiedervorlagen') Views.wiedervorlagen(); } catch(e) {}
+    return wvId;
+  },
   // Direkt erledigen ohne Durchsicht – mit NACHWEIS: Art (E-Mail/Post/persönlich),
   // optional Datei in die Akte und „Mängel als behoben markieren", damit
   // Ampel und Zulassungsliste den Azubi als nachgewiesen erkennen
@@ -34597,7 +34843,7 @@ const AzubiSeite = {
     ['phasen', 'Ausbildungsverlauf bearbeiten'],
   ],
   NUR_BEARBEITEN: new Set(['stammdaten', 'phasen']),
-  ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' },
+  ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP', beratung_betrieb: 'Beratungsgespräch (§ 76)' },
 
   // opts.zurueck = { terminId, schuelerId }: die Seite kam aus der Durchsicht
   // und führt dorthin zurück. Abschnitte „stammdaten“/„phasen“ als Sprungziel
@@ -34831,9 +35077,11 @@ const AzubiSeite = {
     if (!el) return;
     const rows = App.query(`SELECT w.*, kt.geplant_datum FROM wiedervorlagen w LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
       WHERE w.schueler_id=? ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum DESC`, [s.id]);
-    if (!rows.length) { el.innerHTML = '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
+    const beratungKnopf = typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.beratungAnlegen
+      ? `<div style="margin:4px 0 8px"><button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.beratungAnlegen(${s.id})" title="Beratungsgespräch mit dem Ausbildungsbetrieb vormerken (§ 76 BBiG: Förderung durch Beratung) – als Wiedervorlage mit Einladungs-Vorlage">+ Beratungsgespräch Betrieb (§ 76)</button></div>` : '';
+    if (!rows.length) { el.innerHTML = beratungKnopf + '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
     const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
-    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
+    el.innerHTML = beratungKnopf + `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
       ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
         <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>

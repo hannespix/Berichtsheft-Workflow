@@ -22,7 +22,7 @@ const AzubiSeite = {
     ['phasen', 'Ausbildungsverlauf bearbeiten'],
   ],
   NUR_BEARBEITEN: new Set(['stammdaten', 'phasen']),
-  ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP' },
+  ERGEBNIS: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung', sachberichte_wetter_email: 'E-Mail (Wetter)', berichte_bis_termin_email: 'E-Mail (Berichte)', persoenliche_vorlage_rp: 'Vorlage RP', post_an_rp: 'Post RP', beratung_betrieb: 'Beratungsgespräch (§ 76)' },
 
   // opts.zurueck = { terminId, schuelerId }: die Seite kam aus der Durchsicht
   // und führt dorthin zurück. Abschnitte „stammdaten“/„phasen“ als Sprungziel
@@ -256,9 +256,11 @@ const AzubiSeite = {
     if (!el) return;
     const rows = App.query(`SELECT w.*, kt.geplant_datum FROM wiedervorlagen w LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id LEFT JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id
       WHERE w.schueler_id=? ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum DESC`, [s.id]);
-    if (!rows.length) { el.innerHTML = '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
+    const beratungKnopf = typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.beratungAnlegen
+      ? `<div style="margin:4px 0 8px"><button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.beratungAnlegen(${s.id})" title="Beratungsgespräch mit dem Ausbildungsbetrieb vormerken (§ 76 BBiG: Förderung durch Beratung) – als Wiedervorlage mit Einladungs-Vorlage">+ Beratungsgespräch Betrieb (§ 76)</button></div>` : '';
+    if (!rows.length) { el.innerHTML = beratungKnopf + '<p class="az-leer">Keine Wiedervorlagen zu diesem Azubi.</p>'; return; }
     const statusText = { offen: 'offen', ueberfaellig: 'überfällig', erledigt: 'erledigt' };
-    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
+    el.innerHTML = beratungKnopf + `<table class="data-table az-tabelle"><thead><tr><th>Frist</th><th>Art</th><th>Status</th><th>Aus Kontrolle</th><th>Erledigt</th><th></th></tr></thead><tbody>
       ${rows.map(w => `<tr><td>${esc(formatDate(w.frist_datum))}</td><td>${esc(this.ERGEBNIS[w.art] || w.art || '–')}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-ok' : 'badge-open'}">${esc(statusText[w.status] || w.status)}</span>${w.mahnstufe ? ` <span class="az-leer">Mahnstufe ${w.mahnstufe}</span>` : ''}</td>
         <td>${esc(formatDate(w.geplant_datum) || '–')}</td><td>${esc(formatDate(w.erledigt_datum) || '–')}</td>

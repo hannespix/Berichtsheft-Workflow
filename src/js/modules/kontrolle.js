@@ -493,7 +493,7 @@ const KontrolleHandler = {
             ${this._menue('Weitere Aktionen', [
               { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(true)' },
               { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(false)' },
-              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], addDaysStr(14))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
+              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
               offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
               { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
               { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()' },
@@ -648,15 +648,47 @@ const KontrolleHandler = {
     { val: 'persoenliche_vorlage_rp', label: 'Persönliche Vorlage im RP Freiburg' },
     { val: 'post_an_rp', label: 'Per Post ans RP Freiburg senden' },
   ],
+  // Befund + Nachweisweg (Logik-Audit Paket 4): ⇧0 zurücksetzen · ⇧1 In
+  // Ordnung · ⇧2 Mängel (Weg bleibt bzw. „nächste Durchsicht“) · ⇧3–6 Weg
+  // (nächste Durchsicht, E-Mail, Post, persönlich) – setzt zugleich „Mängel“.
+  // Gespeichert wird weiterhin der alte Ergebniswert (App.ergebnisAus).
+  KURZ_WEGE: { 3: 'naechste_durchsicht', 4: 'email', 5: 'post', 6: 'persoenlich' },
   setzeErgebnisKurz(n) {
     if (this._viewMode !== 'einzeln' || !this.currentTerminId) return;
     if (this.currentLock) return; // Kollege bearbeitet diesen Azubi – Tastatur darf die Sperre nicht umgehen
-    const opt = n === 0 ? { val: '', label: 'zurückgesetzt' } : this.ERGEBNIS_OPTIONEN[n - 1];
-    if (!opt) return;
-    const radio = document.querySelector(`input[name="ergebnis"][value="${opt.val}"]`);
+    if (n === 0) { this.setzeBefund(''); App.toast('Ergebnis: zurückgesetzt', 'info'); return; }
+    if (n === 1) { this.setzeBefund('ok'); return; }
+    if (n === 2) { this.setzeBefund('maengel'); return; }
+    const weg = this.KURZ_WEGE[n];
+    if (weg) this.setzeWeg(weg);
+  },
+  _aktuellesErgebnis() {
+    const s = this.currentSchuelerList[this.currentIndex];
+    if (!s) return '';
+    return App.scalar('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id]) || '';
+  },
+  setzeBefund(befund) {
+    const alt = App.befundAus(this._aktuellesErgebnis());
+    const weg = alt.weg || 'naechste_durchsicht';
+    const wert = App.ergebnisAus(befund, weg);
+    this._leisteAnzeigen(befund, weg);
+    this.saveField('ergebnis', wert);
+    if (befund) App.toast(`Ergebnis: ${befund === 'ok' ? 'Berichtsheft in Ordnung' : 'Mängel – Nachweis ' + (App.WEGE.find(w => w.val === weg) || App.WEGE[0]).label}`, 'info');
+  },
+  setzeWeg(weg) {
+    const wert = App.ergebnisAus('maengel', weg);
+    this._leisteAnzeigen('maengel', weg);
+    this.saveField('ergebnis', wert);
+    App.toast(`Nachweis ${(App.WEGE.find(w => w.val === weg) || App.WEGE[0]).label}`, 'info');
+  },
+  // Leiste ohne Neuzeichnen nachführen (Radio, Weg-Auswahl, Sichtbarkeit)
+  _leisteAnzeigen(befund, weg) {
+    const radio = document.querySelector(`input[name="ergebnis"][data-befund="${befund}"]`);
     if (radio) radio.checked = true;
-    this.saveField('ergebnis', opt.val);
-    App.toast(`Ergebnis: ${opt.label}`, 'info');
+    const sel = document.getElementById('keWeg');
+    if (sel) { sel.value = weg; sel.style.display = befund === 'maengel' ? '' : 'none'; }
+    const lbl = document.getElementById('keWegLabel');
+    if (lbl) lbl.style.display = befund === 'maengel' ? '' : 'none';
   },
   // ── Zur heutigen Kalenderwoche springen (Taste J) ──
   springeZuAktuellerKW() {
@@ -1598,7 +1630,7 @@ const KontrolleHandler = {
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
           <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
-            <span><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>Ausbildungsjahr ${aj}${bnd.schoolYear ? ' <span style="font-weight:400;color:var(--clr-sage)">('+bnd.schoolYear+')</span>' : ''}${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
+            <span title="Ein Raster ist ein Schuljahr (KW 36 bis 35). Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${bnd.schoolYear ? 'Schuljahr ' + bnd.schoolYear : 'Ausbildungsjahr ' + aj} <span style="font-weight:400;color:var(--clr-sage)">· ${aj}. Lehrjahr${ajs[0] !== 1 || ajs.length !== 3 ? ` · ${aj - ajs[0] + 1}. Vertragsjahr` : ''}</span>${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
             <span style="font-size:12px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>
@@ -1680,8 +1712,14 @@ const KontrolleHandler = {
       <div class="ke-leiste" id="lockableLeiste" style="${isLocked ? 'pointer-events:none;opacity:0.5' : ''}">
         <div class="ke-ergebnis">
           <span class="ke-titel">Ergebnis</span>
-          <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" ${!ke.ergebnis || ke.ergebnis === '' ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis','')">offen</label>
-          ${ergebnisOptions.map((o, oi) => `<label class="erg-pill${o.val === 'in_ordnung' ? ' erg-ok' : ''}" title="${esc(o.label)} (⇧${oi + 1})"><input type="radio" name="ergebnis" value="${o.val}" ${ke.ergebnis === o.val ? 'checked' : ''} onchange="KontrolleHandler.saveField('ergebnis',this.value)">${esc(ergebnisLabels[o.val] || o.label)}<kbd>⇧${oi + 1}</kbd></label>`).join('')}
+          ${(() => { const bf = App.befundAus(ke.ergebnis); const zv = App.hatZusatzvereinbarung(ke); return `
+          <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" data-befund="" ${!bf.befund ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('')">offen</label>
+          <label class="erg-pill erg-ok" title="Berichtsheft war in Ordnung (⇧1)"><input type="radio" name="ergebnis" value="in_ordnung" data-befund="ok" ${bf.befund === 'ok' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('ok')">✓ In Ordnung<kbd>⇧1</kbd></label>
+          <label class="erg-pill erg-mangel" title="Mängel festgestellt – Nachweisweg daneben wählen (⇧2, Weg ⇧3–6)"><input type="radio" name="ergebnis" value="maengel" data-befund="maengel" ${bf.befund === 'maengel' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('maengel')">✗ Mängel<kbd>⇧2</kbd></label>
+          <label id="keWegLabel" class="ke-weg-label" for="keWeg" style="${bf.befund === 'maengel' ? '' : 'display:none'}">Nachweis</label>
+          <select id="keWeg" class="form-control ke-weg" aria-label="Nachweisweg" title="Wie kommt der Nachweis? (⇧3 nächste Durchsicht · ⇧4 E-Mail · ⇧5 Post · ⇧6 persönlich)" style="${bf.befund === 'maengel' ? '' : 'display:none'}" onchange="KontrolleHandler.setzeWeg(this.value)">
+            ${App.WEGE.filter(w => w.val !== 'email_sachberichte' || zv || bf.weg === 'email_sachberichte').map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
+          </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
             <input type="date" class="form-control" id="wvDatum" value="${this.getWVDate(ke.id)}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
@@ -1700,7 +1738,9 @@ const KontrolleHandler = {
             { label: `▤ Alle Bögen dieses Termins (PDF, ${total})`, onclick: `PlanungHandler.exportTerminPDF(${this.currentTerminId})` },
             { trenner: true },
             { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
-          ], 'Auto-Weiter, PDFs und Freigabe', 'oben')}
+            { trenner: true },
+            { label: '☎ Beratungsgespräch Betrieb vormerken (§ 76)', onclick: `WiedervorlagenHandler.beratungAnlegen(${s.id})`, title: 'Beratungsgespräch mit dem Ausbildungsbetrieb als Wiedervorlage vormerken (§ 76 Abs. 1 BBiG) – die Stufe vor dem Prüfungsausschuss' },
+          ], 'Auto-Weiter, PDFs, Freigabe und Beratung', 'oben')}
         </div>
       </div>
     </div>`;
@@ -1718,8 +1758,9 @@ const KontrolleHandler = {
   _wvDefaultFuer(ergebnis) {
     const termin = App.query('SELECT geplant_datum FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const map = { nachholung_naechste_durchsicht: nextTermin || addDaysStr(28), sachberichte_wetter_email: addDaysStr(28), berichte_bis_termin_email: addDaysStr(28), persoenliche_vorlage_rp: addDaysStr(14), post_an_rp: addDaysStr(21) };
-    return map[ergebnis] || addDaysStr(28);
+    // Fristen aus den Einstellungen (App.wvFristen), Nachholung bevorzugt den nächsten geplanten Termin
+    if (ergebnis === 'nachholung_naechste_durchsicht' && nextTermin) return nextTermin;
+    return App.wvFrist(ergebnis in App.WV_FRISTEN_STANDARD ? ergebnis : 'berichte_bis_termin_email');
   },
 
   getWVDate(keId) {
@@ -2682,16 +2723,16 @@ const KontrolleHandler = {
 
     // Auto-WV date suggestions
     const nextTermin = App.query("SELECT geplant_datum FROM kontrolltermine WHERE status='geplant' AND geplant_datum > ? ORDER BY geplant_datum LIMIT 1", [termin?.geplant_datum || '']).map(r => r.geplant_datum)[0] || '';
-    const plus4w = addDaysStr(28);
-    const plus2w = addDaysStr(14);
-    const plus3w = addDaysStr(21);
+    // Fristen aus den Einstellungen (App.wvFristen)
+    const plus4w = App.wvFrist('berichte_bis_termin_email');
     const wvDefaults = {
-      nachholung_naechste_durchsicht: nextTermin || plus4w,
-      sachberichte_wetter_email: plus4w,
-      berichte_bis_termin_email: plus4w,
-      persoenliche_vorlage_rp: plus2w,
-      post_an_rp: plus3w
+      nachholung_naechste_durchsicht: nextTermin || App.wvFrist('nachholung_naechste_durchsicht'),
+      sachberichte_wetter_email: App.wvFrist('sachberichte_wetter_email'),
+      berichte_bis_termin_email: App.wvFrist('berichte_bis_termin_email'),
+      persoenliche_vorlage_rp: App.wvFrist('persoenliche_vorlage_rp'),
+      post_an_rp: App.wvFrist('post_an_rp')
     };
+    const nachholFrist = App.wvFrist('nachholung_abwesend');
 
     App.openModal('Kontrolle abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
@@ -2707,7 +2748,7 @@ const KontrolleHandler = {
         <div style="font-size:12px;margin-top:6px">${abwesende.map(a => esc(a.nachname + ', ' + a.vorname) + (App.istFremdesAmt(a) ? ' <span style="color:var(--clr-purple);font-size:12px" title="Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt">§ fremdes Amt</span>' : '')).join(' · ')}</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
           <input type="checkbox" id="wizNachholungWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Nachholung" anlegen, Frist
-          <input type="date" class="form-control" id="wizNachholungFrist" value="${addDaysStr(21)}" style="width:140px;padding:3px 6px;font-size:12px">
+          <input type="date" class="form-control" id="wizNachholungFrist" value="${nachholFrist}" style="width:140px;padding:3px 6px;font-size:12px">
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:4px">
           <input type="checkbox" id="wizNachholungMail" checked style="accent-color:var(--clr-forest)"> ✉︎ Nachhol-Aufforderung an die Betriebe öffnen
@@ -2793,7 +2834,7 @@ const KontrolleHandler = {
     // 1b) Abwesende → Wiedervorlage "Nachholung"
     const nachholIds = [];
     if (document.getElementById('wizNachholungWV')?.checked) {
-      const frist = document.getElementById('wizNachholungFrist')?.value || addDaysStr(21);
+      const frist = document.getElementById('wizNachholungFrist')?.value || App.wvFrist('nachholung_abwesend');
       this.currentSchuelerList.forEach(s => {
         const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
         if (!ke || ke.anwesend !== 0 || ke.ergebnis) return;
@@ -3115,7 +3156,7 @@ const KontrolleHandler = {
     doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(0);
     doc.text(`Gez. ${snapPrName}`, 196, y, { align: 'right' });
     doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(150);
-    doc.text('Digitale Signatur', 196, y+4, { align: 'right' });
+    doc.text('Ausbildungsberatung (Namensvermerk)', 196, y+4, { align: 'right' });
 
     const dateStr2 = snap.snapshot_datum.replace(/-/g,'');
     const fname = `BH-Archiv_${s.nachname}_${s.vorname}_${s.schule||'Schule'}_${dateStr2}_Pruefer-${snap.pruefer||'unbekannt'}.pdf`.replace(/[\/ \\:,;]/g,'_');
