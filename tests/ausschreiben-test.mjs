@@ -77,6 +77,8 @@ console.log('\n══ Zilz schreibt seinen Stand aus – Pix übernimmt ihn ═�
   check(keId(pix, 1) === keVorher, 'Pix’ Kontrollergebnis behält seine Kennung (natürlicher Schlüssel)');
   check(pix.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=1') === 1, 'Wiedervorlage nicht verdoppelt');
   check(pix.scalar('SELECT kontrollergebnis_id FROM wiedervorlagen WHERE schueler_id=1') === keVorher, 'Wiedervorlage zeigt auf Pix’ Kontrollergebnis (Verweis aufgelöst)');
+  const pr = await pix.azubiPruefen(1);
+  check(pr.zwangOps >= 4 && pr.zwangUnbekannt === 0 && pr.zwangLetzte > 0 && pr.verworfenGesamt === 0 && pr.datenbank && typeof pr.ordner === 'string', `bhk.pruefen auf Pix nennt den ausgeschriebenen Stand (${pr.zwangOps} Zwang-Ops, ${pr.zwangUnbekannt} ungelesen, ${pr.verworfenGesamt} verworfen, Datenbank ${pr.datenbank})`);
   // Die Stempel bei Pix sind jetzt auf dem Zwang – spätere normale Änderungen von Zilz kommen wieder an
   tick(60000); kwUpsert(zilz, 1, 2, 41, 'G');
   await sync(zilz, pix);

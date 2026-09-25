@@ -224,13 +224,15 @@ const Konsole = {
   async pruefen(sid) {
     if (sid == null) { console.log('Aufruf: bhk.pruefen(<Azubi-Kennung>) – die Kennung steht in der Adresszeile der Azubi-Seite oder in der Konsole über App.query("SELECT id,nachname FROM schueler WHERE nachname LIKE ?", ["Muster%"])'); return null; }
     const r = await App.azubiPruefen(sid);
-    console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s`, 'font-weight:bold');
+    console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s, Datenbank ${r.datenbank || '?'}${r.ordner ? ` in Ordner „${r.ordner}“` : ''}`, 'font-weight:bold');
     console.log(`Lokal: ${r.lokal.wochen.length} Wochenzeilen, davon ${r.lokal.wochenMitCodes} mit Codes; ${r.lokal.ergebnisse.length} Kontrollergebnis(se); ${r.lokal.stempel} Zeilen mit Stempeln`);
     this._tabelle(r.lokal.wochen.filter(w => w.codes || w.bemerkung).map(w => ({ AJ: w.aj, KW: w.kw, Codes: w.codes, Fehltage: w.fehltage, Bemerkung: w.bemerkung })));
     this._tabelle(r.lokal.ergebnisse.map(e => ({ Termin: e.termin, Ergebnis: e.ergebnis, Geändert: e.geaendert_am, Von: e.geaendert_von })));
     if (r.hinweis) console.log(r.hinweis);
     else {
       console.log(`Protokolle auf dem Laufwerk: ${r.gesamtOps} Op(s) zu diesem Azubi, davon ${r.unbekanntGesamt} auf diesem Rechner NICHT angewendet`);
+      if (r.zwangOps) console.log(`Ausgeschriebener Stand („für alle übernehmen“): ${r.zwangOps} Op(s), zuletzt ${new Date(r.zwangLetzte).toLocaleString('de-DE')}, davon ${r.zwangUnbekannt} hier noch nicht gelesen${r.zwangUnbekannt ? ' → bhk.vollabgleich() oder bhk.jetzt()' : ' – alle angewendet; zeigt die Oberfläche trotzdem Altes, Ansicht neu laden (F5)'}`);
+      else console.log('Kein ausgeschriebener Stand in den Protokollen dieses Ordners. Wurde „für alle übernehmen“ auf dem anderen Rechner ausgeführt, arbeitet er auf einem ANDEREN Ordner/einer anderen Datenbank (dort bhk.pruefen(id) vergleichen: Datenbank und Ordner) oder sein Speicherstatus zeigt noch „wartend“/„hängt“.');
       this._tabelle(r.protokolle.filter(p => p.ops || p.fehler).map(p => ({ Protokoll: p.protokoll, Ops: p.ops, NichtAngewendet: p.unbekannt, Lesestand: p.lesestand, Größe: p.groesse, Fehler: p.fehler || '' })));
       if (r.unbekannt.length) { console.log('%cNicht angewendete Ops (Auszug)', 'font-weight:bold'); this._tabelle(r.unbekannt); }
       if (r.verworfenGesamt) {

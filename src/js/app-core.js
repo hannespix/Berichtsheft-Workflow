@@ -4954,7 +4954,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -4977,14 +4977,19 @@ const App = {
           const opSid = op.sid != null ? op.sid : this._azubiAusOp(op.sql, op.params);
           if (opSid !== sid) return;
           eintrag.ops++; out.gesamtOps++;
-          const kurz = () => ({ protokoll: name, zeit: op.ts ? new Date(op.ts).toLocaleString('de-DE') : '', rechner: op.c || '', sql: String(op.sql).slice(0, 70) });
+          const kurz = () => ({ protokoll: name, zeit: op.ts ? new Date(op.ts).toLocaleString('de-DE') : '', rechner: op.c || '', sql: String(op.sql).slice(0, 70), zwang: op.zwang ? 'ja' : '' });
+          // Ausgeschriebener Stand (standAusschreiben): zählen und die jüngste Zeit merken
+          if (op.zwang) { out.zwangOps++; if (op.ts > (out.zwangLetzte || 0)) out.zwangLetzte = op.ts; if (op.uid && !bekannt(op.uid)) out.zwangUnbekannt++; }
           if (op.uid && !bekannt(op.uid)) { eintrag.unbekannt++; if (out.unbekannt.length < 40) out.unbekannt.push(kurz()); }
           // „Bekannt“ heißt nur: gelesen. Eine Op, die beim Lesen älter war als
           // der lokale Stempel derselben Spalten, wurde VERWORFEN (Last-Write-
           // Wins) – der Rechner zeigt dann seinen eigenen Wert, obwohl er die
           // Op kennt. Das ist der häufigste Grund für „bei mir steht etwas
           // anderes“, und bhk.pruefen sagte bisher „alles angewendet“.
-          else if (op.uid && op.c !== this._getClientId() && this._lwwSkip(op)) { eintrag.verworfen = (eintrag.verworfen || 0) + 1; if (out.verworfen.length < 40) out.verworfen.push(kurz()); }
+          // Nur zählen, wenn der lokale Stempel von einem ANDEREN Rechner als
+          // dem Absender stammt – eine vom Absender selbst später ersetzte Op
+          // (z.B. nach „für alle übernehmen“) ist überholt, nicht verworfen.
+          else if (op.uid && op.c !== this._getClientId() && this._lwwSkip(op) && this._lwwGewinner(op) !== op.c) { eintrag.verworfen = (eintrag.verworfen || 0) + 1; if (out.verworfen.length < 40) out.verworfen.push({ ...kurz(), lokalVon: this._lwwGewinner(op) }); }
         });
       } catch(e) { eintrag.fehler = e && e.message || String(e); }
       out.protokolle.push(eintrag);
@@ -5355,6 +5360,19 @@ const App = {
   // stammt. Ohne Stempel (frisch nach Reload) greift für kontrollergebnisse
   // der Zeilen-Zeitstempel geaendert_am mit 5 s Toleranz; alle anderen
   // Tabellen werden dann angewendet.
+  // Welcher Rechner hat den lokalen Stempel gesetzt, der diese Op schlägt?
+  // (für die Diagnose: '' = keiner / Op wäre nicht verworfen)
+  _lwwGewinner(op) {
+    try {
+      const sig = this._opSignatur(op.sql, op.params);
+      const eintrag = sig && this._rowStamps && this._rowStamps.get(sig.table + '|' + sig.key);
+      if (!eintrag) return '';
+      const st = { ts: op.ts || 0, c: op.c || '', seq: op.seq || 0 };
+      const sieger = sig.cols.map(c => eintrag[c]).filter(s => s && this._stampNeuer(s, st));
+      if (sieger.length !== sig.cols.length) return '';
+      return sieger.reduce((a, b) => this._stampNeuer(b, a) ? b : a).c || '';
+    } catch(e) { return ''; }
+  },
   _lwwSkip(op) {
     try {
       if (op.zwang) return false; // ausgeschriebener Stand gilt immer
