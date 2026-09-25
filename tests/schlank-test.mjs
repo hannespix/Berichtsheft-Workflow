@@ -119,7 +119,7 @@ console.log('══ Kompakte Sync-Stempel ══');
   for (let i = 0; i < App.STAMPS_MAX + 500; i++) App._rowStamps.set('t|id:' + i, { x: { ts: 1000 + i, c: 'a', seq: i } });
   App._stampsSpeichern();
   check(cnt('SELECT COUNT(*) FROM bhk_stamps') === App.STAMPS_MAX && cnt("SELECT COUNT(*) FROM bhk_stamps WHERE k='t|id:0'") === 0 && cnt("SELECT COUNT(*) FROM bhk_stamps WHERE k='t|id:" + (App.STAMPS_MAX + 499) + "'") === 1, `Höchstens ${App.STAMPS_MAX} Stempel im Snapshot, die ältesten fallen weg`);
-  check(App.STAMPS_MAX === 20000 && /this\.STAMPS_MAX \* 2\) this\._rowStamps\.clear\(\)/.test(APP_SRC), 'Speicher-Obergrenze folgt STAMPS_MAX');
+  check(App.STAMPS_MAX === 20000 && /this\.STAMPS_MAX \* 2\) this\._stampsEindampfen\(\)/.test(APP_SRC) && !/this\._rowStamps\.clear\(\)/.test(APP_SRC), 'Speicher-Obergrenze folgt STAMPS_MAX (verdrängen, nie alles verwerfen)');
 }
 
 console.log('══ Änderungslog ohne Import-Flut ══');
