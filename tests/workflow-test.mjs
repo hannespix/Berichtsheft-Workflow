@@ -463,6 +463,7 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(/_logoDataUrl\(\) \{/.test(P) && /COL_GELB/.test(P) && /BaWue|Baden-Württemberg|topbar-logo/.test(P) && /doc\.addImage\(logo\.data/.test(P), 'Kopf mit Landeslogo und gelbem Akzent (Landes-CI)');
   check(/lx \+= 3 \+ doc\.getTextWidth\(`=\$\{label\}`\) \+ 4/.test(P) && /Math\.max\(lx \+ 4, LM \+ 118\)/.test(P), 'Legende: Codes nach Textbreite gesetzt, Farbfelder erst dahinter (keine Überlappung)');
   check(/const fzGesamt = ke\?\.fehltage_gesamt \|\| 0/.test(P) && /fz\.arbeitstageBisher/.test(P), 'Fehltage gesamt aus dem Kontrollergebnis mit Anteil an der bisherigen Ausbildungszeit');
+  check(/FEHLTAGE_HINWEIS: 'Weichen die angegebenen Fehltage von den Fehltagen in Ihrer betrieblichen Dokumentation ab, wenden Sie sich bitte an die Ausbildungsberatung\.'/.test(P) && /splitTextToSize\(PDFExport\.FEHLTAGE_HINWEIS, halfW\)/.test(P) && /fzHinweis\.forEach\(z => \{ curY \+= 2\.6; doc\.text\(z, LM \+ 3, curY\); \}\)/.test(P) && /leftH \+= fzHinweis\.length \* 2\.6 \+ 1\.5/.test(P), 'Hinweis unter den Fehltagen (Abweichung zur betrieblichen Dokumentation → Ausbildungsberatung), Kastenhöhe rechnet ihn mit');
 }
 
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
