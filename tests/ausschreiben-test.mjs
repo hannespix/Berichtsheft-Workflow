@@ -154,6 +154,36 @@ console.log('\n══ Dialog und Konsolenbefehl laufen wirklich durch (kein Abst
   check(pr.zwangOps > 0 && typeof pr.ordner === 'string', 'bhk.pruefen sieht die Zwang-Ops');
 }
 
+console.log('\n══ Andere Datenbank im selben Ordner (Feldfall: 8 vs. 16 Protokolle) ══');
+{
+  // Ein Kollege arbeitet im selben Ordner auf einer anderen Datenbankdatei
+  const kollege = await makeClient(SQL, store, 'Kollege', new Uint8Array(seedBytes), { quiet: true, clientId: 'kollege', skipBootstrap: true });
+  kollege.autoLoadedDbName = 'berichtsheft (1).sqlite';
+  kollege._appliedForeignUids = new Set(); kollege._ownLogUids = new Set(); kollege._logOffsets = {}; kollege._myLogSize = 0; kollege._v3Ready = true;
+  keInsert(kollege, 1); tick(); await kollege.mergeAndSave(true);
+  check([...store.files.keys()].some(n => n.startsWith('oplog_berichtsheft__1__')), 'Kollege schreibt Protokolle mit anderem Datenbank-Kürzel');
+  // Frischer Start bei Pix (Bootstrap sieht die fremden Protokolle)
+  const meldungen = [];
+  const neu = await makeClient(SQL, store, 'Pix2', new Uint8Array(seedBytes), { quiet: true, clientId: 'pix2', skipBootstrap: true });
+  neu.toast = (m, t, d) => meldungen.push({ m, t, d });
+  tick(); await neu._bootstrapV3();
+  check(neu._fremdeDatenbanken.length === 1 && neu._fremdeDatenbanken[0].slug === 'berichtsheft__1_' && neu._fremdeDatenbanken[0].dateien === 1, `Bootstrap erkennt die andere Datenbank (${JSON.stringify(neu._fremdeDatenbanken.map(e => e.slug))})`);
+  check(meldungen.length === 1 && meldungen[0].t === 'warning' && /andere Datenbank/.test(meldungen[0].m) && /berichtsheft__1_/.test(meldungen[0].m) && /test\.sqlite/.test(meldungen[0].m) && meldungen[0].d >= 10000, 'Deutliche, lange Warnung mit beiden Namen');
+  const pr = await neu.azubiPruefen(1);
+  check(pr.andereDatenbanken.length === 1 && pr.andereDatenbanken[0].datenbank === 'berichtsheft__1_' && pr.datenbank === 'test.sqlite', 'bhk.pruefen nennt die andere Datenbank');
+  const d = neu.diagnose();
+  check(d.programm.datenbank === 'test.sqlite' && d.programm.andereDatenbankenImOrdner.length === 1, 'Zustandsbild nennt Datenbank und andere Datenbanken im Ordner');
+  // Alte Protokolle (älter als 7 Tage) lösen keine Warnung aus
+  for (const [n, f] of store.files) if (n.startsWith('oplog_berichtsheft__1__')) f.mtime = T - 10 * 86400000;
+  const alt = await makeClient(SQL, store, 'Pix3', new Uint8Array(seedBytes), { quiet: true, clientId: 'pix3', skipBootstrap: true });
+  const m2 = []; alt.toast = (m) => m2.push(m);
+  tick(); await alt._bootstrapV3();
+  check(alt._fremdeDatenbanken.length === 0 && m2.length === 0, 'Alte fremde Protokolle (> 7 Tage) lösen keine Warnung aus');
+  // Toast-Dauer: Standard 4 s, wählbar
+  const V = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/toast\(msg, type = 'info', dauerMs = 4000\)/.test(fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8')) && /Andere Datenbank im selben Ordner/.test(V) && /App\._fremdeDatenbanken/.test(V), 'Toast mit Dauer; Wartung → Verbindung zeigt den Hinweis');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const K = fs.readFileSync(path.join(ROOT, 'src/js/modules/konsole.js'), 'utf8');

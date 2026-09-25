@@ -2517,7 +2517,7 @@ const App = {
   diagnose() {
     const z = (sql) => { try { return this.scalar(sql) || 0; } catch(e) { return 0; } };
     const d = {
-      programm: { version: this.VERSION, build: this.BUILD, zeitpunkt: new Date().toISOString(), uhrVersatzS: Math.round((this._uhrVersatzMs || 0) / 1000) },
+      programm: { version: this.VERSION, build: this.BUILD, zeitpunkt: new Date().toISOString(), uhrVersatzS: Math.round((this._uhrVersatzMs || 0) / 1000), datenbank: this.autoLoadedDbName || '', andereDatenbankenImOrdner: (this._fremdeDatenbanken || []).map(e => `${e.slug} (${e.dateien} Protokolle, zuletzt ${new Date(e.juengste).toISOString()})`) },
       browser: { kennung: (typeof navigator !== 'undefined' && navigator.userAgent) || '', sprache: (typeof navigator !== 'undefined' && navigator.language) || '' },
       sitzung: {
         ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
@@ -4954,7 +4954,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -5433,9 +5433,26 @@ const App = {
     const prefix = this._oplogPrefix();
     const mine = this._myOplogName();
     const batch = [];
+    const fremde = new Map(); // Protokolle ANDERER Datenbanken im selben Ordner
     try {
       for await (const entry of dir.entries()) {
         const name = entry[0], h = entry[1];
+        if (name.startsWith('oplog_') && name.endsWith('.jsonl') && !name.startsWith(prefix)) {
+          // Feldfall: zwei Kollegen im selben Ordner, aber auf verschiedenen
+          // Datenbankdateien (jeder Browser merkt sich seine letzte) – keiner
+          // sieht die Änderungen des anderen, und beide melden „keine
+          // Änderungen“. Jüngste Änderungszeit je fremder Datenbank merken.
+          const m = name.match(/^oplog_(.+)_([a-z0-9]+)_g\d+\.jsonl$/);
+          if (m) {
+            try {
+              const f = await h.getFile();
+              const e = fremde.get(m[1]) || { slug: m[1], dateien: 0, juengste: 0 };
+              e.dateien++; if (f.lastModified > e.juengste) e.juengste = f.lastModified;
+              fremde.set(m[1], e);
+            } catch(e) {}
+          }
+          continue;
+        }
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
         const off = baseOffsets[name] || 0;
         // Offset = KONSUMIERTE Bytes, nicht Dateigröße: Endet die Datei mitten
@@ -5497,6 +5514,7 @@ const App = {
       this._snapGen = (meta && meta.gen) || 0;
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
+      this._fremdeDatenbankenPruefen([...fremde.values()]);
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts).
       // Zufällig 20–80 s verzögert: Starten zwei Kollegen morgens zur selben
       // Minute, kompaktierten sonst beide gleichzeitig um das Lock.
@@ -5507,6 +5525,26 @@ const App = {
       console.warn('[SyncV3] Bootstrap-Fehler:', e.message);
       this._v3Ready = true; // Polling darf trotzdem starten
     }
+  },
+
+  // ── Andere Datenbanken im selben Ordner ──
+  // Liegen im Ordner Protokolle einer ANDEREN Datenbankdatei, die in den
+  // letzten Tagen beschrieben wurden, arbeitet dort sehr wahrscheinlich ein
+  // Kollege – und keiner sieht die Änderungen des anderen. Einmal je Sitzung
+  // deutlich sagen; Liste bleibt für Wartung, Zustandsbild und bhk.pruefen.
+  FREMDE_DB_TAGE: 7,
+  _fremdeDatenbanken: [],
+  _fremdeDatenbankenPruefen(liste) {
+    try {
+      const grenze = Date.now() - this.FREMDE_DB_TAGE * 86400000;
+      this._fremdeDatenbanken = (liste || []).filter(e => e.juengste >= grenze).sort((a, b) => b.juengste - a.juengste);
+      if (!this._fremdeDatenbanken.length) return;
+      const namen = this._fremdeDatenbanken.map(e => `„${e.slug}“ (zuletzt ${new Date(e.juengste).toLocaleString('de-DE')})`).join(', ');
+      const text = `Achtung: Im selben Ordner werden gerade auch Protokolle für eine andere Datenbank geschrieben: ${namen}. Diese Datenbank hier heißt „${this.autoLoadedDbName || '?'}“. Alle Kollegen müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile), sonst sieht keiner die Änderungen des anderen.`;
+      console.warn('[SyncV3] ' + text);
+      try { BhkSpur.notiere('netz', 'Andere Datenbank im Ordner', { ok: false, fehler: 'andere Datenbank', info: namen }); } catch(e) {}
+      if (!this._fremdeDbGewarnt) { this._fremdeDbGewarnt = true; this.toast(text, 'warning', 15000); }
+    } catch(e) {}
   },
 
   // ── Kompaktierung: Snapshot (DB-Datei) aktualisieren, mit Lock ──
@@ -10331,7 +10369,7 @@ Mit freundlichen Grüßen
     if (banner) banner.remove();
   },
 
-  toast(msg, type = 'info') {
+  toast(msg, type = 'info', dauerMs = 4000) {
     const c = document.getElementById('toastContainer');
     if (c && !c.getAttribute('aria-live')) { c.setAttribute('aria-live', 'polite'); c.setAttribute('role', 'status'); }
     const t = document.createElement('div');
@@ -10339,7 +10377,7 @@ Mit freundlichen Grüßen
     if (type === 'error') t.setAttribute('role', 'alert');
     t.textContent = msg;
     c.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, Math.max(1000, Number(dauerMs) || 4000));
   },
 
   // ── Modal ──
