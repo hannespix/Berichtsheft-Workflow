@@ -2647,6 +2647,13 @@ const Views = {
             <p>• <strong>Statusverlauf:</strong> Offen → Überfällig (nach Ablauf der Frist) → Erledigt</p>
             <p>• <strong>Bearbeitungsnotizen</strong> können je Wiedervorlage hinterlegt werden (z.B. Rückmeldungen des Betriebs)</p>
             <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
+            <div class="help-abschnitt">
+              <h4 class="help-untertitel">E-Mails an die Betriebe nach der Kontrolle</h4>
+              <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
+              <p>• <strong>✉︎ Nächste öffnen</strong> arbeitet die Liste von oben ab: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text.</p>
+              <p>• <strong>Text zu lang:</strong> Ein E-Mail-Link fasst nur etwa 2000 Zeichen. Passt der Text nicht, sagt es die Zeile schon vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
+              <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail geöffnet, gilt der Termin als nachbereitet.</p>
+            </div>
           </div>
 
           <div id="help_7" class="card" style="margin-bottom:12px">

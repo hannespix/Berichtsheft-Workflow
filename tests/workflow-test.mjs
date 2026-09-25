@@ -287,5 +287,79 @@ console.log('\n══ Stufe 3 (2): Ampeln, Sammel-Erinnerung, Hersendung, Kontex
   check(/Anschreiben: \$\{w\.mahnstufe \|\| 1\}×/.test(read('src/js/modules/schueler-akte.js')), 'Aktenvermerk zeigt die Versandhistorie der Wiedervorlagen');
 }
 
+console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block, Versandnachweis ══');
+{
+  const W_SRC = read('src/js/modules/workflows.js');
+  // Kompakter Block: je Code eine Zeile mit Wochen (Wortlaut der automatischen Bemerkung), Pflichtteile, keine Fehltage-Zeile
+  const a = { nachname: 'Kopp', vorname: 'Lukas', ke: { id: 1, ergebnis: 'berichte_bis_termin_email', anwesend: 1, p_1_1_ausbildungsplan: 'nein', f_1_2_vertragliche_regelungen: '' },
+    maengel: [{ ausbildungsjahr: 2, kalenderwoche: 40, maengel_codes: 'F' }, { ausbildungsjahr: 2, kalenderwoche: 41, maengel_codes: 'B,F,H' }, { ausbildungsjahr: 2, kalenderwoche: 44, maengel_codes: 'D' }, { ausbildungsjahr: 1, kalenderwoche: 50, maengel_codes: 'I' }] };
+  const block = Workflows._azubiBlock([a], true);
+  check(/^  - Kopp, Lukas: Berichte per E-Mail nachreichen/.test(block), 'Azubi-Zeile mit Ergebnis');
+  check(/→ Fehlende Tagesberichte nachholen \(2 Wochen: AJ 2: KW 40, 41\)/.test(block) && /→ Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: AJ 2: KW 41\)/.test(block), 'Je Code eine Zeile mit den Wochen statt je Woche eine Zeile');
+  check(block.indexOf('Ausbilders') < block.indexOf('Fehlende Tagesberichte'), 'Reihenfolge wie in der Bemerkung (B vor F)');
+  check(/→ Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\) – Hinweis, ohne Zusatzvereinbarung nicht verbindlich/.test(block), 'Wetter ohne Zusatzvereinbarung als Hinweis gekennzeichnet');
+  check(/→ Sonstige Beanstandungen, siehe Bemerkung \(1 Woche: AJ 1: KW 50\)/.test(block) && !/Fehltage/.test(block), 'Sonstiges mit Wochen, Fehltage ohne Zeile');
+  check(/→ Individueller Ausbildungsplan \(1\.1\) fehlt\./.test(block), 'Fehlender Pflichtteil steht im Block');
+  check(!/AJ 2, KW 40:/.test(block), 'Alte Wochen-Zeilen sind weg');
+  check(/mit Zusatzvereinbarung/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true)) === false && /Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\)\n/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true) + '\n'), 'Mit Zusatzvereinbarung ist Wetter ein Mangel ohne Hinweis-Zusatz');
+  // mailto-Grenze
+  check(Workflows.mailtoPasst('a@b.de', 'Test', 'kurz') === true && Workflows.mailtoPasst('a@b.de', 'Test', 'ä'.repeat(400)) === false, 'mailtoPasst: kurz ja, 400 Umlaute (kodiert 2400 Zeichen) nein');
+  sandbox.location = { href: '' };
+  const clip = []; sandbox.navigator.clipboard = { writeText: async (t) => { clip.push(t); } };
+  const toasts = []; App.toast = (m, t) => toasts.push(m);
+  let r = Workflows.openMailto('a@b.de', 'Betreff', 'kurz');
+  check(r.geoeffnet === true && r.zwischenablage === false && /^mailto:a@b\.de\?subject=Betreff&body=kurz$/.test(sandbox.location.href), 'Kurzer Text: kompletter Link');
+  r = Workflows.openMailto('a@b.de', 'Betreff', 'ä'.repeat(400), '', '', { still: true });
+  check(r.geoeffnet === true && r.zwischenablage === true && sandbox.location.href === 'mailto:a@b.de?subject=Betreff' && clip[clip.length - 1] === 'ä'.repeat(400) && toasts.length === 0, 'Langer Text: Link nur mit Betreff, Text in der Zwischenablage, mit still kein Toast');
+  Workflows.openMailto('a@b.de', 'Betreff', 'ä'.repeat(400));
+  check(toasts.some(m => /Strg\+V/.test(m)), 'Ohne still: der bekannte Hinweis als Toast');
+  // Arbeitsliste an einem durchgeführten Termin: zwei Betriebe, einer ohne E-Mail
+  sandbox.addDaysStr = (n) => { const d = new Date('2026-09-15T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  db.run(`INSERT INTO betriebe (id,name,betriebsnummer,email,ansprechpartner) VALUES (21,'Gärtnerei Mail','B-21','mail@example.org','Frau Grün'),(22,'Gärtnerei Brief','B-22','','')`);
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,klasse_id,jahrgang_id,betrieb_id,ausbildungsbeginn,ausbildungsende,zustaendiges_amt,ibykus_id) VALUES
+    (901,'Eins','Erik',1,1,1,21,'2024-09-01','2027-08-31','93','IB-901'),(902,'Zwei','Zoe',1,1,1,21,'2024-09-01','2027-08-31','93','IB-902'),(903,'Drei','Dora',1,1,1,22,'2024-09-01','2027-08-31','93','IB-903')`);
+  db.run(`INSERT INTO kontrolltermine (id,berufsschule_id,geplant_datum,pruefer,status,typ) VALUES (900,1,'2026-09-16','Muster, Max','durchgefuehrt','schulkontrolle')`);
+  db.run(`INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (900,901),(900,902),(900,903)`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend) VALUES (9001,900,901,'post_an_rp',1),(9002,900,902,'in_ordnung',1),(9003,900,903,'',0)`);
+  db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (901,2,40,'A,F',0,1)`);
+  db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (950,9001,901,'post_an_rp','2026-09-26','offen')`);
+  App.invalidateTerminCache();
+  let modal = null; App.openModal = (t, b, f) => { modal = { t, b, f }; }; App.closeModal = () => {};
+  Workflows.emailBetriebIndividuell(900);
+  check(modal && /E-Mails an 2 Betriebe/.test(modal.t) && /id="betriebMailListe"/.test(modal.b) && /id="betriebMailFuss"/.test(modal.f), 'Ein Dialog mit Liste und Fußzeile');
+  check(/✉︎ Nächste öffnen \(1 von 1\)/.test(modal.f), 'Fußzeile: „Nächste öffnen (1 von 1)“ – der Betrieb ohne E-Mail zählt nicht');
+  check(/Gärtnerei Mail/.test(modal.b) && /Mängelmitteilung/.test(modal.b) && /→ Unterschriften des\/der Auszubildenden nachholen \(1 Woche: AJ 2: KW 40\)/.test(modal.b) && /Keine E-Mail hinterlegt/.test(modal.b) && /▤ Brief/.test(modal.b), 'Zeilen: Vorlage, Nachzuholendes je Azubi, Brief-Knopf ohne E-Mail');
+  check(!/E-Mail \$\{i\} von \$\{mit\.length\}/.test(W_SRC) && !/btnNaechsteMail/.test(W_SRC) && /_naechsteBetriebMail\(\) \{/.test(W_SRC), 'Keine Kette von Zwischendialogen mehr');
+  const d = Workflows._individualData;
+  check(Workflows._betriebMailOffen().length === 1 && Workflows._betriebMailOffen()[0].g.name === 'Gärtnerei Mail', 'Offen ist genau der Betrieb mit E-Mail');
+  toasts.length = 0;
+  Workflows._naechsteBetriebMail();
+  check(d.status[0] && /^\d{2}:\d{2}$/.test(d.status[0].zeit) && /^mailto:mail@example\.org\?subject=/.test(sandbox.location.href), 'Nächste öffnen: Outlook-Link gestartet, Zeile als geöffnet gemerkt');
+  const w950 = App.query('SELECT * FROM wiedervorlagen WHERE id=950')[0];
+  check(w950.versand_datum === '2026-09-15' && w950.versand_art === 'email' && w950.mahnstufe === 1, `Versandnachweis an der Wiedervorlage des Azubis (${w950.versand_datum}, Stufe ${w950.mahnstufe})`);
+  const notizen = () => App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=950');
+  check(notizen() === 1 && /Mängelmitteilung per E-Mail versendet/.test(App.scalar('SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=950')), 'Notiz „Mängelmitteilung per E-Mail versendet“');
+  check(App.scalar('SELECT nachbereitet_am FROM kontrolltermine WHERE id=900') === App._heuteIso(), 'Alle Betriebe mit E-Mail geöffnet → Termin nachbereitet');
+  check(Workflows._betriebMailOffen().length === 0 && /Alle 1 E-Mails geöffnet/.test(Workflows._betriebMailFussHtml()), 'Fußzeile: alle geöffnet');
+  check(/✓ geöffnet/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)) && /Erneut öffnen/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile zeigt „geöffnet“ und „Erneut öffnen“');
+  Workflows._openIndividualEmail(900, 0);
+  check(notizen() === 1 && App.scalar('SELECT mahnstufe FROM wiedervorlagen WHERE id=950') === 1, 'Erneutes Öffnen ist kein zweites Anschreiben (keine zweite Notiz, Mahnstufe bleibt)');
+  check(!toasts.some(m => /geöffnet$/.test(m)), 'Kein „E-Mail an … geöffnet“-Toast mehr – der Stand steht in der Zeile');
+  // Zu langer Text: Zeile kündigt es an, Öffnen legt den Text in die Zwischenablage
+  d.betriebe[0].azubis[0].maengel = Array.from({ length: 20 }, (_, i) => ({ ausbildungsjahr: 1 + (i % 3), kalenderwoche: 36 + i, maengel_codes: 'A,B,C,E,F,G' }));
+  check(Workflows._betriebMailPasst(0) === false && /Text zu lang für den Link/.test(Workflows._betriebMailZeile(d.betriebe[0], 0).replace(/✓ geöffnet[^<]*/, '')) === false, 'Geöffnete Zeile zeigt den Vorab-Hinweis nicht mehr (Status hat Vorrang)');
+  delete d.status[0];
+  check(/Text zu lang für den Link → wird beim Öffnen kopiert/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Nicht geöffnete Zeile kündigt „Text zu lang“ vorab an');
+  clip.length = 0;
+  Workflows._openIndividualEmail(900, 0);
+  check(d.status[0].zwischenablage === true && clip.length === 1 && /Fehlende Tagesberichte nachholen/.test(clip[0]) && sandbox.location.href === 'mailto:mail@example.org?subject=' + encodeURIComponent('Berichtsheftkontrolle – Ergebnis für Eins, Erik / Zwei, Zoe'), 'Zu lang: Link nur mit Betreff, Text in der Zwischenablage, Zeile merkt es');
+  check(/Text liegt in der Zwischenablage – in Outlook mit Strg\+V einfügen/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile sagt nach dem Öffnen: Strg+V in Outlook');
+  Workflows._betriebMailKopieren(0);
+  await new Promise(r => setTimeout(r, 0));
+  check(/^An: mail@example\.org\nBetreff: /.test(clip[clip.length - 1]), '„▤ Text“ kopiert Empfänger, Betreff und Text');
+  check(/E-Mails an die Betriebe nach der Kontrolle/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Arbeitsliste');
+  App.toast = () => {};
+}
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);
