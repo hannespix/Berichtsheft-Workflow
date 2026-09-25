@@ -152,6 +152,22 @@ console.log('\n══ Dialog und Konsolenbefehl laufen wirklich durch (kein Abst
   check(K.ausschreiben() === null, 'bhk.ausschreiben() ohne Kennung erklärt den Aufruf');
   const pr = await pix.azubiPruefen(3);
   check(pr.zwangOps > 0 && typeof pr.ordner === 'string', 'bhk.pruefen sieht die Zwang-Ops');
+  // Protokolle im Ordner: je Rechner Person, Größe, Alter, hier ungelesen
+  await sync(zilz, pix);
+  const p = await K.protokolle();
+  const meins = p.zeilen.filter(z => z.eigenes), pixLog = p.zeilen.filter(z => z.rechner === 'pix');
+  check(p.datenbank === 'test.sqlite' && p.rechner === 'zilz' && meins.length >= 1 && pixLog.length >= 1, `bhk.protokolle: eigene (${meins.length}) und fremde (${pixLog.length}) Protokolle`);
+  check(pixLog.every(z => z.groesse > 0 && z.geaendert > 0 && z.neu === 0) && pixLog.some(z => z.person === 'Pix'), 'Fremdes Protokoll: Größe, Zeit, zuletzt schreibende Person, hier vollständig gelesen');
+  check(meins.some(z => z.person === 'Zilz'), 'Eigenes Protokoll nennt die eigene Person');
+  let modal = ''; zilz.openModal = (t, b) => { modal = b; };
+  await K.protokolleDialog();
+  check(/Protokolle in/.test(modal) && /Pix/.test(modal) && /\(ich\)/.test(modal) && /Jüngstes fremdes Protokoll/.test(modal) && /vollständig gelesen/.test(modal), 'Fenster „Protokolle im Ordner“ mit Befund und Tabelle');
+  // Ungelesener Rest wird ausgewiesen
+  tick(60000); kwUpsert(pix, 2, 1, 11, 'A'); tick(); await pix.mergeAndSave(true);
+  const p2 = await K.protokolle();
+  check(p2.zeilen.filter(z => z.rechner === 'pix').some(z => z.neu > 0), 'Neu geschriebene fremde Bytes zählen als „hier ungelesen“');
+  const V = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
+  check(/Konsole\.protokolleDialog\(\)/.test(V), 'Wartung → Verbindung: Knopf „Protokolle im Ordner“');
 }
 
 console.log('\n══ Andere Datenbank im selben Ordner (Feldfall: 8 vs. 16 Protokolle) ══');
