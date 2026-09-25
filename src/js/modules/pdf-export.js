@@ -1,4 +1,7 @@
 const PDFExport = {
+  // Hinweis unter den Fehltagen im Ergebnisblock (für den Betrieb, der den Bogen erhält)
+  FEHLTAGE_HINWEIS: 'Weichen die angegebenen Fehltage von den Fehltagen in Ihrer betrieblichen Dokumentation ab, wenden Sie sich bitte an die Ausbildungsberatung.',
+
   generateBatch(transform, termin, terminId, schuelerList, opts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
@@ -338,8 +341,11 @@ const PDFExport = {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
       const ergebnisSplit = doc.splitTextToSize(ergebnisText, halfW);
       let leftH = 6 + (ergebnisSplit.length * 3.8) + 2; // header gap + text + gap
-      // Fehltage line
+      // Fehltage line + Hinweis (zwei Zeilen, 6 pt)
       leftH += 5;
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(6);
+      const fzHinweis = doc.splitTextToSize(PDFExport.FEHLTAGE_HINWEIS, halfW);
+      leftH += fzHinweis.length * 2.6 + 1.5;
       // WV section
       const wv = ke ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [ke.id]) : [];
       const wvArt = wv.length ? wv[0].art : '';
@@ -405,6 +411,12 @@ const PDFExport = {
         fzText += ` (${pct.toFixed(1).replace('.', ',')} % der bisherigen Ausbildungszeit${pct >= fz.schwelle ? ' – über ' + fz.schwelle + ' %' : ''})`;
       } catch(e) {}
       doc.text(fzText, LM + 3, curY);
+      // Hinweis für den Betrieb: Abweichungen zur eigenen Dokumentation melden
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(6);
+      doc.setTextColor(...COL_GRAY);
+      fzHinweis.forEach(z => { curY += 2.6; doc.text(z, LM + 3, curY); });
+      curY += 1.5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
       // Zulassung trotz Abweichung / Prüfungsausschuss
       if (ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1)) {
         curY += 4;
