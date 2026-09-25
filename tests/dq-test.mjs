@@ -41,6 +41,7 @@ const sandbox = {
     STATUS_LABELS: { aktiv: 1, ap_zugelassen: 1, verlaengert: 1, ap_bestanden: 1, abgebrochen: 1 },
     // Lehrjahr-Berechnung wie in app-core (vereinfacht: Monate seit Beginn)
     getCurrentAJ(beginn) { if (!beginn) return null; const d = new Date(beginn), n = new Date('2026-07-30'); const m = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth()); return Math.min(4, Math.max(1, Math.floor(m / 12) + 1)); },
+    getLehrjahr(id) { const s = sandbox.App.query('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [id])[0]; return s ? sandbox.App.getCurrentAJ(s.ausbildungsbeginn) : null; },
   },
   ImportHandler: { editSchueler() {} }, StammdatenTab: { editBetrieb() {}, editKlasse() {}, editSchule() {} },
   esc: (s) => String(s ?? ''), todayStr: () => '2026-07-30', formatDate: (d) => String(d || ''), setTimeout: (f) => f(),

@@ -8250,7 +8250,8 @@ const App = {
       if (s.fachrichtung_id && frCache[s.fachrichtung_id] === undefined) frCache[s.fachrichtung_id] = this.query('SELECT bezeichnung FROM fachrichtungen WHERE id=?', [s.fachrichtung_id])[0]?.bezeichnung || '';
       const fr = (s.fachrichtung_id && frCache[s.fachrichtung_id]) || 'Gartenbau';
       let aj = null;
-      try { aj = s.ausbildungsbeginn ? this.getAJAtDate(s.ausbildungsbeginn, datum, s.id) : null; } catch(e) {}
+      // Lehrjahr (Klassenstufe), nicht Raster-Nummer – für März-Beginner verschieden
+      try { aj = s.ausbildungsbeginn ? this.getLehrjahr(s.id, datum) : null; } catch(e) {}
       if (aj == null) aj = this.getAJFromJahrgang(s.jahrgang_id, datum);
       if (s.jahrgang_id && jgCache[s.jahrgang_id] === undefined) jgCache[s.jahrgang_id] = this.query('SELECT bezeichnung FROM abschlussjahrgaenge WHERE id=?', [s.jahrgang_id])[0]?.bezeichnung || '';
       const key = `${fr}|${aj}`;
@@ -8355,6 +8356,70 @@ const App = {
     const idx = this._schuljahrAm(ref) - this._schuljahrBeginn(d);
     return Math.min(Math.max(ajs[0], ajs[0] + idx), Math.max(...ajs));
   },
+  // ── Lehrjahr (Klassenstufe der Berufsschule) ≠ Raster-Nummer ──
+  // Ein Raster ist ein Schuljahr. Wer nicht im August/September beginnt,
+  // hat ein angebrochenes Schuljahr mehr als Lehrjahre: Ein Vertrag ab 1.3.2025
+  // (bis 29.2.2028) überspannt 2024/25, 25/26, 26/27, 27/28 – vier Raster,
+  // aber drei Lehrjahre. Das Lehrjahr hängt an der Abschlussprüfung: Das
+  // Schuljahr, in dem der Vertrag endet (Winterprüfung im Nov–Feb, Sommer-
+  // prüfung im Jun–Jul; Ende Sep/Okt = Restzeit nach der Sommerprüfung,
+  // deshalb Anker = Vertragsende − 2 Monate), ist das letzte Lehrjahr, davor
+  // wird zurückgezählt. Ein angebrochenes Schuljahr VOR dem ersten Lehrjahr
+  // heißt „Vorlauf“ (0), eines NACH dem letzten „Restzeit“. Vorher hieß das
+  // erste Raster immer „1. Lehrjahr“ – ein März-Beginner stand so im zweiten
+  // Schuljahr auf „3. Lehrjahr“ und bekam ein „4. Lehrjahr“.
+  _lehrjahrInfo(schuelerId) {
+    const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende, regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
+    const erstesAJ = ajs[0];
+    const info = { ajs, erstesAJ, letztesLJ: Math.max(3, ajs[ajs.length - 1]), rasterAnker: ajs[ajs.length - 1] };
+    if (!s || !s.ausbildungsbeginn) return info;
+    const d1 = this._parseDate(s.ausbildungsbeginn);
+    let d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
+    if (typeof Phasen !== 'undefined') {
+      try {
+        const phasen = Phasen.getPhasen(schuelerId);
+        if (phasen.length) {
+          const ende = Phasen.vertragsendeAusPhasen(Phasen.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0));
+          if (ende) { d2 = new Date(ende); d2.setDate(d2.getDate() - 1); }
+        }
+      } catch(e) {}
+    }
+    if (!d1 || !d2) return info;
+    const endeExkl = new Date(d2); endeExkl.setDate(endeExkl.getDate() + 1);
+    let monate = (endeExkl.getFullYear() - d1.getFullYear()) * 12 + (endeExkl.getMonth() - d1.getMonth());
+    if (endeExkl.getDate() < d1.getDate()) monate -= 1;
+    const jahreVertrag = Math.max(1, Math.ceil(monate / 12));
+    info.letztesLJ = Math.max(3, jahreVertrag);           // Verlängerer: 4
+    const anker = new Date(d2); anker.setMonth(anker.getMonth() - 2);
+    info.rasterAnker = erstesAJ + (this._schuljahrAm(anker) - this._schuljahrBeginn(d1));
+    return info;
+  },
+  // Lehrjahr eines Rasters: 0 = Vorlauf, > letztesLJ = Restzeit
+  lehrjahrVonRaster(schuelerId, aj, info) {
+    const i = info || this._lehrjahrInfo(schuelerId);
+    const lj = i.letztesLJ - (i.rasterAnker - aj);
+    return lj < i.erstesAJ ? 0 : lj;
+  },
+  lehrjahrLabel(schuelerId, aj, info) {
+    const i = info || this._lehrjahrInfo(schuelerId);
+    const lj = this.lehrjahrVonRaster(schuelerId, aj, i);
+    if (lj === 0) return `Vorlauf (vor dem ${i.erstesAJ}. Lehrjahr)`;
+    if (lj > i.letztesLJ) return `Restzeit nach dem ${i.letztesLJ}. Lehrjahr`;
+    return `${lj}. Lehrjahr`;
+  },
+  // Lehrjahr zu einem Datum (Listen, Filter, Planung): Vorlauf zählt zum ersten,
+  // Restzeit zum letzten Lehrjahr
+  getLehrjahr(schuelerId, datum) {
+    const s = this.query('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s || !s.ausbildungsbeginn) return null;
+    const i = this._lehrjahrInfo(schuelerId);
+    const ref = datum ? (datum instanceof Date ? datum : this._parseDate(datum)) : new Date();
+    const aj = this._ajZumDatum(s.ausbildungsbeginn, ref, i.ajs);
+    if (aj == null) return null;
+    const lj = this.lehrjahrVonRaster(schuelerId, aj, i);
+    return Math.min(i.letztesLJ, Math.max(i.erstesAJ, lj));
+  },
 
   // ── Status-Modell für Azubis (Audit 7 Paket B) ──
   // EINE Funktion für Dialog, Sammelaktion, Jahrgang abschließen und Import.
@@ -8411,8 +8476,8 @@ const App = {
       const map = {};
       try {
         this.query('SELECT id, ausbildungsbeginn FROM schueler WHERE aktiv=1').forEach(s => {
-          const aj = this.getCurrentAJ(s.ausbildungsbeginn, s.id);
-          if (aj) (map[aj] = map[aj] || []).push(s.id);
+          const lj = this.getLehrjahr(s.id);
+          if (lj) (map[lj] = map[lj] || []).push(s.id);
         });
       } catch(e) {}
       this._ljCache = { t: now, map };
@@ -8793,7 +8858,7 @@ const App = {
     if (ljs.length) {
       schuelerList = schuelerList.filter(s => {
         let aj = null;
-        try { aj = opts.refDate ? this.getAJAtDate(s.ausbildungsbeginn, opts.refDate, s.id) : this.getCurrentAJ(s.ausbildungsbeginn, s.id); } catch(e) {}
+        try { aj = s.ausbildungsbeginn ? this.getLehrjahr(s.id, opts.refDate || null) : null; } catch(e) {}
         if (aj == null && s.lehrjahr) aj = s.lehrjahr;
         return aj == null ? true : ljs.includes(aj);
       });

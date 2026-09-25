@@ -1067,7 +1067,7 @@ const BerichteHandler = {
       // Lehrjahr wird überall berechnet – ein gepflegter Klassenwert ist nur
       // dann ein Problem, wenn er dem Ausbildungsstand der Mitglieder widerspricht
       if (k.cnt > 0 && k.lehrjahr) {
-        const ajs = App.query('SELECT id, ausbildungsbeginn FROM schueler WHERE klasse_id=? AND aktiv=1', [k.id]).map(m => App.getCurrentAJ(m.ausbildungsbeginn, m.id)).filter(Boolean);
+        const ajs = App.query('SELECT id, ausbildungsbeginn FROM schueler WHERE klasse_id=? AND aktiv=1', [k.id]).map(m => App.getLehrjahr(m.id)).filter(Boolean);
         if (ajs.length) {
           const haeufig = {}; ajs.forEach(a => { haeufig[a] = (haeufig[a] || 0) + 1; });
           const top = parseInt(Object.entries(haeufig).sort((a, b) => b[1] - a[1])[0][0]);

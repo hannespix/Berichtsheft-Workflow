@@ -131,6 +131,48 @@ console.log('\n══ Verkürzer und Nicht-September-Beginner: Raster, Schuljahr
   check(JSON.stringify(App.getSchuelerAJs(ID)) === '[2,3,4]', 'Verkürzer ab 1.3.: Raster [2,3,4]');
 }
 
+console.log('\n══ Lehrjahr ≠ Raster-Nummer (an der Abschlussprüfung verankert) ══');
+{
+  const labels = () => { const i = App._lehrjahrInfo(ID); return i.ajs.map(aj => App.lehrjahrLabel(ID, aj, i)).join(' | '); };
+  // Regelvertrag ab 1.9.: Raster 1–3 = Lehrjahr 1–3
+  setAV('2024-09-01', '2027-08-31');
+  check(labels() === '1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr', `Regel ab 1.9.2024: ${labels()}`);
+  check(App.getLehrjahr(ID, '2026-09-25') === 3 && App.getLehrjahr(ID, '2025-03-01') === 1, 'Regel: Sep 2026 → 3. Lehrjahr, März 2025 → 1. Lehrjahr');
+  // Verkürzer 24 Monate ab 1.9.: Raster [2,3] = Lehrjahr 2 und 3 (nicht 1 und 2)
+  setAV('2025-09-01', '2027-08-31', { verkuerzung: 12 });
+  check(labels() === '2. Lehrjahr | 3. Lehrjahr', `Verkürzer 24 Mon. ab 1.9.2025: ${labels()}`);
+  check(App.getLehrjahr(ID, '2026-09-25') === 3 && App.getLehrjahr(ID, '2025-11-01') === 2, 'Verkürzer: Sep 2026 → 3. Lehrjahr, Nov 2025 → 2. Lehrjahr');
+  // Verkürzer 30 Monate ab 1.9. (Winterprüfung): drei Lehrjahre, das letzte endet im Februar
+  setAV('2025-09-01', '2028-02-29', { verkuerzung: 6 });
+  check(labels() === '1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr', `Verkürzer 30 Mon. ab 1.9.2025: ${labels()}`);
+  // März-Beginner, Regel: vier Raster, aber drei Lehrjahre – das erste Raster ist Vorlauf
+  setAV('2025-03-01', '2028-02-29');
+  check(labels() === 'Vorlauf (vor dem 1. Lehrjahr) | 1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr', `Regel ab 1.3.2025: ${labels()}`);
+  check(App.getLehrjahr(ID, '2026-09-25') === 2 && App.getLehrjahr(ID, '2025-05-01') === 1 && App.getLehrjahr(ID, '2027-12-01') === 3, 'März-Beginner: Sep 2026 → 2. Lehrjahr (nicht 3.), Mai 2025 → 1., Dez 2027 → 3.');
+  // März-Verkürzer 24 Monate: Raster [2,3,4] = Vorlauf, 2., 3. Lehrjahr
+  setAV('2026-03-01', '2028-02-29', { verkuerzung: 12 });
+  check(labels() === 'Vorlauf (vor dem 2. Lehrjahr) | 2. Lehrjahr | 3. Lehrjahr', `Verkürzer 24 Mon. ab 1.3.2026: ${labels()}`);
+  check(App.getLehrjahr(ID, '2026-09-25') === 2 && App.getLehrjahr(ID, '2026-04-01') === 2, 'März-Verkürzer: Sep 2026 → 2. Lehrjahr, Vorlauf zählt zum 2.');
+  // Oktober-Beginner: Vertragsende Ende September = Restzeit nach der Sommerprüfung
+  setAV('2024-10-01', '2027-09-30');
+  check(labels() === '1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr | Restzeit nach dem 3. Lehrjahr', `Regel ab 1.10.2024: ${labels()}`);
+  check(App.getLehrjahr(ID, '2027-09-15') === 3, 'Restzeit zählt zum 3. Lehrjahr');
+  // August-Beginner: Raster 1–3 = Lehrjahr 1–3
+  setAV('2025-08-01', '2028-07-31');
+  check(labels() === '1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr', `Regel ab 1.8.2025: ${labels()}`);
+  // Verlängerung auf 42 Monate: vier Lehrjahre
+  setAV('2023-09-01', '2027-02-28', { dauer: 42 });
+  check(labels() === '1. Lehrjahr | 2. Lehrjahr | 3. Lehrjahr | 4. Lehrjahr', `Verlängert 42 Mon. ab 1.9.2023: ${labels()}`);
+  check(App.getLehrjahr(ID, '2026-11-01') === 4, 'Verlängerer: Nov 2026 → 4. Lehrjahr');
+  // 12 Monate: nur das 3. Lehrjahr
+  setAV('2026-09-01', '2027-08-31', { verkuerzung: 24 });
+  check(labels() === '3. Lehrjahr' && App.getLehrjahr(ID, '2027-03-01') === 3, `12 Mon. ab 1.9.2026: ${labels()}`);
+  // Ohne Daten: kein Absturz, Regelannahme
+  db.run('DELETE FROM schueler WHERE id=?', [ID]);
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,ausbildungsbeginn,ausbildungsende) VALUES (?,?,?,1,'','')`, [ID, 'Ohne', 'Daten']);
+  check(App.getLehrjahr(ID) === null && App.lehrjahrLabel(ID, 2) === '2. Lehrjahr', 'Ohne Ausbildungsdaten: Lehrjahr null, Raster-Beschriftung wie Nummer');
+}
+
 console.log('\n══ Randfälle ══');
 setAV('2023-09-01', '');
 check(App.getSchuelerAJs(ID).length === 3, 'Ohne Ausbildungsende → 3 Raster (Regelannahme)');
