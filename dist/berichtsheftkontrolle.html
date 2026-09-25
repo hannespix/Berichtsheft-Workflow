@@ -7720,7 +7720,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 10:17 UTC',
+  BUILD: '2026-09-25 10:23 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -19885,6 +19885,7 @@ const Views = {
           <button class="btn btn-secondary" onclick="Konsole.testDialog()" title="Auflisten, Lesen, Schreibprobe, Uhrversatz und Lebenszeichen messen – mit Befunden in Klartext">⚙ Verbindungstest</button>
           <button class="btn btn-secondary" onclick="Konsole.kopieren()" title="Zustandsbild, Ereignisspur und Konsolenprotokoll in die Zwischenablage (Namen geschwärzt)">▤ Zustandsbild kopieren</button>
           <button class="btn btn-secondary" onclick="Konsole.vollabgleichDialog()" title="Alle Protokolle der Kollegen ab dem Snapshot-Stand neu einlesen – wenn ein Rechner Änderungen der anderen nicht zeigt. Neuere eigene Werte bleiben erhalten.">⟳ Vollabgleich</button>
+          <button class="btn btn-secondary" onclick="Konsole.protokolleDialog()" title="Welche Rechner schreiben Protokolle für diese Datenbank, wie groß und wie alt sind sie, was ist hier noch ungelesen – zum Vergleich mit dem anderen Rechner">▤ Protokolle im Ordner</button>
           <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
         </div>
         <div style="margin-top:8px;padding:8px 10px;border-left:4px solid ${App.istLeitDb() === false ? 'var(--clr-amber)' : 'var(--clr-green)'};background:${App.istLeitDb() === false ? 'var(--clr-amber-light, #fff7ed)' : 'var(--clr-green-light)'};font-size:13px;line-height:1.6">
@@ -36464,6 +36465,7 @@ const Konsole = {
     ['bhk.status()', 'Verbindung, Synchronisation, Präsenz und Zähler je Bereich'],
     ['bhk.spur(bereich, n)', 'Ereignisspur, letzte n Einträge (Standard 40); Bereich z.B. "anhaengen", "abgleich", "kompakt", "netz", "takt", "fenster"'],
     ['bhk.dateien()', 'Inhalt von _bhk/ mit Größe und Alter (liest das Netzlaufwerk)'],
+    ['bhk.protokolle()', 'Protokolle dieser Datenbank je Rechner: Person, Größe, Alter, hier ungelesen (auch als Fenster unter Wartung → Verbindung)'],
     ['bhk.test()', 'Verbindungstest: Auflisten, Lesen, Schreibprobe, Uhrversatz, Lebenszeichen'],
     ['bhk.jetzt()', 'Abgleich sofort ausführen'],
     ['bhk.pruefen(azubiId)', 'Prüfung je Azubi: lokale Wochen und Ergebnisse, Ops in allen Protokollen und welche dieser Rechner nie angewendet hat'],
@@ -36536,6 +36538,68 @@ const Konsole = {
     this._tabelle(zeilen);
     BhkSpur.notiere('probe', 'Ordner auflisten (bhk.dateien)', { ok: true, ms, info: `${zeilen.length} Einträge` });
     return zeilen;
+  },
+  // Protokolle der aktuellen Datenbank im Sync-Ordner: je Datei Rechner,
+  // zuletzt schreibende Person (aus der letzten Zeile), Größe, Alter und
+  // der eigene Lesestand. Zwei Rechner vergleichen damit per Screenshot, ob
+  // sie dieselben Dateien mit derselben Größe sehen – sehen sie das nicht,
+  // arbeiten sie in verschiedenen Ordnern oder ein Rechner schreibt in einen
+  // lokalen Zwischenspeicher (Windows-Offlinedateien), der den Server nie
+  // erreicht.
+  async protokolle() {
+    const dir = App._syncDirV3 ? App._syncDirV3() : null;
+    if (!dir) return { fehler: 'Kein Ordner verbunden', zeilen: [] };
+    const prefix = App._oplogPrefix();
+    const mein = App._getClientId();
+    const zeilen = [];
+    let anzahlAlle = 0;
+    for await (const [name, h] of dir.entries()) {
+      if (!name.endsWith('.jsonl') || !name.startsWith('oplog_')) continue;
+      anzahlAlle++;
+      if (!name.startsWith(prefix)) continue;
+      const m = name.match(/^oplog_(.+)_([a-z0-9]+)_g(\d+)\.jsonl$/);
+      const rechner = m ? m[2] : '?';
+      const z = { datei: name, rechner, eigenes: rechner === mein, generation: m ? Number(m[3]) : 0, person: '', groesse: 0, geaendert: 0, lesestand: 0, neu: 0, ops: null, fehler: '' };
+      try {
+        const f = await h.getFile();
+        z.groesse = f.size; z.geaendert = f.lastModified;
+        z.lesestand = z.eigenes && name === App._myOplogName() ? App._myLogSize : (App._logOffsets[name] || 0);
+        z.neu = Math.max(0, f.size - z.lesestand);
+        // Letzte Zeile: wer hat zuletzt geschrieben? (nur die letzten 4 KB lesen)
+        const schwanz = await f.slice(Math.max(0, f.size - 4096)).text();
+        const letzte = schwanz.split('\n').filter(l => l.trim()).pop();
+        if (letzte) { try { const op = JSON.parse(letzte); z.person = op.u || ''; z.letzteOp = op.ts || 0; } catch(e) {} }
+      } catch(e) { z.fehler = (BhkSpur.fehlerArt && BhkSpur.fehlerArt(e)) || e.name || String(e); }
+      zeilen.push(z);
+    }
+    zeilen.sort((a, b) => b.geaendert - a.geaendert);
+    return {
+      hauptordner: App.dirHandle ? (App.dirHandle.name || '') : '', ordner: dir.name || '', datenbank: App.autoLoadedDbName || '', rechner: mein,
+      bhkFehlt: App._bhkFehlt || '', andereDatenbanken: anzahlAlle - zeilen.length, zeilen,
+    };
+  },
+  async protokolleDialog() {
+    const r = await this.protokolle();
+    if (r.fehler) return App.toast(r.fehler, 'warning');
+    const esc2 = (s) => (typeof esc === 'function' ? esc(s) : String(s ?? ''));
+    const kb = (n) => (n / 1024).toFixed(1).replace('.', ',') + ' KB';
+    const fremde = r.zeilen.filter(z => !z.eigenes);
+    const juengsteFremde = fremde.length ? fremde[0] : null;
+    const befund = r.bhkFehlt ? `<div style="padding:8px 10px;border-left:4px solid var(--clr-red, #b00020);background:#fdecea;margin-bottom:10px"><strong>„_bhk“ nicht zugänglich</strong> (${esc2(r.bhkFehlt)}) – dieser Rechner schreibt in den Hauptordner, Kollegen lesen dort nicht.</div>`
+      : !fremde.length ? `<div style="padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);margin-bottom:10px"><strong>Kein Protokoll eines anderen Rechners für diese Datenbank.</strong> Entweder arbeitet noch niemand sonst hier, oder die Kollegen schreiben in einen anderen Ordner / eine andere Datei.</div>`
+      : `<div style="padding:8px 10px;border-left:4px solid var(--clr-green);background:var(--clr-green-light);margin-bottom:10px">Jüngstes fremdes Protokoll: <strong>${esc2(juengsteFremde.person || juengsteFremde.rechner)}</strong>, ${esc2(this._alter(juengsteFremde.geaendert))} alt, ${juengsteFremde.neu ? `<strong>${kb(juengsteFremde.neu)} hier noch nicht gelesen</strong> (→ Vollabgleich)` : 'vollständig gelesen'}.</div>`;
+    const body = `
+      <div style="font-size:13px;line-height:1.6;margin-bottom:8px">
+        Hauptordner <strong>${esc2(r.hauptordner || '?')}</strong> · Protokolle in <strong>${esc2(r.ordner || '?')}</strong> · Datenbank <strong>${esc2(r.datenbank)}</strong> · dieser Rechner <code>${esc2(r.rechner)}</code>${r.andereDatenbanken ? ` · <span style="color:var(--clr-amber)">${r.andereDatenbanken} Protokoll(e) anderer Datenbanken</span>` : ''}
+      </div>
+      ${befund}
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:6px">Zum Vergleich auf dem anderen Rechner dasselbe Fenster öffnen: <strong>gleiche Dateien, gleiche Größen?</strong> Zeigt ein Rechner sein eigenes Protokoll größer als der andere es sieht, kommen seine Schreibvorgänge nicht auf dem Server an (Windows-Offlinedateien / Zwischenspeicher).</div>
+      <table class="data-table" style="font-size:12px"><thead><tr><th>Person</th><th>Rechner</th><th>Datei</th><th style="text-align:right">Größe</th><th>Geändert</th><th style="text-align:right">Hier ungelesen</th></tr></thead><tbody>
+      ${r.zeilen.map(z => `<tr${z.eigenes ? ' style="font-weight:600"' : ''}><td>${esc2(z.person || '–')}${z.eigenes ? ' (ich)' : ''}</td><td><code>${esc2(z.rechner)}</code></td><td style="word-break:break-all">${esc2(z.datei)}${z.fehler ? ` <span style="color:var(--clr-red)">${esc2(z.fehler)}</span>` : ''}</td><td style="text-align:right">${kb(z.groesse)}</td><td>${z.geaendert ? esc2(new Date(z.geaendert).toLocaleString('de-DE')) + ' <span style="color:var(--clr-text-light)">(' + esc2(this._alter(z.geaendert)) + ')</span>' : '–'}</td><td style="text-align:right">${z.eigenes ? '–' : (z.neu ? `<strong>${kb(z.neu)}</strong>` : '0')}</td></tr>`).join('') || '<tr><td colspan="6">Keine Protokolle</td></tr>'}
+      </tbody></table>`;
+    App.openModal('Protokolle im Ordner', body, `<button class="btn btn-secondary" onclick="Konsole.protokolleDialog()">↻ Aktualisieren</button><button class="btn btn-secondary" onclick="App.closeModal();Konsole.vollabgleichDialog()">⟳ Vollabgleich</button><button class="btn btn-primary" onclick="App.closeModal()">Schließen</button>`);
+    try { App._makeModalWide && App._makeModalWide(); } catch(e) {}
+    return r;
   },
   _dateiArt(name) {
     if (name.endsWith('.crswap')) return 'Tauschdatei (Browser)';
