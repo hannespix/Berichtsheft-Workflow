@@ -347,10 +347,11 @@ const Workflows = {
     const isDone = t.termin.status === 'durchgefuehrt';
     App.closeModal();
     const alt = this._individualData && this._individualData.terminId === terminId ? this._individualData.status : null;
-    this._individualData = { terminId, betriebe, t, isDone, status: alt || {} };
+    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, opts: this._betriebMailOptsLaden() };
     const withEmail = betriebe.filter(g => g.email).length;
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
+      ${this._betriebMailOptionenHtml()}
       <div id="betriebMailListe" style="max-height:420px;overflow-y:auto">${this._betriebMailListeHtml()}</div>
       <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
@@ -359,6 +360,62 @@ const Workflows = {
   _betriebMailOffen() {
     const d = this._individualData; if (!d) return [];
     return d.betriebe.map((g, idx) => ({ g, idx })).filter(x => x.g.email && !d.status[x.idx]);
+  },
+  // ── Optionen vor dem Erzeugen (je Person gemerkt): Ansprechpartner
+  //    namentlich ansprechen (Standard aus – „Damen und Herren“ reicht),
+  //    Signatur (Standard: die angemeldete Person; jeder andere Prüfer; der
+  //    Prüfer des Termins; keine – dann fügt Outlook die eigene an), Bögen
+  //    als Anhang ──
+  MAIL_SIGNATUR_STANDARD: 'ich',
+  _betriebMailOptsLaden() {
+    return {
+      anrede: App.uGet('mail_anrede', '0') === '1',
+      signatur: App.uGet('mail_signatur', '') || this.MAIL_SIGNATUR_STANDARD,
+      boegen: App.uGet('mail_boegen', '1') !== '0',
+    };
+  },
+  betriebMailOption(key, wert) {
+    const d = this._individualData; if (!d) return;
+    if (key === 'anrede') { d.opts.anrede = !!wert; App.uSet('mail_anrede', wert ? '1' : '0'); }
+    else if (key === 'signatur') { d.opts.signatur = String(wert || this.MAIL_SIGNATUR_STANDARD); App.uSet('mail_signatur', d.opts.signatur); }
+    else if (key === 'boegen') { d.opts.boegen = !!wert; App.uSet('mail_boegen', wert ? '1' : '0'); }
+    // Vorschau, Längen-Hinweis und Fußzeile folgen den Optionen
+    const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
+    const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
+  },
+  // Auswahl für die Signatur: ich · andere aktive Prüfer · Prüfer des Termins · keine
+  _signaturWahl() {
+    const d = this._individualData; if (!d) return [];
+    const ich = App.currentUser || '';
+    const wahl = [];
+    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)` });
+    App.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name').map(r => r.name).filter(n => n && n !== ich)
+      .forEach(n => wahl.push({ wert: 'p:' + n, label: n }));
+    if (d.t.ctx.pruefer && d.t.ctx.pruefer !== ich && !wahl.some(w => w.wert === 'p:' + d.t.ctx.pruefer)) wahl.push({ wert: 'termin', label: `Prüfer des Termins (${d.t.ctx.pruefer})` });
+    wahl.push({ wert: 'keine', label: 'Keine Signatur – eigene in Outlook anfügen' });
+    return wahl;
+  },
+  // Name hinter der gewählten Signatur ('' = keine)
+  _signaturName(opts) {
+    const d = this._individualData; if (!d) return '';
+    const s = opts.signatur || this.MAIL_SIGNATUR_STANDARD;
+    if (s === 'keine') return '';
+    if (s === 'termin') return d.t.ctx.pruefer || '';
+    if (s.startsWith('p:')) return s.slice(2);
+    return App.currentUser || d.t.ctx.pruefer || '';
+  },
+  _betriebMailOptionenHtml() {
+    const d = this._individualData; if (!d) return '';
+    const o = d.opts;
+    const wahl = this._signaturWahl();
+    const aktuell = wahl.some(w => w.wert === o.signatur) ? o.signatur : (wahl[0] ? wahl[0].wert : 'keine');
+    return `<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:8px 10px;margin-bottom:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Aus: „Sehr geehrte Damen und Herren“. An: zusätzlich „sehr geehrte/r ‹Ansprechpartner›,“ wenn ein Ansprechpartner hinterlegt ist"><input type="checkbox" ${o.anrede ? 'checked' : ''} onchange="Workflows.betriebMailOption('anrede', this.checked)"> Ansprechpartner namentlich ansprechen</label>
+      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand – dann hängt Outlook beim Senden die eigene Signatur an">Signatur
+        <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
+      </label>
+      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
+    </div>`;
   },
   _betriebMailFussHtml() {
     const d = this._individualData; if (!d) return '';
@@ -389,7 +446,7 @@ const Workflows = {
     mit.forEach(({ g, idx }, i) => {
       const m = this._betriebMailInhalt(idx); if (!m) return;
       const anhaenge = [];
-      if (d.isDone && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
+      if (d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
         g.azubis.forEach(a => {
           if (!a.ke || !a.ke.ergebnis) return;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
           try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
@@ -483,11 +540,17 @@ const Workflows = {
     // oder Bestätigung ohne Beanstandung – früher bekam ein Betrieb ohne
     // Beanstandung eine Terminankündigung im Futur für einen vergangenen Termin.
     const typ = this._betriebVorlageTyp(g, d.isDone);
-    const ctx = { ...d.t.ctx, anrede: this._anrede(g.ap),
+    const o = d.opts || this._betriebMailOptsLaden();
+    const name = this._signaturName(o);
+    const ctx = { ...d.t.ctx,
+      ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
+      anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) };
-    const { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = App.renderVorlage(typ, ctx);
+    // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
+    if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
     return { g, typ, betreff, body };
   },
   _betriebMailPasst(idx) {

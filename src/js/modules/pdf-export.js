@@ -9,18 +9,26 @@ const PDFExport = {
     const RM = 200; // right margin (210 - 10)
     const PW = RM - LM; // page width usable = 190
     const CW = PW / 13; // cell width = ~14.6mm
-    const CH = 10; // cell height – taller for multiple codes
+    // Zellhöhe: bei vier oder mehr Rastern (März-Beginner, Verlängerer) flacher,
+    // damit Raster, Pflichtteile und Ergebnis möglichst auf eine Seite passen
+    const CH_STD = 10;
 
-    // Colors
-    const COL_GREEN = [45, 80, 22];
-    const COL_GREEN_LIGHT = [232, 240, 226];
+    // Farben nach Landes-CI (wie die Oberfläche): Warm-Schwarz als Primär-
+    // farbe, BaWü-Gelb als Akzent, warme Grautöne für Flächen und Linien.
+    // Grün, Rot und Orange bleiben reine Statusfarben.
+    const COL_INK = [42, 38, 35];         // --clr-forest (BaWü Warm-Schwarz)
+    const COL_GELB = [255, 252, 0];       // --clr-gelb
+    const COL_GREEN = [63, 107, 10];      // --clr-green (Status OK)
+    const COL_GREEN_LIGHT = [239, 245, 228];
     const COL_RED = [192, 57, 43];
     const COL_RED_LIGHT = [253, 240, 239];
-    const COL_AMBER = [212, 132, 10];
+    const COL_AMBER = [169, 78, 0];       // --clr-amber (Hinweis / Fehltage)
     const COL_AMBER_LIGHT = [255, 245, 230];
-    const COL_GRAY = [108, 108, 108];
-    const COL_BORDER = [200, 200, 200];
-    const COL_WARM = [245, 240, 232];
+    const COL_GRAY = [108, 101, 96];      // --clr-sage
+    const COL_BORDER = [228, 225, 222];   // --clr-sand
+    const COL_WARM = [242, 240, 239];     // --clr-warm
+    const COL_INACTIVE = [235, 233, 231];
+    const logo = this._logoDataUrl();
 
     // Schule/Klasse JE AZUBI (tatsächlicher Standort inkl. Landesfachklasse) –
     // nicht pauschal die Termin-Schule: der Bogen eines LFK-Gasts oder
@@ -50,16 +58,21 @@ const PDFExport = {
       let y = 10;
 
       // ══════════════════════════════════════
-      // 1) HEADER BAR (green)
+      // 1) KOPF im Landes-CI: Logo links, Titel und Datum, Gelb-Akzent
       // ══════════════════════════════════════
-      doc.setFillColor(...COL_GREEN);
-      doc.rect(LM, y, PW, 10, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-      doc.text('Berichtsheftdurchsicht', LM + 4, y + 7);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(`${formatDate(termin.geplant_datum)}`, RM - 4, y + 7, { align: 'right' });
-      y += 12;
+      let logoH = 0;
+      if (logo) {
+        try { doc.addImage(logo.data, 'PNG', LM, y, 36, 36 / logo.ratio); logoH = 36 / logo.ratio; } catch(e) { logoH = 0; }
+      }
+      doc.setTextColor(...COL_INK);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text('Berichtsheftdurchsicht', RM, y + 6, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...COL_GRAY);
+      doc.text(`Kontrolle am ${formatDate(termin.geplant_datum)}`, RM, y + 11, { align: 'right' });
+      y += Math.max(logoH, 12) + 3;
+      doc.setFillColor(...COL_GELB);
+      doc.rect(LM, y, PW, 1.6, 'F');
+      y += 4;
 
       // ══════════════════════════════════════
       // 2) INFO GRID (2 rows, structured)
@@ -77,7 +90,7 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setTextColor(...COL_GRAY);
       doc.text('NAME', LM + 3, y + 3);
       doc.text('SCHULE / KLASSE', LM + PW * 0.55 + 3, y + 3);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...COL_INK);
       doc.text(`${s.nachname}, ${s.vorname}`, LM + 3, y + 7);
       doc.setFontSize(8);
       const si = schuelerInfo[s.id] || { schule: termin.schule || '', klasse: termin.klassenbezeichnung || '', lfk: false };
@@ -86,7 +99,7 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
       doc.text('AUSBILDUNGSSTÄTTE', LM + 3, y + 11);
       doc.text('PRÜFER', LM + PW * 0.55 + 3, y + 11);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...COL_INK);
       const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
       const betriebName = betrieb ? ((betrieb.zusatzbezeichnung ? betrieb.zusatzbezeichnung + ' ' : '') + betrieb.name + (betrieb.ort ? ', ' + betrieb.ort : '')) : (s.ausbildungsstaette || '');
       doc.text(betriebName.substring(0, 60), LM + 3, y + 15);
@@ -94,16 +107,23 @@ const PDFExport = {
       y += 19;
 
       // ══════════════════════════════════════
-      // 3) KW GRIDS – Ausbildungsjahre (dynamisch: Verkürzer/Verlängerer)
+      // 3) KW-RASTER je Ausbildungsjahr – nur der AKTUELLE Stand jeder Woche
+      //    (behobene Codes erscheinen nicht mehr: eine Zelle zeigte sonst
+      //    „H1“ und „(H)“ übereinander), inaktive Wochen grau, viele Codes
+      //    kompakt, Kopf mit Schuljahr und Lehrjahr
       // ══════════════════════════════════════
       const schuelerAJs = App.getSchuelerAJs(s.id);
+      const CH = schuelerAJs.length >= 4 ? 8.5 : CH_STD;
+      let bounds = {}, ljInfo = null;
+      try { bounds = App.getAJKWBounds(s.id) || {}; } catch(e) {}
+      try { ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : null; } catch(e) {}
       for (const aj of schuelerAJs) {
         // Page break if not enough room for AJ header + 4 KW rows (~50mm)
         if (y > 240) {
           doc.addPage();
           y = 10;
           // Mini header on continuation page
-          doc.setFillColor(...COL_GREEN);
+          doc.setFillColor(...COL_INK);
           doc.rect(LM, y, PW, 6, 'F');
           doc.setTextColor(255,255,255);
           doc.setFont('helvetica','bold'); doc.setFontSize(8);
@@ -111,81 +131,67 @@ const PDFExport = {
           y += 8;
         }
         const fehlSum = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=?', [s.id, aj]) || 0;
+        const b = bounds[aj] || {};
+        const inaktiv = new Set(b.inactiveKWs || []);
+        let ljLabel = '';
+        try { if (ljInfo && App.lehrjahrLabel) ljLabel = App.lehrjahrLabel(s.id, aj, ljInfo); } catch(e) {}
 
-        // AJ Header bar
-        doc.setFillColor(...COL_GREEN);
-        doc.rect(LM, y, PW, 5, 'F');
-        doc.setTextColor(255, 255, 255);
+        // Rasterkopf: warme Fläche mit gelbem Marker, wie die Jahresköpfe am Bildschirm
+        doc.setFillColor(...COL_WARM);
+        doc.rect(LM, y, PW, 5.5, 'F');
+        doc.setFillColor(...COL_GELB);
+        doc.rect(LM, y, 2, 5.5, 'F');
+        doc.setTextColor(...COL_INK);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text(`Ausbildungsjahr ${aj}`, LM + 3, y + 3.5);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-        doc.text(`Fehltage: ${fehlSum}`, RM - 3, y + 3.5, { align: 'right' });
-        y += 6;
+        doc.text(`Ausbildungsjahr ${aj}`, LM + 4, y + 3.8);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
+        const kopfZusatz = [b.schoolYear ? `Schuljahr ${b.schoolYear}` : '', ljLabel].filter(Boolean).join(' · ');
+        if (kopfZusatz) doc.text(kopfZusatz, LM + 4 + doc.getTextWidth('Ausbildungsjahr 0 ') * 8 / 7 + 2, y + 3.8);
+        doc.text(`Fehltage: ${fehlSum}`, RM - 3, y + 3.8, { align: 'right' });
+        y += 6.5;
 
         // KW cells
         kwRows.forEach(row => {
           row.forEach((kw, ci) => {
             const x = LM + ci * CW;
             const d = kwData[`${aj}_${kw}`];
-            const hasCodes = d && d.codes;
-            const hasRealMaengel = hasCodes && d.codes.split(',').some(c => c.trim() && c.trim() !== 'H');
-            const hasBehoben = d && d.behoben && !hasRealMaengel;
+            const codes = (d && d.codes ? d.codes : '').split(',').map(c => c.trim()).filter(Boolean);
             const fehl = d?.fehltage || 0;
+            // Wochen außerhalb der Ausbildungszeit grau – außer sie tragen Einträge (Stand zeigen, nie verstecken)
+            const istInaktiv = inaktiv.has(kw) && !codes.length && !fehl;
+            const real = codes.filter(c => c !== 'H');       // Mängel/Hinweise außer Fehltage
+            const zulMangel = real.length && App.istZulassungsMangel(real.join(','), ke);
+            // Anzeige: Codes in Rasterreihenfolge, H mit Fehltagezahl, Fehltage ohne H als „H3“
+            let anzeige = codes.slice();
+            if (fehl > 0 && !anzeige.includes('H')) anzeige.push('H');
+            anzeige = anzeige.map(c => c === 'H' && fehl > 0 ? `H${fehl}` : c);
 
-            // Cell background
-            if (hasRealMaengel) {
-              doc.setFillColor(...COL_RED_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            } else if (hasBehoben) {
-              doc.setFillColor(...COL_AMBER_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            } else if (d?.geprueft || (d && !hasCodes && !hasBehoben)) {
-              doc.setFillColor(...COL_GREEN_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            }
-            // Cell border
+            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot · Hinweis (D/I) orange · geprüft grün
+            if (istInaktiv) { doc.setFillColor(...COL_INACTIVE); doc.rect(x, y, CW, CH, 'F'); }
+            else if (zulMangel) { doc.setFillColor(...COL_RED_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
+            else if (real.length) { doc.setFillColor(...COL_AMBER_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
+            else if (d && (d.geprueft || codes.length || fehl > 0)) { doc.setFillColor(...COL_GREEN_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
             doc.setDrawColor(...COL_BORDER);
             doc.rect(x, y, CW, CH);
 
-            // KW number (top-left)
+            // KW-Nummer oben links
             doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-            doc.setTextColor(hasRealMaengel ? COL_RED[0] : 100, hasRealMaengel ? COL_RED[1] : 100, hasRealMaengel ? COL_RED[2] : 100);
+            if (istInaktiv) doc.setTextColor(170, 166, 162);
+            else if (zulMangel) doc.setTextColor(...COL_RED);
+            else doc.setTextColor(100, 100, 100);
             doc.text(`${kw}`, x + 1.2, y + 3.5);
+            if (istInaktiv) return;
 
-            // Mängel codes (center of cell, larger for readability)
-            if (hasRealMaengel) {
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-              doc.setTextColor(...COL_RED);
-              // Merge H with Fehltage count: "A B H" + 3 Fehltage → "A B H3"
-              let displayCodes = d.codes;
-              if (fehl > 0 && displayCodes.includes('H')) {
-                displayCodes = displayCodes.replace(/\bH\b/, `H${fehl}`);
-              }
-              doc.text(displayCodes.replace(/,/g,' '), x + CW/2, y + 8, { align: 'center' });
-            } else if (hasCodes && d.codes.includes('H')) {
-              // Nur Fehltage (kein Mangel): wie am Bildschirm „H3" ausweisen –
-              // die Zelle blieb im PDF sonst leer, obwohl die AJ-Summe sie zählte
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-              doc.setTextColor(...COL_AMBER);
-              doc.text(fehl > 0 ? `H${fehl}` : 'H', x + CW/2, y + 8, { align: 'center' });
-            }
-
-            // Behoben codes (strikethrough-style)
-            if (hasBehoben) {
-              doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-              doc.setTextColor(...COL_AMBER);
-              doc.text(`(${d.behoben.replace(/,/g,' ')})`, x + CW/2, y + 7.5, { align: 'center' });
-            }
-
-            // Fehltage badge (top-right) – only when H is NOT already in codes
-            if (fehl > 0 && !(hasCodes && d.codes.includes('H'))) {
-              const bx = x + CW - 4.5;
-              const by = y + 0.5;
-              doc.setFillColor(...COL_AMBER);
-              doc.circle(bx + 1.5, by + 1.8, 2.2, 'F');
-              doc.setTextColor(255, 255, 255);
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
-              doc.text(`${fehl}`, bx + 1.5, by + 2.5, { align: 'center' });
+            // Codes mittig: bis drei mit Leerzeichen, mehr kompakt und kleiner,
+            // damit „ABCEFG“ in der Zelle bleibt statt in die Nachbarn zu laufen
+            if (anzeige.length) {
+              const n = anzeige.length;
+              const text = n <= 3 ? anzeige.join(' ') : anzeige.join('');
+              let fs = n <= 3 ? 8 : n <= 5 ? 7 : 6;
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(fs);
+              while (fs > 4.5 && doc.getTextWidth(text) > CW - 1.5) { fs -= 0.5; doc.setFontSize(fs); }
+              doc.setTextColor(...(zulMangel ? COL_RED : COL_AMBER));
+              doc.text(text, x + CW / 2, y + CH - 2, { align: 'center' });
             }
           });
           y += CH + 0.3;
@@ -200,7 +206,7 @@ const PDFExport = {
       doc.setDrawColor(...COL_BORDER);
       doc.rect(LM, y, PW, 10, 'FD');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('LEGENDE:', LM + 2, y + 4);
 
       doc.setTextColor(50, 50, 50);
@@ -212,23 +218,23 @@ const PDFExport = {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.text(`=${label}`, lx + 3, y + 4);
         lx += 34;
       });
-      // Row 2: F-I + color swatches
+      // Row 2: F-I (Abstand nach Textbreite) + Farblegende rechts daneben
       lx = LM + 20;
       legendItems.slice(5).forEach(([code, label]) => {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.text(code, lx, y + 8.5);
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.text(`=${label}`, lx + 3, y + 8.5);
-        lx += 34;
+        lx += 3 + doc.getTextWidth(`=${label}`) + 4;
       });
-      // Color legend on right side
-      lx = LM + 148;
-      doc.setFillColor(...COL_RED_LIGHT); doc.rect(lx, y+6.5, 5, 3, 'F');
-      doc.setDrawColor(...COL_BORDER); doc.rect(lx, y+6.5, 5, 3);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(50,50,50);
-      doc.text('Mangel', lx + 6.5, y + 8.5);
-      lx += 22;
-      doc.setFillColor(...COL_GREEN_LIGHT); doc.rect(lx, y+6.5, 5, 3, 'F');
-      doc.setDrawColor(...COL_BORDER); doc.rect(lx, y+6.5, 5, 3);
-      doc.text('OK', lx + 6.5, y + 8.5);
+      // Farblegende: Mangel · Hinweis · geprüft · außerhalb der Ausbildungszeit
+      lx = Math.max(lx + 4, LM + 118);
+      const swatch = (farbe, label, breite) => {
+        doc.setFillColor(...farbe); doc.rect(lx, y + 6.5, 4, 3, 'F');
+        doc.setDrawColor(...COL_BORDER); doc.rect(lx, y + 6.5, 4, 3);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(50, 50, 50);
+        doc.text(label, lx + 5, y + 8.5);
+        lx += breite;
+      };
+      swatch(COL_RED_LIGHT, 'Mangel', 16); swatch(COL_AMBER_LIGHT, 'Hinweis', 17); swatch(COL_GREEN_LIGHT, 'geprüft', 16); swatch(COL_INACTIVE, 'inaktiv', 0);
 
       y += 12;
 
@@ -237,13 +243,13 @@ const PDFExport = {
       // ══════════════════════════════════════
       if (y > 250) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
       }
       const valLabel = (v) => v === 'ja' ? 'Ja' : v === 'nein' ? 'Nein' : v === 'nicht_vorhanden' ? 'N. vorh.' : '–';
-      const valColor = (v) => v === 'ja' ? [39,174,96] : v === 'nein' ? [192,57,43] : v === 'nicht_vorhanden' ? [212,132,10] : [160,160,160];
+      const valColor = (v) => v === 'ja' ? COL_GREEN : v === 'nein' ? COL_RED : v === 'nicht_vorhanden' ? COL_AMBER : [160,160,160];
 
       // Box background
       doc.setFillColor(250, 250, 250);
@@ -252,7 +258,7 @@ const PDFExport = {
 
       // Pflicht header
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('PFLICHT:', LM + 2, y + 4);
 
       // Pflicht items (§ 43 Abs. 1 Nr. 2 BBiG): 1.1 Ausbildungsplan, 1.5 Bescheinigungen ÜA
@@ -320,7 +326,7 @@ const PDFExport = {
       // Page break if less than 50mm remaining
       if (y > 240) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
@@ -359,23 +365,24 @@ const PDFExport = {
       // Another page break if box won't fit
       if (y + boxH > 268) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
       }
 
       // Draw complete box (with bottom line!)
-      doc.setDrawColor(...COL_GREEN);
+      doc.setDrawColor(...COL_INK);
       doc.setLineWidth(0.5);
       doc.rect(LM, y, PW, boxH); // complete box
       doc.setLineWidth(0.2);
+      doc.setDrawColor(...COL_BORDER);
       // Center divider
       doc.line(LM + PW * 0.5, y, LM + PW * 0.5, y + boxH);
 
       // ── Left half: Ergebnis ──
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('ERGEBNIS', LM + 3, y + 4);
 
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
@@ -387,9 +394,16 @@ const PDFExport = {
       let curY = y + 9 + ergebnisSplit.length * 3.8 + 2;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.setTextColor(80, 80, 80);
-      // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule)
-      let fzText = `Fehltage gesamt: ${ke?.fehltage_gesamt || 0}`;
-      try { const fz = App.fehlzeitenStand(s); fzText += ` (${fz.prozentBisher.toFixed(1)} % der bisherigen Ausbildungszeit${fz.warn ? ' – über ' + fz.schwelle + ' %' : ''})`; } catch(e) {}
+      // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule) –
+      // Prozent aus der GEDRUCKTEN Zahl (Stand des Ergebnisses), nicht aus der
+      // heutigen Wochensumme: sonst stand „7 (0,0 %)“ nebeneinander
+      const fzGesamt = ke?.fehltage_gesamt || 0;
+      let fzText = `Fehltage gesamt: ${fzGesamt}`;
+      try {
+        const fz = App.fehlzeitenStand(s);
+        const pct = fz.arbeitstageBisher > 0 ? fzGesamt / fz.arbeitstageBisher * 100 : 0;
+        fzText += ` (${pct.toFixed(1).replace('.', ',')} % der bisherigen Ausbildungszeit${pct >= fz.schwelle ? ' – über ' + fz.schwelle + ' %' : ''})`;
+      } catch(e) {}
       doc.text(fzText, LM + 3, curY);
       // Zulassung trotz Abweichung / Prüfungsausschuss
       if (ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1)) {
@@ -439,7 +453,7 @@ const PDFExport = {
 
       // ── Right half: Bemerkung ──
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('BEMERKUNG', LM + PW * 0.5 + 3, y + 4);
       if (bemLines.length) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
@@ -464,29 +478,24 @@ const PDFExport = {
       y = Math.max(y, 270);
       // Prüfer des Ergebnisses, sonst Termin-Prüfer; der letzte Schreiber nur als Notnagel
       const prName = (ke?.pruefer || termin.pruefer || ke?.geaendert_von || 'Ausbildungsberater').trim();
-      // Left: Name + Referat
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-      doc.setTextColor(0);
-      doc.text(prName, LM, y);
+      // Namensvermerk einmal (rechts), keine Signatur im Rechtssinn (§ 126a BGB) –
+      // deshalb „gez.“; links das Amt
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Referat 31, RP Freiburg', LM, y + 4);
-      // Right: Gez.
+      doc.text('Regierungspräsidium Freiburg · Referat 31 · Ausbildungsberatung Gärtner', LM, y + 4);
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8);
-      doc.setTextColor(0);
-      doc.text(`Gez. ${prName}`, RM, y, { align: 'right' });
+      doc.setTextColor(...COL_INK);
+      doc.text(`gez. ${prName}`, RM, y, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      // Namensvermerk, keine Signatur im Rechtssinn (§ 126a BGB) – deshalb „gez.“
       doc.text('Ausbildungsberatung (Namensvermerk)', RM, y + 4, { align: 'right' });
 
-      // Footer line
-      doc.setDrawColor(...COL_GREEN);
-      doc.setLineWidth(0.8);
-      doc.line(LM, 290, RM, 290);
+      // Fußzeile mit Gelb-Akzent
+      doc.setFillColor(...COL_GELB);
+      doc.rect(LM, 289.2, PW, 1.2, 'F');
       doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Regierungspräsidium Freiburg · Abt. 3 · Berichtsheftkontrolle Gärtner', LM, 293);
+      doc.text('Regierungspräsidium Freiburg · Abteilung 3 · Berichtsheftkontrolle Gärtner', LM, 293);
       doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}`, RM, 293, { align: 'right' });
       doc.setLineWidth(0.2);
     });
@@ -527,11 +536,27 @@ const PDFExport = {
     return this.generateBatch(d=>d, termin, terminId, [s], { bytes: true });
   },
 
+  // RPF-Logo aus der Kopfzeile der Oberfläche (in der gebauten Datei ein
+  // data:-Bild); im Entwicklungsmodus über eine Zeichenfläche, ohne DOM null
+  _logoDataUrl() {
+    try {
+      if (this._logoCache !== undefined) return this._logoCache;
+      const img = typeof document !== 'undefined' && document.querySelector ? document.querySelector('img.topbar-logo--pos') : null;
+      if (!img || !img.src) { this._logoCache = null; return null; }
+      const ratio = (img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 663 / 160;
+      if (/^data:image\/png/i.test(img.src)) { this._logoCache = { data: img.src, ratio }; return this._logoCache; }
+      const c = document.createElement('canvas'); c.width = img.naturalWidth || 663; c.height = img.naturalHeight || 160;
+      c.getContext('2d').drawImage(img, 0, 0);
+      this._logoCache = { data: c.toDataURL('image/png'), ratio };
+      return this._logoCache;
+    } catch(e) { this._logoCache = null; return null; }
+  },
+
   // Einheitliche Fußzeile für alle erzeugten PDFs (Anschreiben, Listen)
   footer(doc, seite, gesamt) {
     try {
-      doc.setDrawColor(45, 80, 22); doc.setLineWidth(0.5); doc.line(25, 283, 185, 283);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(108, 108, 108);
+      doc.setFillColor(255, 252, 0); doc.rect(25, 282.5, 160, 1, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(108, 101, 96);
       doc.text('Regierungspräsidium Freiburg · Berichtsheftkontrolle Gärtner', 25, 287);
       doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}${gesamt ? ` · Seite ${seite} von ${gesamt}` : ''}`, 185, 287, { align: 'right' });
       doc.setTextColor(0); doc.setLineWidth(0.2);

@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 14:33 UTC',
+  BUILD: '2026-09-25 15:00 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -21598,6 +21598,7 @@ const Views = {
             <div class="help-abschnitt">
               <h4 class="help-untertitel">E-Mails an die Betriebe nach der Kontrolle</h4>
               <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
+              <p>• <strong>Optionen</strong> über der Liste, je Person gemerkt: <em>Ansprechpartner namentlich ansprechen</em> (Standard aus – „Sehr geehrte Damen und Herren“ reicht meist), <em>Signatur</em> (Standard: die angemeldete Person; jeder andere Prüfer wählbar; oder „keine“ – dann endet der Text vor der Grußformel und Outlook hängt beim Senden die eigene Signatur an) und <em>Durchsichtsbögen anhängen</em>. Die Vorschau in der Liste zeigt sofort den geänderten Text.</p>
               <p>• <strong>⬇ Alle als Outlook-Entwürfe (ZIP)</strong> ist der Hauptweg, ohne Längengrenze. Je Betrieb entsteht eine .eml-Datei mit Empfänger, Betreff, Text und – nach der Kontrolle – den Durchsichtsbögen der genannten Azubis als PDF-Anhang; alles zusammen in einer ZIP-Datei (mit LIESMICH). ZIP entpacken, .eml doppelklicken: das klassische Outlook öffnet sie als neuen Entwurf mit „Senden“ (das neue Outlook zeigt solche Dateien nur zum Lesen – dann den Weg „Nächste öffnen“ nutzen).</p>
               <p>• <strong>✉︎ Nächste öffnen</strong> ist der zweite Weg über den E-Mail-Link: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text. Ein E-Mail-Link fasst nur etwa 2000 Zeichen: passt der Text nicht, sagt es die Zeile vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
               <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung (oder das Erzeugen des Entwurfs) wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail erledigt, gilt der Termin als nachbereitet.</p>
@@ -27573,18 +27574,26 @@ const PDFExport = {
     const RM = 200; // right margin (210 - 10)
     const PW = RM - LM; // page width usable = 190
     const CW = PW / 13; // cell width = ~14.6mm
-    const CH = 10; // cell height – taller for multiple codes
+    // Zellhöhe: bei vier oder mehr Rastern (März-Beginner, Verlängerer) flacher,
+    // damit Raster, Pflichtteile und Ergebnis möglichst auf eine Seite passen
+    const CH_STD = 10;
 
-    // Colors
-    const COL_GREEN = [45, 80, 22];
-    const COL_GREEN_LIGHT = [232, 240, 226];
+    // Farben nach Landes-CI (wie die Oberfläche): Warm-Schwarz als Primär-
+    // farbe, BaWü-Gelb als Akzent, warme Grautöne für Flächen und Linien.
+    // Grün, Rot und Orange bleiben reine Statusfarben.
+    const COL_INK = [42, 38, 35];         // --clr-forest (BaWü Warm-Schwarz)
+    const COL_GELB = [255, 252, 0];       // --clr-gelb
+    const COL_GREEN = [63, 107, 10];      // --clr-green (Status OK)
+    const COL_GREEN_LIGHT = [239, 245, 228];
     const COL_RED = [192, 57, 43];
     const COL_RED_LIGHT = [253, 240, 239];
-    const COL_AMBER = [212, 132, 10];
+    const COL_AMBER = [169, 78, 0];       // --clr-amber (Hinweis / Fehltage)
     const COL_AMBER_LIGHT = [255, 245, 230];
-    const COL_GRAY = [108, 108, 108];
-    const COL_BORDER = [200, 200, 200];
-    const COL_WARM = [245, 240, 232];
+    const COL_GRAY = [108, 101, 96];      // --clr-sage
+    const COL_BORDER = [228, 225, 222];   // --clr-sand
+    const COL_WARM = [242, 240, 239];     // --clr-warm
+    const COL_INACTIVE = [235, 233, 231];
+    const logo = this._logoDataUrl();
 
     // Schule/Klasse JE AZUBI (tatsächlicher Standort inkl. Landesfachklasse) –
     // nicht pauschal die Termin-Schule: der Bogen eines LFK-Gasts oder
@@ -27614,16 +27623,21 @@ const PDFExport = {
       let y = 10;
 
       // ══════════════════════════════════════
-      // 1) HEADER BAR (green)
+      // 1) KOPF im Landes-CI: Logo links, Titel und Datum, Gelb-Akzent
       // ══════════════════════════════════════
-      doc.setFillColor(...COL_GREEN);
-      doc.rect(LM, y, PW, 10, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-      doc.text('Berichtsheftdurchsicht', LM + 4, y + 7);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(`${formatDate(termin.geplant_datum)}`, RM - 4, y + 7, { align: 'right' });
-      y += 12;
+      let logoH = 0;
+      if (logo) {
+        try { doc.addImage(logo.data, 'PNG', LM, y, 36, 36 / logo.ratio); logoH = 36 / logo.ratio; } catch(e) { logoH = 0; }
+      }
+      doc.setTextColor(...COL_INK);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text('Berichtsheftdurchsicht', RM, y + 6, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...COL_GRAY);
+      doc.text(`Kontrolle am ${formatDate(termin.geplant_datum)}`, RM, y + 11, { align: 'right' });
+      y += Math.max(logoH, 12) + 3;
+      doc.setFillColor(...COL_GELB);
+      doc.rect(LM, y, PW, 1.6, 'F');
+      y += 4;
 
       // ══════════════════════════════════════
       // 2) INFO GRID (2 rows, structured)
@@ -27641,7 +27655,7 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setTextColor(...COL_GRAY);
       doc.text('NAME', LM + 3, y + 3);
       doc.text('SCHULE / KLASSE', LM + PW * 0.55 + 3, y + 3);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...COL_INK);
       doc.text(`${s.nachname}, ${s.vorname}`, LM + 3, y + 7);
       doc.setFontSize(8);
       const si = schuelerInfo[s.id] || { schule: termin.schule || '', klasse: termin.klassenbezeichnung || '', lfk: false };
@@ -27650,7 +27664,7 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
       doc.text('AUSBILDUNGSSTÄTTE', LM + 3, y + 11);
       doc.text('PRÜFER', LM + PW * 0.55 + 3, y + 11);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...COL_INK);
       const betrieb = s.betrieb_id ? App.query('SELECT * FROM betriebe WHERE id=?', [s.betrieb_id])[0] : null;
       const betriebName = betrieb ? ((betrieb.zusatzbezeichnung ? betrieb.zusatzbezeichnung + ' ' : '') + betrieb.name + (betrieb.ort ? ', ' + betrieb.ort : '')) : (s.ausbildungsstaette || '');
       doc.text(betriebName.substring(0, 60), LM + 3, y + 15);
@@ -27658,16 +27672,23 @@ const PDFExport = {
       y += 19;
 
       // ══════════════════════════════════════
-      // 3) KW GRIDS – Ausbildungsjahre (dynamisch: Verkürzer/Verlängerer)
+      // 3) KW-RASTER je Ausbildungsjahr – nur der AKTUELLE Stand jeder Woche
+      //    (behobene Codes erscheinen nicht mehr: eine Zelle zeigte sonst
+      //    „H1“ und „(H)“ übereinander), inaktive Wochen grau, viele Codes
+      //    kompakt, Kopf mit Schuljahr und Lehrjahr
       // ══════════════════════════════════════
       const schuelerAJs = App.getSchuelerAJs(s.id);
+      const CH = schuelerAJs.length >= 4 ? 8.5 : CH_STD;
+      let bounds = {}, ljInfo = null;
+      try { bounds = App.getAJKWBounds(s.id) || {}; } catch(e) {}
+      try { ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : null; } catch(e) {}
       for (const aj of schuelerAJs) {
         // Page break if not enough room for AJ header + 4 KW rows (~50mm)
         if (y > 240) {
           doc.addPage();
           y = 10;
           // Mini header on continuation page
-          doc.setFillColor(...COL_GREEN);
+          doc.setFillColor(...COL_INK);
           doc.rect(LM, y, PW, 6, 'F');
           doc.setTextColor(255,255,255);
           doc.setFont('helvetica','bold'); doc.setFontSize(8);
@@ -27675,81 +27696,67 @@ const PDFExport = {
           y += 8;
         }
         const fehlSum = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=?', [s.id, aj]) || 0;
+        const b = bounds[aj] || {};
+        const inaktiv = new Set(b.inactiveKWs || []);
+        let ljLabel = '';
+        try { if (ljInfo && App.lehrjahrLabel) ljLabel = App.lehrjahrLabel(s.id, aj, ljInfo); } catch(e) {}
 
-        // AJ Header bar
-        doc.setFillColor(...COL_GREEN);
-        doc.rect(LM, y, PW, 5, 'F');
-        doc.setTextColor(255, 255, 255);
+        // Rasterkopf: warme Fläche mit gelbem Marker, wie die Jahresköpfe am Bildschirm
+        doc.setFillColor(...COL_WARM);
+        doc.rect(LM, y, PW, 5.5, 'F');
+        doc.setFillColor(...COL_GELB);
+        doc.rect(LM, y, 2, 5.5, 'F');
+        doc.setTextColor(...COL_INK);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text(`Ausbildungsjahr ${aj}`, LM + 3, y + 3.5);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-        doc.text(`Fehltage: ${fehlSum}`, RM - 3, y + 3.5, { align: 'right' });
-        y += 6;
+        doc.text(`Ausbildungsjahr ${aj}`, LM + 4, y + 3.8);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
+        const kopfZusatz = [b.schoolYear ? `Schuljahr ${b.schoolYear}` : '', ljLabel].filter(Boolean).join(' · ');
+        if (kopfZusatz) doc.text(kopfZusatz, LM + 4 + doc.getTextWidth('Ausbildungsjahr 0 ') * 8 / 7 + 2, y + 3.8);
+        doc.text(`Fehltage: ${fehlSum}`, RM - 3, y + 3.8, { align: 'right' });
+        y += 6.5;
 
         // KW cells
         kwRows.forEach(row => {
           row.forEach((kw, ci) => {
             const x = LM + ci * CW;
             const d = kwData[`${aj}_${kw}`];
-            const hasCodes = d && d.codes;
-            const hasRealMaengel = hasCodes && d.codes.split(',').some(c => c.trim() && c.trim() !== 'H');
-            const hasBehoben = d && d.behoben && !hasRealMaengel;
+            const codes = (d && d.codes ? d.codes : '').split(',').map(c => c.trim()).filter(Boolean);
             const fehl = d?.fehltage || 0;
+            // Wochen außerhalb der Ausbildungszeit grau – außer sie tragen Einträge (Stand zeigen, nie verstecken)
+            const istInaktiv = inaktiv.has(kw) && !codes.length && !fehl;
+            const real = codes.filter(c => c !== 'H');       // Mängel/Hinweise außer Fehltage
+            const zulMangel = real.length && App.istZulassungsMangel(real.join(','), ke);
+            // Anzeige: Codes in Rasterreihenfolge, H mit Fehltagezahl, Fehltage ohne H als „H3“
+            let anzeige = codes.slice();
+            if (fehl > 0 && !anzeige.includes('H')) anzeige.push('H');
+            anzeige = anzeige.map(c => c === 'H' && fehl > 0 ? `H${fehl}` : c);
 
-            // Cell background
-            if (hasRealMaengel) {
-              doc.setFillColor(...COL_RED_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            } else if (hasBehoben) {
-              doc.setFillColor(...COL_AMBER_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            } else if (d?.geprueft || (d && !hasCodes && !hasBehoben)) {
-              doc.setFillColor(...COL_GREEN_LIGHT);
-              doc.rect(x, y, CW, CH, 'F');
-            }
-            // Cell border
+            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot · Hinweis (D/I) orange · geprüft grün
+            if (istInaktiv) { doc.setFillColor(...COL_INACTIVE); doc.rect(x, y, CW, CH, 'F'); }
+            else if (zulMangel) { doc.setFillColor(...COL_RED_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
+            else if (real.length) { doc.setFillColor(...COL_AMBER_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
+            else if (d && (d.geprueft || codes.length || fehl > 0)) { doc.setFillColor(...COL_GREEN_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
             doc.setDrawColor(...COL_BORDER);
             doc.rect(x, y, CW, CH);
 
-            // KW number (top-left)
+            // KW-Nummer oben links
             doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-            doc.setTextColor(hasRealMaengel ? COL_RED[0] : 100, hasRealMaengel ? COL_RED[1] : 100, hasRealMaengel ? COL_RED[2] : 100);
+            if (istInaktiv) doc.setTextColor(170, 166, 162);
+            else if (zulMangel) doc.setTextColor(...COL_RED);
+            else doc.setTextColor(100, 100, 100);
             doc.text(`${kw}`, x + 1.2, y + 3.5);
+            if (istInaktiv) return;
 
-            // Mängel codes (center of cell, larger for readability)
-            if (hasRealMaengel) {
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-              doc.setTextColor(...COL_RED);
-              // Merge H with Fehltage count: "A B H" + 3 Fehltage → "A B H3"
-              let displayCodes = d.codes;
-              if (fehl > 0 && displayCodes.includes('H')) {
-                displayCodes = displayCodes.replace(/\bH\b/, `H${fehl}`);
-              }
-              doc.text(displayCodes.replace(/,/g,' '), x + CW/2, y + 8, { align: 'center' });
-            } else if (hasCodes && d.codes.includes('H')) {
-              // Nur Fehltage (kein Mangel): wie am Bildschirm „H3" ausweisen –
-              // die Zelle blieb im PDF sonst leer, obwohl die AJ-Summe sie zählte
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-              doc.setTextColor(...COL_AMBER);
-              doc.text(fehl > 0 ? `H${fehl}` : 'H', x + CW/2, y + 8, { align: 'center' });
-            }
-
-            // Behoben codes (strikethrough-style)
-            if (hasBehoben) {
-              doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-              doc.setTextColor(...COL_AMBER);
-              doc.text(`(${d.behoben.replace(/,/g,' ')})`, x + CW/2, y + 7.5, { align: 'center' });
-            }
-
-            // Fehltage badge (top-right) – only when H is NOT already in codes
-            if (fehl > 0 && !(hasCodes && d.codes.includes('H'))) {
-              const bx = x + CW - 4.5;
-              const by = y + 0.5;
-              doc.setFillColor(...COL_AMBER);
-              doc.circle(bx + 1.5, by + 1.8, 2.2, 'F');
-              doc.setTextColor(255, 255, 255);
-              doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
-              doc.text(`${fehl}`, bx + 1.5, by + 2.5, { align: 'center' });
+            // Codes mittig: bis drei mit Leerzeichen, mehr kompakt und kleiner,
+            // damit „ABCEFG“ in der Zelle bleibt statt in die Nachbarn zu laufen
+            if (anzeige.length) {
+              const n = anzeige.length;
+              const text = n <= 3 ? anzeige.join(' ') : anzeige.join('');
+              let fs = n <= 3 ? 8 : n <= 5 ? 7 : 6;
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(fs);
+              while (fs > 4.5 && doc.getTextWidth(text) > CW - 1.5) { fs -= 0.5; doc.setFontSize(fs); }
+              doc.setTextColor(...(zulMangel ? COL_RED : COL_AMBER));
+              doc.text(text, x + CW / 2, y + CH - 2, { align: 'center' });
             }
           });
           y += CH + 0.3;
@@ -27764,7 +27771,7 @@ const PDFExport = {
       doc.setDrawColor(...COL_BORDER);
       doc.rect(LM, y, PW, 10, 'FD');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('LEGENDE:', LM + 2, y + 4);
 
       doc.setTextColor(50, 50, 50);
@@ -27776,23 +27783,23 @@ const PDFExport = {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.text(`=${label}`, lx + 3, y + 4);
         lx += 34;
       });
-      // Row 2: F-I + color swatches
+      // Row 2: F-I (Abstand nach Textbreite) + Farblegende rechts daneben
       lx = LM + 20;
       legendItems.slice(5).forEach(([code, label]) => {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.text(code, lx, y + 8.5);
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.text(`=${label}`, lx + 3, y + 8.5);
-        lx += 34;
+        lx += 3 + doc.getTextWidth(`=${label}`) + 4;
       });
-      // Color legend on right side
-      lx = LM + 148;
-      doc.setFillColor(...COL_RED_LIGHT); doc.rect(lx, y+6.5, 5, 3, 'F');
-      doc.setDrawColor(...COL_BORDER); doc.rect(lx, y+6.5, 5, 3);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(50,50,50);
-      doc.text('Mangel', lx + 6.5, y + 8.5);
-      lx += 22;
-      doc.setFillColor(...COL_GREEN_LIGHT); doc.rect(lx, y+6.5, 5, 3, 'F');
-      doc.setDrawColor(...COL_BORDER); doc.rect(lx, y+6.5, 5, 3);
-      doc.text('OK', lx + 6.5, y + 8.5);
+      // Farblegende: Mangel · Hinweis · geprüft · außerhalb der Ausbildungszeit
+      lx = Math.max(lx + 4, LM + 118);
+      const swatch = (farbe, label, breite) => {
+        doc.setFillColor(...farbe); doc.rect(lx, y + 6.5, 4, 3, 'F');
+        doc.setDrawColor(...COL_BORDER); doc.rect(lx, y + 6.5, 4, 3);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(50, 50, 50);
+        doc.text(label, lx + 5, y + 8.5);
+        lx += breite;
+      };
+      swatch(COL_RED_LIGHT, 'Mangel', 16); swatch(COL_AMBER_LIGHT, 'Hinweis', 17); swatch(COL_GREEN_LIGHT, 'geprüft', 16); swatch(COL_INACTIVE, 'inaktiv', 0);
 
       y += 12;
 
@@ -27801,13 +27808,13 @@ const PDFExport = {
       // ══════════════════════════════════════
       if (y > 250) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
       }
       const valLabel = (v) => v === 'ja' ? 'Ja' : v === 'nein' ? 'Nein' : v === 'nicht_vorhanden' ? 'N. vorh.' : '–';
-      const valColor = (v) => v === 'ja' ? [39,174,96] : v === 'nein' ? [192,57,43] : v === 'nicht_vorhanden' ? [212,132,10] : [160,160,160];
+      const valColor = (v) => v === 'ja' ? COL_GREEN : v === 'nein' ? COL_RED : v === 'nicht_vorhanden' ? COL_AMBER : [160,160,160];
 
       // Box background
       doc.setFillColor(250, 250, 250);
@@ -27816,7 +27823,7 @@ const PDFExport = {
 
       // Pflicht header
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('PFLICHT:', LM + 2, y + 4);
 
       // Pflicht items (§ 43 Abs. 1 Nr. 2 BBiG): 1.1 Ausbildungsplan, 1.5 Bescheinigungen ÜA
@@ -27884,7 +27891,7 @@ const PDFExport = {
       // Page break if less than 50mm remaining
       if (y > 240) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
@@ -27923,23 +27930,24 @@ const PDFExport = {
       // Another page break if box won't fit
       if (y + boxH > 268) {
         doc.addPage(); y = 10;
-        doc.setFillColor(...COL_GREEN); doc.rect(LM, y, PW, 6, 'F');
+        doc.setFillColor(...COL_INK); doc.rect(LM, y, PW, 6, 'F');
         doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
       }
 
       // Draw complete box (with bottom line!)
-      doc.setDrawColor(...COL_GREEN);
+      doc.setDrawColor(...COL_INK);
       doc.setLineWidth(0.5);
       doc.rect(LM, y, PW, boxH); // complete box
       doc.setLineWidth(0.2);
+      doc.setDrawColor(...COL_BORDER);
       // Center divider
       doc.line(LM + PW * 0.5, y, LM + PW * 0.5, y + boxH);
 
       // ── Left half: Ergebnis ──
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('ERGEBNIS', LM + 3, y + 4);
 
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
@@ -27951,9 +27959,16 @@ const PDFExport = {
       let curY = y + 9 + ergebnisSplit.length * 3.8 + 2;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.setTextColor(80, 80, 80);
-      // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule)
-      let fzText = `Fehltage gesamt: ${ke?.fehltage_gesamt || 0}`;
-      try { const fz = App.fehlzeitenStand(s); fzText += ` (${fz.prozentBisher.toFixed(1)} % der bisherigen Ausbildungszeit${fz.warn ? ' – über ' + fz.schwelle + ' %' : ''})`; } catch(e) {}
+      // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule) –
+      // Prozent aus der GEDRUCKTEN Zahl (Stand des Ergebnisses), nicht aus der
+      // heutigen Wochensumme: sonst stand „7 (0,0 %)“ nebeneinander
+      const fzGesamt = ke?.fehltage_gesamt || 0;
+      let fzText = `Fehltage gesamt: ${fzGesamt}`;
+      try {
+        const fz = App.fehlzeitenStand(s);
+        const pct = fz.arbeitstageBisher > 0 ? fzGesamt / fz.arbeitstageBisher * 100 : 0;
+        fzText += ` (${pct.toFixed(1).replace('.', ',')} % der bisherigen Ausbildungszeit${pct >= fz.schwelle ? ' – über ' + fz.schwelle + ' %' : ''})`;
+      } catch(e) {}
       doc.text(fzText, LM + 3, curY);
       // Zulassung trotz Abweichung / Prüfungsausschuss
       if (ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1)) {
@@ -28003,7 +28018,7 @@ const PDFExport = {
 
       // ── Right half: Bemerkung ──
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      doc.setTextColor(...COL_GREEN);
+      doc.setTextColor(...COL_INK);
       doc.text('BEMERKUNG', LM + PW * 0.5 + 3, y + 4);
       if (bemLines.length) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
@@ -28028,29 +28043,24 @@ const PDFExport = {
       y = Math.max(y, 270);
       // Prüfer des Ergebnisses, sonst Termin-Prüfer; der letzte Schreiber nur als Notnagel
       const prName = (ke?.pruefer || termin.pruefer || ke?.geaendert_von || 'Ausbildungsberater').trim();
-      // Left: Name + Referat
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-      doc.setTextColor(0);
-      doc.text(prName, LM, y);
+      // Namensvermerk einmal (rechts), keine Signatur im Rechtssinn (§ 126a BGB) –
+      // deshalb „gez.“; links das Amt
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Referat 31, RP Freiburg', LM, y + 4);
-      // Right: Gez.
+      doc.text('Regierungspräsidium Freiburg · Referat 31 · Ausbildungsberatung Gärtner', LM, y + 4);
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8);
-      doc.setTextColor(0);
-      doc.text(`Gez. ${prName}`, RM, y, { align: 'right' });
+      doc.setTextColor(...COL_INK);
+      doc.text(`gez. ${prName}`, RM, y, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
       doc.setTextColor(...COL_GRAY);
-      // Namensvermerk, keine Signatur im Rechtssinn (§ 126a BGB) – deshalb „gez.“
       doc.text('Ausbildungsberatung (Namensvermerk)', RM, y + 4, { align: 'right' });
 
-      // Footer line
-      doc.setDrawColor(...COL_GREEN);
-      doc.setLineWidth(0.8);
-      doc.line(LM, 290, RM, 290);
+      // Fußzeile mit Gelb-Akzent
+      doc.setFillColor(...COL_GELB);
+      doc.rect(LM, 289.2, PW, 1.2, 'F');
       doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5);
       doc.setTextColor(...COL_GRAY);
-      doc.text('Regierungspräsidium Freiburg · Abt. 3 · Berichtsheftkontrolle Gärtner', LM, 293);
+      doc.text('Regierungspräsidium Freiburg · Abteilung 3 · Berichtsheftkontrolle Gärtner', LM, 293);
       doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}`, RM, 293, { align: 'right' });
       doc.setLineWidth(0.2);
     });
@@ -28091,11 +28101,27 @@ const PDFExport = {
     return this.generateBatch(d=>d, termin, terminId, [s], { bytes: true });
   },
 
+  // RPF-Logo aus der Kopfzeile der Oberfläche (in der gebauten Datei ein
+  // data:-Bild); im Entwicklungsmodus über eine Zeichenfläche, ohne DOM null
+  _logoDataUrl() {
+    try {
+      if (this._logoCache !== undefined) return this._logoCache;
+      const img = typeof document !== 'undefined' && document.querySelector ? document.querySelector('img.topbar-logo--pos') : null;
+      if (!img || !img.src) { this._logoCache = null; return null; }
+      const ratio = (img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 663 / 160;
+      if (/^data:image\/png/i.test(img.src)) { this._logoCache = { data: img.src, ratio }; return this._logoCache; }
+      const c = document.createElement('canvas'); c.width = img.naturalWidth || 663; c.height = img.naturalHeight || 160;
+      c.getContext('2d').drawImage(img, 0, 0);
+      this._logoCache = { data: c.toDataURL('image/png'), ratio };
+      return this._logoCache;
+    } catch(e) { this._logoCache = null; return null; }
+  },
+
   // Einheitliche Fußzeile für alle erzeugten PDFs (Anschreiben, Listen)
   footer(doc, seite, gesamt) {
     try {
-      doc.setDrawColor(45, 80, 22); doc.setLineWidth(0.5); doc.line(25, 283, 185, 283);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(108, 108, 108);
+      doc.setFillColor(255, 252, 0); doc.rect(25, 282.5, 160, 1, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(108, 101, 96);
       doc.text('Regierungspräsidium Freiburg · Berichtsheftkontrolle Gärtner', 25, 287);
       doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}${gesamt ? ` · Seite ${seite} von ${gesamt}` : ''}`, 185, 287, { align: 'right' });
       doc.setTextColor(0); doc.setLineWidth(0.2);
@@ -33388,10 +33414,11 @@ const Workflows = {
     const isDone = t.termin.status === 'durchgefuehrt';
     App.closeModal();
     const alt = this._individualData && this._individualData.terminId === terminId ? this._individualData.status : null;
-    this._individualData = { terminId, betriebe, t, isDone, status: alt || {} };
+    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, opts: this._betriebMailOptsLaden() };
     const withEmail = betriebe.filter(g => g.email).length;
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
+      ${this._betriebMailOptionenHtml()}
       <div id="betriebMailListe" style="max-height:420px;overflow-y:auto">${this._betriebMailListeHtml()}</div>
       <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
@@ -33400,6 +33427,62 @@ const Workflows = {
   _betriebMailOffen() {
     const d = this._individualData; if (!d) return [];
     return d.betriebe.map((g, idx) => ({ g, idx })).filter(x => x.g.email && !d.status[x.idx]);
+  },
+  // ── Optionen vor dem Erzeugen (je Person gemerkt): Ansprechpartner
+  //    namentlich ansprechen (Standard aus – „Damen und Herren“ reicht),
+  //    Signatur (Standard: die angemeldete Person; jeder andere Prüfer; der
+  //    Prüfer des Termins; keine – dann fügt Outlook die eigene an), Bögen
+  //    als Anhang ──
+  MAIL_SIGNATUR_STANDARD: 'ich',
+  _betriebMailOptsLaden() {
+    return {
+      anrede: App.uGet('mail_anrede', '0') === '1',
+      signatur: App.uGet('mail_signatur', '') || this.MAIL_SIGNATUR_STANDARD,
+      boegen: App.uGet('mail_boegen', '1') !== '0',
+    };
+  },
+  betriebMailOption(key, wert) {
+    const d = this._individualData; if (!d) return;
+    if (key === 'anrede') { d.opts.anrede = !!wert; App.uSet('mail_anrede', wert ? '1' : '0'); }
+    else if (key === 'signatur') { d.opts.signatur = String(wert || this.MAIL_SIGNATUR_STANDARD); App.uSet('mail_signatur', d.opts.signatur); }
+    else if (key === 'boegen') { d.opts.boegen = !!wert; App.uSet('mail_boegen', wert ? '1' : '0'); }
+    // Vorschau, Längen-Hinweis und Fußzeile folgen den Optionen
+    const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
+    const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
+  },
+  // Auswahl für die Signatur: ich · andere aktive Prüfer · Prüfer des Termins · keine
+  _signaturWahl() {
+    const d = this._individualData; if (!d) return [];
+    const ich = App.currentUser || '';
+    const wahl = [];
+    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)` });
+    App.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name').map(r => r.name).filter(n => n && n !== ich)
+      .forEach(n => wahl.push({ wert: 'p:' + n, label: n }));
+    if (d.t.ctx.pruefer && d.t.ctx.pruefer !== ich && !wahl.some(w => w.wert === 'p:' + d.t.ctx.pruefer)) wahl.push({ wert: 'termin', label: `Prüfer des Termins (${d.t.ctx.pruefer})` });
+    wahl.push({ wert: 'keine', label: 'Keine Signatur – eigene in Outlook anfügen' });
+    return wahl;
+  },
+  // Name hinter der gewählten Signatur ('' = keine)
+  _signaturName(opts) {
+    const d = this._individualData; if (!d) return '';
+    const s = opts.signatur || this.MAIL_SIGNATUR_STANDARD;
+    if (s === 'keine') return '';
+    if (s === 'termin') return d.t.ctx.pruefer || '';
+    if (s.startsWith('p:')) return s.slice(2);
+    return App.currentUser || d.t.ctx.pruefer || '';
+  },
+  _betriebMailOptionenHtml() {
+    const d = this._individualData; if (!d) return '';
+    const o = d.opts;
+    const wahl = this._signaturWahl();
+    const aktuell = wahl.some(w => w.wert === o.signatur) ? o.signatur : (wahl[0] ? wahl[0].wert : 'keine');
+    return `<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:8px 10px;margin-bottom:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Aus: „Sehr geehrte Damen und Herren“. An: zusätzlich „sehr geehrte/r ‹Ansprechpartner›,“ wenn ein Ansprechpartner hinterlegt ist"><input type="checkbox" ${o.anrede ? 'checked' : ''} onchange="Workflows.betriebMailOption('anrede', this.checked)"> Ansprechpartner namentlich ansprechen</label>
+      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand – dann hängt Outlook beim Senden die eigene Signatur an">Signatur
+        <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
+      </label>
+      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
+    </div>`;
   },
   _betriebMailFussHtml() {
     const d = this._individualData; if (!d) return '';
@@ -33430,7 +33513,7 @@ const Workflows = {
     mit.forEach(({ g, idx }, i) => {
       const m = this._betriebMailInhalt(idx); if (!m) return;
       const anhaenge = [];
-      if (d.isDone && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
+      if (d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
         g.azubis.forEach(a => {
           if (!a.ke || !a.ke.ergebnis) return;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
           try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
@@ -33524,11 +33607,17 @@ const Workflows = {
     // oder Bestätigung ohne Beanstandung – früher bekam ein Betrieb ohne
     // Beanstandung eine Terminankündigung im Futur für einen vergangenen Termin.
     const typ = this._betriebVorlageTyp(g, d.isDone);
-    const ctx = { ...d.t.ctx, anrede: this._anrede(g.ap),
+    const o = d.opts || this._betriebMailOptsLaden();
+    const name = this._signaturName(o);
+    const ctx = { ...d.t.ctx,
+      ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
+      anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) };
-    const { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = App.renderVorlage(typ, ctx);
+    // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
+    if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
     return { g, typ, betreff, body };
   },
   _betriebMailPasst(idx) {
