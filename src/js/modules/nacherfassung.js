@@ -123,7 +123,7 @@ const NacherfassungHandler = {
       <div style="padding:8px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px;line-height:1.7;margin-bottom:8px">
         <strong>So wird gespeichert:</strong>
         <strong>Geprüft bis KW</strong> = alle Wochen vom Ausbildungsbeginn bis einschließlich dieser Woche gelten als kontrolliert (auch frühere Ausbildungsjahre) und erscheinen so im KW-Raster; Vorschlag ist die Woche vor dem Durchsichtsdatum – KW-Nummern vor der Durchsichtswoche zählen zum Vorjahr des Rasters.
-        <strong>Fehltage gesamt</strong> = Stand laut Berichtsheft, pauschal (nicht wochengenau) – spätere wochengenaue Einträge kommen obendrauf.
+        <strong>Fehltage gesamt</strong> = Stand laut Berichtsheft (Krankheit, unentschuldigt – ohne Urlaub und Berufsschule), pauschal (nicht wochengenau) – spätere wochengenaue Einträge kommen obendrauf.
         <strong>Codes</strong> werden der zuletzt geprüften KW zugeordnet.
         Es werden nur Zeilen mit einem <strong>Ergebnis</strong> gespeichert.
       </div>
@@ -138,7 +138,7 @@ const NacherfassungHandler = {
             <th style="min-width:100px">Betrieb</th>
             <th title="Letzte Kontrolle (Datum + Ergebnis) und bisher geprüfter Stand" style="width:90px">Bisher</th>
             <th title="Bis einschließlich dieser Kalenderwoche gilt das Berichtsheft als geprüft" style="width:70px;text-align:center">Geprüft bis KW</th>
-            <th title="Fehltage gesamt laut Berichtsheft (pauschal, nicht wochengenau) – leer = unverändert" style="width:70px;text-align:center">Fehltage gesamt</th>
+            <th title="Fehltage gesamt laut Berichtsheft (ohne Urlaub und Berufsschule; pauschal, nicht wochengenau) – leer = unverändert" style="width:70px;text-align:center">Fehltage gesamt</th>
             <th style="min-width:120px">Ergebnis</th>
             <th title="Wiedervorlage-Frist" style="width:100px">WV-Frist</th>
             <th title="Mängelcodes (kommagetrennt: A,B,C…) – der zuletzt geprüften KW zugeordnet" style="width:80px">Codes</th>

@@ -255,10 +255,10 @@ const PDFExport = {
       doc.setTextColor(...COL_GREEN);
       doc.text('PFLICHT:', LM + 2, y + 4);
 
-      // Pflicht items: 1.1 Ausbildungsplan, 1.4 Auszubildende, 1.5 Bescheinigungen ÜA
+      // Pflicht items (§ 43 Abs. 1 Nr. 2 BBiG): 1.1 Ausbildungsplan, 1.5 Bescheinigungen ÜA
+      // (1.4 „Der/die Auszubildende“ ist keine Zulassungsvoraussetzung → Hinweis)
       const pflichtItems = [
         ['1.1', 'Ausbildungsplan', ke?.p_1_1_ausbildungsplan],
-        ['1.4', 'Der/die Auszubildende', ke?.p_1_4_auszubildende],
         ['1.5', 'Beschein. überbetr. Ausb.', ke?.p_1_5_bescheinigungen, ke?.bescheinigungen_anzahl, App.getRequiredUBA(s.fachrichtung_id)],
       ];
       let px = LM + 18;
@@ -289,13 +289,14 @@ const PDFExport = {
       // Freiwillig header
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
       doc.setTextColor(...COL_GRAY);
-      doc.text('FREIWILLIG:', LM + 2, y + 11.5);
+      doc.text('HINWEIS:', LM + 2, y + 11.5);
 
       const freiItems = [
-        ['1.2', 'Vertragliche Regelungen', ke?.f_1_2_vertragliche_regelungen],
+        ['1.2', 'Zusatzvereinbarung', ke?.f_1_2_vertragliche_regelungen],
+        ['1.4', 'Der/die Auszubildende', ke?.p_1_4_auszubildende],
         ['1.6', 'Ausbildungsbetrieb / Skizze', ke?.f_1_6_ausbildungsbetrieb],
       ];
-      px = LM + 24;
+      px = LM + 18;
       freiItems.forEach(([nr, label, val]) => {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
         doc.setTextColor(100, 100, 100);
@@ -308,7 +309,7 @@ const PDFExport = {
         doc.setTextColor(...valColor(displayVal));
         doc.text(valLabel(displayVal), px + 5, y + 14);
         // Leave space but we're outside box, that's fine – box is 14 high
-        px += 80;
+        px += 58;
       });
 
       y += 16;
@@ -386,7 +387,19 @@ const PDFExport = {
       let curY = y + 9 + ergebnisSplit.length * 3.8 + 2;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.setTextColor(80, 80, 80);
-      doc.text(`Fehltage gesamt: ${ke?.fehltage_gesamt || 0}`, LM + 3, curY);
+      // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule)
+      let fzText = `Fehltage gesamt: ${ke?.fehltage_gesamt || 0}`;
+      try { const fz = App.fehlzeitenStand(s); fzText += ` (${fz.prozentBisher.toFixed(1)} % der bisherigen Ausbildungszeit${fz.warn ? ' – über ' + fz.schwelle + ' %' : ''})`; } catch(e) {}
+      doc.text(fzText, LM + 3, curY);
+      // Zulassung trotz Abweichung / Prüfungsausschuss
+      if (ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1)) {
+        curY += 4;
+        const trotz = ke.zulassung_ap === 1 && String(ke.bemerkung || '').includes(KontrolleHandler.ZULASSUNG_TROTZ_PREFIX);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+        doc.setTextColor(...(ke.pruefungsausschuss === 1 && ke.zulassung_ap !== 1 ? COL_RED : [60, 100, 60]));
+        doc.text([ke.zulassung_ap === 1 ? (trotz ? 'Zulassung trotz Abweichung (Einzelfall, s. Bemerkung)' : 'Berichtsheft-Voraussetzung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)') : '', ke.pruefungsausschuss === 1 ? 'Prüfungsausschuss (§ 46 BBiG)' : ''].filter(Boolean).join(' · '), LM + 3, curY);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
+      }
 
       // Wiedervorlage
       if (wv.length) {

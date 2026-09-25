@@ -1542,6 +1542,19 @@ const Views = {
       </div>
 
 `,
+      zulassung: `      <!-- Zulassungsregeln (§ 43 BBiG) -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">§ Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG)</div>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px;line-height:1.6">
+          Zulassungsrelevant sind Mängel an den <strong>Tagesberichten und Unterschriften</strong> (Codes A, B, C, E, F, G), der <strong>Ausbildungsplan</strong> (1.1) und der <strong>ÜBA-Nachweis</strong> (1.5). Wetter (D) zählt nur mit Zusatzvereinbarung (Teil 1.2), Sonstiges (I) ist ein Hinweis. Zwischenprüfung, Verzeichnis-Eintrag und Vertragsende (§ 43 Abs. 1 Nr. 1 und 3) prüft die Prüfungsverwaltung.
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+          <label for="setFehlzeitenProzent">Fehlzeiten-Schwelle</label>
+          <input type="number" id="setFehlzeitenProzent" class="form-control" min="1" max="100" step="0.5" value="${App.fehlzeitenSchwelle()}" style="width:80px;padding:4px 6px" onchange="App.run(&quot;INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('fehlzeiten_prozent',?)&quot;,[this.value]);App.toast('Fehlzeiten-Schwelle gespeichert','success')">
+          <span style="font-size:12px;color:var(--clr-text-light)">% der <strong>zurückgelegten</strong> Ausbildungszeit (Praxis der zuständigen Stellen in BW: i.d.R. 10 %, Einzelfallentscheidung). Fehltage sind Krankheit und unentschuldigtes Fehlen – ohne Urlaub und Berufsschule. Ab der Schwelle: Verlängerung nach § 8 Abs. 2 BBiG ansprechen.</span>
+        </div>
+      </div>
+`,
       lfk: `      <!-- Landesfachklassen-Regeln -->
       <div class="card" style="margin-top:16px">
         <div class="card-header">⇄ Landesfachklassen-Regeln (Fachrichtung → ab Ausbildungsjahr)</div>
@@ -1761,7 +1774,7 @@ const Views = {
       <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
       <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
       <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.aemter}${t.vorlagen}${t.word}</div>
-      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.lfk}${t.ferien}${t.textbausteine}</div>
+      <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
     setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
   },
@@ -2473,11 +2486,12 @@ const Views = {
             <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
-            <p>4. <strong>Pflichtbestandteile</strong> prüfen – Ausbildungsplan, Fachberichte, Bescheinigungen, Unterschriften. Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
+            <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden und unterschrieben ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. „Nicht geführt“ setzt automatisch einen passenden Satz in die Bemerkung, „geführt“ nimmt ihn wieder heraus. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“, ein bewusstes „nicht geführt“ bleibt stehen.</p>
             <p>5. <strong>Gesamtergebnis</strong> festlegen – In Ordnung / Nachholung / E-Mail an Betrieb / Vorlage RP / postalische Aufforderung</p>
             <p>6. Weiter zum nächsten Auszubildenden (◂ ▸ Schaltflächen oder Tastaturnavigation)</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
-            <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und Zulassungsstatus zur Abschlussprüfung. Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
+            <p>Zeigt alle Auszubildenden eines Durchsichtstermins mit Ampelstatus (Kontrollstand), Fortschrittsbalken und der Spalte <strong>Zul.</strong> = Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG). Die Ergebnisse können als <strong>Snapshot archiviert</strong> werden (unveränderliche Momentaufnahme der Durchsicht).</p>
+            <p style="margin-top:8px"><strong>Zulassung (§ 43 BBiG):</strong> Das Häkchen „Zul.“ wird im letzten Ausbildungsjahr (oder bei vorzeitiger Zulassung nach § 45 Abs. 1) automatisch vorgeschlagen, wenn das Berichtsheft in Ordnung ist, keine Woche einen zulassungsrelevanten Mangel trägt (A, B, C, E, F, G – Tagesberichte und Unterschriften), die Pflichtteile 1.1 und 1.5 vorhanden und geführt sind, keine Wiedervorlage offen ist und die Fehlzeiten unter der Schwelle liegen (Einstellungen → Regeln, Standard 10 % der zurückgelegten Ausbildungszeit). Fehlt etwas, zeigt ⚠︎ die Gründe. <strong>Trotzdem zulassen</strong> ist immer möglich (Einzelfallentscheidung, z. B. des Prüfungsausschusses nach § 46 Abs. 1 BBiG): Das Tool meldet die fehlenden Voraussetzungen und verlangt eine Begründung, die als Zeile <code>[Zulassung trotz Abweichung]</code> in die Bemerkung und in den Bogen geht; in der Übersicht erscheint <strong>✓!</strong>. „PA“ (dem Prüfungsausschuss vorgelegt) und „Zul.“ schließen sich nicht aus. Zwischenprüfungs-Teilnahme, Verzeichnis-Eintrag und Vertragsende relativ zum Prüfungstermin (§ 43 Abs. 1 Nr. 1 und 3) prüft die Prüfungsverwaltung – die Datenqualität warnt, wenn das Vertragsende mehr als zwei Monate nach dem Prüfungszeitraum des Jahrgangs liegt.</p>
             <p style="margin-top:8px"><strong>Nach Fachrichtung gruppieren:</strong></p>
             <p>Über den Button <em>Nach FR gruppieren</em> können die Azubis in der Übersicht nach Fachrichtung sortiert mit Gruppenüberschriften dargestellt werden.</p>
             <p style="margin-top:8px"><strong>Bulk-Aktionen:</strong></p>
@@ -2489,13 +2503,14 @@ const Views = {
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
               <strong>B</strong><span>Unterschrift des Ausbildenden/Ausbilders fehlt</span>
               <strong>C</strong><span>Berufsschulthemen fehlen oder sind unvollständig</span>
-              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig</span>
+              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig – <em>Hinweis</em>, keine Zulassungsvoraussetzung (nur mit Zusatzvereinbarung 1.2 ein Mangel)</span>
               <strong>E</strong><span>Inhaltlich lückenhaft (Tätigkeitsbeschreibungen unzureichend)</span>
               <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig</span>
               <strong>G</strong><span>Datum- oder KW-Angabe fehlt</span>
-              <strong>H</strong><span>Fehltage (1–5 Tage pro KW)</span>
-              <strong>I</strong><span>Sonstiges (Bemerkung erforderlich)</span>
+              <strong>H</strong><span>Fehltage (1–5 Tage pro KW: Krankheit, unentschuldigt – <em>ohne</em> Urlaub und Berufsschule; kein Mangel)</span>
+              <strong>I</strong><span>Sonstiges (Bemerkung erforderlich) – <em>Hinweis</em>, keine Zulassungsvoraussetzung</span>
             </div>
+            <p style="font-size:12px;color:var(--clr-text-light)">Zulassungsrelevant (rot) sind A, B, C, E, F, G – Mängel an Tagesberichten und Unterschriften nach § 43 Abs. 1 Nr. 2 BBiG, § 14 Abs. 2 BBiG und dem Merkblatt zum Gärtner-Berichtsheft. Hinweise (gelb) werden beanstandet und angeschrieben, sperren die Zulassung aber nicht.</p>
             <p style="margin-top:8px"><strong>Tastaturkürzel im KW-Raster:</strong></p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
               <code>A–G</code><span>Mängelcode direkt togglen (an/aus)</span>
@@ -2515,7 +2530,7 @@ const Views = {
             <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
             <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
             <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
-            <p>• <strong>Fehltage</strong> werden als prozentualer Anteil der Arbeitstage je Ausbildungsjahr berechnet</p>
+            <p>• <strong>Fehltage</strong> (ohne Urlaub und Berufsschule) werden als Anteil der Arbeitstage der <strong>bisherigen</strong> Ausbildungszeit gezeigt (Warnung ab der Schwelle, Standard 10 %) – daneben der Anteil an der Gesamtdauer. Ab der Schwelle: Verlängerung nach § 8 Abs. 2 BBiG ansprechen; über die Zulassung entscheidet dann der Einzelfall (§ 46 BBiG).</p>
           </div>
 
           <div class="help-abschnitt">
@@ -2735,8 +2750,11 @@ const Views = {
               <p>Die Berichtsheftkontrolle dient der Durchführung und Dokumentation der Berichtsheft-Durchsichten gemäß den Aufgaben der zuständigen Stelle nach dem <strong>Berufsbildungsgesetz (BBiG)</strong>.</p>
               <p style="margin-top:6px"><strong>Rechtsgrundlage der Datenverarbeitung:</strong></p>
               <p>• <strong>Art. 6 Abs. 1 lit. e DSGVO</strong> i.V.m. <strong>§ 3 LDSG BW</strong> – Die Verarbeitung ist zur Wahrnehmung einer Aufgabe erforderlich, die im öffentlichen Interesse liegt bzw. in Ausübung öffentlicher Gewalt erfolgt.</p>
-              <p>• <strong>§ 43 Abs. 1 Nr. 2 BBiG</strong> – Die ordnungsgemäße Führung des Berichtshefts (Ausbildungsnachweis) ist Zulassungsvoraussetzung zur Abschlussprüfung. Die zuständige Stelle ist verpflichtet, dies zu überwachen.</p>
-              <p>• <strong>§ 76 BBiG</strong> – Aufgaben der zuständigen Stelle, insbesondere die Überwachung der Berufsausbildung.</p>
+              <p>• <strong>§ 43 Abs. 1 Nr. 2 BBiG</strong> – Die ordnungsgemäße Führung des Berichtshefts (Ausbildungsnachweis nach § 13 Satz 2 Nr. 7 BBiG) ist Zulassungsvoraussetzung zur Abschlussprüfung. Die zuständige Stelle ist verpflichtet, dies zu überwachen.</p>
+              <p>• <strong>§ 14 Abs. 2 BBiG</strong> – Ausbildende haben Auszubildende zum Führen des Ausbildungsnachweises anzuhalten und diesen regelmäßig durchzusehen (Adressat der Mängelmitteilung ist deshalb der Betrieb).</p>
+              <p>• <strong>§ 46 Abs. 1 BBiG</strong> – Über die Zulassung entscheidet die zuständige Stelle; hält sie die Voraussetzungen nicht für gegeben, entscheidet der Prüfungsausschuss („PA“ in der Übersicht).</p>
+              <p>• <strong>§ 8 Abs. 2 BBiG</strong> – Verlängerung der Ausbildungszeit auf Antrag, wenn das Ausbildungsziel sonst nicht erreicht wird (Hinweis bei hohen Fehlzeiten).</p>
+              <p>• <strong>§ 76 BBiG</strong> – Aufgaben der zuständigen Stelle, insbesondere die Überwachung der Berufsausbildung und die Förderung durch Beratung.</p>
               <p style="margin-top:6px">Die Anwendung verarbeitet ausschließlich Daten, die zur Erfüllung dieser gesetzlichen Aufgabe erforderlich sind. Eine Einwilligung der Betroffenen ist nicht erforderlich, da die Verarbeitung auf einer gesetzlichen Grundlage beruht.</p>
             </div>
 

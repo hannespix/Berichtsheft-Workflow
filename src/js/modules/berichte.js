@@ -931,6 +931,23 @@ const BerichteHandler = {
     const a = new Date(von + 'T00:00:00'), b = new Date(bis + 'T00:00:00');
     return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
   },
+  // Spätestes zulässiges Vertragsende für den Prüfungsjahrgang: Prüfungs-
+  // termin (gepflegt oder Ende Juli / Ende Januar) + 2 Monate (§ 43 Abs. 1 Nr. 1)
+  _dqPruefungsgrenze(s) {
+    if (!s.jg_jahr) return null;
+    let termin = s.jg_termin && this._dqValidDate(s.jg_termin) ? s.jg_termin : null;
+    if (!termin) {
+      const typ = String(s.jg_typ || s.jahrgang || '').toLowerCase();
+      termin = typ.startsWith('w') ? `${s.jg_jahr}-01-31` : `${s.jg_jahr}-07-31`;
+    }
+    const d = new Date(termin + 'T00:00:00');
+    const tag = d.getDate();
+    d.setDate(1); d.setMonth(d.getMonth() + 2);
+    // Monatsende beibehalten (31.07. + 2 Monate = 30.09., nicht 01.10.)
+    const letzter = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(tag, letzter));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  },
 
   _dqRun() {
     const issues = [];
@@ -939,7 +956,7 @@ const BerichteHandler = {
 
     // ── Azubis ──
     const alle = App.query(`SELECT s.*, k.jahrgang_id AS klassen_jg, k.klassenbezeichnung, b.name AS b_name,
-        b.email AS b_email, b.telefon AS b_tel, j.bezeichnung AS jahrgang, j.jahr AS jg_jahr
+        b.email AS b_email, b.telefon AS b_tel, j.bezeichnung AS jahrgang, j.jahr AS jg_jahr, j.typ AS jg_typ, j.pruefungstermin AS jg_termin
       FROM schueler s
       LEFT JOIN klassen k ON s.klasse_id=k.id
       LEFT JOIN betriebe b ON s.betrieb_id=b.id
@@ -1005,8 +1022,14 @@ const BerichteHandler = {
         add('warnung', 'Azubi', nm, `Jahrgang des Azubis weicht vom Jahrgang der Klasse ${s.klassenbezeichnung || ''} ab`, 'jahrgang/klasse', edit, s.ibykus_id);
       }
       if (datesOk && s.jg_jahr && s.ausbildungsende) {
+        // § 43 Abs. 1 Nr. 1 BBiG: zugelassen wird, wessen Ausbildungsdauer
+        // nicht später als ZWEI MONATE nach dem Prüfungstermin endet. Sommer-
+        // prüfung ≈ Ende Juli, Winterprüfung ≈ Ende Januar (Termin des
+        // Jahrgangs, falls gepflegt).
+        const grenze = this._dqPruefungsgrenze(s);
+        if (grenze && s.ausbildungsende > grenze) add('warnung', 'Azubi', nm, `Vertragsende ${s.ausbildungsende} liegt mehr als 2 Monate nach dem Prüfungszeitraum des Jahrgangs ${s.jahrgang} (§ 43 Abs. 1 Nr. 1 BBiG) – Jahrgang oder Vertragsende prüfen`, 'jahrgang/ende', edit, s.ibykus_id);
         const endeJahr = parseInt(s.ausbildungsende.substring(0, 4));
-        if (Math.abs(endeJahr - s.jg_jahr) > 1) add('hinweis', 'Azubi', nm, `Jahrgang ${s.jahrgang} passt nicht zum Ausbildungsende ${endeJahr}`, 'jahrgang/ende', edit, s.ibykus_id);
+        if (endeJahr < s.jg_jahr - 1) add('hinweis', 'Azubi', nm, `Jahrgang ${s.jahrgang} liegt weit nach dem Ausbildungsende ${endeJahr}`, 'jahrgang/ende', edit, s.ibykus_id);
       }
     });
     Object.values(seenIbk).filter(g => g.length > 1).forEach(g => {

@@ -28,7 +28,8 @@ db.run(`INSERT INTO schueler (id,nachname,vorname,klasse_id,jahrgang_id,fachrich
   (3,'Verdreht','Vera',2,1,1,1,1,'IBK-3','v@v.de','2027-01-01','2024-01-01','2004-01-01','FR'),
   (4,'Doppelt','Dora',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-05-05','FR'),
   (5,'Doppelt2','Doris',2,1,1,1,1,'IBK-DUP','','2024-09-01','2027-08-31','2003-06-06','FR'),
-  (6,'Vorbei','Volker',2,1,1,2,1,'IBK-6','','2020-09-01','2023-08-31','2002-01-01','FR')`);
+  (6,'Vorbei','Volker',2,1,1,2,1,'IBK-6','','2020-09-01','2023-08-31','2002-01-01','FR'),
+  (17,'Spaet','Sven',2,1,1,1,1,'IBK-17','','2024-12-01','2027-11-30','2005-01-01','FR')`);
 
 const sandbox = {
   console, Date, Math, JSON, Set,
@@ -65,6 +66,11 @@ check(has('Luecke', 'Keine Klasse'), 'Fehlende Klasse erkannt');
 check(has('Verdreht', 'vor dem Beginn'), 'Ende vor Beginn erkannt');
 check(has('Doppelt,', 'IBK-DUP') && has('Doppelt2', 'IBK-DUP'), 'Doppelte IBYKUS-ID bei beiden gemeldet');
 check(has('Vorbei', 'zurück'), 'Aktiv trotz lange abgelaufenem Ende erkannt');
+// § 43 Abs. 1 Nr. 1 BBiG: Vertragsende höchstens zwei Monate nach dem Prüfungstermin des Jahrgangs
+check(has('Spaet', '§ 43 Abs. 1 Nr. 1'), 'Vertragsende 30.11.2027 bei Jahrgang S2027 (Sommer ≈ 31.07. + 2 Monate) wird gewarnt');
+check(!has('Sauber', '§ 43 Abs. 1 Nr. 1'), 'Vertragsende 31.08.2027 bei S2027 liegt innerhalb der zwei Monate');
+check(B._dqPruefungsgrenze({ jg_jahr: 2027, jg_typ: 'Sommer' }) === '2027-09-30' && B._dqPruefungsgrenze({ jg_jahr: 2027, jg_typ: 'Winter' }) === '2027-03-31', 'Grenze: Sommer 30.09., Winter 31.03.');
+check(B._dqPruefungsgrenze({ jg_jahr: 2027, jg_typ: 'Sommer', jg_termin: '2027-06-10' }) === '2027-08-10', 'Gepflegter Prüfungstermin + 2 Monate');
 check(issues.some(i => i.kat === 'Betrieb' && i.name === 'Ohne Kontakt' && i.problem.includes('Kein Kontakt')), 'Betrieb ohne Kontakt (mit Azubi) erkannt');
 check(issues.some(i => i.kat === 'Schule' && i.problem.includes('Keine E-Mail')) === false, 'Schule ohne Azubis wird NICHT gemeldet (BS Radolfzell hat keine aktiven Azubis in Klasse 1)');
 check(issues.some(i => i.kat === 'Klasse' && i.problem.includes('Lehrjahr')) === false, 'Klasse ohne Azubis wird nicht gemeldet');
