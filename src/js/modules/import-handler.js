@@ -1101,7 +1101,7 @@ const ImportHandler = {
     // Lehrjahr: dieselbe Berechnung wie Liste, Planung und Raster (phasen-aware)
     let lehrjahrInfo = '–';
     if (s.ausbildungsbeginn) {
-      const lj = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+      const lj = App.getLehrjahr(s.id);
       if (lj) lehrjahrInfo = `${lj}. Lehrjahr`;
     }
 

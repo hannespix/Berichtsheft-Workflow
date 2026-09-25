@@ -249,11 +249,13 @@ const KontrolleHandler = {
     const isOK = ke.ergebnis === 'in_ordnung';
     if (!isDone) gruende.push('Berichtsheft noch nicht bewertet');
     else if (!isOK) gruende.push('Ergebnis der Durchsicht nicht „in Ordnung“');
-    const ajListe = App.getSchuelerAJs(s.id);
-    const beginn = s.ausbildungsbeginn || App.scalar('SELECT ausbildungsbeginn FROM schueler WHERE id=?', [s.id]);
-    const ajJetzt = App.getCurrentAJ(beginn, s.id);
+    // Letztes LEHRJAHR (an der Prüfung verankert), nicht letztes Raster: Ein
+    // Oktober-Beginner hat ein Restzeit-Raster nach dem 3. Lehrjahr, ein
+    // März-Beginner ein Vorlauf-Raster davor
+    const ljInfo = App._lehrjahrInfo(s.id);
+    const ljJetzt = App.getLehrjahr(s.id, heute);
     const vorzeitig = s.vorzeitige_zulassung != null ? !!s.vorzeitige_zulassung : !!App.scalar('SELECT vorzeitige_zulassung FROM schueler WHERE id=?', [s.id]);
-    const imLetztenAJ = vorzeitig || !ajJetzt || !ajListe.length || ajJetzt >= ajListe[ajListe.length - 1];
+    const imLetztenAJ = vorzeitig || !ljJetzt || ljJetzt >= ljInfo.letztesLJ;
     return { ok: gruende.length === 0, gruende, fz, fehlWarn: fz.warn, reqUBA, pflichtOK, offeneMaengel, wvOffen, isDone, isOK, imLetztenAJ, vorzeitig };
   },
   // Meldung für die Übersteuerung: welche Voraussetzungen nach § 43 BBiG fehlen
@@ -1420,7 +1422,7 @@ const KontrolleHandler = {
             <strong style="font-size:18px;font-family:var(--font-display)">${esc(s.nachname)}, ${esc(s.vorname)}</strong>
             <div style="font-size:12px;color:var(--clr-text-light)">
               ${esc(s.ausbildungsstaette)} · Azubi ${this.currentIndex + 1} von ${total}
-              ${App.getCurrentAJ(s.ausbildungsbeginn, s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600">AJ ${App.getCurrentAJ(s.ausbildungsbeginn, s.id)}</span>` : ''}
+              ${App.getLehrjahr(s.id) ? ` · <span style="color:var(--clr-forest);font-weight:600" title="Lehrjahr (Klassenstufe)">${App.getLehrjahr(s.id)}. LJ</span>` : ''}
               ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? ' · <span style="color:var(--clr-purple);font-weight:600">Verkürzer</span>' : ''}
               ${!isAnwesend ? ' · <span style="color:var(--clr-red);font-weight:600">NICHT ANWESEND</span>' : ''}
               ${typeof AzubiSeite!=='undefined'?` · <a href="#" onclick="event.preventDefault();AzubiSeite.oeffnen(${s.id}, 'uebersicht', { zurueck: { terminId: ${this.currentTerminId}, schuelerId: ${s.id} } })" style="color:var(--clr-forest);text-decoration:none;font-weight:600" title="Azubi-Seite: Kontakt, Betrieb, Schule, Ausbildungsstand, Kontrollen – mit Rückweg in diese Durchsicht">${svgIcon('dashboard', 12)} Azubi-Seite</a>`:''}
@@ -1636,7 +1638,7 @@ const KontrolleHandler = {
       </div>
 
       <!-- KW Grids -->
-      ${(() => { const ajs = App.getSchuelerAJs(s.id); const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id) || 0; return ajs.map(aj => {
+      ${(() => { const ajs = App.getSchuelerAJs(s.id); const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id) || 0; const ljInfo = App._lehrjahrInfo(s.id); return ajs.map(aj => {
         const ajSessionKWs = sessionKWs[aj] || [];
         // Progress: count geprüft vs total KWs
         const kwRange = KW_ALL;
@@ -1663,7 +1665,7 @@ const KontrolleHandler = {
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
           <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
-            <span title="Ein Raster ist ein Schuljahr (KW 36 bis 35). Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${bnd.schoolYear ? 'Schuljahr ' + bnd.schoolYear : 'Ausbildungsjahr ' + aj} <span style="font-weight:400;color:var(--clr-sage)">· ${aj}. Lehrjahr${ajs[0] !== 1 || ajs.length !== 3 ? ` · ${aj - ajs[0] + 1}. Vertragsjahr` : ''}</span>${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
+            <span title="Ein Raster ist ein Schuljahr (KW 36 bis 35). Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${bnd.schoolYear ? 'Schuljahr ' + bnd.schoolYear : 'Ausbildungsjahr ' + aj} <span style="font-weight:400;color:var(--clr-sage)">· ${App.lehrjahrLabel(s.id, aj, ljInfo)}${ajs[0] !== 1 || ajs.length !== 3 ? ` · ${aj - ajs[0] + 1}. Vertragsjahr` : ''}</span>${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
             <span style="font-size:12px;font-weight:400;color:var(--clr-sage)">
               ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
             </span>

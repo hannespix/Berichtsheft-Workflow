@@ -199,15 +199,18 @@ const AzubiSeite = {
     const pos = (d) => Math.min(100, Math.max(0, (d - beginn) / span * 100));
     const fortschritt = Math.round(pos(heute));
     const monate = Math.round((ende - beginn) / (30.44 * 86400000));
-    // Lehrjahre: je zwölf Monate ab Beginn (letztes ggf. kürzer)
+    // Lehrjahre: je zwölf Monate ab Beginn (letztes ggf. kürzer); Verkürzer
+    // steigen im 2. (oder 3.) Lehrjahr ein – die Blöcke tragen das Lehrjahr,
+    // nicht die Zählung ab Vertragsbeginn
+    const ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : { erstesAJ: 1 };
     const jahre = [];
     for (let j = 0, d = new Date(beginn); d < ende && j < 4; j++) {
       const bis = new Date(d); bis.setFullYear(bis.getFullYear() + 1);
       const b = bis < ende ? bis : ende;
-      jahre.push({ nr: j + 1, links: pos(d), breite: pos(b) - pos(d) });
+      jahre.push({ nr: ljInfo.erstesAJ + j, links: pos(d), breite: pos(b) - pos(d) });
       d = bis;
     }
-    const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id);
+    const ajJetzt = App.getLehrjahr ? App.getLehrjahr(s.id) : App.getCurrentAJ(s.ausbildungsbeginn, s.id);
     const phasenHtml = phasenMit.map(p => {
       const von = Phasen.parseISO(p.von);
       const bisStr = p.bis || p._berechnetesEnde;
