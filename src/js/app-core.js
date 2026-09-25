@@ -8138,6 +8138,54 @@ const App = {
     return !!a && a !== this.EIGENES_AMT;
   },
 
+  // ── E-Mail-Entwurf als .eml (Outlook klassisch öffnet „X-Unsent: 1“ als
+  //    unversendeten Entwurf mit Empfänger, Betreff, Text und Anhängen) ──
+  // Kein mailto-Längenlimit, Anhänge möglich. Text und Anhänge base64
+  // (Umlaute sicher), Betreff als kodiertes Wort, CRLF-Zeilenenden.
+  _b64(bytes) {
+    const T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i], b = i + 1 < bytes.length ? bytes[i + 1] : 0, c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+      const n = (a << 16) | (b << 8) | c;
+      out += T[(n >> 18) & 63] + T[(n >> 12) & 63] + (i + 1 < bytes.length ? T[(n >> 6) & 63] : '=') + (i + 2 < bytes.length ? T[n & 63] : '=');
+    }
+    return out;
+  },
+  _b64Zeilen(bytes) { return (this._b64(bytes).match(/.{1,76}/g) || []).join('\r\n'); },
+  _b64Text(text) { return this._b64(new TextEncoder().encode(String(text || ''))); },
+  _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
+  emlErzeugen({ to, cc, subject, body, anhaenge }) {
+    const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const kopf = [
+      'X-Unsent: 1',
+      'MIME-Version: 1.0',
+      'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
+      'To: ' + (to || ''),
+      ...(cc ? ['Cc: ' + cc] : []),
+      'Subject: ' + this._mimeWort(subject || ''),
+    ];
+    const textTeil = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
+    const teile = (anhaenge || []).filter(a => a && a.bytes && a.name);
+    if (!teile.length) return kopf.concat(textTeil).join('\r\n') + '\r\n';
+    const zeilen = kopf.concat([`Content-Type: multipart/mixed; boundary="${grenze}"`, '', 'This is a multi-part message in MIME format.', '', '--' + grenze], textTeil);
+    teile.forEach(a => {
+      const name = this.safeFilename(a.name.replace(/\.pdf$/i, ''), 'pdf');
+      const typ = a.typ || (/\.pdf$/i.test(a.name) ? 'application/pdf' : 'application/octet-stream');
+      zeilen.push('', '--' + grenze, `Content-Type: ${typ}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(a.bytes));
+    });
+    zeilen.push('', '--' + grenze + '--', '');
+    return zeilen.join('\r\n');
+  },
+  // Datei zum Herunterladen anbieten (Bytes oder Text)
+  downloadBlob(daten, name, mime) {
+    const blob = daten instanceof Blob ? daten : new Blob([daten], { type: mime || 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch(e) {} }, 10000);
+  },
   // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
   // Teile mit _ verbunden (z.B. safeFilename(['Uebergabe','Amt 94','BS Freiburg','2026-09-15'],'xlsx'))
   safeFilename(teile, ext) {

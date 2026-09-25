@@ -1,5 +1,5 @@
 const PDFExport = {
-  generateBatch(transform, termin, terminId, schuelerList) {
+  generateBatch(transform, termin, terminId, schuelerList, opts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     const kwRows = [[36,37,38,39,40,41,42,43,44,45,46,47,48],[49,50,51,52,1,2,3,4,5,6,7,8,9],[10,11,12,13,14,15,16,17,18,19,20,21,22],[23,24,25,26,27,28,29,30,31,32,33,34,35]];
@@ -495,21 +495,36 @@ const PDFExport = {
     const fname = schuelerList.length === 1
       ? `BH-Durchsicht_${schuelerList[0].nachname}_${schuelerList[0].vorname}_${termin.schule}_${termin.klassenbezeichnung}_${dateStr}.pdf`
       : `BH-Durchsicht_${termin.schule}_${termin.klassenbezeichnung}_${schuelerList.length}Schueler_${dateStr}.pdf`;
-    doc.save(fname.replace(/[\/ \\\\:,;+]/g,'_'));
+    const dateiname = fname.replace(/[\/ \\\\:,;+]/g,'_');
+    // Als Bytes zurückgeben (E-Mail-Entwürfe mit Anhang) statt herunterzuladen
+    if (opts && opts.bytes) return { name: dateiname, bytes: new Uint8Array(doc.output('arraybuffer')) };
+    doc.save(dateiname);
     App.toast(`PDF erstellt: ${schuelerList.length} Durchsichtsbög${schuelerList.length===1?'en':'en'}`, 'success');
   },
 
-  // Single export for one Schüler
-  generateSingle(terminId, schuelerId) {
+  _terminFuerBogen(terminId) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
-    if (!termin) return App.toast('Termin nicht gefunden', 'error');
+    if (!termin) return null;
     const klassen = App.getTerminKlassen(terminId);
     termin.klassenbezeichnung = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
     const ortBs = App.getTerminSchule ? App.getTerminSchule(terminId) : null;
     termin.schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : 'Einsendung');
+    return termin;
+  },
+  // Single export for one Schüler
+  generateSingle(terminId, schuelerId) {
+    const termin = this._terminFuerBogen(terminId);
+    if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);
+  },
+  // Durchsichtsbogen eines Azubis als { name, bytes } – Anhang für E-Mail-Entwürfe
+  bogenBytes(terminId, schuelerId) {
+    const termin = this._terminFuerBogen(terminId);
+    const s = termin && App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!termin || !s) return null;
+    return this.generateBatch(d=>d, termin, terminId, [s], { bytes: true });
   },
 
   // Einheitliche Fußzeile für alle erzeugten PDFs (Anschreiben, Listen)

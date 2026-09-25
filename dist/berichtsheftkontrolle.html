@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 14:18 UTC',
+  BUILD: '2026-09-25 14:33 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -15638,6 +15638,54 @@ const App = {
     return !!a && a !== this.EIGENES_AMT;
   },
 
+  // ── E-Mail-Entwurf als .eml (Outlook klassisch öffnet „X-Unsent: 1“ als
+  //    unversendeten Entwurf mit Empfänger, Betreff, Text und Anhängen) ──
+  // Kein mailto-Längenlimit, Anhänge möglich. Text und Anhänge base64
+  // (Umlaute sicher), Betreff als kodiertes Wort, CRLF-Zeilenenden.
+  _b64(bytes) {
+    const T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i], b = i + 1 < bytes.length ? bytes[i + 1] : 0, c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+      const n = (a << 16) | (b << 8) | c;
+      out += T[(n >> 18) & 63] + T[(n >> 12) & 63] + (i + 1 < bytes.length ? T[(n >> 6) & 63] : '=') + (i + 2 < bytes.length ? T[n & 63] : '=');
+    }
+    return out;
+  },
+  _b64Zeilen(bytes) { return (this._b64(bytes).match(/.{1,76}/g) || []).join('\r\n'); },
+  _b64Text(text) { return this._b64(new TextEncoder().encode(String(text || ''))); },
+  _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
+  emlErzeugen({ to, cc, subject, body, anhaenge }) {
+    const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const kopf = [
+      'X-Unsent: 1',
+      'MIME-Version: 1.0',
+      'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
+      'To: ' + (to || ''),
+      ...(cc ? ['Cc: ' + cc] : []),
+      'Subject: ' + this._mimeWort(subject || ''),
+    ];
+    const textTeil = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
+    const teile = (anhaenge || []).filter(a => a && a.bytes && a.name);
+    if (!teile.length) return kopf.concat(textTeil).join('\r\n') + '\r\n';
+    const zeilen = kopf.concat([`Content-Type: multipart/mixed; boundary="${grenze}"`, '', 'This is a multi-part message in MIME format.', '', '--' + grenze], textTeil);
+    teile.forEach(a => {
+      const name = this.safeFilename(a.name.replace(/\.pdf$/i, ''), 'pdf');
+      const typ = a.typ || (/\.pdf$/i.test(a.name) ? 'application/pdf' : 'application/octet-stream');
+      zeilen.push('', '--' + grenze, `Content-Type: ${typ}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(a.bytes));
+    });
+    zeilen.push('', '--' + grenze + '--', '');
+    return zeilen.join('\r\n');
+  },
+  // Datei zum Herunterladen anbieten (Bytes oder Text)
+  downloadBlob(daten, name, mime) {
+    const blob = daten instanceof Blob ? daten : new Blob([daten], { type: mime || 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch(e) {} }, 10000);
+  },
   // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
   // Teile mit _ verbunden (z.B. safeFilename(['Uebergabe','Amt 94','BS Freiburg','2026-09-15'],'xlsx'))
   safeFilename(teile, ext) {
@@ -20440,8 +20488,7 @@ const Views = {
           <button class="btn btn-secondary" onclick="Konsole.testDialog()" title="Auflisten, Lesen, Schreibprobe, Uhrversatz und Lebenszeichen messen – mit Befunden in Klartext">⚙ Verbindungstest</button>
           <button class="btn btn-secondary" onclick="Konsole.kopieren()" title="Zustandsbild, Ereignisspur und Konsolenprotokoll in die Zwischenablage (Namen geschwärzt)">▤ Zustandsbild kopieren</button>
           <button class="btn btn-secondary" onclick="Konsole.vollabgleichDialog()" title="Alle Protokolle der Kollegen ab dem Snapshot-Stand neu einlesen – wenn ein Rechner Änderungen der anderen nicht zeigt. Neuere eigene Werte bleiben erhalten.">⟳ Vollabgleich</button>
-          <button class="btn btn-secondary" onclick="Konsole.protokolleDialog()" title="Welche Rechner schreiben Protokolle für diese Datenbank, wie groß und wie alt sind sie, was ist hier noch ungelesen – zum Vergleich mit dem anderen Rechner">▤ Protokolle im Ordner</button>
-          <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
+          <button class="btn btn-secondary" onclick="Konsole.protokolleDialog()" title="Welche Rechner schreiben Protokolle für diese Datenbank, wie groß und wie alt sind sie, was ist hier noch ungelesen – zum Vergleich mit dem anderen Rechner">▤ Protokolle im Ordner</button>          <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
         </div>
         <div style="margin-top:8px;padding:8px 10px;border-left:4px solid ${App.istLeitDb() === false ? 'var(--clr-amber)' : 'var(--clr-green)'};background:${App.istLeitDb() === false ? 'var(--clr-amber-light, #fff7ed)' : 'var(--clr-green-light)'};font-size:13px;line-height:1.6">
           <strong>Gemeinsame Datenbank dieses Ordners:</strong> ${App._leitDb ? `„${esc(App._leitDb.name)}“${App._leitDb.gesetztVon ? ` (festgelegt von ${esc(App._leitDb.gesetztVon)}${App._leitDb.am ? ' am ' + esc(new Date(App._leitDb.am).toLocaleDateString('de-DE')) : ''})` : ''}` : 'noch nicht festgelegt'}.
@@ -21551,9 +21598,9 @@ const Views = {
             <div class="help-abschnitt">
               <h4 class="help-untertitel">E-Mails an die Betriebe nach der Kontrolle</h4>
               <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
-              <p>• <strong>✉︎ Nächste öffnen</strong> arbeitet die Liste von oben ab: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text.</p>
-              <p>• <strong>Text zu lang:</strong> Ein E-Mail-Link fasst nur etwa 2000 Zeichen. Passt der Text nicht, sagt es die Zeile schon vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
-              <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail geöffnet, gilt der Termin als nachbereitet.</p>
+              <p>• <strong>⬇ Alle als Outlook-Entwürfe (ZIP)</strong> ist der Hauptweg, ohne Längengrenze. Je Betrieb entsteht eine .eml-Datei mit Empfänger, Betreff, Text und – nach der Kontrolle – den Durchsichtsbögen der genannten Azubis als PDF-Anhang; alles zusammen in einer ZIP-Datei (mit LIESMICH). ZIP entpacken, .eml doppelklicken: das klassische Outlook öffnet sie als neuen Entwurf mit „Senden“ (das neue Outlook zeigt solche Dateien nur zum Lesen – dann den Weg „Nächste öffnen“ nutzen).</p>
+              <p>• <strong>✉︎ Nächste öffnen</strong> ist der zweite Weg über den E-Mail-Link: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text. Ein E-Mail-Link fasst nur etwa 2000 Zeichen: passt der Text nicht, sagt es die Zeile vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
+              <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung (oder das Erzeugen des Entwurfs) wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail erledigt, gilt der Termin als nachbereitet.</p>
             </div>
           </div>
 
@@ -27516,7 +27563,7 @@ const NacherfassungHandler = {
 
 // ── pdf-export.js ──
 const PDFExport = {
-  generateBatch(transform, termin, terminId, schuelerList) {
+  generateBatch(transform, termin, terminId, schuelerList, opts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
     const kwRows = [[36,37,38,39,40,41,42,43,44,45,46,47,48],[49,50,51,52,1,2,3,4,5,6,7,8,9],[10,11,12,13,14,15,16,17,18,19,20,21,22],[23,24,25,26,27,28,29,30,31,32,33,34,35]];
@@ -28012,21 +28059,36 @@ const PDFExport = {
     const fname = schuelerList.length === 1
       ? `BH-Durchsicht_${schuelerList[0].nachname}_${schuelerList[0].vorname}_${termin.schule}_${termin.klassenbezeichnung}_${dateStr}.pdf`
       : `BH-Durchsicht_${termin.schule}_${termin.klassenbezeichnung}_${schuelerList.length}Schueler_${dateStr}.pdf`;
-    doc.save(fname.replace(/[\/ \\\\:,;+]/g,'_'));
+    const dateiname = fname.replace(/[\/ \\\\:,;+]/g,'_');
+    // Als Bytes zurückgeben (E-Mail-Entwürfe mit Anhang) statt herunterzuladen
+    if (opts && opts.bytes) return { name: dateiname, bytes: new Uint8Array(doc.output('arraybuffer')) };
+    doc.save(dateiname);
     App.toast(`PDF erstellt: ${schuelerList.length} Durchsichtsbög${schuelerList.length===1?'en':'en'}`, 'success');
   },
 
-  // Single export for one Schüler
-  generateSingle(terminId, schuelerId) {
+  _terminFuerBogen(terminId) {
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
-    if (!termin) return App.toast('Termin nicht gefunden', 'error');
+    if (!termin) return null;
     const klassen = App.getTerminKlassen(terminId);
     termin.klassenbezeichnung = klassen.map(k => k.klassenbezeichnung).join(' + ') || '–';
     const ortBs = App.getTerminSchule ? App.getTerminSchule(terminId) : null;
     termin.schule = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : 'Einsendung');
+    return termin;
+  },
+  // Single export for one Schüler
+  generateSingle(terminId, schuelerId) {
+    const termin = this._terminFuerBogen(terminId);
+    if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);
+  },
+  // Durchsichtsbogen eines Azubis als { name, bytes } – Anhang für E-Mail-Entwürfe
+  bogenBytes(terminId, schuelerId) {
+    const termin = this._terminFuerBogen(terminId);
+    const s = termin && App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!termin || !s) return null;
+    return this.generateBatch(d=>d, termin, terminId, [s], { bytes: true });
   },
 
   // Einheitliche Fußzeile für alle erzeugten PDFs (Anschreiben, Listen)
@@ -33331,7 +33393,7 @@ const Workflows = {
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
       <div id="betriebMailListe" style="max-height:420px;overflow-y:auto">${this._betriebMailListeHtml()}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es.${isDone ? ' Jedes Öffnen wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
+      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <span id="betriebMailFuss">${this._betriebMailFussHtml()}</span>`);
   },
@@ -33344,9 +33406,74 @@ const Workflows = {
     const mit = d.betriebe.filter(g => g.email).length;
     const offen = this._betriebMailOffen();
     if (!mit) return '';
-    if (!offen.length) return `<span style="color:var(--clr-green);font-weight:600;padding:0 8px">✓ Alle ${mit} E-Mails geöffnet</span>`;
+    // Hauptweg: ZIP mit Outlook-Entwürfen (keine Längengrenze, Bögen als
+    // Anhang); „Nächste öffnen“ (mailto) bleibt als zweiter Weg
+    const zipKnopf = typeof PizZip !== 'undefined'
+      ? `<button class="btn btn-primary" onclick="Workflows.betriebMailsAlsZip()" title="Je Betrieb eine .eml-Datei mit Empfänger, Betreff, Text${d.isDone ? ' und den Durchsichtsbögen als PDF-Anhang' : ''} – ZIP entpacken, in Outlook per Doppelklick als Entwurf öffnen und senden. Keine Längengrenze, kein Strg+V.">⬇ Alle ${mit} als Outlook-Entwürfe (ZIP)</button>`
+      : '';
+    if (!offen.length) return `${zipKnopf}<span style="color:var(--clr-green);font-weight:600;padding:0 8px">✓ Alle ${mit} E-Mails erledigt</span>`;
     const n = mit - offen.length + 1;
-    return `<button class="btn btn-primary" onclick="Workflows._naechsteBetriebMail()" title="Öffnet die nächste noch nicht geöffnete E-Mail (${esc(offen[0].g.name)})">✉︎ Nächste öffnen (${n} von ${mit})</button>`;
+    return `${zipKnopf}<button class="btn ${zipKnopf ? 'btn-secondary' : 'btn-primary'}" onclick="Workflows._naechsteBetriebMail()" title="Alternativ einzeln über den E-Mail-Link: öffnet die nächste noch nicht geöffnete E-Mail (${esc(offen[0].g.name)})">✉︎ Nächste öffnen (${n} von ${mit})</button>`;
+  },
+  // Alle E-Mails eines Termins als .eml-Entwürfe in einer ZIP-Datei: je Betrieb
+  // Empfänger, Betreff, Text und (nach der Kontrolle) die Durchsichtsbögen der
+  // genannten Azubis als PDF. Outlook (klassisch) öffnet .eml mit „X-Unsent: 1“
+  // als neuen Entwurf mit „Senden“ – ohne mailto-Grenze, ohne Zwischenablage.
+  betriebMailsAlsZip() {
+    const d = this._individualData; if (!d) return;
+    if (typeof PizZip === 'undefined') return App.toast('ZIP-Bibliothek nicht geladen', 'error');
+    const mit = d.betriebe.map((g, idx) => ({ g, idx })).filter(x => x.g.email);
+    if (!mit.length) return App.toast('Kein Betrieb mit E-Mail-Adresse', 'warning');
+    const zip = new PizZip();
+    let pdfs = 0;
+    const zeit = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    mit.forEach(({ g, idx }, i) => {
+      const m = this._betriebMailInhalt(idx); if (!m) return;
+      const anhaenge = [];
+      if (d.isDone && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
+        g.azubis.forEach(a => {
+          if (!a.ke || !a.ke.ergebnis) return;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
+          try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
+        });
+      }
+      const eml = App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, anhaenge });
+      zip.file(App.safeFilename([String(i + 1).padStart(2, '0'), g.name], 'eml'), eml);
+      pdfs += anhaenge.length;
+      const erstesMal = !d.status[idx];
+      d.status[idx] = { zeit, entwurf: true };
+      if (erstesMal) this._betriebVersandVermerken(m, 'Entwurf (.eml) erzeugt');
+    });
+    zip.file('LIESMICH.txt', [
+      'E-Mail-Entwürfe der Berichtsheftkontrolle',
+      '',
+      `Termin: ${d.t.ctx.datum} – ${d.t.ctx.schule}`,
+      `${mit.length} Entwürfe, ${pdfs} Durchsichtsbögen als Anhang`,
+      '',
+      'So geht es weiter:',
+      '1. Diese ZIP-Datei entpacken (Rechtsklick → „Alle extrahieren“).',
+      '2. Jede .eml-Datei doppelklicken: Outlook öffnet sie als neuen Entwurf mit Empfänger, Betreff, Text und Anhängen.',
+      '3. Prüfen, bei Bedarf ergänzen, „Senden“.',
+      '',
+      'Öffnet Outlook die Datei nur zum Lesen (ohne „Senden“), in der Berichtsheftkontrolle den Weg „Öffnen“ je Betrieb nutzen.',
+      `Erzeugt am ${new Date().toLocaleString('de-DE')} von ${App.currentUser || ''}`,
+    ].join('\r\n'));
+    const bytes = zip.generate({ type: 'uint8array', compression: 'DEFLATE' });
+    App.downloadBlob(bytes, App.safeFilename(['E-Mails_Betriebe', d.t.ctx.schule, d.t.termin.geplant_datum], 'zip'), 'application/zip');
+    if (d.isDone && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(e) {} }
+    const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
+    const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
+    App.toast(`ZIP mit ${mit.length} E-Mail-Entwürfen${pdfs ? ` und ${pdfs} Durchsichtsbögen` : ''} erzeugt – entpacken, .eml doppelklicken, in Outlook senden`, 'success', 10000);
+  },
+  // Versandnachweis an den offenen Wiedervorlagen der Azubis eines Betriebs
+  // (Mängelmitteilung / Nachhol-Aufforderung nach der Kontrolle)
+  _betriebVersandVermerken(m, zusatz) {
+    const d = this._individualData; if (!d || !d.isDone) return;
+    if (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung') return;
+    m.g.azubis.forEach(a => {
+      if (!a.ke) return;
+      App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [a.ke.id])
+        .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung', zusatz));
+    });
   },
   _betriebMailListeHtml() {
     const d = this._individualData; if (!d) return '';
@@ -33369,7 +33496,8 @@ const Workflows = {
     const art = this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)];
     const passt = g.email ? this._betriebMailPasst(idx) : true;
     let status = '';
-    if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
+    if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
+    else if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
     else if (g.email && !passt) status = '<span style="color:var(--clr-amber)" title="Der Text ist zu lang für den E-Mail-Link. Beim Öffnen startet Outlook mit Empfänger und Betreff, der Text wird in die Zwischenablage kopiert.">Text zu lang für den Link → wird beim Öffnen kopiert (Strg+V in Outlook)</span>';
     return `<div id="betriebMail_${idx}" style="padding:8px 10px;margin-bottom:6px;background:${st ? 'var(--clr-green-light)' : g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">
@@ -33443,13 +33571,7 @@ const Workflows = {
     d.status[betriebIdx] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), zwischenablage: !!r.zwischenablage };
     // Versandnachweis an den Wiedervorlagen der Azubis dieses Betriebs (nur
     // beim ersten Öffnen – ein zweites Öffnen ist kein zweites Anschreiben)
-    if (d.isDone && erstesMal && (m.typ === 'betrieb_maengel' || m.typ === 'nachholung')) {
-      m.g.azubis.forEach(a => {
-        if (!a.ke) return;
-        App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [a.ke.id])
-          .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung'));
-      });
-    }
+    if (erstesMal) this._betriebVersandVermerken(m, '');
     // Alle Betriebe angeschrieben → Nachbereitung des Termins erledigt
     if (d.isDone && !this._betriebMailOffen().length) {
       try { App.terminSchritt(terminId, 'nachbereitet'); } catch(e) {}
