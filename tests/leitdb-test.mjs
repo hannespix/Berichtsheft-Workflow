@@ -196,6 +196,41 @@ console.log('\n══ Arbeitsordner: Kennung, Wechsel, Unterordner mit eigener D
   check(/await this\._ordnerKennungPruefen\(\)/.test(A) && /await this\._unterordnerPruefen\(\)/.test(A) && /this\._ordnerAnzeigen\(\)/.test(A), 'Prüfungen laufen beim Laden der Datenbank');
 }
 
+console.log('\n══ Unterordner als Arbeitsordner: abweisen, nichts anlegen; Datenbanken/ nicht auf Vorrat ══');
+{
+  const s = makeStore(); s.now = () => T; s.files.set('test.sqlite', { data: new Uint8Array(seedBytes), mtime: T });
+  const c = await makeClient(SQL, s, 'Falsch', new Uint8Array(seedBytes), { quiet: true, clientId: 'falsch', skipBootstrap: true });
+  const meld = []; c.toast = (m, t, d) => meld.push({ m, t, d });
+  let gespeichert = 'unberührt'; c.storeDirHandle = async (h) => { gespeichert = h; };
+  // Ordner heißt „Datenbanken“ – zählt, was angelegt würde
+  const angelegt = []; const vorhanden = new Set();
+  const nichtDa = () => Object.assign(new Error('nicht da'), { name: 'NotFoundError' });
+  const fakeDir = (name) => ({ name, kind: 'directory', async getDirectoryHandle(n, o) { const k = name + '/' + n; if (o && o.create) { angelegt.push(k); vorhanden.add(k); } else if (!vorhanden.has(k)) throw nichtDa(); return fakeDir(n); }, async getFileHandle() { throw nichtDa(); }, async *entries() {}, async *values() {} });
+  c.dirHandle = fakeDir('Datenbanken');
+  check(!c._ordnerZulaessig(c.dirHandle) && !c._ordnerZulaessig({ name: '_bhk' }) && !c._ordnerZulaessig({ name: 'backups' }) && c._ordnerZulaessig({ name: 'Berichtsheftkontrolle' }), 'Unterordner-Namen erkannt, Hauptordner zulässig');
+  await c.ensureAppDirs();
+  check(c._ordnerUnzulaessig === 'Datenbanken' && angelegt.length === 0 && !c.bhkDirHandle && !c.dbDirHandle, 'Im Unterordner wird NICHTS angelegt (kein Datenbanken/Datenbanken, kein _bhk)');
+  const ok = await c.dbImOrdnerOeffnen('Start');
+  check(ok === false && meld.some(x => x.t === 'error' && /Unterordner/.test(x.m) && /Hauptordner/.test(x.m) && x.d >= 15000) && gespeichert === null && !c.dirHandle, 'Öffnen abgewiesen, Ordner nicht gemerkt, Meldung nennt den Hauptordner');
+  // Zulässiger Ordner ohne Datenbanken/: wird nicht auf Vorrat angelegt, nur _bhk
+  angelegt.length = 0;
+  c.dirHandle = fakeDir('Berichtsheftkontrolle');
+  await c.ensureAppDirs();
+  check(c._ordnerUnzulaessig === '' && angelegt.includes('Berichtsheftkontrolle/_bhk') && !angelegt.includes('Berichtsheftkontrolle/Datenbanken') && c.dbDirHandle === null, 'Hauptordner: _bhk ja, Datenbanken/ nein (nicht vorhanden → null)');
+  await c._datenbankenOrdnerAnlegen();
+  check(angelegt.includes('Berichtsheftkontrolle/Datenbanken') && c.dbDirHandle && c.dbDirHandle.name === 'Datenbanken', 'Datenbanken/ entsteht erst bei Bedarf (neue Datenbank)');
+  // Spuren einer Fehlwahl: Datenbanken/Datenbanken und Datenbanken/_bhk
+  const unter = (name, eintraege) => ({ kind: 'directory', name, async *entries() { for (const e of eintraege) yield e; } });
+  c.dirHandle = { name: 'Berichtsheftkontrolle', async *entries() { yield ['Datenbanken', unter('Datenbanken', [])]; yield ['_bhk', unter('_bhk', [])]; } };
+  c.dbDirHandle = unter('Datenbanken', [['Datenbanken', unter('Datenbanken', [])], ['_bhk', unter('_bhk', [])], ['test.sqlite', { kind: 'file', name: 'test.sqlite' }]]);
+  const m2 = []; c.toast = (m, t, d) => m2.push({ m, t, d }); c._unterordnerGewarnt = false;
+  const funde = await c._unterordnerPruefen();
+  check(funde.length === 2 && funde.every(f => f.verirrt) && funde.some(f => f.ordner === 'Datenbanken/Datenbanken') && funde.some(f => f.ordner === 'Datenbanken/_bhk'), `Verirrte Unterordner in Datenbanken/ erkannt (${funde.map(f => f.ordner).join(', ')})`);
+  check(m2.some(x => x.t === 'warning' && /Verirrte Unterordner/.test(x.m) && /selbst als Arbeitsordner/.test(x.m)), 'Warnung erklärt die Fehlwahl');
+  const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
+  check(!/getDirectoryHandle\('Datenbanken', \{ create: true \}\)/.test(A.replace(/_datenbankenOrdnerAnlegen\(\) \{[\s\S]*?\n  \},/, '')), 'Datenbanken/ wird nur in _datenbankenOrdnerAnlegen angelegt');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const A = fs.readFileSync(path.join(ROOT, 'src/js/app-core.js'), 'utf8');
