@@ -1008,7 +1008,8 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 @media (max-height: 720px), (max-width: 720px) {
   .azubi-sticky, .kw-legend, .ke-leiste { position: static; margin-bottom: 0; }
   .kw-legend { max-width: none; box-shadow: none; }
-  .ke-leiste { bottom: auto; box-shadow: none; border-top: 2px solid var(--clr-sand); margin-top: 12px; border-radius: var(--radius); }
+  .ke-leiste { bottom: auto; box-shadow: none; border-top: 2px solid var(--clr-sand); margin-top: 12px; border-radius: var(--radius); padding-top: 6px; }
+  .ke-griff { display: none; }
 }
 /* Sichtbarer Tastaturfokus auf allen Knöpfen, Links und Menüs (gelber BW-Marker) */
 .btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
@@ -1044,7 +1045,12 @@ body.grosse-schrift { zoom: 1.2; }
 .ibykus-block input[type=checkbox]:disabled { opacity: 0.9; }
 .ibykus-block.offen { border-color: var(--clr-amber); background: var(--clr-amber-light); }
 .ibykus-block .form-group label { color: var(--clr-text-light); }
-.ke-leiste { position: sticky; bottom: calc(-1 * var(--gutter-unten)); z-index: 22; margin: 12px calc(-1 * var(--gutter)) calc(-1 * var(--gutter-unten)); padding: 6px var(--gutter) 8px; background: var(--clr-white); border-top: 2px solid var(--clr-sand); box-shadow: 0 -4px 12px rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 5px; }
+.ke-leiste { position: sticky; bottom: calc(-1 * var(--gutter-unten)); z-index: 22; margin: 12px calc(-1 * var(--gutter)) calc(-1 * var(--gutter-unten)); padding: 0 var(--gutter) 8px; background: var(--clr-white); border-top: 2px solid var(--clr-sand); box-shadow: 0 -4px 12px rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 5px; }
+/* Griff an der Oberkante: Ziehen ändert die Höhe des Bemerkungsfelds (wie der Sidebar-Griff) */
+.ke-griff { height: 12px; margin: 0 calc(-1 * var(--gutter)); cursor: row-resize; position: relative; flex-shrink: 0; touch-action: none; }
+.ke-griff::after { content: ''; position: absolute; left: 50%; top: 4px; width: 40px; height: 4px; transform: translateX(-50%); border-radius: 2px; background: var(--clr-sand); transition: background 0.15s; }
+.ke-griff:hover::after, .ke-griff.dragging::after, .ke-griff:focus-visible::after { background: var(--clr-forest); }
+.ke-griff:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: -3px; }
 .ke-ergebnis { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .ke-titel { font-weight: 700; color: var(--clr-forest-dark); margin-right: 4px; font-family: var(--font-display); }
 .erg-pill { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--clr-sand); border-radius: 14px; cursor: pointer; background: var(--clr-warm); color: var(--clr-text); white-space: nowrap; transition: background 0.1s, border-color 0.1s; }
@@ -1064,7 +1070,8 @@ body.grosse-schrift { zoom: 1.2; }
 .ke-wv input { width: auto; padding: 2px 6px; font-size: 12px; }
 .ke-wv .ke-wv-text { font-size: 12px; color: var(--clr-forest); font-weight: 600; white-space: nowrap; }
 .ke-zeile2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.ke-zeile2 textarea { flex: 1 1 260px; font-size: 12px; padding: 5px 8px; resize: none; min-height: 0; line-height: 1.3; }
+.ke-zeile2 textarea { flex: 1 1 260px; font-size: 12px; padding: 5px 8px; resize: none; min-height: 28px; line-height: 1.3; align-self: flex-start; }
+.ke-zeile2 .btn, .ke-zeile2 .aktionen-menue { align-self: flex-start; }
 .ke-zeile2 .btn { padding: 5px 12px; }
 .ke-zeile2 .aktionen-menue > summary { padding: 5px 10px; }
 body.dark-mode .ke-leiste { background: var(--clr-white); border-top-color: var(--clr-sand); box-shadow: 0 -4px 12px rgba(0,0,0,0.4); }
