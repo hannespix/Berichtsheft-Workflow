@@ -225,6 +225,7 @@ const Konsole = {
     if (sid == null) { console.log('Aufruf: bhk.pruefen(<Azubi-Kennung>) – die Kennung steht in der Adresszeile der Azubi-Seite oder in der Konsole über App.query("SELECT id,nachname FROM schueler WHERE nachname LIKE ?", ["Muster%"])'); return null; }
     const r = await App.azubiPruefen(sid);
     console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s, Datenbank ${r.datenbank || '?'}${r.ordner ? ` in Ordner „${r.ordner}“` : ''}`, 'font-weight:bold');
+    if (r.andereDatenbanken && r.andereDatenbanken.length) { console.log('%cACHTUNG: Im selben Ordner werden Protokolle für eine ANDERE Datenbank geschrieben – dort arbeitet vermutlich der Kollege. Alle müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile):', 'color:#A94E00;font-weight:bold'); this._tabelle(r.andereDatenbanken); }
     console.log(`Lokal: ${r.lokal.wochen.length} Wochenzeilen, davon ${r.lokal.wochenMitCodes} mit Codes; ${r.lokal.ergebnisse.length} Kontrollergebnis(se); ${r.lokal.stempel} Zeilen mit Stempeln`);
     this._tabelle(r.lokal.wochen.filter(w => w.codes || w.bemerkung).map(w => ({ AJ: w.aj, KW: w.kw, Codes: w.codes, Fehltage: w.fehltage, Bemerkung: w.bemerkung })));
     this._tabelle(r.lokal.ergebnisse.map(e => ({ Termin: e.termin, Ergebnis: e.ergebnis, Geändert: e.geaendert_am, Von: e.geaendert_von })));

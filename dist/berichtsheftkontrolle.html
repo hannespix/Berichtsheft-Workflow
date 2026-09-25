@@ -7720,7 +7720,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-25 09:45 UTC',
+  BUILD: '2026-09-25 09:55 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -9989,7 +9989,7 @@ const App = {
   diagnose() {
     const z = (sql) => { try { return this.scalar(sql) || 0; } catch(e) { return 0; } };
     const d = {
-      programm: { version: this.VERSION, build: this.BUILD, zeitpunkt: new Date().toISOString(), uhrVersatzS: Math.round((this._uhrVersatzMs || 0) / 1000) },
+      programm: { version: this.VERSION, build: this.BUILD, zeitpunkt: new Date().toISOString(), uhrVersatzS: Math.round((this._uhrVersatzMs || 0) / 1000), datenbank: this.autoLoadedDbName || '', andereDatenbankenImOrdner: (this._fremdeDatenbanken || []).map(e => `${e.slug} (${e.dateien} Protokolle, zuletzt ${new Date(e.juengste).toISOString()})`) },
       browser: { kennung: (typeof navigator !== 'undefined' && navigator.userAgent) || '', sprache: (typeof navigator !== 'undefined' && navigator.language) || '' },
       sitzung: {
         ansicht: this.currentView || '', rolle: this.uGet ? (this.uGet('rolle') || 'berater') : '',
@@ -12426,7 +12426,7 @@ const App = {
   async azubiPruefen(sid) {
     sid = parseInt(sid);
     const s = this.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [sid])[0];
-    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
+    const out = { sid, name: s ? `${s.nachname}, ${s.vorname}` : '(unbekannt)', lokal: {}, protokolle: [], unbekannt: [], verworfen: [], gesamtOps: 0, zwangOps: 0, zwangUnbekannt: 0, zwangLetzte: 0, ordner: this._syncDirV3() ? (this._syncDirV3().name || '') : '', datenbank: this.autoLoadedDbName || '', andereDatenbanken: (this._fremdeDatenbanken || []).map(e => ({ datenbank: e.slug, protokolle: e.dateien, zuletzt: new Date(e.juengste).toLocaleString('de-DE') })), versatzMs: this._uhrVersatzMs || 0, build: this.BUILD, rechner: this._getClientId() };
     out.lokal.wochen = this.query('SELECT ausbildungsjahr aj, kalenderwoche kw, maengel_codes codes, fehltage, geprueft, bemerkung FROM kw_status WHERE schueler_id=? ORDER BY aj, kw', [sid]);
     out.lokal.wochenMitCodes = out.lokal.wochen.filter(w => w.codes).length;
     out.lokal.ergebnisse = this.query('SELECT ke.kontrolltermin_id termin, ke.ergebnis, ke.geaendert_am, ke.geaendert_von FROM kontrollergebnisse ke WHERE ke.schueler_id=? ORDER BY ke.id', [sid]);
@@ -12905,9 +12905,26 @@ const App = {
     const prefix = this._oplogPrefix();
     const mine = this._myOplogName();
     const batch = [];
+    const fremde = new Map(); // Protokolle ANDERER Datenbanken im selben Ordner
     try {
       for await (const entry of dir.entries()) {
         const name = entry[0], h = entry[1];
+        if (name.startsWith('oplog_') && name.endsWith('.jsonl') && !name.startsWith(prefix)) {
+          // Feldfall: zwei Kollegen im selben Ordner, aber auf verschiedenen
+          // Datenbankdateien (jeder Browser merkt sich seine letzte) – keiner
+          // sieht die Änderungen des anderen, und beide melden „keine
+          // Änderungen“. Jüngste Änderungszeit je fremder Datenbank merken.
+          const m = name.match(/^oplog_(.+)_([a-z0-9]+)_g\d+\.jsonl$/);
+          if (m) {
+            try {
+              const f = await h.getFile();
+              const e = fremde.get(m[1]) || { slug: m[1], dateien: 0, juengste: 0 };
+              e.dateien++; if (f.lastModified > e.juengste) e.juengste = f.lastModified;
+              fremde.set(m[1], e);
+            } catch(e) {}
+          }
+          continue;
+        }
         if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
         const off = baseOffsets[name] || 0;
         // Offset = KONSUMIERTE Bytes, nicht Dateigröße: Endet die Datei mitten
@@ -12969,6 +12986,7 @@ const App = {
       this._snapGen = (meta && meta.gen) || 0;
       this._v3Ready = true;
       console.log(`[SyncV3] Bootstrap: ${batch.length} Log-Ops angewendet (${Object.keys(this._logOffsets).length + 1} Logs)`);
+      this._fremdeDatenbankenPruefen([...fremde.values()]);
       // Große Logs nach dem Start kompaktieren (beschleunigt künftige Starts).
       // Zufällig 20–80 s verzögert: Starten zwei Kollegen morgens zur selben
       // Minute, kompaktierten sonst beide gleichzeitig um das Lock.
@@ -12979,6 +12997,26 @@ const App = {
       console.warn('[SyncV3] Bootstrap-Fehler:', e.message);
       this._v3Ready = true; // Polling darf trotzdem starten
     }
+  },
+
+  // ── Andere Datenbanken im selben Ordner ──
+  // Liegen im Ordner Protokolle einer ANDEREN Datenbankdatei, die in den
+  // letzten Tagen beschrieben wurden, arbeitet dort sehr wahrscheinlich ein
+  // Kollege – und keiner sieht die Änderungen des anderen. Einmal je Sitzung
+  // deutlich sagen; Liste bleibt für Wartung, Zustandsbild und bhk.pruefen.
+  FREMDE_DB_TAGE: 7,
+  _fremdeDatenbanken: [],
+  _fremdeDatenbankenPruefen(liste) {
+    try {
+      const grenze = Date.now() - this.FREMDE_DB_TAGE * 86400000;
+      this._fremdeDatenbanken = (liste || []).filter(e => e.juengste >= grenze).sort((a, b) => b.juengste - a.juengste);
+      if (!this._fremdeDatenbanken.length) return;
+      const namen = this._fremdeDatenbanken.map(e => `„${e.slug}“ (zuletzt ${new Date(e.juengste).toLocaleString('de-DE')})`).join(', ');
+      const text = `Achtung: Im selben Ordner werden gerade auch Protokolle für eine andere Datenbank geschrieben: ${namen}. Diese Datenbank hier heißt „${this.autoLoadedDbName || '?'}“. Alle Kollegen müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile), sonst sieht keiner die Änderungen des anderen.`;
+      console.warn('[SyncV3] ' + text);
+      try { BhkSpur.notiere('netz', 'Andere Datenbank im Ordner', { ok: false, fehler: 'andere Datenbank', info: namen }); } catch(e) {}
+      if (!this._fremdeDbGewarnt) { this._fremdeDbGewarnt = true; this.toast(text, 'warning', 15000); }
+    } catch(e) {}
   },
 
   // ── Kompaktierung: Snapshot (DB-Datei) aktualisieren, mit Lock ──
@@ -17803,7 +17841,7 @@ Mit freundlichen Grüßen
     if (banner) banner.remove();
   },
 
-  toast(msg, type = 'info') {
+  toast(msg, type = 'info', dauerMs = 4000) {
     const c = document.getElementById('toastContainer');
     if (c && !c.getAttribute('aria-live')) { c.setAttribute('aria-live', 'polite'); c.setAttribute('role', 'status'); }
     const t = document.createElement('div');
@@ -17811,7 +17849,7 @@ Mit freundlichen Grüßen
     if (type === 'error') t.setAttribute('role', 'alert');
     t.textContent = msg;
     c.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, Math.max(1000, Number(dauerMs) || 4000));
   },
 
   // ── Modal ──
@@ -19744,8 +19782,11 @@ const Views = {
           <button class="btn btn-secondary" onclick="Konsole.vollabgleichDialog()" title="Alle Protokolle der Kollegen ab dem Snapshot-Stand neu einlesen – wenn ein Rechner Änderungen der anderen nicht zeigt. Neuere eigene Werte bleiben erhalten.">⟳ Vollabgleich</button>
           <span style="font-size:12px;color:var(--clr-text-light)">Für die Fehlersuche je Zugangsweg (Büro, VPN, Mobilfunk): Test dort ausführen und Ergebnisse vergleichen. Mehr in der Browser-Konsole (F12): <code>bhk.hilfe()</code>, je Azubi <code>bhk.pruefen(id)</code>. Programmstand: <code>${esc(App.BUILD)}</code>${App._uhrVersatzMs ? ` · Uhrversatz zum Dateiserver ${Math.round(App._uhrVersatzMs / 1000)} s` : ''}</span>
         </div>
+        ${(App._fremdeDatenbanken || []).length ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6">
+          <strong>⚠ Andere Datenbank im selben Ordner:</strong> Hier ist „${esc(App.autoLoadedDbName || '?')}“ geöffnet, im Ordner werden aber auch Protokolle für ${App._fremdeDatenbanken.map(e => `„${esc(e.slug)}“ (${e.dateien} Protokolle, zuletzt ${esc(new Date(e.juengste).toLocaleString('de-DE'))})`).join(', ')} geschrieben. Dort arbeitet vermutlich ein Kollege – und keiner sieht die Änderungen des anderen. Alle müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile; beim Start die Datenbank auswählen).
+        </div>` : ''}
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px;line-height:1.6">
-          <strong>Zwei Rechner zeigen für einen Azubi verschiedene Stände?</strong> Zuerst auf dem Rechner, dem etwas fehlt, „⟳ Vollabgleich“. Hilft das nicht, hat dieser Rechner die Änderungen des Kollegen <em>verworfen</em>, weil er für dieselben Felder eigene, neuere Werte hatte (Last-Write-Wins; <code>bhk.pruefen(id)</code> zeigt „verworfen“).
+          <strong>Zwei Rechner zeigen für einen Azubi verschiedene Stände?</strong> Erst prüfen, ob beide dieselbe Datenbankdatei geöffnet haben (Name rechts in der Kopfzeile; <code>bhk.pruefen(id)</code> nennt Datenbank, Ordner und Protokolle anderer Datenbanken). Dann auf dem Rechner, dem etwas fehlt, „⟳ Vollabgleich“. Hilft das nicht, hat dieser Rechner die Änderungen des Kollegen <em>verworfen</em>, weil er für dieselben Felder eigene, neuere Werte hatte (Last-Write-Wins; <code>bhk.pruefen(id)</code> zeigt „verworfen“).
           Dann auf dem Rechner mit dem <strong>richtigen</strong> Stand in der Durchsicht ⋯ → <strong>„Stand dieses Rechners für alle übernehmen“</strong> (je Azubi oder für den ganzen Termin über „Weitere Aktionen“): Ergebnis, Wochen, Mängel und Wiedervorlagen werden als neueste Änderung ins Protokoll geschrieben, alle anderen Rechner übernehmen sie. „Änderungen als Datei“ enthält dagegen nur, was dieser Rechner noch <em>nicht</em> ins Protokoll schreiben konnte – nach erfolgreichem Speichern ist die Liste leer.
         </div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Ablauf für den Kontrolltag ohne Netz: vorher Termin öffnen und „Mein Bereich" je Prüfer festlegen (steht in der Datenbank), Offline-Modus einschalten, am Kontrollort arbeiten, danach „Wiederverbinden &amp; zusammenführen". Doppelt geänderte Felder werden nach der Zusammenführung aufgelistet.</div>
@@ -36513,6 +36554,7 @@ const Konsole = {
     if (sid == null) { console.log('Aufruf: bhk.pruefen(<Azubi-Kennung>) – die Kennung steht in der Adresszeile der Azubi-Seite oder in der Konsole über App.query("SELECT id,nachname FROM schueler WHERE nachname LIKE ?", ["Muster%"])'); return null; }
     const r = await App.azubiPruefen(sid);
     console.log(`%cPrüfung ${r.name} (#${r.sid}) – Rechner ${r.rechner.slice(-4)}, Programmstand ${r.build}, Uhrversatz ${Math.round(r.versatzMs / 1000)} s, Datenbank ${r.datenbank || '?'}${r.ordner ? ` in Ordner „${r.ordner}“` : ''}`, 'font-weight:bold');
+    if (r.andereDatenbanken && r.andereDatenbanken.length) { console.log('%cACHTUNG: Im selben Ordner werden Protokolle für eine ANDERE Datenbank geschrieben – dort arbeitet vermutlich der Kollege. Alle müssen dieselbe Datei öffnen (Name rechts in der Kopfzeile):', 'color:#A94E00;font-weight:bold'); this._tabelle(r.andereDatenbanken); }
     console.log(`Lokal: ${r.lokal.wochen.length} Wochenzeilen, davon ${r.lokal.wochenMitCodes} mit Codes; ${r.lokal.ergebnisse.length} Kontrollergebnis(se); ${r.lokal.stempel} Zeilen mit Stempeln`);
     this._tabelle(r.lokal.wochen.filter(w => w.codes || w.bemerkung).map(w => ({ AJ: w.aj, KW: w.kw, Codes: w.codes, Fehltage: w.fehltage, Bemerkung: w.bemerkung })));
     this._tabelle(r.lokal.ergebnisse.map(e => ({ Termin: e.termin, Ergebnis: e.ergebnis, Geändert: e.geaendert_am, Von: e.geaendert_von })));
