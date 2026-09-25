@@ -145,7 +145,7 @@ const WiedervorlagenHandler = {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
         <div><strong>Art:</strong> ${wvArtLabel(w.art)}</div>
-        <div><strong>Frist:</strong> ${formatDate(w.frist_datum)}</div>
+        <div><strong>Frist:</strong> ${w.frist_datum ? formatDate(w.frist_datum) : 'bei der nächsten Durchsicht'}</div>
         ${w.versand_datum ? `<div><strong>Versand:</strong> ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} per ${esc(w.versand_art === 'email' ? 'E-Mail' : (w.versand_art || 'Brief'))}</div>` : '<div style="color:var(--clr-text-light)"><strong>Versand:</strong> noch kein Anschreiben vermerkt</div>'}
         <div><strong>Status:</strong> ${wvStatusBadge(w.status)}</div>
         ${w.erledigt_datum ? `<div><strong>Erledigt am:</strong> ${formatDate(w.erledigt_datum)}</div>` : ''}
@@ -286,9 +286,10 @@ const WiedervorlagenHandler = {
   },
 
   exportICS() {
+    // Ohne Datum („bei nächster Durchsicht“) gibt es keinen Kalendereintrag
     const wvs = App.query(`SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id
-      WHERE w.status IN ('offen','ueberfaellig')`);
-    if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen', 'warning');
+      WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum != ''`);
+    if (!wvs.length) return App.toast('Keine offenen Wiedervorlagen mit Datum', 'warning');
     // Wiedervorlagen als AUFGABEN (VTODO) mit Fälligkeit, stabile UID je WV
     App.exportICS(wvs.map(w => ({
       uid: 'bhk-wv-' + w.id, todo: true,
