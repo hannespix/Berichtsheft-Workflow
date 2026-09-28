@@ -452,7 +452,7 @@ const Workflows = {
           try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
         });
       }
-      const eml = App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, anhaenge });
+      const eml = App.emlErzeugen({ to: g.email, cc: m.cc, subject: m.betreff, body: m.body, anhaenge });
       zip.file(App.safeFilename([String(i + 1).padStart(2, '0'), g.name], 'eml'), eml);
       pdfs += anhaenge.length;
       const erstesMal = !d.status[idx];
@@ -511,6 +511,7 @@ const Workflows = {
     }).join('<br>');
     const art = this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)];
     const passt = g.email ? this._betriebMailPasst(idx) : true;
+    const cc = this._betriebMailCc(g);
     let status = '';
     if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
     else if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
@@ -527,10 +528,19 @@ const Workflows = {
                ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
         </span>
       </div>
-      <div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}${g.ap ? ' · ' + esc(g.ap) : ''}${status ? ' · ' + status : ''}</div>
+      <div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}${g.ap ? ' · ' + esc(g.ap) : ''}${g.email && cc ? ` · <span title="Die betreffenden Azubis mit hinterlegter E-Mail-Adresse erhalten die E-Mail in Kopie">CC Azubi: ${esc(cc)}</span>` : ''}${status ? ' · ' + status : ''}</div>
       <div style="margin-top:4px">${details}</div>
       <pre id="betriebMailVorschau_${idx}" style="display:none;margin-top:6px;padding:8px;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);font-size:12px;white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
     </div>`;
+  },
+  // CC an die betreffenden Azubis des Betriebs (alle mit hinterlegter
+  // E-Mail-Adresse, ohne Doppel) – gilt für .eml-Entwurf und mailto-Weg
+  _betriebMailCc(g) {
+    const seen = new Set();
+    return (g?.azubis || []).map(a => String(a.email || '').trim()).filter(e => {
+      if (!e || !e.includes('@') || seen.has(e.toLowerCase())) return false;
+      seen.add(e.toLowerCase()); return true;
+    }).join(', ');
   },
   // Mail-Inhalt eines Betriebs (Vorlage nach Lage, Kontext des Termins)
   _betriebMailInhalt(idx) {
@@ -551,15 +561,15 @@ const Workflows = {
     let { betreff, body } = App.renderVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
-    return { g, typ, betreff, body };
+    return { g, typ, betreff, body, cc: this._betriebMailCc(g) };
   },
   _betriebMailPasst(idx) {
     const m = this._betriebMailInhalt(idx);
-    return !m || this.mailtoPasst(m.g.email, m.betreff, m.body);
+    return !m || this.mailtoPasst(m.g.email, m.betreff, m.body, m.cc);
   },
   _betriebMailKopieren(idx) {
     const m = this._betriebMailInhalt(idx); if (!m) return;
-    const text = `An: ${m.g.email}\nBetreff: ${m.betreff}\n\n${m.body}`;
+    const text = `An: ${m.g.email}\n${m.cc ? `CC: ${m.cc}\n` : ''}Betreff: ${m.betreff}\n\n${m.body}`;
     Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => App.toast('Empfänger, Betreff und Text kopiert', 'success')).catch(() => App.toast('Kopieren nicht möglich', 'error'));
   },
   _betriebMailVorschau(idx) {
@@ -589,7 +599,7 @@ const Workflows = {
     const m = this._betriebMailInhalt(betriebIdx);
     if (!m || !m.g.email) return App.toast('Keine E-Mail-Adresse', 'warning');
     const erstesMal = !d.status[betriebIdx];
-    const r = this.openMailto(m.g.email, m.betreff, m.body, '', '', { still: true }) || {};
+    const r = this.openMailto(m.g.email, m.betreff, m.body, m.cc, '', { still: true }) || {};
     d.status[betriebIdx] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), zwischenablage: !!r.zwischenablage };
     // Versandnachweis an den Wiedervorlagen der Azubis dieses Betriebs (nur
     // beim ersten Öffnen – ein zweites Öffnen ist kein zweites Anschreiben)

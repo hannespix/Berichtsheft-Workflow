@@ -323,6 +323,9 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend) VALUES (9001,900,901,'post_an_rp',1),(9002,900,902,'in_ordnung',1),(9003,900,903,'',0)`);
   db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (901,2,40,'A,F',0,1)`);
   db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (950,9001,901,'post_an_rp','2026-09-26','offen')`);
+  // Azubi-E-Mails: 901 hat eine (→ CC), 902 keine, 903 gehört zum anderen Betrieb
+  db.run(`UPDATE schueler SET email=' Erik.Eins@example.org ' WHERE id=901`);
+  db.run(`UPDATE schueler SET email='dora@example.org' WHERE id=903`);
   App.invalidateTerminCache();
   let modal = null; App.openModal = (t, b, f) => { modal = { t, b, f }; }; App.closeModal = () => {};
   Workflows.emailBetriebIndividuell(900);
@@ -352,11 +355,11 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/Text zu lang für den Link → wird beim Öffnen kopiert/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Nicht geöffnete Zeile kündigt „Text zu lang“ vorab an');
   clip.length = 0;
   Workflows._openIndividualEmail(900, 0);
-  check(d.status[0].zwischenablage === true && clip.length === 1 && /Fehlende Tagesberichte nachholen/.test(clip[0]) && sandbox.location.href === 'mailto:mail@example.org?subject=' + encodeURIComponent('Berichtsheftkontrolle – Ergebnis für Eins, Erik / Zwei, Zoe'), 'Zu lang: Link nur mit Betreff, Text in der Zwischenablage, Zeile merkt es');
+  check(d.status[0].zwischenablage === true && clip.length === 1 && /Fehlende Tagesberichte nachholen/.test(clip[0]) && sandbox.location.href === 'mailto:mail@example.org?subject=' + encodeURIComponent('Berichtsheftkontrolle – Ergebnis für Eins, Erik / Zwei, Zoe') + '&cc=Erik.Eins%40example.org', 'Zu lang: Link nur mit Betreff und CC (Azubi), Text in der Zwischenablage, Zeile merkt es');
   check(/Text liegt in der Zwischenablage – in Outlook mit Strg\+V einfügen/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile sagt nach dem Öffnen: Strg+V in Outlook');
   Workflows._betriebMailKopieren(0);
   await new Promise(r => setTimeout(r, 0));
-  check(/^An: mail@example\.org\nBetreff: /.test(clip[clip.length - 1]), '„▤ Text“ kopiert Empfänger, Betreff und Text');
+  check(/^An: mail@example\.org\nCC: Erik\.Eins@example\.org\nBetreff: /.test(clip[clip.length - 1]), '„▤ Text“ kopiert Empfänger, CC (Azubi), Betreff und Text');
   check(/E-Mails an die Betriebe nach der Kontrolle/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Arbeitsliste');
   App.toast = () => {};
 }
@@ -399,6 +402,9 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(namen.length === 2 && namen[0] === '01_Gaertnerei_Mail.eml' && namen[1] === 'LIESMICH.txt', `Inhalt: eine .eml je Betrieb mit E-Mail (ohne E-Mail = Brief) + LIESMICH (${namen.join(', ')})`);
   const emlB = zip.file('01_Gaertnerei_Mail.eml').asText();
   check(/^X-Unsent: 1\r\n/.test(emlB) && /To: mail@example\.org/.test(emlB) && /filename="BH-Durchsicht_901\.pdf"/.test(emlB) && /filename="BH-Durchsicht_902\.pdf"/.test(emlB) && (emlB.match(/Content-Disposition: attachment/g) || []).length === 2, 'Entwurf des Betriebs: Empfänger, je ein Bogen für die bewerteten Azubis (901 mit Mängeln, 902 in Ordnung)');
+  check(/\r\nCc: Erik\.Eins@example\.org\r\n/.test(emlB) && !/dora@example\.org/.test(emlB), 'Entwurf trägt die betreffenden Azubis im CC (nur die mit E-Mail, nur die dieses Betriebs, getrimmt)');
+  check(Workflows._betriebMailCc(d.betriebe[0]) === 'Erik.Eins@example.org' && Workflows._betriebMailCc({ azubis: [{ email: 'a@x.de' }, { email: 'A@x.de' }, { email: 'kein-at' }, { email: '' }] }) === 'a@x.de', 'CC-Liste: ohne Doppel (Groß/Klein), ohne ungültige oder leere Adressen');
+  check(/CC Azubi: Erik\.Eins@example\.org/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Betriebszeile zeigt „CC Azubi: …“');
   const textTeil = emlB.split('--' + emlB.match(/boundary="([^"]+)"/)[1])[1];
   check(/Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(b64dec(textTeil.split('\r\n\r\n')[1])), 'Text des Entwurfs = Mängelmitteilung mit kompaktem Mängel-Block');
   check(/Doppelklick|doppelklicken/.test(zip.file('LIESMICH.txt').asText()) && /2 Durchsichtsbögen/.test(zip.file('LIESMICH.txt').asText()), 'LIESMICH erklärt den Weg und zählt die Bögen');
@@ -408,6 +414,8 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(App.scalar('SELECT nachbereitet_am FROM kontrolltermine WHERE id=900') === App._heuteIso() && /Alle 1 E-Mails erledigt/.test(Workflows._betriebMailFussHtml()), 'Termin nachbereitet, Fußzeile „alle erledigt“');
   Workflows.betriebMailsAlsZip();
   check(App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=950') === 1, 'Erneutes Erzeugen ist kein zweites Anschreiben');
+  Workflows._openIndividualEmail(900, 0);
+  check(/^mailto:mail@example\.org\?subject=/.test(sandbox.location.href) && /&cc=Erik\.Eins%40example\.org(&|$)/.test(sandbox.location.href), `mailto-Weg trägt die Azubis ebenfalls im CC (${sandbox.location.href.slice(0, 60)}…)`);
   check(/opts && opts\.bytes\) return \{ name: dateiname, bytes: new Uint8Array\(doc\.output\('arraybuffer'\)\) \}/.test(read('src/js/modules/pdf-export.js')) && /bogenBytes\(terminId, schuelerId\) \{/.test(read('src/js/modules/pdf-export.js')), 'PDFExport liefert den Bogen als Bytes für den Anhang');
   check(!/emlProbe/.test(APP_SRC) && !/Probe-E-Mail/.test(read('src/js/modules/views.js')), 'Kein Probe-Knopf – der Weg ist direkt eingebaut');
   check(/Alle als Outlook-Entwürfe \(ZIP\)/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Entwürfe');
