@@ -242,22 +242,23 @@ const KWNav = {
     this.showFeedback(cell, action);
   },
 
-  // Handle H key: show inline number input for Fehltage
+  // Handle H key: show inline number input for Fehltage – bei Mehrfachauswahl
+  // gilt der eingegebene Wert für alle markierten Wochen (wie 1–5 / 0)
   promptFehltage(cell) {
     this.closePopover();
-    const keId = parseInt(cell.dataset.ke);
-    const aj = parseInt(cell.dataset.aj);
     const kw = parseInt(cell.dataset.kw);
     const currentFehltage = parseInt(cell.dataset.fehltage) || 0;
-    let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
+    const sel = this._getSelectedOrFocused();
+    const ziele = sel.length > 1 && sel.includes(cell) ? sel : [cell];
+    const mehrere = ziele.length > 1;
 
     const pop = document.createElement('div');
     pop.className = 'kw-inline-popover';
     pop.innerHTML = `
-      <label>Fehltage KW ${kw} <span style="font-weight:400;color:var(--clr-text-light)">(ohne Urlaub/Berufsschule)</span>:</label>
+      <label>Fehltage ${mehrere ? `für ${ziele.length} KWs` : `KW ${kw}`} <span style="font-weight:400;color:var(--clr-text-light)">(ohne Urlaub/Berufsschule)</span>:</label>
       <div style="display:flex;align-items:center;gap:6px;">
-        <input type="number" id="kwInlineFehltage" value="${currentFehltage}" min="0" max="5" autofocus>
-        <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt)</span>
+        <input type="number" id="kwInlineFehltage" value="${mehrere ? 0 : currentFehltage}" min="0" max="5" autofocus>
+        <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt${mehrere ? ', gilt für alle markierten' : ''})</span>
       </div>
     `;
     cell.appendChild(pop);
@@ -268,18 +269,9 @@ const KWNav = {
 
     const confirm = () => {
       const val = Math.min(5, Math.max(0, parseInt(input.value) || 0));
-      // If fehltage > 0, add H code; if 0, remove H code
-      if (val > 0 && !currentCodes.includes('H')) {
-        currentCodes.push('H');
-        currentCodes.sort();
-      } else if (val === 0) {
-        currentCodes = currentCodes.filter(c => c !== 'H');
-      }
-      const codesStr = currentCodes.join(',');
-      this._setCellMitUndo(cell, codesStr, val, val > 0 ? `H:${val}` : '−H');
       this.closePopover();
+      this._fehltageUebernehmen(cell, ziele, val);
       cell.focus();
-      if (val > 0) this.showFeedback(cell, `H:${val}`);
     };
 
     input.addEventListener('keydown', (e) => {
@@ -295,6 +287,17 @@ const KWNav = {
     input.addEventListener('blur', () => {
       setTimeout(() => { if (this.activePopover && this.activePopover.element === pop) this.closePopover(); }, 150);
     });
+  },
+
+  // Fehltage aus dem H-Popover übernehmen: eine Zelle mit Einzel-Undo oder
+  // alle markierten mit einem gesammelten Undo-Eintrag
+  _fehltageUebernehmen(cell, ziele, val) {
+    if (ziele.length > 1) { this._bulkSetFehltage(ziele, val); this.clearSelection(); return; }
+    let codes = (cell.dataset.codes || '').split(',').filter(Boolean);
+    if (val > 0 && !codes.includes('H')) { codes.push('H'); codes.sort(); }
+    else if (val === 0) codes = codes.filter(c => c !== 'H');
+    this._setCellMitUndo(cell, codes.join(','), val, val > 0 ? `H:${val}` : '−H');
+    if (val > 0) this.showFeedback(cell, `H:${val}`);
   },
 
   closePopover() {

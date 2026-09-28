@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-28 06:47 UTC',
+  BUILD: '2026-09-28 06:57 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -21535,8 +21535,10 @@ const Views = {
             <p>• <strong>Shift+Klick</strong> – Alle KWs von der zuletzt fokussierten bis zur geklickten Zelle markieren (blauer Rahmen)</p>
             <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
             <p>• <strong>Escape</strong> – Selektion aufheben</p>
-            <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, 0, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• <strong>H</strong> bei Auswahl: die eingegebene Fehltagezahl gilt für alle markierten Wochen</p>
             <p>• <strong>I</strong> bei Auswahl: ein Sonstiges-Dialog für alle markierten Wochen – dieselbe Bemerkung in jeder Woche, in der Ergebnis-Bemerkung ein Eintrag mit dem Wochenbereich (z. B. „[AJ2/KW40–45] …“), ein Undo-Schritt</p>
+            <p>• <strong>Leertaste/Enter</strong> bei Auswahl: das KW-Fenster gilt für alle markierten Wochen (vorbelegt ist nur, was allen gemeinsam ist); Speichern, „Keine Beanstandungen“ und Leeren wirken auf alle, ein Undo-Schritt</p>
             <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
             <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
             <p>• <strong>Fehltage</strong> (ohne Urlaub und Berufsschule) werden als Anteil der Arbeitstage der <strong>bisherigen</strong> Ausbildungszeit gezeigt (Warnung ab der Schwelle, Standard 10 %) – daneben der Anteil an der Gesamtdauer. Ab der Schwelle: Verlängerung nach § 8 Abs. 2 BBiG ansprechen; über die Zulassung entscheidet dann der Einzelfall (§ 46 BBiG).</p>
@@ -30282,16 +30284,30 @@ const KontrolleHandler = {
     const s = this.currentSchuelerList[this.currentIndex];
     const sid = cellEl?.dataset?.sid ? parseInt(cellEl.dataset.sid) : (s ? s.id : null);
 
+    // Mehrfachauswahl (Shift+Klick / Shift+Pfeil): das Fenster gilt für alle
+    // markierten Wochen – Häkchen/Fehltage/Bemerkung nur vorbelegt, wenn alle
+    // Wochen übereinstimmen; Speichern, OK und Leeren wirken auf alle
+    const sel = typeof KWNav !== 'undefined' && KWNav._getSelectedOrFocused ? KWNav._getSelectedOrFocused() : [];
+    const zellen = sel.length > 1 && cellEl && sel.includes(cellEl) ? sel : [];
+    const ziele = zellen.length ? zellen.map(c => ({ keId: parseInt(c.dataset.ke), aj: parseInt(c.dataset.aj), kw: parseInt(c.dataset.kw), sid: parseInt(c.dataset.sid) }))
+                                : [{ keId, aj, kw, sid }];
+    const mehrere = ziele.length > 1;
+
     // WICHTIG: kumulative kw_status lesen (nicht kw_maengel der aktuellen Durchsicht!)
     // Sonst erscheinen Mängel aus früheren Durchsichten unangehakt und werden
     // beim Speichern still gelöscht.
-    const existing = sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [sid, aj, kw]) : [];
-    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
-    const currentFehltage = existing.length ? (existing[0].fehltage || 0) : 0;
-    const kwBem = sid ? (App.query('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0]?.bemerkung || '') : '';
+    const zeilen = ziele.map(z => z.sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [z.sid, z.aj, z.kw])[0] || null : null);
+    const codesJe = zeilen.map(r => (r?.maengel_codes || '').split(',').filter(Boolean));
+    const currentCodes = codes.filter(c => codesJe.every(cs => cs.includes(c)));
+    const fehlJe = zeilen.map(r => r?.fehltage || 0);
+    const currentFehltage = fehlJe.every(f => f === fehlJe[0]) ? fehlJe[0] : 0;
+    const bemJe = zeilen.map(r => r?.bemerkung || '');
+    const kwBem = bemJe.every(b => b === bemJe[0]) ? bemJe[0] : '';
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+    const liste = mehrere && KWNav._kwListe ? KWNav._kwListe(ziele) : '';
 
-    App.openModal(`KW ${kw} – Ausbildungsjahr ${aj}`, `
+    App.openModal(mehrere ? `${ziele.length} KWs – ${liste}` : `KW ${kw} – Ausbildungsjahr ${aj}`, `
+      ${mehrere ? `<div style="margin-bottom:10px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">Gilt für <strong>${ziele.length} markierte Wochen</strong> (${esc(liste)}): Häkchen, Fehltage und Bemerkung werden in jede Woche übernommen${codesJe.some(cs => cs.length !== currentCodes.length) || !fehlJe.every(f => f === fehlJe[0]) || !bemJe.every(b => b === bemJe[0]) ? ' – <span style="color:var(--clr-amber)">die Wochen sind bisher unterschiedlich belegt, gezeigt wird nur, was allen gemeinsam ist</span>' : ''}</div>` : ''}
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <button class="btn btn-success" style="flex:1;font-weight:600" id="kwBtnOK" onclick="KontrolleHandler.saveKWOk(${keId},${aj},${kw})">✓ Keine Beanstandungen <kbd style="font-size:12px;opacity:0.7;margin-left:4px">O</kbd></button>
       </div>
@@ -30321,7 +30337,7 @@ const KontrolleHandler = {
         <button class="btn btn-primary" onclick="KontrolleHandler.saveKW(${keId},${aj},${kw})">Speichern <kbd style="font-size:12px;opacity:0.6">Enter</kbd></button>`);
 
     // Store context for keyboard handler
-    this._kwModalContext = { keId, aj, kw, cellEl };
+    this._kwModalContext = { keId, aj, kw, cellEl, ziele };
 
     // Auto-focus the OK button for immediate keyboard use
     setTimeout(() => { const btn = document.getElementById('kwBtnOK'); if (btn) btn.focus(); }, 100);
@@ -30333,9 +30349,26 @@ const KontrolleHandler = {
     const ctx = parseInt(this._kwModalContext?.cellEl?.dataset?.sid);
     return ctx || App.scalar('SELECT schueler_id FROM kontrollergebnisse WHERE id=?', [keId]) || null;
   },
+  // Wochen, auf die das Fenster wirkt: bei Mehrfachauswahl alle beim Öffnen
+  // markierten (aus dem Kontext, nur wenn er zum Aufruf passt), sonst die eine
+  _kwModalZiele(keId, aj, kw) {
+    const ctx = this._kwModalContext;
+    if (ctx && ctx.ziele && ctx.ziele.length > 1 && ctx.keId === keId && ctx.aj === aj && ctx.kw === kw) return ctx.ziele.filter(z => z.sid);
+    const sid = this._kwModalSid(keId);
+    return sid ? [{ keId, aj, kw, sid }] : [];
+  },
+  // Undo für eine Woche (wie bisher) oder gesammelt für alle Wochen des Fensters
+  _kwModalUndo(kurz, ziele, vorher, nachher) {
+    if (ziele.length === 1) return KWNav.pushKWUndo(`KW ${ziele[0].kw} ${kurz}`, ziele[0].keId, ziele[0].aj, ziele[0].kw, ziele[0].sid, vorher[0], nachher[0]);
+    UndoManager.push(`${ziele.length} KWs ${kurz}${KWNav._azubiKurz(ziele[0].sid)}`,
+      () => { ziele.forEach((z, i) => KWNav.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, vorher[i])); this.renderSchueler(); },
+      () => { ziele.forEach((z, i) => KWNav.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, nachher[i])); this.renderSchueler(); });
+  },
   _kwModalEnde(aj, kw) {
+    const mehrere = (this._kwModalContext?.ziele?.length || 0) > 1;
     App.closeModal();
     this._kwModalContext = null;
+    if (mehrere && typeof KWNav !== 'undefined' && KWNav.clearSelection) KWNav.clearSelection();
     this.renderSchueler();
     this._focusNextKW(aj, kw);
   },
@@ -30343,11 +30376,11 @@ const KontrolleHandler = {
   // "Keine Beanstandungen" – derselbe Weg wie die O-Taste: entfernte Codes
   // wandern in die Mängel-Historie, Fehltage werden neu gerechnet, Undo möglich
   saveKWOk(keId, aj, kw) {
-    const sid = this._kwModalSid(keId);
-    if (sid) {
-      const vorher = KWNav.kwZustand(sid, aj, kw);
-      KWNav.persistCodes(keId, aj, kw, '', 0, sid, true);
-      KWNav.pushKWUndo(`KW ${kw} ✓ OK`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (ziele.length) {
+      const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+      ziele.forEach(z => KWNav.persistCodes(z.keId, z.aj, z.kw, '', 0, z.sid, true));
+      this._kwModalUndo('✓ OK', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
     }
     this._kwModalEnde(aj, kw);
   },
@@ -30362,31 +30395,31 @@ const KontrolleHandler = {
     const codesStr = selected.join(',');
     const bem = document.getElementById('kwBemText')?.value?.trim() || '';
 
-    const sid = this._kwModalSid(keId);
-    if (!sid) return this._kwModalEnde(aj, kw);
-    const vorher = KWNav.kwZustand(sid, aj, kw);
-    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
-
-    // Save bemerkung
-    {
-      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (!ziele.length) return this._kwModalEnde(aj, kw);
+    const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+    ziele.forEach(z => {
+      KWNav.persistCodes(z.keId, z.aj, z.kw, codesStr, fehltage, z.sid);
+      // Save bemerkung
+      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.sid, z.aj, z.kw]);
       if (existing.length) {
         App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
       } else if (bem) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
-          [sid, aj, kw, bem, keId]);
+          [z.sid, z.aj, z.kw, bem, z.keId]);
       }
-      // Undo/Redo (das Anhängen an die Gesamt-Bemerkung bleibt bestehen)
-      KWNav.pushKWUndo(`KW ${kw} ${codesStr ? codesStr.replace(/,/g, ' ') : 'Modal'}`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
-      if (bem) {
-        const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
-        if (ke) {
-          const prefix = `[AJ${aj}/KW${kw}] `;
-          const existingGlobal = ke.bemerkung || '';
-          if (!existingGlobal.includes(prefix + bem)) {
-            const newBem = existingGlobal ? existingGlobal + '\n' + prefix + bem : prefix + bem;
-            App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [newBem, keId]);
-          }
+    });
+    // Undo/Redo (das Anhängen an die Gesamt-Bemerkung bleibt bestehen)
+    this._kwModalUndo(codesStr ? codesStr.replace(/,/g, ' ') : 'Modal', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
+    // Einmal in die Bemerkung des Ergebnisses – bei mehreren Wochen mit dem Bereich als Vorsatz
+    if (bem) {
+      const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      if (ke) {
+        const prefix = `[${KWNav._kwListe ? KWNav._kwListe(ziele) : `AJ${aj}/KW${kw}`}] `;
+        const existingGlobal = ke.bemerkung || '';
+        if (!existingGlobal.includes(prefix + bem)) {
+          const newBem = existingGlobal ? existingGlobal + '\n' + prefix + bem : prefix + bem;
+          App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [newBem, keId]);
         }
       }
     }
@@ -30395,11 +30428,11 @@ const KontrolleHandler = {
   },
 
   clearKW(keId, aj, kw) {
-    const sid = this._kwModalSid(keId);
-    if (sid) {
-      const vorher = KWNav.kwZustand(sid, aj, kw);
-      KWNav.persistCodes(keId, aj, kw, '', 0, sid);
-      KWNav.pushKWUndo(`KW ${kw} geleert`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (ziele.length) {
+      const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+      ziele.forEach(z => KWNav.persistCodes(z.keId, z.aj, z.kw, '', 0, z.sid));
+      this._kwModalUndo('geleert', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
     }
     this._kwModalEnde(aj, kw);
   },
@@ -31756,22 +31789,23 @@ const KWNav = {
     this.showFeedback(cell, action);
   },
 
-  // Handle H key: show inline number input for Fehltage
+  // Handle H key: show inline number input for Fehltage – bei Mehrfachauswahl
+  // gilt der eingegebene Wert für alle markierten Wochen (wie 1–5 / 0)
   promptFehltage(cell) {
     this.closePopover();
-    const keId = parseInt(cell.dataset.ke);
-    const aj = parseInt(cell.dataset.aj);
     const kw = parseInt(cell.dataset.kw);
     const currentFehltage = parseInt(cell.dataset.fehltage) || 0;
-    let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
+    const sel = this._getSelectedOrFocused();
+    const ziele = sel.length > 1 && sel.includes(cell) ? sel : [cell];
+    const mehrere = ziele.length > 1;
 
     const pop = document.createElement('div');
     pop.className = 'kw-inline-popover';
     pop.innerHTML = `
-      <label>Fehltage KW ${kw} <span style="font-weight:400;color:var(--clr-text-light)">(ohne Urlaub/Berufsschule)</span>:</label>
+      <label>Fehltage ${mehrere ? `für ${ziele.length} KWs` : `KW ${kw}`} <span style="font-weight:400;color:var(--clr-text-light)">(ohne Urlaub/Berufsschule)</span>:</label>
       <div style="display:flex;align-items:center;gap:6px;">
-        <input type="number" id="kwInlineFehltage" value="${currentFehltage}" min="0" max="5" autofocus>
-        <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt)</span>
+        <input type="number" id="kwInlineFehltage" value="${mehrere ? 0 : currentFehltage}" min="0" max="5" autofocus>
+        <span style="font-size:12px;color:var(--clr-text-light)">(0–5, Enter bestätigt${mehrere ? ', gilt für alle markierten' : ''})</span>
       </div>
     `;
     cell.appendChild(pop);
@@ -31782,18 +31816,9 @@ const KWNav = {
 
     const confirm = () => {
       const val = Math.min(5, Math.max(0, parseInt(input.value) || 0));
-      // If fehltage > 0, add H code; if 0, remove H code
-      if (val > 0 && !currentCodes.includes('H')) {
-        currentCodes.push('H');
-        currentCodes.sort();
-      } else if (val === 0) {
-        currentCodes = currentCodes.filter(c => c !== 'H');
-      }
-      const codesStr = currentCodes.join(',');
-      this._setCellMitUndo(cell, codesStr, val, val > 0 ? `H:${val}` : '−H');
       this.closePopover();
+      this._fehltageUebernehmen(cell, ziele, val);
       cell.focus();
-      if (val > 0) this.showFeedback(cell, `H:${val}`);
     };
 
     input.addEventListener('keydown', (e) => {
@@ -31809,6 +31834,17 @@ const KWNav = {
     input.addEventListener('blur', () => {
       setTimeout(() => { if (this.activePopover && this.activePopover.element === pop) this.closePopover(); }, 150);
     });
+  },
+
+  // Fehltage aus dem H-Popover übernehmen: eine Zelle mit Einzel-Undo oder
+  // alle markierten mit einem gesammelten Undo-Eintrag
+  _fehltageUebernehmen(cell, ziele, val) {
+    if (ziele.length > 1) { this._bulkSetFehltage(ziele, val); this.clearSelection(); return; }
+    let codes = (cell.dataset.codes || '').split(',').filter(Boolean);
+    if (val > 0 && !codes.includes('H')) { codes.push('H'); codes.sort(); }
+    else if (val === 0) codes = codes.filter(c => c !== 'H');
+    this._setCellMitUndo(cell, codes.join(','), val, val > 0 ? `H:${val}` : '−H');
+    if (val > 0) this.showFeedback(cell, `H:${val}`);
   },
 
   closePopover() {

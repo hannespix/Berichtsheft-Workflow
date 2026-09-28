@@ -2137,16 +2137,30 @@ const KontrolleHandler = {
     const s = this.currentSchuelerList[this.currentIndex];
     const sid = cellEl?.dataset?.sid ? parseInt(cellEl.dataset.sid) : (s ? s.id : null);
 
+    // Mehrfachauswahl (Shift+Klick / Shift+Pfeil): das Fenster gilt für alle
+    // markierten Wochen – Häkchen/Fehltage/Bemerkung nur vorbelegt, wenn alle
+    // Wochen übereinstimmen; Speichern, OK und Leeren wirken auf alle
+    const sel = typeof KWNav !== 'undefined' && KWNav._getSelectedOrFocused ? KWNav._getSelectedOrFocused() : [];
+    const zellen = sel.length > 1 && cellEl && sel.includes(cellEl) ? sel : [];
+    const ziele = zellen.length ? zellen.map(c => ({ keId: parseInt(c.dataset.ke), aj: parseInt(c.dataset.aj), kw: parseInt(c.dataset.kw), sid: parseInt(c.dataset.sid) }))
+                                : [{ keId, aj, kw, sid }];
+    const mehrere = ziele.length > 1;
+
     // WICHTIG: kumulative kw_status lesen (nicht kw_maengel der aktuellen Durchsicht!)
     // Sonst erscheinen Mängel aus früheren Durchsichten unangehakt und werden
     // beim Speichern still gelöscht.
-    const existing = sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [sid, aj, kw]) : [];
-    const currentCodes = existing.length ? (existing[0].maengel_codes || '').split(',').filter(Boolean) : [];
-    const currentFehltage = existing.length ? (existing[0].fehltage || 0) : 0;
-    const kwBem = sid ? (App.query('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw])[0]?.bemerkung || '') : '';
+    const zeilen = ziele.map(z => z.sid ? App.query(`SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?`, [z.sid, z.aj, z.kw])[0] || null : null);
+    const codesJe = zeilen.map(r => (r?.maengel_codes || '').split(',').filter(Boolean));
+    const currentCodes = codes.filter(c => codesJe.every(cs => cs.includes(c)));
+    const fehlJe = zeilen.map(r => r?.fehltage || 0);
+    const currentFehltage = fehlJe.every(f => f === fehlJe[0]) ? fehlJe[0] : 0;
+    const bemJe = zeilen.map(r => r?.bemerkung || '');
+    const kwBem = bemJe.every(b => b === bemJe[0]) ? bemJe[0] : '';
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+    const liste = mehrere && KWNav._kwListe ? KWNav._kwListe(ziele) : '';
 
-    App.openModal(`KW ${kw} – Ausbildungsjahr ${aj}`, `
+    App.openModal(mehrere ? `${ziele.length} KWs – ${liste}` : `KW ${kw} – Ausbildungsjahr ${aj}`, `
+      ${mehrere ? `<div style="margin-bottom:10px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">Gilt für <strong>${ziele.length} markierte Wochen</strong> (${esc(liste)}): Häkchen, Fehltage und Bemerkung werden in jede Woche übernommen${codesJe.some(cs => cs.length !== currentCodes.length) || !fehlJe.every(f => f === fehlJe[0]) || !bemJe.every(b => b === bemJe[0]) ? ' – <span style="color:var(--clr-amber)">die Wochen sind bisher unterschiedlich belegt, gezeigt wird nur, was allen gemeinsam ist</span>' : ''}</div>` : ''}
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <button class="btn btn-success" style="flex:1;font-weight:600" id="kwBtnOK" onclick="KontrolleHandler.saveKWOk(${keId},${aj},${kw})">✓ Keine Beanstandungen <kbd style="font-size:12px;opacity:0.7;margin-left:4px">O</kbd></button>
       </div>
@@ -2176,7 +2190,7 @@ const KontrolleHandler = {
         <button class="btn btn-primary" onclick="KontrolleHandler.saveKW(${keId},${aj},${kw})">Speichern <kbd style="font-size:12px;opacity:0.6">Enter</kbd></button>`);
 
     // Store context for keyboard handler
-    this._kwModalContext = { keId, aj, kw, cellEl };
+    this._kwModalContext = { keId, aj, kw, cellEl, ziele };
 
     // Auto-focus the OK button for immediate keyboard use
     setTimeout(() => { const btn = document.getElementById('kwBtnOK'); if (btn) btn.focus(); }, 100);
@@ -2188,9 +2202,26 @@ const KontrolleHandler = {
     const ctx = parseInt(this._kwModalContext?.cellEl?.dataset?.sid);
     return ctx || App.scalar('SELECT schueler_id FROM kontrollergebnisse WHERE id=?', [keId]) || null;
   },
+  // Wochen, auf die das Fenster wirkt: bei Mehrfachauswahl alle beim Öffnen
+  // markierten (aus dem Kontext, nur wenn er zum Aufruf passt), sonst die eine
+  _kwModalZiele(keId, aj, kw) {
+    const ctx = this._kwModalContext;
+    if (ctx && ctx.ziele && ctx.ziele.length > 1 && ctx.keId === keId && ctx.aj === aj && ctx.kw === kw) return ctx.ziele.filter(z => z.sid);
+    const sid = this._kwModalSid(keId);
+    return sid ? [{ keId, aj, kw, sid }] : [];
+  },
+  // Undo für eine Woche (wie bisher) oder gesammelt für alle Wochen des Fensters
+  _kwModalUndo(kurz, ziele, vorher, nachher) {
+    if (ziele.length === 1) return KWNav.pushKWUndo(`KW ${ziele[0].kw} ${kurz}`, ziele[0].keId, ziele[0].aj, ziele[0].kw, ziele[0].sid, vorher[0], nachher[0]);
+    UndoManager.push(`${ziele.length} KWs ${kurz}${KWNav._azubiKurz(ziele[0].sid)}`,
+      () => { ziele.forEach((z, i) => KWNav.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, vorher[i])); this.renderSchueler(); },
+      () => { ziele.forEach((z, i) => KWNav.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, nachher[i])); this.renderSchueler(); });
+  },
   _kwModalEnde(aj, kw) {
+    const mehrere = (this._kwModalContext?.ziele?.length || 0) > 1;
     App.closeModal();
     this._kwModalContext = null;
+    if (mehrere && typeof KWNav !== 'undefined' && KWNav.clearSelection) KWNav.clearSelection();
     this.renderSchueler();
     this._focusNextKW(aj, kw);
   },
@@ -2198,11 +2229,11 @@ const KontrolleHandler = {
   // "Keine Beanstandungen" – derselbe Weg wie die O-Taste: entfernte Codes
   // wandern in die Mängel-Historie, Fehltage werden neu gerechnet, Undo möglich
   saveKWOk(keId, aj, kw) {
-    const sid = this._kwModalSid(keId);
-    if (sid) {
-      const vorher = KWNav.kwZustand(sid, aj, kw);
-      KWNav.persistCodes(keId, aj, kw, '', 0, sid, true);
-      KWNav.pushKWUndo(`KW ${kw} ✓ OK`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (ziele.length) {
+      const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+      ziele.forEach(z => KWNav.persistCodes(z.keId, z.aj, z.kw, '', 0, z.sid, true));
+      this._kwModalUndo('✓ OK', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
     }
     this._kwModalEnde(aj, kw);
   },
@@ -2217,31 +2248,31 @@ const KontrolleHandler = {
     const codesStr = selected.join(',');
     const bem = document.getElementById('kwBemText')?.value?.trim() || '';
 
-    const sid = this._kwModalSid(keId);
-    if (!sid) return this._kwModalEnde(aj, kw);
-    const vorher = KWNav.kwZustand(sid, aj, kw);
-    KWNav.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
-
-    // Save bemerkung
-    {
-      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (!ziele.length) return this._kwModalEnde(aj, kw);
+    const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+    ziele.forEach(z => {
+      KWNav.persistCodes(z.keId, z.aj, z.kw, codesStr, fehltage, z.sid);
+      // Save bemerkung
+      const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.sid, z.aj, z.kw]);
       if (existing.length) {
         App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
       } else if (bem) {
         App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
-          [sid, aj, kw, bem, keId]);
+          [z.sid, z.aj, z.kw, bem, z.keId]);
       }
-      // Undo/Redo (das Anhängen an die Gesamt-Bemerkung bleibt bestehen)
-      KWNav.pushKWUndo(`KW ${kw} ${codesStr ? codesStr.replace(/,/g, ' ') : 'Modal'}`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
-      if (bem) {
-        const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
-        if (ke) {
-          const prefix = `[AJ${aj}/KW${kw}] `;
-          const existingGlobal = ke.bemerkung || '';
-          if (!existingGlobal.includes(prefix + bem)) {
-            const newBem = existingGlobal ? existingGlobal + '\n' + prefix + bem : prefix + bem;
-            App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [newBem, keId]);
-          }
+    });
+    // Undo/Redo (das Anhängen an die Gesamt-Bemerkung bleibt bestehen)
+    this._kwModalUndo(codesStr ? codesStr.replace(/,/g, ' ') : 'Modal', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
+    // Einmal in die Bemerkung des Ergebnisses – bei mehreren Wochen mit dem Bereich als Vorsatz
+    if (bem) {
+      const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
+      if (ke) {
+        const prefix = `[${KWNav._kwListe ? KWNav._kwListe(ziele) : `AJ${aj}/KW${kw}`}] `;
+        const existingGlobal = ke.bemerkung || '';
+        if (!existingGlobal.includes(prefix + bem)) {
+          const newBem = existingGlobal ? existingGlobal + '\n' + prefix + bem : prefix + bem;
+          App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [newBem, keId]);
         }
       }
     }
@@ -2250,11 +2281,11 @@ const KontrolleHandler = {
   },
 
   clearKW(keId, aj, kw) {
-    const sid = this._kwModalSid(keId);
-    if (sid) {
-      const vorher = KWNav.kwZustand(sid, aj, kw);
-      KWNav.persistCodes(keId, aj, kw, '', 0, sid);
-      KWNav.pushKWUndo(`KW ${kw} geleert`, keId, aj, kw, sid, vorher, KWNav.kwZustand(sid, aj, kw));
+    const ziele = this._kwModalZiele(keId, aj, kw);
+    if (ziele.length) {
+      const vorher = ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw));
+      ziele.forEach(z => KWNav.persistCodes(z.keId, z.aj, z.kw, '', 0, z.sid));
+      this._kwModalUndo('geleert', ziele, vorher, ziele.map(z => KWNav.kwZustand(z.sid, z.aj, z.kw)));
     }
     this._kwModalEnde(aj, kw);
   },
