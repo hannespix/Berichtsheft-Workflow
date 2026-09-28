@@ -583,5 +583,63 @@ console.log('\n══ Wiedervorlage „nächste Durchsicht“ ohne Datum ══'
   check(/Sonstiges-Dialog für alle markierten Wochen/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt I bei Mehrfachauswahl');
 }
 
+// ── H und Leertaste/Enter (KW-Fenster) mit Mehrfachauswahl ──
+{
+  console.log('\n— H und KW-Fenster mit Mehrfachauswahl —');
+  App.run('DELETE FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=2 AND kalenderwoche IN (30,31,32,33)');
+  App.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,geprueft,erstellt_bei) VALUES (1,2,31,'A',1,100)");
+  App.run("UPDATE kontrollergebnisse SET bemerkung='' WHERE id=100");
+  const zelle = (aj, kw, codes, fehl) => ({ dataset: { ke: '100', aj: String(aj), kw: String(kw), sid: '1', codes: codes || '', fehltage: fehl ? String(fehl) : '' }, classList: { add() {}, remove() {}, contains: () => false }, focus() {}, appendChild() {} });
+  // H: Fehltage für alle markierten Wochen
+  const hz = [zelle(2, 30), zelle(2, 31, 'A'), zelle(2, 32)];
+  KWNav._selectedCells = new Set(hz);
+  KWNav._fehltageUebernehmen(hz[0], hz, 3);
+  check([30, 31, 32].every(kw => kwRow(1, 2, kw)?.fehltage === 3 && (kwRow(1, 2, kw).maengel_codes || '').split(',').includes('H')) && kwRow(1, 2, 31).maengel_codes === 'A,H', 'H mit Auswahl: Fehltage in allen markierten Wochen, vorhandene Codes bleiben');
+  check(KWNav._selectedCells.size === 0 && /3 KWs H:3/.test(UndoManager.last().desc), 'Auswahl aufgehoben, ein Undo-Eintrag');
+  UndoManager.undo();
+  check(kwRow(1, 2, 31).maengel_codes === 'A' && !kwRow(1, 2, 31).fehltage && (!kwRow(1, 2, 30) || !kwRow(1, 2, 30).fehltage), 'Undo nimmt die Fehltage überall zurück');
+  KWNav._selectedCells = new Set();
+  KWNav._fehltageUebernehmen(zelle(2, 33), [zelle(2, 33)], 2);
+  check(kwRow(1, 2, 33)?.fehltage === 2 && kwRow(1, 2, 33).maengel_codes === 'H' && /^KW 33 H:2/.test(UndoManager.last().desc), 'H ohne Auswahl: eine Woche mit Einzel-Undo wie bisher');
+  check(/const sel = this\._getSelectedOrFocused\(\);\s*const ziele = sel\.length > 1 && sel\.includes\(cell\) \? sel : \[cell\]/.test(read('src/js/modules/kw-nav.js')) && /this\._fehltageUebernehmen\(cell, ziele, val\)/.test(read('src/js/modules/kw-nav.js')), 'Das H-Popover übergibt die markierten Wochen');
+
+  // KW-Fenster (Leertaste/Enter) für alle markierten Wochen
+  const mz = [zelle(2, 30), zelle(2, 31, 'A'), zelle(2, 32)];
+  KWNav._selectedCells = new Set(mz);
+  let modalTitel = '', modalBody = '';
+  App.openModal = (t, b) => { modalTitel = t; modalBody = b; };
+  KH.editKW(100, 2, 30, mz[0]);
+  check(modalTitel === '3 KWs – AJ2/KW30–32' && /3 markierte Wochen/.test(modalBody) && /unterschiedlich belegt/.test(modalBody) && !/id="kwc_A" checked/.test(modalBody), 'KW-Fenster gilt für alle markierten Wochen; A nur in einer Woche → nicht vorbelegt, Hinweis');
+  check(KH._kwModalContext.ziele.length === 3 && KH._kwModalZiele(100, 2, 30).length === 3 && KH._kwModalZiele(100, 2, 31).length === 1, 'Kontext kennt die drei Wochen; ein anderer Aufruf bleibt bei einer Woche');
+  elems.kwc_B = { checked: true }; elems.kwFehltage = { value: '1' }; elems.kwBemText = { value: 'Berichte lückenhaft' };
+  KH.saveKW(100, 2, 30);
+  check([30, 31, 32].every(kw => kwRow(1, 2, kw)?.maengel_codes === 'B,H' && kwRow(1, 2, kw).fehltage === 1 && kwRow(1, 2, kw).bemerkung === 'Berichte lückenhaft'), 'Speichern schreibt Codes, Fehltage und Bemerkung in alle drei Wochen (A weicht dem gezeigten Stand)');
+  const gesamtBem = String(App.scalar('SELECT bemerkung FROM kontrollergebnisse WHERE id=100') || '');
+  check(gesamtBem.split('\n').filter(z => z.startsWith('[AJ2/KW30')).join('|') === '[AJ2/KW30–32] Berichte lückenhaft', `Ergebnis-Bemerkung: ein Eintrag mit dem Bereich (neben den automatischen Code-Zeilen): ${JSON.stringify(gesamtBem)}`);
+  check(KH._kwModalContext === null && KWNav._selectedCells.size === 0 && /^3 KWs B H/.test(UndoManager.last().desc), 'Kontext und Auswahl aufgeräumt, ein Undo-Eintrag');
+  UndoManager.undo();
+  check(kwRow(1, 2, 31).maengel_codes === 'A' && !kwRow(1, 2, 31).bemerkung && (!kwRow(1, 2, 32) || !kwRow(1, 2, 32).maengel_codes), 'Undo stellt alle drei Wochen wieder her');
+  UndoManager.redo();
+  KWNav._selectedCells = new Set(mz);
+  KH.editKW(100, 2, 30, mz[0]);
+  check(/id="kwc_B" checked/.test(modalBody) && /id="kwc_H" checked/.test(modalBody) && /value="1" min="0" max="7"/.test(modalBody) && /Berichte lückenhaft<\/textarea>/.test(modalBody) && !/unterschiedlich belegt/.test(modalBody), 'Gleich belegte Wochen: Häkchen, Fehltage und Bemerkung vorbelegt, kein Hinweis');
+  KH.saveKWOk(100, 2, 30);
+  check([30, 31, 32].every(kw => kwRow(1, 2, kw)?.maengel_codes === '' && kwRow(1, 2, kw).geprueft === 1) && /^3 KWs ✓ OK/.test(UndoManager.last().desc), '„Keine Beanstandungen“ im Fenster wirkt auf alle markierten Wochen');
+  UndoManager.undo();
+  KWNav._selectedCells = new Set(mz);
+  KH.editKW(100, 2, 30, mz[0]);
+  KH.clearKW(100, 2, 30);
+  check([30, 31, 32].every(kw => !kwRow(1, 2, kw) || !kwRow(1, 2, kw).maengel_codes) && /^3 KWs geleert/.test(UndoManager.last().desc), 'Leeren im Fenster wirkt auf alle markierten Wochen');
+  // Ohne Auswahl wie bisher
+  KWNav._selectedCells = new Set();
+  KH.editKW(100, 2, 33, zelle(2, 33, 'H', 2));
+  check(modalTitel === 'KW 33 – Ausbildungsjahr 2' && KH._kwModalContext.ziele.length === 1, 'Ohne Auswahl: Fenster für eine Woche');
+  elems.kwc_B = { checked: false }; elems.kwFehltage = { value: '0' }; elems.kwBemText = { value: '' };
+  KH.clearKW(100, 2, 33);
+  check(/^KW 33 geleert/.test(UndoManager.last().desc), 'Einzelne Woche: Undo-Text wie bisher');
+  delete elems.kwc_B; delete elems.kwFehltage; delete elems.kwBemText;
+  check(/Leertaste\/Enter<\/strong> bei Auswahl/.test(read('src/js/modules/views.js')) && /<strong>H<\/strong> bei Auswahl/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt H und das KW-Fenster bei Mehrfachauswahl');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);
