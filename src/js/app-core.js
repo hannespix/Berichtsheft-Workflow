@@ -10018,7 +10018,7 @@ Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
     betrieb_ok: { titel: 'Betrieb: Bestätigung „ohne Beanstandung" (nach der Kontrolle)',
-      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','hinweis','pruefer','pruefer_email','rp_adresse'],
       betreff: 'Berichtsheftkontrolle am {datum} – ohne Beanstandung ({azubi_namen})',
       body: `Sehr geehrte Damen und Herren,{anrede}
 
@@ -10027,7 +10027,7 @@ am {datum} wurde an der {schule}{schule_ort} die Berichtsheftkontrolle durchgef�
 Die Berichtshefte folgender Auszubildender waren ohne Beanstandung:
 {azubi_block}
 
-Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – es besteht kein weiterer Handlungsbedarf.
+Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – {hinweis}
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -10710,6 +10710,19 @@ Mit freundlichen Grüßen
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_v2','1')");
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
+      // Bestätigung „ohne Beanstandung“: der feste Schlusssatz „es besteht kein
+      // weiterer Handlungsbedarf“ wird zum Platzhalter {hinweis}, damit bei
+      // vorhandenen Bemerkungen „bitte beachten Sie die Bemerkungen“ steht –
+      // auch in einer von Hand angepassten Vorlage (einmalig)
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='vorlage_hinweis_v1'")) {
+          const body = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='vorlage_betrieb_ok_body'") || '';
+          if (body && !body.includes('{hinweis}') && /es besteht kein weiterer Handlungsbedarf\.?/.test(body)) {
+            this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('vorlage_betrieb_ok_body',?)", [body.replace(/es besteht kein weiterer Handlungsbedarf\.?/, '{hinweis}')]);
+          }
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('vorlage_hinweis_v1','1')");
+        }
+      } catch(e) { console.warn('Vorlagen-Migration:', e); }
       // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
       // und schaltet, ob Wetter/Sachberichte als Mangel zählen. Bisher setzte
       // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –

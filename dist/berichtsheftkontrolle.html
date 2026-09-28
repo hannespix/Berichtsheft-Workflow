@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-28 06:57 UTC',
+  BUILD: '2026-09-28 11:44 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -17518,7 +17518,7 @@ Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
     betrieb_ok: { titel: 'Betrieb: Bestätigung „ohne Beanstandung" (nach der Kontrolle)',
-      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['anrede','datum','schule','schule_ort','azubi_block','hinweis','pruefer','pruefer_email','rp_adresse'],
       betreff: 'Berichtsheftkontrolle am {datum} – ohne Beanstandung ({azubi_namen})',
       body: `Sehr geehrte Damen und Herren,{anrede}
 
@@ -17527,7 +17527,7 @@ am {datum} wurde an der {schule}{schule_ort} die Berichtsheftkontrolle durchgef�
 Die Berichtshefte folgender Auszubildender waren ohne Beanstandung:
 {azubi_block}
 
-Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – es besteht kein weiterer Handlungsbedarf.
+Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – {hinweis}
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -18210,6 +18210,19 @@ Mit freundlichen Grüßen
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_v2','1')");
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
+      // Bestätigung „ohne Beanstandung“: der feste Schlusssatz „es besteht kein
+      // weiterer Handlungsbedarf“ wird zum Platzhalter {hinweis}, damit bei
+      // vorhandenen Bemerkungen „bitte beachten Sie die Bemerkungen“ steht –
+      // auch in einer von Hand angepassten Vorlage (einmalig)
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='vorlage_hinweis_v1'")) {
+          const body = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='vorlage_betrieb_ok_body'") || '';
+          if (body && !body.includes('{hinweis}') && /es besteht kein weiterer Handlungsbedarf\.?/.test(body)) {
+            this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('vorlage_betrieb_ok_body',?)", [body.replace(/es besteht kein weiterer Handlungsbedarf\.?/, '{hinweis}')]);
+          }
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('vorlage_hinweis_v1','1')");
+        }
+      } catch(e) { console.warn('Vorlagen-Migration:', e); }
       // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
       // und schaltet, ob Wetter/Sachberichte als Mangel zählen. Bisher setzte
       // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –
@@ -33395,8 +33408,25 @@ const Workflows = {
       if (mitErgebnis && a.ke?.ergebnis) line += ': ' + (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis);
       else if (mitErgebnis && a.ke && a.ke.anwesend === 0) line += ': am Kontrolltag nicht anwesend – Berichtsheft bitte nachreichen';
       if (mitErgebnis) this._nachzuholen(a).forEach(z => { line += '\n    → ' + z; });
+      // Eigene Bemerkung des Prüfers (ohne die automatischen Code-Zeilen, die
+      // oben schon stehen, und ohne interne Vermerke) – auch bei „In Ordnung“
+      if (mitErgebnis) this._bemerkungFuerBetrieb(a.ke).forEach((z, i) => { line += '\n    ' + (i === 0 ? 'Bemerkung: ' : '           ') + z; });
       return line;
     }).join('\n');
+  },
+  // Zeilen der Ergebnis-Bemerkung, die der Betrieb sehen soll: eigener Text
+  // und Sonstiges-Einträge („[AJ2/KW40] …“); automatische Code-/Pflichtteil-
+  // Sätze stehen bereits im Mängel-Block, „[Zulassung trotz Abweichung]“ ist intern
+  _bemerkungFuerBetrieb(ke) {
+    const intern = typeof KontrolleHandler !== 'undefined' && KontrolleHandler.ZULASSUNG_TROTZ_PREFIX ? KontrolleHandler.ZULASSUNG_TROTZ_PREFIX : '[Zulassung trotz Abweichung]';
+    return String(ke?.bemerkung || '').split('\n').map(z => z.trim()).filter(z => z && !z.startsWith(intern) && !(App._autoZeileKey && App._autoZeileKey(z)));
+  },
+  // Schlusssatz der Bestätigung „ohne Beanstandung“ ({hinweis}): gibt es zu
+  // einem Azubi eine Bemerkung, soll der Betrieb sie beachten – vorher stand
+  // immer „es besteht kein weiterer Handlungsbedarf“, auch mit Bemerkungen
+  _betriebHinweis(azubis) {
+    const mit = (azubis || []).some(a => this._bemerkungFuerBetrieb(a.ke).length);
+    return mit ? 'bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden.' : 'es besteht kein weiterer Handlungsbedarf.';
   },
   // Zeilen „was ist nachzuholen“ für einen Azubi: Mängel-Codes (A–G und
   // Sonstiges, Wetter ohne Zusatzvereinbarung nur als Hinweis; Fehltage sind
@@ -33718,6 +33748,7 @@ const Workflows = {
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
+      hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) };
     let { betreff, body } = App.renderVorlage(typ, ctx);
@@ -33888,6 +33919,7 @@ const Workflows = {
       const { betreff, body } = App.renderVorlage(typ, { ...t.ctx, anrede: this._anrede(g.ap),
         azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
         azubi_block: this._azubiBlock(g.azubis, isDone),
+        hinweis: this._betriebHinweis(isDone ? g.azubis : []),
         azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
         frist: formatDate(App.wvFrist('nachholung_abwesend')) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);
