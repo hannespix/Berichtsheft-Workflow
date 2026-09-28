@@ -233,8 +233,25 @@ const Workflows = {
       if (mitErgebnis && a.ke?.ergebnis) line += ': ' + (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis);
       else if (mitErgebnis && a.ke && a.ke.anwesend === 0) line += ': am Kontrolltag nicht anwesend – Berichtsheft bitte nachreichen';
       if (mitErgebnis) this._nachzuholen(a).forEach(z => { line += '\n    → ' + z; });
+      // Eigene Bemerkung des Prüfers (ohne die automatischen Code-Zeilen, die
+      // oben schon stehen, und ohne interne Vermerke) – auch bei „In Ordnung“
+      if (mitErgebnis) this._bemerkungFuerBetrieb(a.ke).forEach((z, i) => { line += '\n    ' + (i === 0 ? 'Bemerkung: ' : '           ') + z; });
       return line;
     }).join('\n');
+  },
+  // Zeilen der Ergebnis-Bemerkung, die der Betrieb sehen soll: eigener Text
+  // und Sonstiges-Einträge („[AJ2/KW40] …“); automatische Code-/Pflichtteil-
+  // Sätze stehen bereits im Mängel-Block, „[Zulassung trotz Abweichung]“ ist intern
+  _bemerkungFuerBetrieb(ke) {
+    const intern = typeof KontrolleHandler !== 'undefined' && KontrolleHandler.ZULASSUNG_TROTZ_PREFIX ? KontrolleHandler.ZULASSUNG_TROTZ_PREFIX : '[Zulassung trotz Abweichung]';
+    return String(ke?.bemerkung || '').split('\n').map(z => z.trim()).filter(z => z && !z.startsWith(intern) && !(App._autoZeileKey && App._autoZeileKey(z)));
+  },
+  // Schlusssatz der Bestätigung „ohne Beanstandung“ ({hinweis}): gibt es zu
+  // einem Azubi eine Bemerkung, soll der Betrieb sie beachten – vorher stand
+  // immer „es besteht kein weiterer Handlungsbedarf“, auch mit Bemerkungen
+  _betriebHinweis(azubis) {
+    const mit = (azubis || []).some(a => this._bemerkungFuerBetrieb(a.ke).length);
+    return mit ? 'bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden.' : 'es besteht kein weiterer Handlungsbedarf.';
   },
   // Zeilen „was ist nachzuholen“ für einen Azubi: Mängel-Codes (A–G und
   // Sonstiges, Wetter ohne Zusatzvereinbarung nur als Hinweis; Fehltage sind
@@ -556,6 +573,7 @@ const Workflows = {
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
+      hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) };
     let { betreff, body } = App.renderVorlage(typ, ctx);
@@ -726,6 +744,7 @@ const Workflows = {
       const { betreff, body } = App.renderVorlage(typ, { ...t.ctx, anrede: this._anrede(g.ap),
         azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
         azubi_block: this._azubiBlock(g.azubis, isDone),
+        hinweis: this._betriebHinweis(isDone ? g.azubis : []),
         azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
         frist: formatDate(App.wvFrist('nachholung_abwesend')) });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(betreff, 25, 90);

@@ -298,6 +298,25 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/→ Fehlende Tagesberichte nachholen \(2 Wochen: AJ 2: KW 40, 41\)/.test(block) && /→ Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: AJ 2: KW 41\)/.test(block), 'Je Code eine Zeile mit den Wochen statt je Woche eine Zeile');
   check(block.indexOf('Ausbilders') < block.indexOf('Fehlende Tagesberichte'), 'Reihenfolge wie in der Bemerkung (B vor F)');
   check(/→ Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\) – Hinweis, ohne Zusatzvereinbarung nicht verbindlich/.test(block), 'Wetter ohne Zusatzvereinbarung als Hinweis gekennzeichnet');
+  // Bemerkung des Prüfers im Block, Schlusssatz der Bestätigung „ohne Beanstandung“ nach Bemerkungen
+  const autoZeile = App.autoHinweisStamm('B') + ' (1 Woche: AJ 2: KW 41)';
+  const ok = { nachname: 'Roth', vorname: 'Isa', ke: { id: 2, ergebnis: 'in_ordnung', anwesend: 1, bemerkung: 'Heft sehr ordentlich, Wetter bitte künftig täglich\n' + autoZeile + '\n[AJ2/KW40] Skizze fehlt\n[Zulassung trotz Abweichung] intern' }, maengel: [] };
+  const okBlock = Workflows._azubiBlock([ok], true);
+  check(/^  - Roth, Isa: In Ordnung\n    Bemerkung: Heft sehr ordentlich, Wetter bitte künftig täglich\n {15}\[AJ2\/KW40\] Skizze fehlt$/.test(okBlock), `Bemerkung des Prüfers steht im Block – ohne automatische Code-Zeile und ohne internen Zulassungsvermerk: ${JSON.stringify(okBlock)}`);
+  check(Workflows._bemerkungFuerBetrieb({ bemerkung: autoZeile + '\n  \n' }).length === 0 && Workflows._bemerkungFuerBetrieb(null).length === 0, 'Nur automatische Zeilen oder keine Bemerkung → nichts');
+  check(Workflows._betriebHinweis([ok]) === 'bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden.' && Workflows._betriebHinweis([{ ...ok, ke: { ...ok.ke, bemerkung: autoZeile } }]) === 'es besteht kein weiterer Handlungsbedarf.' && Workflows._betriebHinweis([]) === 'es besteht kein weiterer Handlungsbedarf.', 'Schlusssatz: mit Bemerkung „bitte beachten“, sonst „kein weiterer Handlungsbedarf“');
+  check(App.VORLAGEN.betrieb_ok.platzhalter.includes('hinweis') && /Ausbildungsnachweise – \{hinweis\}/.test(App.VORLAGEN.betrieb_ok.body) && !/kein weiterer Handlungsbedarf/.test(App.VORLAGEN.betrieb_ok.body), 'Vorlage „ohne Beanstandung“ nutzt den Platzhalter {hinweis}');
+  const okMail = App.renderVorlage('betrieb_ok', { azubi_block: okBlock, hinweis: Workflows._betriebHinweis([ok]), anrede: '', datum: '16.09.2026', schule: 'BS', schule_ort: '', pruefer: 'P', rp_adresse: '' });
+  check(/Ausbildungsnachweise – bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden\./.test(okMail.body) && /Bemerkung: Heft sehr ordentlich/.test(okMail.body), 'Bestätigung „ohne Beanstandung“ mit Bemerkung: Block und Schlusssatz weisen darauf hin');
+  // Einmalige Migration einer von Hand angepassten Vorlage
+  App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('vorlage_betrieb_ok_body','Eigener Text.\n\nDanke – es besteht kein weiterer Handlungsbedarf.\n\nGruß')");
+  App.run("DELETE FROM einstellungen WHERE schluessel='vorlage_hinweis_v1'");
+  App.migrateDB();
+  check(App.getVorlage('betrieb_ok').body === 'Eigener Text.\n\nDanke – {hinweis}\n\nGruß' && App.scalar("SELECT wert FROM einstellungen WHERE schluessel='vorlage_hinweis_v1'") === '1', 'Angepasste Vorlage: alter Schlusssatz einmalig durch {hinweis} ersetzt');
+  App.migrateDB();
+  check(App.getVorlage('betrieb_ok').body === 'Eigener Text.\n\nDanke – {hinweis}\n\nGruß', 'Migration läuft nicht doppelt');
+  App.run("DELETE FROM einstellungen WHERE schluessel='vorlage_betrieb_ok_body'");
+  check(/hinweis: this\._betriebHinweis\(d\.isDone \? g\.azubis : \[\]\)/.test(W_SRC) && /hinweis: this\._betriebHinweis\(isDone \? g\.azubis : \[\]\)/.test(W_SRC), 'E-Mail-Arbeitsliste und Brief-PDF übergeben den Hinweis');
   check(/→ Sonstige Beanstandungen, siehe Bemerkung \(1 Woche: AJ 1: KW 50\)/.test(block) && !/Fehltage/.test(block), 'Sonstiges mit Wochen, Fehltage ohne Zeile');
   check(/→ Individueller Ausbildungsplan \(1\.1\) fehlt\./.test(block), 'Fehlender Pflichtteil steht im Block');
   check(!/AJ 2, KW 40:/.test(block), 'Alte Wochen-Zeilen sind weg');
