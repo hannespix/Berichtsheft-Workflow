@@ -542,5 +542,46 @@ console.log('\n══ Wiedervorlage „nächste Durchsicht“ ohne Datum ══'
   KH.currentIndex = 0;
 }
 
+// ── Sonstiges (I) für mehrere markierte Wochen (Feldfall: Taste I übersprang die Auswahl) ──
+{
+  console.log('\n— Sonstiges (I) mit Mehrfachauswahl —');
+  App.run('DELETE FROM kw_status WHERE schueler_id=1 AND ausbildungsjahr=2 AND kalenderwoche IN (20,21,22,25)');
+  App.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,geprueft,erstellt_bei) VALUES (1,2,21,'A',1,100)");
+  App.run("UPDATE kontrollergebnisse SET bemerkung='' WHERE id=100");
+  const zelle = (aj, kw, codes) => ({ dataset: { ke: '100', aj: String(aj), kw: String(kw), sid: '1', codes: codes || '' }, classList: { add() {}, remove() {}, contains: () => false }, focus() {}, appendChild() {} });
+  const cells = [zelle(2, 20), zelle(2, 21, 'A'), zelle(2, 22)];
+  KWNav._selectedCells = new Set(cells);
+  elems.sonstI = { checked: true }; elems.sonstBem = { value: ' Berichte teils unleserlich ', focus() {} };
+  let modalTitel = '', modalBody = '';
+  App.openModal = (t, b) => { modalTitel = t; modalBody = b; };
+  KWNav.openSonstigesModal(cells[0]);
+  check(modalTitel === '3 KWs – Sonstiges (I)' && /3 markierte Wochen.*AJ2\/KW20–22/.test(modalBody) && KWNav._sonstigesZiele.length === 3, 'Dialog gilt für alle markierten Wochen und nennt den Bereich');
+  KWNav.saveSonstiges(100, 2, 20, 1);
+  check([20, 21, 22].every(kw => kwRow(1, 2, kw) && kwRow(1, 2, kw).bemerkung === 'Berichte teils unleserlich' && (kwRow(1, 2, kw).maengel_codes || '').split(',').includes('I')), 'Alle drei Wochen: I gesetzt, dieselbe Bemerkung');
+  check(kwRow(1, 2, 21).maengel_codes === 'A,I', 'Vorhandene Codes bleiben erhalten');
+  check(App.scalar('SELECT bemerkung FROM kontrollergebnisse WHERE id=100') === '[AJ2/KW20–22] Berichte teils unleserlich', 'Ergebnis-Bemerkung: ein Eintrag mit dem Wochenbereich');
+  check(KWNav._selectedCells.size === 0 && KWNav._sonstigesZiele === null, 'Auswahl und Merkliste danach aufgehoben');
+  const e = UndoManager.last();
+  check(e && /3 KWs Sonstiges/.test(e.desc), `Ein Undo-Eintrag für alle Wochen (${e && e.desc})`);
+  UndoManager.undo();
+  check([20, 22].every(kw => !kwRow(1, 2, kw) || (!kwRow(1, 2, kw).bemerkung && !(kwRow(1, 2, kw).maengel_codes || '').includes('I'))) && kwRow(1, 2, 21).maengel_codes === 'A' && !kwRow(1, 2, 21).bemerkung, 'Undo nimmt I und Bemerkung in allen Wochen zurück');
+  UndoManager.redo();
+  check(kwRow(1, 2, 21).maengel_codes === 'A,I' && kwRow(1, 2, 22).bemerkung === 'Berichte teils unleserlich', 'Redo stellt alle Wochen wieder her');
+  // Ohne Auswahl wie bisher: eine Woche
+  KWNav._selectedCells = new Set();
+  KWNav.openSonstigesModal(zelle(2, 25));
+  check(modalTitel === 'KW 25 – Sonstiges (I)' && KWNav._sonstigesZiele.length === 1, 'Ohne Auswahl: Dialog für eine Woche');
+  KWNav.saveSonstiges(100, 2, 25, 1);
+  check(kwRow(1, 2, 25).bemerkung === 'Berichte teils unleserlich' && /\n\[AJ2\/KW25\] Berichte teils unleserlich$/.test(App.scalar('SELECT bemerkung FROM kontrollergebnisse WHERE id=100')), 'Einzelne Woche wie bisher (Vorsatz „[AJ2/KW25]“)');
+  // Abwählen: I aus allen markierten Wochen nehmen, Bemerkung leeren
+  KWNav._selectedCells = new Set([zelle(2, 20, 'I'), zelle(2, 21, 'A,I')]);
+  elems.sonstI = { checked: false }; elems.sonstBem = { value: '', focus() {} };
+  KWNav.openSonstigesModal([...KWNav._selectedCells][0]);
+  KWNav.saveSonstiges(100, 2, 20, 1);
+  check((!kwRow(1, 2, 20) || !(kwRow(1, 2, 20).maengel_codes || '').includes('I')) && kwRow(1, 2, 21).maengel_codes === 'A' && !kwRow(1, 2, 21).bemerkung, 'Abwählen entfernt I und Bemerkung in allen markierten Wochen');
+  check(KWNav._kwListe([{ aj: 2, kw: 50 }, { aj: 2, kw: 51 }, { aj: 2, kw: 52 }, { aj: 2, kw: 1 }, { aj: 2, kw: 3 }, { aj: 3, kw: 10 }]) === 'AJ2/KW50–1, 3 · AJ3/KW10', 'Wochenliste: Bereiche über den Jahreswechsel, mehrere Ausbildungsjahre');
+  check(/Sonstiges-Dialog für alle markierten Wochen/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt I bei Mehrfachauswahl');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

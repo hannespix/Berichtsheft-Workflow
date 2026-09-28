@@ -2587,6 +2587,7 @@ const Views = {
             <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
             <p>• <strong>Escape</strong> – Selektion aufheben</p>
             <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• <strong>I</strong> bei Auswahl: ein Sonstiges-Dialog für alle markierten Wochen – dieselbe Bemerkung in jeder Woche, in der Ergebnis-Bemerkung ein Eintrag mit dem Wochenbereich (z. B. „[AJ2/KW40–45] …“), ein Undo-Schritt</p>
             <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
             <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
             <p>• <strong>Fehltage</strong> (ohne Urlaub und Berufsschule) werden als Anteil der Arbeitstage der <strong>bisherigen</strong> Ausbildungszeit gezeigt (Warnung ab der Schwelle, Standard 10 %) – daneben der Anteil an der Gesamtdauer. Ab der Schwelle: Verlängerung nach § 8 Abs. 2 BBiG ansprechen; über die Zulassung entscheidet dann der Einzelfall (§ 46 BBiG).</p>

@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-09-28 06:24 UTC',
+  BUILD: '2026-09-28 06:47 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -21536,6 +21536,7 @@ const Views = {
             <p>• <strong>Shift+Pfeiltaste</strong> – Selektion Zelle für Zelle erweitern</p>
             <p>• <strong>Escape</strong> – Selektion aufheben</p>
             <p>• Nach Auswahl: Jede Taste (A–G, O, 1–5, Entf) wirkt auf <strong>alle markierten KWs</strong> gleichzeitig</p>
+            <p>• <strong>I</strong> bei Auswahl: ein Sonstiges-Dialog für alle markierten Wochen – dieselbe Bemerkung in jeder Woche, in der Ergebnis-Bemerkung ein Eintrag mit dem Wochenbereich (z. B. „[AJ2/KW40–45] …“), ein Undo-Schritt</p>
             <p>• Ein Badge unten rechts zeigt die Anzahl der ausgewählten KWs</p>
             <p style="margin-top:8px">• <strong>Grau hinterlegte KWs</strong> = Zeitraum außerhalb des Ausbildungsverhältnisses oder Unterbrechungsphase</p>
             <p>• <strong>Fehltage</strong> (ohne Urlaub und Berufsschule) werden als Anteil der Arbeitstage der <strong>bisherigen</strong> Ausbildungszeit gezeigt (Warnung ab der Schwelle, Standard 10 %) – daneben der Anteil an der Gesamtdauer. Ab der Schwelle: Verlängerung nach § 8 Abs. 2 BBiG ansprechen; über die Zulassung entscheidet dann der Einzelfall (§ 46 BBiG).</p>
@@ -32049,24 +32050,55 @@ const KWNav = {
     }
   },
 
-  // Open Sonstiges (I) modal with Bemerkung + Textbausteine
+  // KW-Liste für Beschriftungen: je Ausbildungsjahr, zusammenhängende Wochen
+  // in Rasterreihenfolge (36 … 52, 1 … 35) als Bereich – „AJ2/KW40–45 · AJ3/KW3“
+  _kwListe(ziele) {
+    const order = [];
+    for (let k = 36; k <= 52; k++) order.push(k);
+    for (let k = 1; k <= 35; k++) order.push(k);
+    const proAJ = {};
+    ziele.forEach(z => { (proAJ[z.aj] = proAJ[z.aj] || new Set()).add(z.kw); });
+    return Object.keys(proAJ).map(Number).sort((a, b) => a - b).map(aj => {
+      const kws = order.filter(k => proAJ[aj].has(k));
+      const teile = [];
+      let start = null, prev = null;
+      kws.forEach(k => {
+        const idx = order.indexOf(k);
+        if (start === null) { start = k; prev = idx; return; }
+        if (idx === prev + 1) { prev = idx; return; }
+        teile.push(start === order[prev] ? `${start}` : `${start}–${order[prev]}`);
+        start = k; prev = idx;
+      });
+      if (start !== null) teile.push(start === order[prev] ? `${start}` : `${start}–${order[prev]}`);
+      return `AJ${aj}/KW${teile.join(', ')}`;
+    }).join(' · ');
+  },
+
+  // Sonstiges (I) mit Bemerkung + Textbausteinen – für die fokussierte Zelle
+  // oder, bei Mehrfachauswahl (Shift+Klick / Shift+Pfeil), für ALLE markierten
+  // Wochen gleichzeitig: gleiche Bemerkung je Woche, ein Undo-Eintrag, ein
+  // Eintrag in der Bemerkung des Ergebnisses (vorher galt die Taste I nur
+  // für die eine Zelle, die Auswahl wurde übergangen)
   openSonstigesModal(cell) {
     this.closePopover();
-    const keId = parseInt(cell.dataset.ke);
-    const aj = parseInt(cell.dataset.aj);
-    const kw = parseInt(cell.dataset.kw);
-    const sid = parseInt(cell.dataset.sid);
-    const currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
-    const hasI = currentCodes.includes('I');
+    const sel = this._getSelectedOrFocused();
+    const cells = sel.length > 1 && sel.includes(cell) ? sel : [cell];
+    const ziele = cells.map(c => ({ keId: parseInt(c.dataset.ke), aj: parseInt(c.dataset.aj), kw: parseInt(c.dataset.kw), sid: parseInt(c.dataset.sid), codes: c.dataset.codes || '' }));
+    const { keId, aj, kw, sid } = ziele[0];
+    const hasI = ziele.every(z => z.codes.split(',').includes('I'));
+    this._sonstigesZiele = ziele;
 
-    // Load existing bemerkung for this KW
-    const kwStatus = App.query('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
-    const existingBem = kwStatus.length ? (kwStatus[0].bemerkung || '') : '';
+    // Bestehende Bemerkung: bei mehreren Wochen nur, wenn alle dieselbe tragen
+    const bems = ziele.map(z => App.scalar('SELECT bemerkung FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.sid, z.aj, z.kw]) || '');
+    const existingBem = bems.every(b => b === bems[0]) ? bems[0] : '';
+    const mehrere = ziele.length > 1;
+    const liste = this._kwListe(ziele);
 
     // Load Textbausteine from settings
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
 
-    App.openModal(`KW ${kw} – Sonstiges (I)`, `
+    App.openModal(mehrere ? `${ziele.length} KWs – Sonstiges (I)` : `KW ${kw} – Sonstiges (I)`, `
+      ${mehrere ? `<div style="margin-bottom:10px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">Gilt für <strong>${ziele.length} markierte Wochen</strong>: ${esc(liste)}${bems.some(b => b && b !== existingBem) ? ' – <span style="color:var(--clr-amber)">vorhandene, unterschiedliche Bemerkungen werden ersetzt</span>' : ''}</div>` : ''}
       <div style="margin-bottom:10px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
           <input type="checkbox" id="sonstI" ${hasI ? 'checked' : ''} style="accent-color:var(--clr-forest)">
@@ -32074,7 +32106,7 @@ const KWNav = {
         </label>
       </div>
       <div class="form-group">
-        <label>Bemerkung zu KW ${kw}</label>
+        <label>Bemerkung zu ${mehrere ? 'allen markierten Wochen' : 'KW ' + kw}</label>
         <textarea class="form-control" id="sonstBem" rows="3" style="font-size:12px" placeholder="Freitext-Bemerkung zur KW…">${esc(existingBem)}</textarea>
       </div>
       ${bausteine.length ? `<div style="margin-bottom:10px">
@@ -32090,41 +32122,30 @@ const KWNav = {
     setTimeout(() => document.getElementById('sonstBem')?.focus(), 100);
   },
 
+  // Speichern des Sonstiges-Dialogs: eine Woche oder alle beim Öffnen
+  // markierten (`_sonstigesZiele`, nur wenn die erste Woche zum Aufruf passt)
   saveSonstiges(keId, aj, kw, sid) {
     const checked = document.getElementById('sonstI')?.checked;
     const bem = document.getElementById('sonstBem')?.value?.trim() || '';
-    const vorher = this.kwZustand(sid, aj, kw);
+    const merk = this._sonstigesZiele;
+    const ziele = merk && merk.length > 1 && merk[0].keId === keId && merk[0].aj === aj && merk[0].kw === kw
+      ? merk.map(z => ({ keId: z.keId, aj: z.aj, kw: z.kw, sid: z.sid })) : [{ keId, aj, kw, sid }];
+    this._sonstigesZiele = null;
+    const vorher = ziele.map(z => this.kwZustand(z.sid, z.aj, z.kw));
+    ziele.forEach(z => this._sonstigesAnwenden(z, checked, bem));
+    const nachher = ziele.map(z => this.kwZustand(z.sid, z.aj, z.kw));
 
-    // Toggle I code
-    const cell = document.querySelector(`.kw-cell[data-ke="${keId}"][data-aj="${aj}"][data-kw="${kw}"]`);
-    if (cell) {
-      let currentCodes = (cell.dataset.codes || '').split(',').filter(Boolean);
-      const hadI = currentCodes.includes('I');
-      if (checked && !hadI) currentCodes.push('I');
-      else if (!checked && hadI) currentCodes = currentCodes.filter(c => c !== 'I');
-      currentCodes.sort();
-      const codesStr = currentCodes.join(',');
-      const fehltage = parseInt(cell.dataset.fehltage) || 0;
-      this.persistCodes(keId, aj, kw, codesStr, fehltage, sid);
-      this.updateCellVisual(cell, codesStr, fehltage);
-    }
+    if (ziele.length === 1) this.pushKWUndo(`KW ${kw} Sonstiges`, keId, aj, kw, sid, vorher[0], nachher[0]);
+    else UndoManager.push(`${ziele.length} KWs Sonstiges${this._azubiKurz(sid)}`,
+      () => { ziele.forEach((z, i) => this.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, vorher[i])); KontrolleHandler.renderSchueler(); },
+      () => { ziele.forEach((z, i) => this.kwZustandSetzen(z.keId, z.aj, z.kw, z.sid, nachher[i])); KontrolleHandler.renderSchueler(); });
 
-    // Save bemerkung to kw_status
-    const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [sid, aj, kw]);
-    if (existing.length) {
-      App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
-    } else if (bem) {
-      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
-        [sid, aj, kw, bem, keId]);
-    }
-
-    this.pushKWUndo(`KW ${kw} Sonstiges`, keId, aj, kw, sid, vorher, this.kwZustand(sid, aj, kw));
-
-    // Append to student's global Bemerkung field if there's text
+    // Einmal in die Bemerkung des Ergebnisses – bei mehreren Wochen mit der
+    // Wochenliste als Vorsatz („[AJ2/KW40–45] …“) statt je Woche eine Zeile
     if (bem) {
       const ke = App.query('SELECT bemerkung FROM kontrollergebnisse WHERE id=?', [keId])[0];
       if (ke) {
-        const prefix = `[AJ${aj}/KW${kw}] `;
+        const prefix = `[${this._kwListe(ziele)}] `;
         const existingGlobal = ke.bemerkung || '';
         // Don't duplicate if already present
         if (!existingGlobal.includes(prefix + bem)) {
@@ -32138,7 +32159,33 @@ const KWNav = {
     }
 
     App.closeModal();
+    const cell = document.querySelector(`.kw-cell[data-ke="${keId}"][data-aj="${aj}"][data-kw="${kw}"]`);
+    if (ziele.length > 1) { this.clearSelection(); if (cell) this.showFeedback(cell, `${ziele.length}× ${checked ? '+' : '−'}I`); }
     if (cell) cell.focus();
+  },
+
+  // Eine Woche: I-Code setzen/entfernen, Bemerkung in kw_status schreiben
+  _sonstigesAnwenden(z, checked, bem) {
+    const cell = document.querySelector(`.kw-cell[data-ke="${z.keId}"][data-aj="${z.aj}"][data-kw="${z.kw}"]`);
+    const stand = this.kwZustand(z.sid, z.aj, z.kw);
+    let codes = (cell ? cell.dataset.codes || '' : stand.codes).split(',').filter(Boolean);
+    const hadI = codes.includes('I');
+    if (checked && !hadI) codes.push('I');
+    else if (!checked && hadI) codes = codes.filter(c => c !== 'I');
+    codes.sort();
+    const codesStr = codes.join(',');
+    const fehltage = cell ? (parseInt(cell.dataset.fehltage) || 0) : stand.fehltage;
+    if (cell || checked !== hadI) {
+      this.persistCodes(z.keId, z.aj, z.kw, codesStr, fehltage, z.sid);
+      if (cell) this.updateCellVisual(cell, codesStr, fehltage);
+    }
+    const existing = App.query('SELECT id FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [z.sid, z.aj, z.kw]);
+    if (existing.length) {
+      App.run('UPDATE kw_status SET bemerkung=? WHERE id=?', [bem, existing[0].id]);
+    } else if (bem) {
+      App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,bemerkung,geprueft,erstellt_bei) VALUES (?,?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET bemerkung=excluded.bemerkung, geprueft=1',
+        [z.sid, z.aj, z.kw, bem, z.keId]);
+    }
   },
 
   // Update cell appearance without full re-render
