@@ -53,6 +53,8 @@ const StammdatenTab = {
   _azubiDoSearch(val) {
     this._azubiSearch = val;
     this._azubiPage = 0;
+    // Ohne Suchbegriff gelten die Filter wieder (das Aussetzen hängt an der Suche)
+    if (!String(val || '').trim() && this._azubiFilter) this._azubiFilter.alleTreffer = false;
     clearTimeout(this._azubiDebounce);
     this._azubiDebounce = setTimeout(() => {
       const c = document.getElementById('stammdatenContent');
@@ -199,45 +201,104 @@ const StammdatenTab = {
     this._renderAzubiTable(document.getElementById('stammdatenContent'));
   },
 
+  // Suchbegriffe der Azubi-Liste als SQL: alle Begriffe (Komma, Semikolon,
+  // Leerzeichen) müssen treffen, jeder darf in einem anderen Feld stehen
+  _azubiSuchKlausel(q) {
+    let sql = '';
+    const params = [];
+    const tokens = String(q || '').split(/[,;\s]+/).map(t => t.trim()).filter(t => t.length > 0);
+    tokens.forEach(token => {
+      const p = `%${token}%`;
+      sql += " AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
+      params.push(p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p);
+    });
+    return { sql, params, tokens };
+  },
+  _AZUBI_FROM: 'FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id',
+  // Treffer der Suche, die kein Filter durchlässt (inaktiv, BAV beendet,
+  // Jahrgang/Beruf/Amt/Listenfilter) – damit „in der Suche da, in der Liste
+  // nicht“ eine sichtbare Erklärung mit Ausweg bekommt
+  _azubiVerdeckt(suche, sichtbar) {
+    if (!suche.tokens.length) return { gesamt: 0, inaktiv: 0, bavEnde: 0, sonst: 0 };
+    const ids = new Set(sichtbar.map(a => a.id));
+    const alle = App.query(`SELECT s.id, s.aktiv, s.bav_status ${this._AZUBI_FROM} WHERE 1=1${suche.sql}`, suche.params);
+    const verdeckt = alle.filter(r => !ids.has(r.id));
+    const inaktiv = verdeckt.filter(r => !r.aktiv).length;
+    const bavEnde = verdeckt.filter(r => /ende/i.test(r.bav_status || '')).length;
+    const sonst = verdeckt.filter(r => r.aktiv && !/ende/i.test(r.bav_status || '')).length;
+    return { gesamt: verdeckt.length, inaktiv, bavEnde, sonst };
+  },
+  // „Alle Treffer anzeigen“: für die laufende Suche alle Filter aussetzen
+  // (nur die Suchbegriffe zählen); ein leerer Suchbegriff hebt es wieder auf
+  _azubiAlleTreffer(an) {
+    const fil = this._azubiFilter || (this._azubiFilter = {});
+    fil.alleTreffer = !!an;
+    this._azubiPage = 0;
+    const c = document.getElementById('stammdatenContent');
+    if (c) { if (document.getElementById('azubiTableContainer')) this._renderAzubiTable(c); else this.azubis(c); }
+  },
+
   _renderAzubiTable(c) {
     const container = document.getElementById('azubiTableContainer') || c;
     const q = this._azubiSearch || '';
     const fil = this._azubiFilter || {};
-    // Apply ALL global filters (Berufsgruppe + Jahrgang + Amt)
-    let where = 's.aktiv=1' + App.gf('schueler');
-    const params = [];
-
-    // Split query into tokens (by comma, space, semicolon) → ALL must match
-    if (q) {
-      const tokens = q.split(/[,;\s]+/).map(t => t.trim()).filter(t => t.length > 0);
-      tokens.forEach(token => {
-        const p = `%${token}%`;
-        where += " AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
-        params.push(p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p);
-      });
-    }
-    // Local filters (additional refinement on top of global)
-    if (fil.jahrgang) { where += ' AND s.jahrgang_id=?'; params.push(fil.jahrgang); }
-    // Mehrfachauswahl JG/ZP: beide Dimensionen zusammen = Vereinigung
-    if ((fil.jgs && fil.jgs.length) || (fil.zps && fil.zps.length)) {
-      const teile = [];
-      if (fil.jgs && fil.jgs.length) teile.push(`s.jahrgang_id IN (${App._safeIntList(fil.jgs).join(',') || '-1'})`);
-      if (fil.zps && fil.zps.length) {
-        const zpSafe = App._safeStrList(fil.zps);
-        teile.push(zpSafe.length ? `s.zwischenpruefung IN (${App._sqlInStr(zpSafe)})` : '1=0');
+    const suche = this._azubiSuchKlausel(q);
+    const alleTreffer = !!(suche.tokens.length && fil.alleTreffer);
+    let where, params;
+    if (alleTreffer) {
+      // Suche ohne jeden Filter (auch ohne aktiv=1, BAV, Jahrgang, Listenfilter)
+      where = '1=1' + suche.sql;
+      params = [...suche.params];
+    } else {
+      // Apply ALL global filters (Berufsgruppe + Jahrgang + Amt)
+      where = 's.aktiv=1' + App.gf('schueler') + suche.sql;
+      params = [...suche.params];
+      // Local filters (additional refinement on top of global)
+      if (fil.jahrgang) { where += ' AND s.jahrgang_id=?'; params.push(fil.jahrgang); }
+      // Mehrfachauswahl JG/ZP: beide Dimensionen zusammen = Vereinigung
+      if ((fil.jgs && fil.jgs.length) || (fil.zps && fil.zps.length)) {
+        const teile = [];
+        if (fil.jgs && fil.jgs.length) teile.push(`s.jahrgang_id IN (${App._safeIntList(fil.jgs).join(',') || '-1'})`);
+        if (fil.zps && fil.zps.length) {
+          const zpSafe = App._safeStrList(fil.zps);
+          teile.push(zpSafe.length ? `s.zwischenpruefung IN (${App._sqlInStr(zpSafe)})` : '1=0');
+        }
+        where += ` AND (${teile.join(' OR ')})`;
       }
-      where += ` AND (${teile.join(' OR ')})`;
+      if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
+      // Drill-down filter (from dashboard clicks)
+      if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
+      // If global "Inaktive Azubi" extra filter is active, remove the s.aktiv=1 constraint
+      const ef = App._extraFilterSql();
+      if (ef.overrideAktiv) { where = where.replace('s.aktiv=1', '1=1'); }
     }
-    if (fil.schule) { where += ' AND k.berufsschule_id=?'; params.push(fil.schule); }
-    // Drill-down filter (from dashboard clicks)
-    if (fil.drillDown) { where += ' AND (' + fil.drillDown.where + ')'; }
-    // If global "Inaktive Azubi" extra filter is active, remove the s.aktiv=1 constraint
-    const ef = App._extraFilterSql();
-    if (ef.overrideAktiv) { where = where.replace('s.aktiv=1', '1=1'); }
     // Store for export
     this._lastAzubiWhere = where;
     this._lastAzubiParams = [...params];
-    const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code FROM schueler s LEFT JOIN betriebe b ON s.betrieb_id=b.id LEFT JOIN klassen k ON s.klasse_id=k.id LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
+    const azubis = App.query(`SELECT s.*, b.name as b_name, b.email as b_email, b.telefon as b_tel, b.ort as b_ort, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang, fr.bezeichnung as fachrichtung, fr.typ as fr_typ, fr.code as fr_code ${this._AZUBI_FROM} WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
+
+    // Hinweis auf Treffer, die die Filter verdecken (nur mit Suchbegriff)
+    let verdecktHtml = '';
+    if (suche.tokens.length) {
+      if (alleTreffer) {
+        verdecktHtml = `<div id="azubiVerdeckt" class="azubi-verdeckt aus" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;margin-bottom:8px;background:var(--clr-amber-light);border:1px solid var(--clr-amber);border-radius:var(--radius);font-size:12px">
+          <span>⚠ Filter für diese Suche ausgesetzt: alle ${azubis.length} Treffer zu „${esc(q.trim())}“ – auch inaktive, beendete und solche außerhalb der Jahrgangs-, Berufs-, Amts- und Listenfilter.</span>
+          <button class="btn btn-sm btn-secondary" style="font-size:12px;padding:2px 8px" onclick="StammdatenTab._azubiAlleTreffer(false)">Filter wieder anwenden</button>
+        </div>`;
+      } else {
+        const v = this._azubiVerdeckt(suche, azubis);
+        if (v.gesamt) {
+          const teile = [];
+          if (v.inaktiv) teile.push(`${v.inaktiv} inaktiv`);
+          if (v.bavEnde) teile.push(`${v.bavEnde} mit beendetem BAV-Status`);
+          if (v.sonst) teile.push(`${v.sonst} außerhalb der Jahrgangs-, Berufs-, Amts- oder Listenfilter`);
+          verdecktHtml = `<div id="azubiVerdeckt" class="azubi-verdeckt" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;margin-bottom:8px;background:var(--clr-warm);border:1px solid var(--clr-sand);border-radius:var(--radius);font-size:12px">
+            <span>${azubis.length ? `${v.gesamt} weitere Treffer` : `${v.gesamt} Treffer`} zu „${esc(q.trim())}“ ${v.gesamt === 1 ? 'ist' : 'sind'} durch Filter ausgeblendet (${teile.join(', ')}).</span>
+            <button class="btn btn-sm btn-secondary" style="font-size:12px;padding:2px 8px" onclick="StammdatenTab._azubiAlleTreffer(true)" title="Für diese Suche alle Filter aussetzen – inaktive und beendete Azubis eingeschlossen">Alle ${azubis.length + v.gesamt} Treffer anzeigen</button>
+          </div>`;
+        }
+      }
+    }
 
     // Seiten à AZUBI_SEITE Zeilen: bei 4000 Azubis rechnete die Liste sonst
     // je Zeile vier Abfragen und wurde 16.000 px hoch
@@ -256,7 +317,7 @@ const StammdatenTab = {
     if (countEl) countEl.textContent = `${azubis.length} Treffer${seiten > 1 ? ` · Seite ${this._azubiPage + 1}/${seiten}` : ''}`;
 
     // Only update the table, not the search bar (preserves cursor position)
-    container.innerHTML = `
+    container.innerHTML = `${verdecktHtml}
     <!-- Bulk Action Bar -->
     <div id="bulkBarAzubi" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
       <strong><span id="bulkCountAzubi">0</span> ausgewählt</strong>

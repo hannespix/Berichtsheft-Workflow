@@ -165,6 +165,17 @@ console.log('\n══ Zusatzfilter ("+ Filter"): Mehrfachauswahl mit ODER-Verkn�
   check(JSON.stringify(ids(`SELECT s.id FROM schueler s WHERE s.aktiv=1${App.gf('s')}`)) === '[2,3]',
     'Einzelwert (Alt-Format) wird weiterhin unterstützt');
   App.extraFilters = [];
+  // „Inaktive Azubi“ hebt die Vorgabe „Aktive BAV“ auf – sonst blieben beendete
+  // (= meist inaktive) Azubis trotz „Aktive + Inaktive“ unsichtbar
+  App.filterBavStatus = 'aktiv';
+  check(/NOT LIKE '%Ende%'/.test(App.gf('s')), 'Vorgabe „Aktive BAV“: beendete Verträge ausgeblendet');
+  App.extraFilters = [{ field: 'status_inaktiv', value: 'alle' }];
+  check(!/Ende/.test(App.gf('s')) && App._extraFilterSql().overrideAktiv === true, '„Aktive + Inaktive“: Vorgabe „Aktive BAV“ setzt aus');
+  App.extraFilters = [{ field: 'status_inaktiv', value: 'ja' }];
+  check(!/Ende/.test(App.gf('s')) && /s\.aktiv = 0/.test(App.gf('s')), '„Nur inaktive“: ebenfalls ohne BAV-Vorgabe');
+  App.filterBavStatus = 'ende';
+  check(/s\.bav_status LIKE '%Ende%'/.test(App.gf('s')), 'Ausdrücklich „Beendete BAV“ bleibt auch mit Inaktiv-Filter');
+  App.filterBavStatus = 'aktiv'; App.extraFilters = [];
   check(/chk-ef-/.test(APP_SRC) && /_efChange/.test(APP_SRC), 'Chip-Filter rendern Häkchen-Dropdowns');
 }
 

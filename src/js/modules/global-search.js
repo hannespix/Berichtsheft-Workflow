@@ -192,7 +192,15 @@ const GlobalSearch = {
         const oMgl = App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND maengel_codes!=''", [s.id]) || 0;
         const wvO = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id]) || 0;
         const idx = this._results.length;
-        this._results.push({ type: 'schueler', id: s.id, action: () => { App.navigate('stammdaten'); setTimeout(() => { StammdatenTab.show('azubis', document.querySelector('.tab-btn')); setTimeout(() => { StammdatenTab._azubiSearch = s.nachname; StammdatenTab.azubis(document.getElementById('stammdatenContent')); }, 50); }, 100); } });
+        // Treffer öffnet die Azubi-Seite direkt – unabhängig von den Filtern der
+        // Azubi-Liste. Vorher sprang der Klick in die Stammdaten-Liste mit dem
+        // Nachnamen als Suchbegriff; eine inaktive oder beendete Azubi war dort
+        // durch Inaktiv-/BAV-/Jahrgangsfilter unsichtbar („in der Suche da, in
+        // der Liste nicht“).
+        this._results.push({ type: 'schueler', id: s.id, action: () => {
+          if (typeof AzubiSeite !== 'undefined' && AzubiSeite.oeffnen) { AzubiSeite.oeffnen(s.id, 'uebersicht'); return; }
+          App.navigate('stammdaten'); setTimeout(() => { StammdatenTab.show('azubis', document.querySelector('.tab-btn')); setTimeout(() => { StammdatenTab._azubiSearch = s.nachname; if (StammdatenTab._azubiAlleTreffer) StammdatenTab._azubiAlleTreffer(true); else StammdatenTab.azubis(document.getElementById('stammdatenContent')); }, 50); }, 100);
+        } });
 
         html += `<div class="gs-row" role="option" tabindex="-1" data-idx="${idx}" style="padding:8px 12px;border-bottom:1px solid var(--clr-sand);cursor:pointer${s.aktiv ? '' : ';opacity:0.65'}" onmouseenter="this.style.background='var(--clr-warm)';GlobalSearch._selectedIdx=${idx}" onmouseleave="this.style.background=''" onclick="GlobalSearch._selectedIdx=${idx};GlobalSearch._activate()">
           <div style="display:flex;align-items:center;gap:8px">
