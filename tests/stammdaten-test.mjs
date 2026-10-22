@@ -203,5 +203,53 @@ console.log('══ Schema & Oberfläche ══');
   check(/StammdatenTab\.dubletten\('\$\{art\}'\)/.test(read('src/js/modules/db-tools.js')), 'Datenbank-Tools verlinken die Dubletten-Prüfung');
 }
 
+console.log('\n══ Azubi-Liste: verdeckte Suchtreffer (inaktiv / BAV beendet / Filter) ══');
+{
+  // Feldfall: inaktive Azubi vor der Externenprüfung – die Suche (Strg+K)
+  // findet sie, die Liste zeigt sie auch mit „Aktive + Inaktive“ nicht
+  // (Vorgabe „Aktive BAV“ blendet beendete Verträge aus). Die Liste muss
+  // sagen, was verdeckt ist, und einen Ausweg bieten.
+  vm.runInContext(read('src/js/modules/stammdaten.js') + '\n;globalThis.StammdatenTab = StammdatenTab;', sandbox, { filename: 'stammdaten.js' });
+  const SDT = sandbox.StammdatenTab;
+  const elems = {};
+  sandbox.document.getElementById = (id) => elems[id] || (elems[id] = el(id));
+  db.run("INSERT INTO abschlussjahrgaenge (id,bezeichnung,typ,jahr) VALUES (901,'S2024','Sommer',2024),(902,'S2028','Sommer',2028)");
+  db.run(`INSERT INTO schueler (id,ibykus_id,nachname,vorname,jahrgang_id,aktiv,status,bav_status,ausbildungsbeginn,ausbildungsende) VALUES
+    (777001,'X1','Weberzz','Anna',902,1,'aktiv','BESTAET','2025-09-01','2028-08-31'),
+    (777002,'X2','Weberzz','Berta',901,0,'abgebrochen','ENDE','2021-09-01','2024-08-31'),
+    (777003,'X3','Weberzz','Carla',901,1,'aktiv','','2021-09-01','2024-08-31')`);
+  App.filterJahrgang = []; App.filterZp = []; App.filterFachrichtungen = []; App.filterAmt = []; App.filterBavStatus = 'aktiv'; App.extraFilters = [];
+  SDT._azubiFilter = {}; SDT._azubiSearch = 'Weberzz'; SDT._azubiPage = 0;
+  const render = () => { SDT._renderAzubiTable(sandbox.document.getElementById('stammdatenContent')); return elems.azubiTableContainer.innerHTML; };
+  let html = render();
+  check(/777001/.test(html) && /777003/.test(html) && !/777002/.test(html), 'Standard: aktive Webers sichtbar, die beendete (inaktiv, BAV ENDE) nicht');
+  check(/id="azubiVerdeckt"/.test(html) && /1 weitere Treffer zu „Weberzz“ ist durch Filter ausgeblendet \(1 inaktiv, 1 mit beendetem BAV-Status\)/.test(html) && /Alle 3 Treffer anzeigen/.test(html), `Hinweis nennt die verdeckte Azubi und bietet „Alle 3 Treffer anzeigen“ (${(html.match(/<span>[^<]*ausgeblendet[^<]*<\/span>/) || [''])[0]})`);
+  App.filterJahrgang = [902];
+  html = render();
+  check(/777001/.test(html) && !/777003/.test(html) && /2 weitere Treffer zu „Weberzz“ sind durch Filter ausgeblendet \(1 inaktiv, 1 mit beendetem BAV-Status, 1 außerhalb der Jahrgangs-, Berufs-, Amts- oder Listenfilter\)/.test(html), 'Jahrgangsfilter: auch die aktive Carla ist verdeckt – als „außerhalb der Filter“ gezählt');
+  SDT._azubiAlleTreffer(true);
+  html = elems.azubiTableContainer.innerHTML;
+  check(/777001/.test(html) && /777002/.test(html) && /777003/.test(html) && /Filter für diese Suche ausgesetzt: alle 3 Treffer zu „Weberzz“/.test(html) && /Filter wieder anwenden/.test(html), '„Alle Treffer anzeigen“: nur der Suchbegriff zählt, Chip mit Rückweg');
+  check(/^1=1 AND \(s\.nachname LIKE \?/.test(SDT._lastAzubiWhere) && SDT._getFilteredAzubis().length === 3, 'Excel/Kopieren folgen der ausgesetzten Filterung (alle drei)');
+  SDT._azubiAlleTreffer(false);
+  html = elems.azubiTableContainer.innerHTML;
+  check(!/777002/.test(html) && /2 weitere Treffer/.test(html), '„Filter wieder anwenden“ stellt die Filter her');
+  SDT._azubiAlleTreffer(true);
+  SDT._azubiDoSearch('');
+  check(SDT._azubiFilter.alleTreffer === false, 'Leerer Suchbegriff hebt das Aussetzen auf');
+  SDT._azubiSearch = 'Weberzz'; App.filterJahrgang = [];
+  html = render();
+  check(!/Filter für diese Suche ausgesetzt/.test(html) && /1 weitere Treffer/.test(html), 'Danach gelten die Filter wieder, Hinweis erscheint erneut');
+  // „Aktive + Inaktive“ hebt die BAV-Vorgabe auf – die beendete Azubi erscheint
+  App.extraFilters = [{ field: 'status_inaktiv', value: 'alle' }];
+  html = render();
+  check(/777002/.test(html) && !/id="azubiVerdeckt"/.test(html), '„Inaktive Azubi: Aktive + Inaktive“ zeigt die beendete Azubi – kein Hinweis mehr nötig');
+  App.extraFilters = [];
+  SDT._azubiSearch = ''; SDT._azubiFilter = {};
+  html = render();
+  check(!/id="azubiVerdeckt"/.test(html), 'Ohne Suchbegriff kein Hinweis');
+  db.run('DELETE FROM schueler WHERE id IN (777001,777002,777003)'); db.run('DELETE FROM abschlussjahrgaenge WHERE id IN (901,902)');
+}
+
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);
 process.exit(failed ? 1 : 0);

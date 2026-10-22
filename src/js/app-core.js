@@ -1118,7 +1118,12 @@ const App = {
                 zp.length ? `s.zwischenpruefung IN (${zpIn})` : '');
       if (bg.length) w += ` AND s.fachrichtung_id IN (${bgIn})`;
       if (amt.length) w += ` AND s.zustaendiges_amt IN (${amtIn})`;
-      if (this.filterBavStatus === 'aktiv') w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`;
+      // BAV-Status „Aktive BAV“ ist die Vorgabe (kein sichtbarer Filter) und
+      // blendet beendete Verträge aus. Wer über „Inaktive Azubi“ ausdrücklich
+      // inaktive (= meist beendete) Azubis sehen will, darf davon nicht still
+      // ausgebremst werden – die Vorgabe setzt dann aus, ein ausdrücklich
+      // gewählter Stand („Beendete BAV“) bleibt.
+      if (this.filterBavStatus === 'aktiv') { if (!ef.overrideAktiv) w += ` AND (s.bav_status = '' OR s.bav_status NOT LIKE '%Ende%')`; }
       else if (this.filterBavStatus === 'ende') w += ` AND s.bav_status LIKE '%Ende%'`;
       // Extra filters apply directly (already use alias 's')
       if (extraSql) w += extraSql;

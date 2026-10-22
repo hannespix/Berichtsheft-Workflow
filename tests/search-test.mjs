@@ -59,6 +59,7 @@ const sandbox = {
     navigate() {}, openModal() {},
   },
   StammdatenTab: {}, formatDate: (d) => String(d || ''),
+  AzubiSeite: { geoeffnet: [], oeffnen(id, abschnitt) { this.geoeffnet.push([id, abschnitt]); } },
   esc: (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
@@ -119,6 +120,18 @@ console.log('══ Ranking ══');
 {
   GS.search('mueller');
   check(resultsEl.innerHTML.includes('Müller'), 'HTML-Ausgabe enthält den Treffer');
+}
+
+console.log('══ Treffer öffnet die Azubi-Seite (unabhängig von Listenfiltern) ══');
+{
+  // Feldfall: inaktive Azubi vor der Externenprüfung – in der Suche da, in der
+  // Stammdaten-Liste durch Inaktiv-/BAV-/Jahrgangsfilter unsichtbar. Der Klick
+  // führte dorthin und zeigte nichts. Jetzt öffnet er die Azubi-Seite.
+  const s = firstSchueler('mueller');
+  sandbox.AzubiSeite.geoeffnet = [];
+  s.action();
+  check(sandbox.AzubiSeite.geoeffnet.length === 1 && sandbox.AzubiSeite.geoeffnet[0][0] === s.id && sandbox.AzubiSeite.geoeffnet[0][1] === 'uebersicht', `Klick auf den Azubi-Treffer ruft AzubiSeite.oeffnen(${s.id}, 'uebersicht')`);
+  check(/AzubiSeite\.oeffnen\(s\.id, 'uebersicht'\)/.test(GS_SRC) && /StammdatenTab\._azubiAlleTreffer\(true\)/.test(GS_SRC), 'Ohne Azubi-Seite fällt der Weg auf die Liste mit ausgesetzten Filtern zurück');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

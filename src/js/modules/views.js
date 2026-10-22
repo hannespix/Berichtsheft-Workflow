@@ -2721,7 +2721,7 @@ const Views = {
             <p>• <strong>Mehrere Begriffe kombinierbar</strong> (UND-Suche): „müller radolfzell" findet den Müller mit Betrieb/Schule in Radolfzell – jeder Begriff darf in einem anderen Feld treffen</p>
             <p>• <strong>Tippfehler-tolerant (fuzzy)</strong>: „maier" findet auch „Mayer", „muler" den „Müller"; Umlaute sind egal (mueller = müller = muller)</p>
             <p>• Treffer sind nach Relevanz sortiert (exakter Name vor Teilstring vor Tippfehler-Treffer); inaktive Azubis erscheinen markiert weiter hinten</p>
-            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz</p>
+            <p>• Ein Klick auf einen Treffer springt zum jeweiligen Datensatz – ein <strong>Azubi</strong> öffnet direkt seine Azubi-Seite, unabhängig von den Filtern der Azubi-Liste (auch inaktive und beendete)</p>
             <p>• <strong>Tastatur:</strong> Strg+K = Suche öffnen, Escape = schließen, ↑↓ = navigieren, Enter = auswählen</p>
           </div>
 
@@ -2924,6 +2924,8 @@ const Views = {
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
             Prüfen Sie den BAV-Status-Filter in der Topbar (▤-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
+            <p style="margin-top:8px"><strong>Die Suche (Strg+K) findet eine Azubi, die Azubi-Liste zeigt sie nicht.</strong><br>
+            Die Suche durchsucht immer den ganzen Bestand, die Azubi-Liste in den Stammdaten dagegen nur, was die Filter durchlassen: standardmäßig nur aktive Azubis, nur „Aktive BAV“ (ohne beendete Verträge) und nur die gewählten Jahrgänge, Berufe und Ämter. Eine inaktive oder beendete Azubi (z. B. vor einer Externenprüfung) ist deshalb in der Suche da, in der Liste aber unsichtbar – die Daten sind nicht weg. Ein Klick auf den Suchtreffer öffnet ihre Azubi-Seite direkt. In der Liste zeigt eine Zeile über der Tabelle, wie viele Treffer zum Suchbegriff ausgeblendet sind, mit „Alle Treffer anzeigen“ setzen Sie die Filter für diese Suche aus. Der Zusatzfilter „Inaktive Azubi: Aktive + Inaktive“ hebt auch die Vorgabe „Aktive BAV“ auf.</p>
             <p style="margin-top:8px"><strong>Können mehrere Sachbearbeiter gleichzeitig mit der Anwendung arbeiten?</strong><br>
             Ja. Der Arbeitsordner wird auf einem gemeinsamen Netzlaufwerk abgelegt. Alle Sachbearbeiter öffnen dieselbe HTML-Datei im Browser und wählen denselben Arbeitsordner. Jeder Rechner schreibt in sein eigenes Protokoll und liest die der anderen alle 3 Sekunden; Änderungen der Kollegen erscheinen nach wenigen Sekunden. Ändern zwei Personen dasselbe Feld, gilt die spätere Änderung. In der Kontrolle sehen Sie, welchen Azubi ein Kollege gerade bearbeitet, und starten automatisch bei einem freien.</p>
             <p style="margin-top:8px"><strong>Welche Browser werden unterstützt?</strong><br>
