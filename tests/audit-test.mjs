@@ -146,7 +146,7 @@ console.log('\n══ Oberfläche (Quellen) ══');
   check(/w\.kontrollergebnis_id IS NOT NULL AND w\.kontrollergebnis_id != \?/.test(NE), 'Nacherfassung schließt keine Wiedervorlagen ohne Ergebnis');
   check(/if \(!klasse\) return App\.toast\('Bitte eine Klasse wählen'/.test(BE) && /'Gesamtpaket – ' \+ esc\(klassenStr\)/.test(BE) && /drawFooter\(doc, doc\.internal\.getNumberOfPages\(\)\)/.test(BE) && /setTimeout\(\(\) => \{ \/\/ Allow spinner to render\n    try \{/.test(BE), 'Berichte: Klassen-Guard, Titel maskiert, Seitenzahl, Fehlerbehandlung im Timer');
   check(/title="\$\{esc\(schuelerNames \+ moreHint\)\}"/.test(PL), 'Standort-Tooltip maskiert');
-  check(/Workflows\._individualData\.betriebe\[\$\{idx\}\]\.key/.test(WF) && /Workflows\._nachholung\.betroffen\[\$\{idx\}\]\.key/.test(WF) && /status IN \('offen','ueberfaellig'\) AND w\.frist_datum != '' ORDER BY w\.frist_datum LIMIT 1/.test(WF) && /if \(yz > 270\)/.test(WF), 'Serienbrief: Schlüssel per Index statt Zeichenkette, Frist auch bei überfällig, Seitenumbruch');
+  check(/Workflows\._individualData\.betriebe\[\$\{idx\}\]\.key/.test(WF) && /Workflows\._nachholung\.betroffen\[\$\{idx\}\]\.key/.test(WF) && /status IN \('offen','ueberfaellig'\) AND w\.frist_datum != '' ORDER BY w\.frist_datum LIMIT 1/.test(WF) && /if \(y > B\.FUSS_Y\) y = neueSeite\(\)/.test(WF), 'Serienbrief: Schlüssel per Index statt Zeichenkette, Frist auch bei überfällig, Seitenumbruch');
   const BS = read('src/js/modules/bulk-schueler.js'), AZ = read('src/js/modules/azubi-seite.js');
   check(/if \(cnt\) cnt\.textContent = ids\.length;/.test(BS) && /zeile\(esc\(a\.funktion\) \|\| 'Ausbilder'/.test(AZ), 'Bulk-Leiste ohne Elemente wirft nicht; Ausbilder-Funktion maskiert');
 }

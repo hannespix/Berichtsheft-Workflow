@@ -65,7 +65,7 @@ const PDFExport = {
       // ══════════════════════════════════════
       let logoH = 0;
       if (logo) {
-        try { doc.addImage(logo.data, 'PNG', LM, y, 36, 36 / logo.ratio); logoH = 36 / logo.ratio; } catch(e) { logoH = 0; }
+        try { doc.addImage(logo.data, logo.format || 'PNG', LM, y, 36, 36 / logo.ratio, undefined, 'FAST'); logoH = 36 / logo.ratio; } catch(e) { logoH = 0; }
       }
       doc.setTextColor(...COL_INK);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
@@ -556,10 +556,15 @@ const PDFExport = {
       const img = typeof document !== 'undefined' && document.querySelector ? document.querySelector('img.topbar-logo--pos') : null;
       if (!img || !img.src) { this._logoCache = null; return null; }
       const ratio = (img.naturalWidth && img.naturalHeight) ? img.naturalWidth / img.naturalHeight : 663 / 160;
-      if (/^data:image\/png/i.test(img.src)) { this._logoCache = { data: img.src, ratio }; return this._logoCache; }
-      const c = document.createElement('canvas'); c.width = img.naturalWidth || 663; c.height = img.naturalHeight || 160;
-      c.getContext('2d').drawImage(img, 0, 0);
-      this._logoCache = { data: c.toDataURL('image/png'), ratio };
+      // Höchstens 900 px breit und als JPEG auf weißem Grund: jsPDF legt PNG-
+      // Bilder unkomprimiert ab (~0,5 MB je PDF), JPEG bleibt bei ~30 KB.
+      // Gedruckt wird das Logo mit 36–52 mm, dafür reichen 900 px.
+      const bw = Math.min(img.naturalWidth || 663, 900), bh = Math.round(bw / ratio);
+      const c = document.createElement('canvas'); c.width = bw; c.height = bh;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, bw, bh);
+      ctx.drawImage(img, 0, 0, bw, bh);
+      this._logoCache = { data: c.toDataURL('image/jpeg', 0.92), ratio, format: 'JPEG' };
       return this._logoCache;
     } catch(e) { this._logoCache = null; return null; }
   },

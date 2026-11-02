@@ -249,6 +249,22 @@ console.log('\n══ Azubi-Liste: verdeckte Suchtreffer (inaktiv / BAV beendet 
   html = render();
   check(!/id="azubiVerdeckt"/.test(html), 'Ohne Suchbegriff kein Hinweis');
   db.run('DELETE FROM schueler WHERE id IN (777001,777002,777003)'); db.run('DELETE FROM abschlussjahrgaenge WHERE id IN (901,902)');
+
+  // Prüfer: Telefon im Dialog, Bearbeiten lädt die Werte, Speichern aktualisiert
+  console.log('\n══ Prüfer: Telefon für den Briefkopf ══');
+  elems.mPrName = { value: 'Neu, Nina' }; elems.mPrEmail = { value: 'nina@example.org' }; elems.mPrTelefon = { value: ' 0761 208-1299 ' };
+  SDT.savePruefer();
+  let pr = App.query("SELECT * FROM pruefer WHERE name='Neu, Nina'")[0];
+  check(pr && pr.email === 'nina@example.org' && pr.telefon === '0761 208-1299', 'Neuer Prüfer mit Telefon gespeichert (getrimmt)');
+  modalHtml = '';
+  SDT.editPruefer(pr.id);
+  check(/Prüfer bearbeiten/.test(modalHtml) || /id="mPrTelefon" value="0761 208-1299"/.test(modalHtml), `Bearbeiten öffnet den Dialog mit Telefon vorbelegt`);
+  elems.mPrTelefon = { value: '0761 208-1300' };
+  SDT.savePruefer();
+  pr = App.query("SELECT * FROM pruefer WHERE name='Neu, Nina'")[0];
+  check(pr.telefon === '0761 208-1300' && App.scalar("SELECT COUNT(*) FROM pruefer WHERE name='Neu, Nina'") === 1, 'Gleicher Name aktualisiert Telefon statt zu doppeln');
+  check(/<td>0761 208-1300<\/td>/.test(elems.stammdatenContent.innerHTML) && /editPruefer\(/.test(elems.stammdatenContent.innerHTML), 'Prüferliste zeigt Telefon und „Bearbeiten“');
+  db.run("DELETE FROM pruefer WHERE name='Neu, Nina'");
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

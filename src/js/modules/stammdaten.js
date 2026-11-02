@@ -1118,27 +1118,37 @@ const StammdatenTab = {
       <div class="toolbar"><div class="toolbar-left"></div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addPruefer()">+ Neuer Prüfer</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr><th>Name</th><th>E-Mail</th><th>Status</th><th>Aktionen</th></tr></thead><tbody>
+      <div class="card"><table class="data-table"><thead><tr><th>Name</th><th>E-Mail</th><th>Telefon</th><th>Status</th><th>Aktionen</th></tr></thead><tbody>
         ${rows.map(r => `<tr>
           <td><strong>${esc(r.name)}</strong></td>
           <td>${esc(r.email)}</td>
+          <td>${esc(r.telefon || '')}</td>
           <td>${r.aktiv ? '<span class="badge-status badge-ok">Aktiv</span>' : '<span class="badge-status" style="background:#eee">Inaktiv</span>'}</td>
-          <td><button class="btn-icon btn-sm" onclick="StammdatenTab.deletePruefer(${r.id})" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="StammdatenTab.editPruefer(${r.id})" title="E-Mail und Telefon ändern">Bearbeiten</button> <button class="btn-icon btn-sm" onclick="StammdatenTab.deletePruefer(${r.id})" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
         </tr>`).join('')}
       </tbody></table></div>`;
   },
-  addPruefer() {
-    App.openModal('Neuer Prüfer', `
-      <div class="form-group"><label>Name</label><input class="form-control" id="mPrName"></div>
-      <div class="form-group"><label>E-Mail</label><input class="form-control" id="mPrEmail"></div>
+  // Neu anlegen oder (mit Vorgabe) bearbeiten – derselbe Name aktualisiert
+  // E-Mail und Telefon (ON CONFLICT); Telefon erscheint im Briefkopf der PDF-Briefe
+  addPruefer(vorgabe) {
+    const p = vorgabe || {};
+    App.openModal(p.id ? 'Prüfer bearbeiten' : 'Neuer Prüfer', `
+      <div class="form-group"><label>Name</label><input class="form-control" id="mPrName" value="${esc(p.name || '')}" ${p.id ? 'readonly' : ''}></div>
+      <div class="form-group"><label>E-Mail</label><input class="form-control" id="mPrEmail" value="${esc(p.email || '')}"></div>
+      <div class="form-group"><label>Telefon <span style="font-weight:400;color:var(--clr-text-light)">(steht im Briefkopf der PDF-Briefe an Betriebe)</span></label><input class="form-control" id="mPrTelefon" value="${esc(p.telefon || '')}" placeholder="0761 208-1234"></div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.savePruefer()">Speichern</button>`);
+  },
+  editPruefer(id) {
+    const p = App.query('SELECT * FROM pruefer WHERE id=?', [id])[0];
+    if (p) this.addPruefer(p);
   },
   savePruefer() {
     const n = document.getElementById('mPrName').value.trim();
     if (!n) return App.toast('Name ist Pflichtfeld', 'error');
-    App.run(`INSERT INTO pruefer (name,email) VALUES (?,?)
-      ON CONFLICT(name) DO UPDATE SET email=excluded.email`, [n, document.getElementById('mPrEmail').value.trim()]);
+    App.run(`INSERT INTO pruefer (name,email,telefon) VALUES (?,?,?)
+      ON CONFLICT(name) DO UPDATE SET email=excluded.email, telefon=excluded.telefon`,
+      [n, document.getElementById('mPrEmail').value.trim(), (document.getElementById('mPrTelefon')?.value || '').trim()]);
     App.closeModal();
     StammdatenTab.show('pruefer');
   },
