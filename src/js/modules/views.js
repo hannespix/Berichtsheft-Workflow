@@ -1453,6 +1453,7 @@ const Views = {
     const rpAdresseP = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_persoenlich'") || '';
     const rpAdressePost = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_adresse_post'") || '';
     const rpEmail = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
+    const brief = (k) => App.briefEinstellung ? App.briefEinstellung(k) : '';
     const isDark = document.body.classList.contains('dark-mode');
 
     return {
@@ -1647,6 +1648,20 @@ const Views = {
       </div>
 
 `,
+      briefkopf: `      <!-- Briefbogen für PDF-Briefe an Betriebe -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">▤ Briefbogen für PDF-Briefe an Betriebe</div>
+        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die PDF-Briefe (Planung → „PDF-Briefe“, Nachbereitung → „Brief“ je Betrieb ohne E-Mail) folgen dem Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson (Name, Telefon und E-Mail aus Stammdaten → Prüfer), Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi mit Ergebnis, Wiedervorlage und Fehltagen; Platz für die Unterschrift, Anlagen, Fußzeile mit Datenschutzhinweis und Dienstgebäude. Vorbelegt sind die Angaben des RP Freiburg, Abteilung 3.</p>
+        <div class="form-group"><label>Abteilung (Kopf rechts)</label><input class="form-control" id="setBriefAbteilung" value="${esc(brief('abteilung'))}"></div>
+        <div class="form-group"><label>Rücksendeangabe (Zeile über der Anschrift)</label><input class="form-control" id="setBriefRuecksende" value="${esc(brief('ruecksende'))}"></div>
+        <div class="form-group"><label>Geschäftszeichen</label><input class="form-control" id="setBriefGz" value="${esc(brief('geschaeftszeichen'))}" placeholder="leer = ohne Geschäftszeichen"></div>
+        <div class="form-group"><label>Fußzeile: Dienstgebäude, Paketadresse, E-Mail, Telefon, Homepage, Serviceportal (Einträge mit | trennen, drei Spalten à zwei Zeilen)</label><textarea class="form-control" id="setBriefFuss" rows="2" style="font-size:12px">${esc(brief('fusszeile'))}</textarea></div>
+        <div class="form-group"><label>Datenschutzhinweis (über der Fußzeile)</label><textarea class="form-control" id="setBriefDatenschutz" rows="2" style="font-size:12px">${esc(brief('datenschutz'))}</textarea></div>
+        <div class="form-group"><label>Anlagen nach der Kontrolle (eine je Zeile; vor der Kontrolle gibt es keine Anlagen)</label><textarea class="form-control" id="setBriefAnlagen" rows="2" style="font-size:12px">${esc(brief('anlagen'))}</textarea></div>
+        <button class="btn btn-primary" onclick="Views.saveEinstellungen()">Einstellungen speichern</button>
+      </div>
+
+`,
       aemter: `      <!-- E-Mail-Adressen fremder Ämter -->
       ${(() => {
         const aemter = App.query(`SELECT DISTINCT zustaendiges_amt AS amt FROM schueler WHERE zustaendiges_amt IS NOT NULL AND zustaendiges_amt != '' AND zustaendiges_amt != ? ORDER BY 1`, [App.EIGENES_AMT]).map(r => r.amt);
@@ -1830,7 +1845,7 @@ const Views = {
       </div>
       <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
       <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
-      <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.aemter}${t.vorlagen}${t.word}</div>
+      <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.briefkopf}${t.aemter}${t.vorlagen}${t.word}</div>
       <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.uba}${t.fristen}${t.kampagnen}${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
     setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
@@ -2022,6 +2037,12 @@ const Views = {
       ['rp_adresse_post', document.getElementById('setRPPost').value.trim()],
       ['rp_email', document.getElementById('setRPEmail').value.trim()],
     ];
+    // Briefbogen der PDF-Briefe (leer = Standardtext des RP Freiburg)
+    [['brief_abteilung', 'setBriefAbteilung'], ['brief_ruecksende', 'setBriefRuecksende'], ['brief_geschaeftszeichen', 'setBriefGz'],
+     ['brief_fusszeile', 'setBriefFuss'], ['brief_datenschutz', 'setBriefDatenschutz'], ['brief_anlagen', 'setBriefAnlagen']].forEach(([k, id]) => {
+      const el = document.getElementById(id);
+      if (el) sets.push([k, String(el.value || '').trim()]);
+    });
     sets.forEach(([k,v]) => {
       App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES (?,?)", [k,v]);
     });
@@ -2654,6 +2675,7 @@ const Views = {
               <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
               <p>• <strong>Optionen</strong> über der Liste, je Person gemerkt: <em>Ansprechpartner namentlich ansprechen</em> (Standard aus – „Sehr geehrte Damen und Herren“ reicht meist), <em>Signatur</em> (Standard: die angemeldete Person; jeder andere Prüfer wählbar; oder „keine“ – dann endet der Text vor der Grußformel und Outlook hängt beim Senden die eigene Signatur an) und <em>Durchsichtsbögen anhängen</em>. Die Vorschau in der Liste zeigt sofort den geänderten Text.</p>
               <p>• <strong>⬇ Alle als Outlook-Entwürfe (ZIP)</strong> ist der Hauptweg, ohne Längengrenze. Je Betrieb entsteht eine .eml-Datei mit Empfänger, Betreff, Text und – nach der Kontrolle – den Durchsichtsbögen der genannten Azubis als PDF-Anhang; die betreffenden Azubis stehen im CC, sofern in den Stammdaten eine E-Mail-Adresse hinterlegt ist (die Zeile zeigt „CC Azubi: …“); alles zusammen in einer ZIP-Datei (mit LIESMICH). ZIP entpacken, .eml doppelklicken: das klassische Outlook öffnet sie als neuen Entwurf mit „Senden“ (das neue Outlook zeigt solche Dateien nur zum Lesen – dann den Weg „Nächste öffnen“ nutzen).</p>
+              <p>• <strong>▤ Brief</strong> (je Betrieb ohne E-Mail) und <strong>PDF-Briefe</strong> (Planung) erzeugen Briefe im Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson mit Telefon und E-Mail, Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi (Ergebnis, Wiedervorlage, Fehltage), Platz für die Unterschrift, Anlagen (Durchsichtsbogen, Berichtsheft), Fußzeile mit Datenschutzhinweis und Dienstgebäude, Falzmarken. Texte des Briefbogens unter Einstellungen → Kontakt → „Briefbogen“, Telefon der Prüfer unter Stammdaten → Prüfer.</p>
               <p>• <strong>✉︎ Nächste öffnen</strong> ist der zweite Weg über den E-Mail-Link: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text. Ein E-Mail-Link fasst nur etwa 2000 Zeichen: passt der Text nicht, sagt es die Zeile vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
               <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung (oder das Erzeugen des Entwurfs) wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail erledigt, gilt der Termin als nachbereitet.</p>
             </div>
@@ -2782,6 +2804,7 @@ const Views = {
             <p>• <strong>RP-Adressen</strong> – Adresse für persönliche Vorlage und Post-Versand</p>
             <p>• <strong>E-Mail-Vorlage Freisprechung</strong> – Text für Freisprechungseinladungen</p>
             <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
+            <p>• <strong>Briefbogen für PDF-Briefe an Betriebe</strong> – Abteilung, Rücksendeangabe, Geschäftszeichen, Fußzeile (Dienstgebäude, Paketadresse, E-Mail, Telefon, Homepage, Serviceportal), Datenschutzhinweis und Anlagen; vorbelegt mit den Angaben des RP Freiburg, Abteilung 3. Name, Telefon und E-Mail der Ansprechperson kommen aus Stammdaten → Prüfer</p>
             <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
             <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
             <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen); der Grund steht im Klartext in der Karte (auch „Safe Browsing“ als Schreibhindernis), „Sperre prüfen“ zeigt, wer die Kompaktierungs-Sperre hält, und gibt sie notfalls frei; eine eigene Sperre, deren Freigabe an einem Schreibfehler scheiterte, wird automatisch wieder übernommen und später freigegeben. Nicht im Offline-Modus, nicht bei Netzabriss und nicht in einer <strong>zweiten Registerkarte</strong> derselben Datenbank – die kann grundsätzlich keinen Snapshot schreiben (auch Import ist dort gesperrt)</p>

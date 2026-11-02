@@ -155,6 +155,10 @@ console.log('\n══ Migrations-Parität: Schema / Arbeitskopie / Netzlaufwerk 
   const idx = []; const st2 = alt.prepare("SELECT name FROM sqlite_master WHERE type='index'");
   while (st2.step()) idx.push(st2.getAsObject().name); st2.free();
   check(idx.includes('idx_pruefer_name'), 'idx_pruefer_name existiert auf der Disk-DB');
+  // pruefer.telefon (Briefkopf der PDF-Briefe) in Arbeitskopie und Alt-Datenbank
+  const spalten = (d, t) => { const r = []; const st = d.prepare(`PRAGMA table_info(${t})`); while (st.step()) r.push(st.getAsObject().name); st.free(); return r; };
+  check(spalten(db, 'pruefer').includes('telefon'), 'pruefer.telefon nach migrateDB()');
+  check(spalten(alt, 'pruefer').includes('telefon'), 'pruefer.telefon auch auf der Alt-Datenbank (_migrateDiskDb)');
   alt.close();
 }
 

@@ -1397,6 +1397,7 @@ const App = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       email TEXT DEFAULT '',
+      telefon TEXT DEFAULT '',
       aktiv INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS kontrolltermine (
@@ -7464,8 +7465,11 @@ const App = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       email TEXT DEFAULT '',
+      telefon TEXT DEFAULT '',
       aktiv INTEGER DEFAULT 1
     )`);
+    // Prüfer: Telefon für den Briefkopf der PDF-Briefe (Name · Telefon · E-Mail)
+    run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''");
     try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
     run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
     // Ausbildungsphasen + erweiterte Azubi-Felder
@@ -10203,11 +10207,30 @@ Mit freundlichen Grüßen
     return {
       pruefer: prueferName || 'Ausbildungsberater',
       pruefer_email: (pr && pr.email) || rpEmail || '',
+      pruefer_telefon: (pr && pr.telefon) || '',
       rp_adresse: rpAdressePost,
       rp_email: rpEmail,
       rp_name: 'Regierungspräsidium Freiburg',
-      datum_heute: new Date().toLocaleDateString('de-DE'),
+      // zweistellig wie im Behördenbrief („02.11.2026“ statt „2.11.2026“)
+      datum_heute: new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
     };
+  },
+  // Briefbogen der PDF-Briefe an Betriebe (Vorlage: Rücksendeschreiben des RP
+  // Freiburg, Abteilung 3). Jede Zeile ist unter Einstellungen → Kontakt
+  // änderbar (`brief_<key>`), leer heißt Standardtext.
+  BRIEF_STANDARD: {
+    abteilung: 'Abteilung 3 – Landwirtschaft, Ländlicher Raum, Veterinär- und Lebensmittelwesen',
+    ruecksende: 'Regierungspräsidium Freiburg, Abteilung 3 · 79095 Freiburg i. Br.',
+    geschaeftszeichen: 'RPF31-8412-239',
+    fusszeile: 'Dienstgebäude: Bertoldstraße 43, 79098 Freiburg i. Br. | Paketadresse: Bissierstraße 7, 79114 Freiburg i. Br. | E-Mail: abteilung3@rpf.bwl.de | Telefon: 0761 208-0 | Homepage: www.rp-freiburg.de | Serviceportal: www.service-bw.de',
+    datenschutz: 'Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internetseite www.rp-freiburg.de unter „Datenschutzerklärungen“, Titel „A-01: Datenschutzerklärung zur Verwaltungstätigkeit der Regierungspräsidien“. Auf Wunsch werden diese Informationen in Papierform versandt.',
+    anlagen: 'Berichtsheftdurchsichtsbogen\nBerichtsheft',
+  },
+  // Gespeicherter Wert gewinnt – auch ein leerer (z. B. kein Geschäftszeichen);
+  // nur ohne Eintrag gilt der Standardtext
+  briefEinstellung(key) {
+    const w = this.scalar("SELECT wert FROM einstellungen WHERE schluessel=?", ['brief_' + key]);
+    return (w === null || w === undefined) ? (this.BRIEF_STANDARD[key] || '') : String(w);
   },
   // E-Mail-Adressen fremder Ämter (Einstellungen, JSON {amt: email})
   aemterEmails() {
@@ -10538,6 +10561,8 @@ Mit freundlichen Grüßen
       // schueler: telefon + email
       try { this.db.run("ALTER TABLE schueler ADD COLUMN telefon TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''"); } catch(e) {}
+      // pruefer: telefon (Briefkopf der PDF-Briefe)
+      try { this.db.run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''"); } catch(e) {}
       // schueler: geschlecht (m/w/d)
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''"); } catch(e) {}
       // schueler: schulabschluss + pruefungserfolg

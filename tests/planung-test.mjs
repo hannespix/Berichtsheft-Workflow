@@ -188,12 +188,15 @@ console.log('\n══ Audit 7 Paket D: Planung im Termin-Modell ══');
   const vSep = PH._kontrollVorlagen(new Date(2026, 8, 11)).find(x => x.key === 'kontrolle23');
   check(vSep.jgLabels.includes('S2027'), 'September 2026: weiterhin AP S2027 (Fenster Nov./Dez. 2026)');
 
-  // D2: Lehrjahr zum Stichtag der Kampagne, nicht zu heute
+  // D2: Lehrjahr zum Stichtag der Kampagne, nicht zu heute. Der Azubi beginnt
+  // zum laufenden Schuljahr (1.9.), damit die Prüfung datumsunabhängig ist –
+  // mit dem Startmonat „heute“ zählte ein Beginn im November/Dezember nach
+  // der Lehrjahr-Logik als Vorlauf und der Stichtag lag im 1. Lehrjahr
   const heute = new Date();
-  const beginn = `${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, '0')}-01`;
-  const ende = `${heute.getFullYear() + 3}-${String(heute.getMonth() + 1).padStart(2, '0')}-01`;
-  const spaeter = new Date(heute.getFullYear(), heute.getMonth() + 15, 15);
-  const refDate = `${spaeter.getFullYear()}-${String(spaeter.getMonth() + 1).padStart(2, '0')}-15`;
+  const sjStart = heute.getMonth() >= 8 ? heute.getFullYear() : heute.getFullYear() - 1;
+  const beginn = `${sjStart}-09-01`;
+  const ende = `${sjStart + 3}-08-31`;
+  const refDate = `${sjStart + 2}-02-15`;
   db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,klasse_id,jahrgang_id,fachrichtung_id,zustaendiges_amt,ausbildungsbeginn,ausbildungsende) VALUES (901,'Zukunft','Z',1,3,2,1,'93',?,?)`, [beginn, ende]);
   const heuteLJ2 = App.getStandortgruppen({ lehrjahre: [2] }).some(g => g.schueler.some(x => x.id === 901));
   const spaeterLJ2 = App.getStandortgruppen({ lehrjahre: [2], refDate }).some(g => g.schueler.some(x => x.id === 901));

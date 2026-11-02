@@ -112,6 +112,23 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before, `Dialog ${call}`);
 }
 
+// PDF-Briefe an Betriebe im Briefbogen des RP: Erzeugung läuft im echten
+// Browser mit jsPDF + autoTable, vor und nach der Kontrolle, ohne Fehler
+{
+  const before = errors.length;
+  const r = await page.evaluate(() => {
+    const out = {};
+    const fertig = App.query("SELECT kt.id FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' ORDER BY (SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=kt.id) DESC LIMIT 1")[0];
+    // Offener Termin, der Betriebe mit Azubis hat (fremde Ämter zählen nicht), sonst gibt es keinen Brief
+    const offen = App.query("SELECT kt.id FROM kontrolltermine kt WHERE kt.status!='durchgefuehrt' ORDER BY kt.geplant_datum").find(k => Workflows._betriebeDesTermins(k.id, false).betriebe.length > 0);
+    if (fertig) { const b = Workflows.exportSeriendruckPDF(fertig.id, false, null, { bytes: true }); out.fertig = b ? b.length : 0; }
+    if (offen) { const b = Workflows.exportSeriendruckPDF(offen.id, false, null, { bytes: true }); out.offen = b ? b.length : 0; }
+    return out;
+  });
+  check(errors.length === before && (r.fertig || 0) > 2000, `PDF-Brief nach der Kontrolle erzeugt (${r.fertig || 0} Bytes)`);
+  check(errors.length === before && (r.offen || 0) > 2000, `PDF-Brief vor der Kontrolle erzeugt (${r.offen || 0} Bytes)`);
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));

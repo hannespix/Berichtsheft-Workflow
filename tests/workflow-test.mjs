@@ -493,5 +493,35 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(/FEHLTAGE_HINWEIS: 'Weichen die angegebenen Fehltage von den Fehltagen in Ihrer betrieblichen Dokumentation ab, wenden Sie sich bitte an die Ausbildungsberatung\.'/.test(P) && /splitTextToSize\(PDFExport\.FEHLTAGE_HINWEIS, halfW\)/.test(P) && /fzHinweis\.forEach\(z => \{ curY \+= 2\.6; doc\.text\(z, LM \+ 3, curY\); \}\)/.test(P) && /leftH \+= fzHinweis\.length \* 2\.6 \+ 1\.5/.test(P), 'Hinweis unter den Fehltagen (Abweichung zur betrieblichen Dokumentation → Ausbildungsberatung), Kastenhöhe rechnet ihn mit');
 }
 
+// ── PDF-Briefe an Betriebe im Briefbogen des RP ──
+{
+  console.log('\n— PDF-Briefe im Briefbogen (Logo, Infoblock, Übersicht, Unterschrift, Anlagen, Fußzeile) —');
+  const W = read('src/js/modules/workflows.js'), A = read('src/js/app-core.js'), V = read('src/js/modules/views.js'), ST = read('src/js/modules/stammdaten.js');
+  check(/exportSeriendruckPDF\(terminId, nurOhneEmail, nurKey, opts\)/.test(W) && /if \(opts && opts\.bytes\) return new Uint8Array\(doc\.output\('arraybuffer'\)\)/.test(W), 'Briefe auch als Bytes abrufbar (Smoke-Test, Anhänge)');
+  check(/_briefZeichnen\(doc, g, t, isDone\)/.test(W) && /_briefFuss\(doc, p - ersteSeite \+ 1, gesamt\)/.test(W) && /doc\.setPage\(p\)/.test(W), 'Je Brief Kopf, Fuß und „Seite x von y“ nachträglich auf allen Seiten');
+  check(/App\.briefEinstellung\('ruecksende'\)/.test(W) && /App\.briefEinstellung\('abteilung'\)/.test(W) && /App\.briefEinstellung\('geschaeftszeichen'\)/.test(W) && /App\.briefEinstellung\('datenschutz'\)/.test(W) && /App\.briefEinstellung\('fusszeile'\)/.test(W) && /App\.briefEinstellung\('anlagen'\)/.test(W), 'Alle Texte des Briefbogens aus den Einstellungen');
+  check(/zeile\('Telefon:', absender\.pruefer_telefon\)/.test(W) && /zeile\('E-Mail:', absender\.pruefer_email\)/.test(W) && /Kontrolle am:/.test(W) && /zeile\('Berufsschule:'/.test(W), 'Infoblock: Name, Telefon, E-Mail, Geschäftszeichen, Datum, Kontrolltermin, Schule, Klasse');
+  check(/head: \[\['Auszubildende\/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage'\]\]/.test(W) && /typeof doc\.autoTable === 'function'/.test(W), 'Übersicht je Azubi als Tabelle (autoTable), mit Rückfall');
+  check(/y \+= 12;\s*\/\/ Raum für die handschriftliche Unterschrift/.test(W) && /doc\.text\('Anlagen', L, y\)/.test(W) && /doc\.line\(5, 105, 10, 105\); doc\.line\(5, 210, 10, 210\); doc\.line\(5, 148\.5, 12, 148\.5\)/.test(W), 'Unterschriftenraum, Anlagen, Falz- und Lochmarken');
+  check(/const pdfText = \(s\) => String\(s \|\| ''\)\.replace\(\/→\/g, '–'\)/.test(W) && /betreff: pdfText\(betreff\)/.test(W), 'Pfeile und Häkchen der Vorlage werden für Helvetica ersetzt (sonst „!\'“ im Druck)');
+  check(/while \(fs > 7 && doc\.getTextWidth\(String\(wert\)\) > 38\)/.test(W), 'Lange Werte im Infoblock (E-Mail, Schule) werden verkleinert statt mitten im Wort umbrochen');
+  check(/rp_adresse: '', rp_name: ''/.test(W) && /^\s*Mit freundlichen Gr/.test('Mit freundlichen Grüßen') && /findIndex\(z => \/\^\\s\*Mit freundlichen Gr\/i\.test\(z\)\)/.test(W), 'Absenderblock der Vorlage entfällt im Brief (steht im Kopf), Grußformel wird erkannt');
+  check(/const typ = isDone \? this\._betriebVorlageTyp\(g, true\) : 'brief_betrieb';/.test(W), 'Vorlagenwahl unverändert: vor der Kontrolle Ankündigung, danach Ergebnis-Vorlagen');
+  // Einstellungen: Standardwerte des RP Freiburg, gespeicherter Wert gewinnt (auch leer)
+  check(App.BRIEF_STANDARD && /^Abteilung 3 – Landwirtschaft/.test(App.BRIEF_STANDARD.abteilung) && /79095 Freiburg/.test(App.BRIEF_STANDARD.ruecksende) && App.BRIEF_STANDARD.fusszeile.split('|').length === 6 && /A-01/.test(App.BRIEF_STANDARD.datenschutz) && App.BRIEF_STANDARD.anlagen.split('\n').length === 2, 'Standardtexte des Briefbogens (Abteilung 3, Rücksendeangabe, 6 Fußzeilen-Einträge, Datenschutz A-01, 2 Anlagen)');
+  check(App.briefEinstellung('abteilung') === App.BRIEF_STANDARD.abteilung, 'Ohne Eintrag gilt der Standardtext');
+  App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('brief_geschaeftszeichen','')");
+  App.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('brief_abteilung','Abteilung 3 – Referat 31')");
+  check(App.briefEinstellung('geschaeftszeichen') === '' && App.briefEinstellung('abteilung') === 'Abteilung 3 – Referat 31', 'Gespeicherter Wert gewinnt – auch ein geleertes Geschäftszeichen');
+  App.run("DELETE FROM einstellungen WHERE schluessel IN ('brief_geschaeftszeichen','brief_abteilung')");
+  // Prüfer-Telefon in den Absenderdaten
+  App.run("UPDATE pruefer SET telefon='0761 208-1267' WHERE name='Muster, Max'");
+  check(App.absenderCtx('Muster, Max').pruefer_telefon === '0761 208-1267' && App.absenderCtx('Unbekannt').pruefer_telefon === '', 'absenderCtx liefert das Telefon des Prüfers');
+  check(/telefon TEXT DEFAULT ''/.test(A.match(/CREATE TABLE IF NOT EXISTS pruefer \([\s\S]*?\);/)[0]) && /run\("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''"\)/.test(A) && /this\.db\.run\("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''"\)/.test(A), 'pruefer.telefon in Schema, migrateDB und _migrateDiskDb');
+  check(/id="mPrTelefon"/.test(ST) && /editPruefer\(id\) \{/.test(ST) && /telefon=excluded\.telefon/.test(ST) && /<th>Telefon<\/th>/.test(ST), 'Prüfer-Dialog mit Telefon, Bearbeiten-Knopf, Spalte');
+  check(/id="setBriefAbteilung"/.test(V) && /id="setBriefFuss"/.test(V) && /id="setBriefAnlagen"/.test(V) && /\['brief_geschaeftszeichen', 'setBriefGz'\]/.test(V) && /\$\{t\.kontakt\}\$\{t\.briefkopf\}/.test(V), 'Einstellungen: Karte „Briefbogen“ im Reiter Kontakt, Speichern aller Felder');
+  check(/Briefbogen für PDF-Briefe an Betriebe<\/strong>/.test(V) && /Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe/.test(V), 'Hilfe beschreibt Briefbogen und Einstellungen');
+}
+
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);
