@@ -129,6 +129,26 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before && (r.offen || 0) > 2000, `PDF-Brief vor der Kontrolle erzeugt (${r.offen || 0} Bytes)`);
 }
 
+// Rückfrage während einer Ladeanzeige (Feldfall Import → „Aktiver Jahrgang“):
+// Die Ladeanzeige (z-index 10000) lag über der Rückfrage, der Import wartete
+// endlos. Jetzt tritt sie für die Rückfrage zurück und kommt danach wieder.
+{
+  const before = errors.length;
+  await page.evaluate(() => { App.showLoading('Importiere Azubi-Daten…'); window.__antwort = App.confirm('Jahrgang setzen?', { titel: 'Aktiver Jahrgang', ok: 'Jahrgang setzen' }); });
+  await page.waitForTimeout(200);
+  const vorher = await page.evaluate(() => {
+    const ok = document.getElementById('dlgOk'); const r = ok.getBoundingClientRect();
+    const oben = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { laden: document.getElementById('loadingOverlay').style.display, klickbar: oben === ok || ok.contains(oben) };
+  });
+  check(vorher.laden === 'none' && vorher.klickbar, 'Rückfrage während der Ladeanzeige ist sichtbar und klickbar');
+  await page.click('#dlgOk');
+  const nachher = await page.evaluate(async () => ({ antwort: await window.__antwort, laden: document.getElementById('loadingOverlay').style.display, text: document.getElementById('loadingText').textContent }));
+  check(nachher.antwort === true && nachher.laden === 'flex' && /Importiere Azubi-Daten/.test(nachher.text), 'Nach der Antwort läuft die Ladeanzeige weiter');
+  await page.evaluate(() => App.hideLoading());
+  check(errors.length === before, 'Ladeanzeige + Rückfrage ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));

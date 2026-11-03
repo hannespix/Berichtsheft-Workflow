@@ -108,6 +108,7 @@ console.log('\n══ Rückfragen: eigene Dialoge statt window.confirm/prompt �
   const KS = read('src/js/modules/keyboard-shortcuts.js');
   check(/dlgOverlay/.test(KS) && /App\._dialogEnde\(App\._dialogAbbruchWert\)/.test(KS), 'Globales Escape schließt zuerst die Rückfrage, dann den Dialog');
   check(!/if \(this\._dialogResolve\) \{ const r = this\._dialogResolve; this\._dialogResolve = null; try \{ r\(this\._dialogAbbruchWert\)/.test(APP.split('closeModal(fromPopstate = false) {')[1].split('\n  },')[0]), 'closeModal() beendet die Rückfrage nicht mehr (sie steht darüber, der Dialog bleibt)');
+  check(/const ladePause = this\._ladePausieren\(\)/.test(APP) && /if \(ladePause\) this\._ladeFortsetzen\(ladePause\)/.test(APP), 'Rückfrage legt eine laufende Ladeanzeige beiseite (sonst verdeckt, Import hing endlos)');
   check(/btn-gefaehrlich/.test(APP) && /\.btn-primary\.btn-gefaehrlich \{ background: var\(--clr-red\)/.test(CSS), 'Gefährliche Aktionen (Löschen) haben einen roten Hauptknopf');
   check(/_dialogVorherFokus = document\.activeElement/.test(APP) && /z\.focus\(\{ preventScroll: true \}\)/.test(APP), 'Fokus kehrt nach der Rückfrage zum auslösenden Element zurück');
   check(/dialogeImDom\(\)/.test(APP) && /typeof confirm === 'function'\) v = confirm\(text\)/.test(APP), 'Ohne DOM greift der globale confirm (Test-Sandkasten)');
