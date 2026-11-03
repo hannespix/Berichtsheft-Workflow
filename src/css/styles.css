@@ -1039,6 +1039,22 @@ body.grosse-schrift { zoom: 1.2; }
 .termin-zeile .tz-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--clr-text-light); font-weight: 600; }
 .termin-zeile .tz-name { font-family: var(--font-display); font-size: 15px; color: var(--clr-forest-dark); }
 .termin-zeile .tz-nav { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.termin-zeile .tz-text { display: flex; flex-direction: column; min-width: 0; }
+.termin-zeile .tz-sub { font-size: 12px; color: var(--clr-text-light); margin-top: 2px; }
+/* Durchsicht-Übersicht: Fortschritt mit Beschriftung statt Zähl-Chips, Zulassung in einer Zelle */
+.fortschritt { margin-bottom: 12px; }
+.fortschritt .fs-kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.fortschritt .fs-text { font-size: 13px; color: var(--clr-text); line-height: 1.5; }
+.fortschritt .fs-ok { color: var(--clr-green); }
+.fortschritt .fs-mangel { color: var(--clr-red); font-weight: 600; }
+.fortschritt .fs-cockpit { font-size: 12px; color: var(--clr-text-light); margin-top: 2px; }
+.fortschritt .fs-balken { height: 8px; background: var(--clr-sand); border-radius: 4px; overflow: hidden; display: flex; }
+.fortschritt .fs-balken > div { transition: width 0.3s; }
+.zul-zelle { white-space: nowrap; font-size: 12px; }
+.zul-zelle .zul-pfl { margin-right: 6px; }
+.zul-zelle .zul-chk { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; cursor: pointer; }
+.zul-zelle .zul-chk input { width: 16px; height: 16px; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .fortschritt .fs-balken > div { transition: none; } }
 .aj-kopf { cursor: pointer; user-select: none; }
 .aj-kopf:hover { color: var(--clr-forest); }
 .aktionen-menue { position: relative; display: inline-block; }

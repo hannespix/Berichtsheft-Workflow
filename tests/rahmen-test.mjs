@@ -86,6 +86,24 @@ console.log('\n══ UI-Vereinfachung Pakete 1–4: Wörter, Filterbalken, Men�
   check(/\$\{t\.bemerkung \? `<div style="font-size:12px;color:var\(--clr-text-light\);max-width:220px/.test(V) && /\$\{frStr !== '–' \? `<div style="font-size:12px;color:var\(--clr-text-light\)">\$\{esc\(frStr\)\}<\/div>` : ''\}/.test(V), 'Bemerkung und Fachrichtung als zweite Zeile');
 }
 
+console.log('\n══ UI-Vereinfachung Paket 6: Durchsicht-Übersicht ══');
+{
+  const K = read('src/js/modules/kontrolle.js');
+  const ue = K.split('  renderUebersicht() {')[1].split('  // Einen Azubi direkt aus der Übersicht')[0];
+  const kopf = ue.match(/<thead><tr>([\s\S]*?)<\/tr><\/thead>/)[1];
+  check((kopf.match(/<th/g) || []).length === 7 && !/>FR<\/th>/.test(kopf) && !/↯/.test(kopf) && !/>Pfl\.<\/th>/.test(kopf) && !/>AP<\/th>/.test(kopf) && />Zulassung /.test(kopf), 'Übersicht: 7 Spalten (#, Azubi, Anw., Ergebnis, Fehl., Zulassung, Aktion) statt 12');
+  check(/colspan="7"/.test(ue) && !/colspan="12"/.test(ue), 'Gruppenzeile über 7 Spalten');
+  check(/class="zul-zelle"/.test(ue) && /const zulZeigen = this\._zulAlle \|\| imLetztenAJ \|\| isZulassung \|\| isPA/.test(ue) && /KontrolleHandler\._zulZeigen=KontrolleHandler\._zulZeigen\|\|\{\}\)\[\$\{s\.id\}\]=true/.test(ue) && /KontrolleHandler\._zulAlle=!KontrolleHandler\._zulAlle/.test(ue), 'Zulassung in einer Zelle (Pfl., Zul., PA, Befund) – voll im letzten Lehrjahr, sonst per „…“ oder „alle“');
+  check(/KontrolleHandler\.toggleZulassung\(\$\{s\.id\},this\.checked\)/.test(ue) && /KontrolleHandler\.togglePA\(\$\{s\.id\},this\.checked\)/.test(ue) && /KontrolleHandler\.quickToggleAnwesend\(\$\{s\.id\}, this\.checked\)/.test(ue) && /KontrolleHandler\.quickMarkOK\(\$\{s\.id\}\)/.test(ue), 'Alle Schalter bleiben (Anwesend, i.O., Zulassung, PA)');
+  check(/<span title="\$\{esc\(ampel\.label\)\}" aria-label="\$\{esc\(ampel\.label\)\}">\$\{ampel\.icon\}<\/span> \$\{esc\(s\.ausbildungsstaette\|\|''\)\}\$\{frName !== '–' \? ` · \$\{esc\(frName\)\}` : ''\}/.test(ue), 'Ampel und Fachrichtung stehen in der Azubi-Zelle');
+  check(/class="fortschritt"/.test(ue) && /<strong>\$\{doneCount\} von \$\{nenner\}<\/strong>/.test(ue) && /✓ \$\{okCount\} in Ordnung/.test(ue) && /✗ \$\{mangelCount\} beanstandet/.test(ue) && /<strong>\$\{offen\} offen<\/strong>/.test(ue) && !/Statistik-Leiste/.test(ue) && /App\.kontrolltagCockpit\(terminId\)/.test(ue), 'Zähl-Chips sind zur Beschriftung des Fortschrittsbalkens geworden (Cockpit bleibt)');
+  check(/class="seg" role="group" aria-label="Ansicht der Durchsicht"/.test(ue) && !/<strong style="font-size:16px;font-family:var\(--font-display\)/.test(ue), 'Umschalter Übersicht | Einzelansicht; kein zweiter Termin-Kopf in der Karte (der steht in der Terminzeile)');
+  const tz = K.split('  _terminZeile() {')[1].split('  _terminMenue(termin) {')[0];
+  check(/class="tz-sub"/.test(tz) && /App\._isoKW\(d\)/.test(tz) && /\$\{liste\.length\} Azubi/.test(tz) && /t\.pruefer \|\| ''\]/.test(tz), 'Terminzeile: Datum (KW) · Ort · Azubis · Prüfer in einer Zeile, Klassen leise darunter');
+  check(/this\._terminZeile\(\);\n  \},\n\n  \/\/ Einen Azubi direkt aus der Übersicht/.test(K), 'Übersicht zieht die Terminzeile nach (Zahlen im Menü aktuell)');
+  check(/\.zul-zelle \{ white-space: nowrap; font-size: 12px; \}/.test(CSS) && /\.fortschritt \.fs-balken \{/.test(CSS) && /\.termin-zeile \.tz-sub \{/.test(CSS), 'Stile für Zulassungszelle, Fortschritt und Terminzeile');
+}
+
 console.log('\n══ Hilfe in zwölf Kapiteln ══');
 {
   const toc = [...V.match(/const helpSections = \[([^\]]*)\]/)[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1]);
