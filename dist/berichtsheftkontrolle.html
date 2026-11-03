@@ -7748,7 +7748,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-02 12:42 UTC',
+  BUILD: '2026-11-03 07:42 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -18545,6 +18545,7 @@ Mit freundlichen Grüßen
     const el = document.getElementById('loadingOverlay');
     document.getElementById('loadingText').textContent = text || 'Wird geladen…';
     el.style.display = 'flex';
+    this._ladePause = null;
     this._ladeStart = Date.now();
     this._ladeBasis = text || 'Wird geladen…';
     if (this._ladeTimer) clearInterval(this._ladeTimer);
@@ -18565,7 +18566,25 @@ Mit freundlichen Grüßen
   },
   hideLoading() {
     if (this._ladeTimer) { clearInterval(this._ladeTimer); this._ladeTimer = null; }
+    this._ladePause = null;
     document.getElementById('loadingOverlay').style.display = 'none';
+  },
+  // Ladeanzeige für eine Rückfrage ausblenden (App.confirm/App.prompt) und
+  // danach mit demselben Text wieder zeigen. Liefert null, wenn keine lief.
+  _ladePausieren() {
+    const el = document.getElementById('loadingOverlay');
+    if (!el || el.style.display === 'none' || !el.style.display) return null;
+    const pause = { basis: this._ladeBasis };
+    if (this._ladeTimer) { clearInterval(this._ladeTimer); this._ladeTimer = null; }
+    el.style.display = 'none';
+    this._ladePause = pause;
+    return pause;
+  },
+  _ladeFortsetzen(pause) {
+    // Nur wenn seitdem niemand hideLoading/showLoading aufgerufen hat
+    if (!pause || this._ladePause !== pause) return;
+    this._ladePause = null;
+    this.showLoading(pause.basis);
   },
   _showOfflineBanner(critical) {
     let banner = document.getElementById('offlineBanner');
@@ -18719,6 +18738,11 @@ Mit freundlichen Grüßen
     if (this._dialogResolve) { const r = this._dialogResolve; this._dialogResolve = null; try { r(this._dialogAbbruchWert); } catch(e) {} }
     const ov = this._dlgOverlay();
     const box = document.getElementById('dlgBox');
+    // Laufende Ladeanzeige (z-index 10000) für die Dauer der Rückfrage
+    // beiseitelegen: Sie lag sonst ÜBER der Rückfrage (1100), der Vorgang
+    // (z. B. Import → „Aktiver Jahrgang“) wartete auf eine Antwort, die niemand
+    // klicken konnte, und die Sekunden zählten endlos hoch (Feldfall Import).
+    const ladePause = this._ladePausieren();
     this._dialogVorherFokus = document.activeElement;
     this._dialogAbbruchWert = abbruchWert;
     this._dialogResolve = (v) => {
@@ -18727,6 +18751,7 @@ Mit freundlichen Grüßen
       box.innerHTML = '';
       const z = this._dialogVorherFokus; this._dialogVorherFokus = null;
       if (z && z.focus && document.contains(z)) { try { z.focus({ preventScroll: true }); } catch(e) {} }
+      if (ladePause) this._ladeFortsetzen(ladePause);
       resolve(v);
     };
     ov.setAttribute('aria-label', String(titel || '').replace(/<[^>]*>/g, ''));
