@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { createRequire } from 'node:module';
+const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -108,6 +109,17 @@ console.log('\n══ getTerminSchule: Ort des Termins ══');
     'Einsendung ohne Ort → keine (falsche) Schule');
   db.run(`UPDATE kontrolltermine SET berufsschule_id=1 WHERE id=10`);
   check(App.getTerminSchule(10)?.name === 'BS Freiburg', 'Einsendung MIT gesetztem Ort liefert die Schule');
+  // Freier Ort (Büro des RP, Betrieb, Zwischenprüfung): kontrolltermine.ort gewinnt
+  db.run(`UPDATE kontrolltermine SET ort='RP Freiburg, Zimmer 411' WHERE id=10`);
+  const frei = App.getTerminSchule(10);
+  check(frei && frei.frei === true && frei.name === 'RP Freiburg, Zimmer 411' && frei.id === null && frei.ort === '', 'Freier Ort gewinnt vor der Berufsschule und kommt als Schein-Schule { frei, name }');
+  db.run(`UPDATE kontrolltermine SET ort='   ' WHERE id=10`);
+  check(App.getTerminSchule(10)?.name === 'BS Freiburg', 'Nur Leerzeichen zählen nicht als freier Ort');
+  db.run(`UPDATE kontrolltermine SET ort='' WHERE id=10`);
+  const A = read('src/js/app-core.js'), P = read('src/js/modules/planung.js');
+  check(/ort TEXT DEFAULT ''\n    \);\n    CREATE TABLE IF NOT EXISTS kontrollergebnisse/.test(A) && /run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A) && /this\.db\.run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A), 'kontrolltermine.ort in Schema, migrateDB und _migrateDiskDb');
+  check((P.match(/this\._ortFelderHtml\(/g) || []).length === 2 && /<option value="frei"/.test(P) && /id="mKtOrtFrei"/.test(P) && /berufsschule_id=\?,ort=\? WHERE id=\?/.test(P) && /typ,berufsschule_id,ort\) VALUES/.test(P), 'Beide Termin-Dialoge bieten „Anderer Ort (eintragen)“; Speichern schreibt ihn (neu und bearbeiten)');
+  check(/const koll = ortFrei \? \[\] : App\.terminKollisionen/.test(P) && /if \(!selectedKlassen\.length && !ortId && !ortFrei\)/.test(P), 'Freier Ort: keine Doppeltermin-Prüfung je Schule, zählt als Ort');
 }
 
 console.log('\n══ getStandortgruppen: Lehrjahr-Filter (2.+3. LJ an der Schule) ══');

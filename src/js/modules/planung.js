@@ -253,13 +253,7 @@ const PlanungHandler = {
         <div id="einsendCountInfo" style="font-size:12px;color:var(--clr-text-light);margin-top:4px"></div>
       </div>
 
-      <div class="form-group"><label>Ort des Termins (Berufsschule)</label>
-        <select class="form-control" id="mKtOrt">
-          <option value="">automatisch (Schule der ersten Klasse)</option>
-          ${App.query('SELECT id,name FROM berufsschulen ORDER BY name').map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-        </select>
-        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Bei Landesfachklassen-Terminen die LFK-Schule wählen – E-Mail und Anzeige nutzen diesen Ort.</div>
-      </div>
+      ${this._ortFelderHtml({})}
       <div class="form-row">
         <div class="form-group"><label>Datum</label>
           <div style="display:flex;gap:8px;align-items:center">
@@ -732,6 +726,34 @@ const PlanungHandler = {
     });
   },
 
+  // Ort des Termins: Berufsschule aus den Stammdaten ODER ein frei eingetragener
+  // Ort (Büro des RP, Betrieb, Zwischenprüfung) – die Durchsicht findet nicht
+  // immer an einer Schule statt. Ein freier Ort gewinnt (kontrolltermine.ort).
+  _ortFelderHtml(t) {
+    const frei = String(t.ort || '').trim();
+    return `<div class="form-group"><label>Ort des Termins</label>
+        <select class="form-control" id="mKtOrt" onchange="PlanungHandler._ortArtGeaendert()">
+          <option value="">automatisch (Schule der ersten Klasse)</option>
+          ${App.query('SELECT id,name FROM berufsschulen ORDER BY name').map(b => `<option value="${b.id}" ${!frei && t.berufsschule_id === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+          <option value="frei" ${frei ? 'selected' : ''}>Anderer Ort (eintragen) …</option>
+        </select>
+        <input class="form-control" id="mKtOrtFrei" value="${esc(frei)}" placeholder="z. B. RP Freiburg, Bertoldstraße 43 · Betrieb Müller, Schallstadt · Zwischenprüfung Hochburg" aria-label="Anderer Ort des Termins" style="margin-top:6px;${frei ? '' : 'display:none'}">
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Berufsschule wählen – bei Landesfachklassen die LFK-Schule – oder „Anderer Ort“ für Durchsichten im Büro, im Betrieb oder bei Prüfungen. E-Mails, Briefe und Anzeigen nennen diesen Ort.</div>
+      </div>`;
+  },
+  _ortArtGeaendert() {
+    const sel = document.getElementById('mKtOrt'), frei = document.getElementById('mKtOrtFrei');
+    if (!sel || !frei) return;
+    frei.style.display = sel.value === 'frei' ? '' : 'none';
+    if (sel.value === 'frei') { try { frei.focus(); } catch(e) {} }
+  },
+  // Freier Ort aus dem Dialog ('' = keiner); „frei“ ohne Text zählt nicht
+  _ortFreiAusDialog() {
+    const sel = document.getElementById('mKtOrt'), frei = document.getElementById('mKtOrtFrei');
+    if (!sel || sel.value !== 'frei' || !frei) return '';
+    return String(frei.value || '').trim();
+  },
+
   async saveTermin(id) {
     const dt = document.getElementById('mKtDatum').value;
     const pr = [...document.querySelectorAll('.chk-pruefer:checked')].map(c => c.value).join(', ');
@@ -754,15 +776,16 @@ const PlanungHandler = {
     // Ort des Termins: explizite Auswahl, sonst Stammschule der ersten Klasse
     // (data-bs am Checkbox-Input trägt die berufsschule_id)
     const ortId = parseInt(document.getElementById('mKtOrt')?.value) || parseInt(firstChecked?.dataset?.bs) || null;
-    if (!selectedKlassen.length && !ortId) {
+    const ortFrei = this._ortFreiAusDialog();
+    if (!selectedKlassen.length && !ortId && !ortFrei) {
       if (!(await App.confirm('Dieser Termin hat keinen Ort (Berufsschule). Terminanfrage und Anzeige brauchen ihn.\n\nTrotzdem ohne Ort speichern?', { titel: 'Termin ohne Ort', ok: 'Trotzdem speichern' }))) return;
     }
     // Doppeltermin: gleiche Schule ±14 Tage
-    const koll = App.terminKollisionen(ortId, dt, 14, id || null);
+    const koll = ortFrei ? [] : App.terminKollisionen(ortId, dt, 14, id || null);
     if (koll.length && !(await App.confirm(`An dieser Schule gibt es bereits ${koll.length} Termin(e) im Umkreis von 14 Tagen:\n${koll.map(t => formatDate(t.geplant_datum) + ' – ' + (t.bemerkung || t.pruefer || '')).join('\n')}\n\nTrotzdem speichern?`, { titel: 'Doppeltermin', ok: 'Trotzdem speichern' }))) return;
 
     if (id) {
-      App.run('UPDATE kontrolltermine SET geplant_datum=?,pruefer=?,bemerkung=?,jahrgang_id=?,typ=?,berufsschule_id=? WHERE id=?', [dt,pr,bem,jgId,typ,ortId,id]);
+      App.run('UPDATE kontrolltermine SET geplant_datum=?,pruefer=?,bemerkung=?,jahrgang_id=?,typ=?,berufsschule_id=?,ort=? WHERE id=?', [dt,pr,bem,jgId,typ,ortId,ortFrei,id]);
       // Update junction table
       App.run('DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=?', [id]);
       selectedKlassen.forEach(klId => {
@@ -810,8 +833,8 @@ const PlanungHandler = {
         App.run(`DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id IN (${oPh})`, [id, ...orphanIds]);
       }
     } else {
-      App.run('INSERT INTO kontrolltermine (klasse_id,jahrgang_id,geplant_datum,pruefer,bemerkung,typ,berufsschule_id) VALUES (?,?,?,?,?,?,?)',
-        [selectedKlassen[0] || null, jgId, dt, pr, bem, typ, ortId]);
+      App.run('INSERT INTO kontrolltermine (klasse_id,jahrgang_id,geplant_datum,pruefer,bemerkung,typ,berufsschule_id,ort) VALUES (?,?,?,?,?,?,?,?)',
+        [selectedKlassen[0] || null, jgId, dt, pr, bem, typ, ortId, ortFrei]);
       // Get the new termin ID
       const newId = App.scalar('SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()');
       if (newId) {
@@ -943,12 +966,7 @@ const PlanungHandler = {
         <div id="einsendCountInfo" style="font-size:12px;color:var(--clr-text-light);margin-top:4px"></div>
       </div>
 
-      <div class="form-group"><label>Ort des Termins (Berufsschule)</label>
-        <select class="form-control" id="mKtOrt">
-          <option value="">automatisch (Schule der ersten Klasse)</option>
-          ${App.query('SELECT id,name FROM berufsschulen ORDER BY name').map(b => `<option value="${b.id}" ${t.berufsschule_id === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
-        </select>
-      </div>
+      ${this._ortFelderHtml(t)}
       <div class="form-row">
         <div class="form-group"><label>Geplantes Datum</label>
           <div style="display:flex;gap:8px;align-items:center">

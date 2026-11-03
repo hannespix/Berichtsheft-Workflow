@@ -1416,7 +1416,8 @@ const App = {
       angefragt_von TEXT DEFAULT '',
       bestaetigt_am TEXT DEFAULT '',
       nachbereitet_am TEXT DEFAULT '',
-      aufteilung TEXT DEFAULT ''
+      aufteilung TEXT DEFAULT '',
+      ort TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7377,6 +7378,7 @@ const App = {
     run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''");
     // Prüferaufteilung am Termin (JSON {Prüfer: [von, bis]}) – für Offline-Betrieb in der DB, nicht nur in Positionsdateien
     run("ALTER TABLE kontrolltermine ADD COLUMN aufteilung TEXT DEFAULT ''");
+    run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -8219,8 +8221,12 @@ const App = {
 
   // Schule, AN DER der Termin stattfindet: explizites Feld (berufsschule_id,
   // z.B. LFK-Standort) mit Fallback auf die Stammschule der ersten Klasse.
+  // Ein frei eingetragener Ort (Büro des RP, Betrieb, Zwischenprüfung …)
+  // gewinnt und kommt als Schein-Schule { frei: true, name } zurück, damit
+  // alle Anzeigen, Texte und Exporte ihn wie eine Schule nennen.
   getTerminSchule(terminId) {
-    const t = this.query('SELECT berufsschule_id FROM kontrolltermine WHERE id=?', [terminId])[0];
+    const t = this.query('SELECT berufsschule_id, ort FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (t && String(t.ort || '').trim()) return { id: null, name: String(t.ort).trim(), ort: '', frei: true };
     if (t && t.berufsschule_id) {
       const bs = this.query('SELECT * FROM berufsschulen WHERE id=?', [t.berufsschule_id])[0];
       if (bs) return bs;
@@ -10606,6 +10612,7 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN typ TEXT DEFAULT 'schulkontrolle'"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
