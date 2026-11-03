@@ -9184,7 +9184,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', termin: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
@@ -11005,7 +11005,7 @@ Mit freundlichen Grüßen
     } catch(e) {}
   },
 
-  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' },
+  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen', termin: 'planung' },
   // Filterbalken nur dort, wo er filtert (Listen); Dashboard, Einstellungen,
   // Hilfe, Azubi-Seite und die Einzelansicht der Durchsicht laufen ohne
   FILTER_ANSICHTEN: ['stammdaten', 'planung', 'kontrolle', 'nacherfassung', 'wiedervorlagen', 'berichte'],
@@ -11075,6 +11075,7 @@ Mit freundlichen Grüßen
       wartung: Views.wartung,
       hilfe: Views.hilfe,
       azubi: () => AzubiSeite.render(),
+      termin: () => TerminSeite.render(),
     };
     const fn = views[this.currentView];
     if (fn) fn.call(Views);

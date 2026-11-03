@@ -168,15 +168,16 @@ const Views = {
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-forest)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <strong style="font-size:14px;color:var(--clr-forest-dark)">Wo stehen wir?</strong>
-          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Durchsicht → Nachbereitung → Berichte</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → je Termin: Vorbereitung → Durchsicht → Nachbereitung → Bögen & Export</span>
           <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           ${stufe(st.importAlterTage !== null && st.importAlterTage <= 90, 'Import', st.letzterImport ? `zuletzt ${formatDate(st.letzterImport)} (vor ${st.importAlterTage} Tagen)` : 'noch kein Import protokolliert')}
           ${stufe(!!(st.kampagne && st.kampagne.termine), 'Kampagne', st.kampagne ? `${esc(st.kampagne.titel)}: ${formatDate(st.kampagne.vonIso)}–${formatDate(st.kampagne.bisIso)} · ${st.kampagne.termine} Termin(e)` : '–')}
-          ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Termine', `${st.termineOffen} geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
+          ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Vorbereitung', `${st.termineOffen} Termin(e) geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
           ${stufe(!st.ohneAbschluss, 'Durchsicht', st.ohneAbschluss ? `${st.ohneAbschluss} Termin(e) ohne Abschluss` : 'keine offenen Abschlüsse')}
           ${stufe(!st.ohneNachbereitung && !st.wvUeberfaellig, 'Nachbereitung', `${st.ohneNachbereitung} ohne Nachbereitung · ${st.wvUeberfaellig} WV überfällig`)}
+          ${stufe(!st.ohneNachbereitung, 'Bögen & Export', st.ohneNachbereitung ? 'nach der Nachbereitung' : 'Berichte & Export')}
         </div>
       </div>`;
 
@@ -255,7 +256,8 @@ const Views = {
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:12px;padding:2px 8px">▸ Starten</button>
+                <button class="btn btn-sm btn-secondary" onclick="TerminSeite.oeffnen(${t.id})" title="Termin-Seite: Vorbereitung, Durchsicht, Nachbereitung, Bögen" style="font-size:12px;padding:2px 8px">Öffnen</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Durchsicht starten (${schuelerCount} Azubis)" style="font-size:12px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -1105,15 +1107,15 @@ const Views = {
             <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td style="white-space:nowrap">
               ${(() => {
-                // Ein Hauptknopf je Termin, passend zum Status; alles Weitere im ⋯-Menü
+                // Ein Hauptknopf je Termin: „Öffnen“ führt auf die Termin-Seite
+                // (Vorbereitung → Durchsicht → Nachbereitung → Bögen & Export);
+                // der Hinweis nennt die Phase, die dran ist. Alles Weitere im ⋯-Menü.
                 const oeffnen = `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)`;
                 const abg = t.status === 'durchgefuehrt';
-                const haupt = t.status === 'geplant'
-                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Termin öffnen und mit der Durchsicht beginnen">Durchsicht öffnen</button>`
-                  : abg && !t.nachbereitet_am
-                    ? `<button class="btn btn-sm btn-primary" onclick="${oeffnen}" title="Ergebnisse an Schule und Betriebe, PDFs, fremde Ämter">Nachbereiten</button>`
-                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchsicht öffnen">Öffnen</button>`;
+                const phase = t.nachbereitet_am ? 'Bögen & Export' : abg ? 'Nachbereitung' : t.geplant_datum <= App._heuteIso() ? 'Durchsicht' : 'Vorbereitung';
+                const haupt = `<button class="btn btn-sm ${abg && !t.nachbereitet_am ? 'btn-primary' : t.status === 'geplant' ? 'btn-success' : 'btn-secondary'}" onclick="TerminSeite.oeffnen(${t.id})" title="Termin-Seite: ${phase} ist dran">Öffnen</button>`;
                 return haupt + ' ' + App.menue('⋯', [
+                  { label: '▸ Durchsicht öffnen', onclick: oeffnen, title: 'Direkt in die Übersicht der Durchsicht' },
                   { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
                   { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
                   { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
@@ -2576,6 +2578,12 @@ const Views = {
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
             <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
+            <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
+            <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>
+            <p>2. <strong>Durchsicht</strong> → Fortschritt (bewertet, in Ordnung, beanstandet, offen) und „Durchsicht öffnen“ – die Arbeit am Kontrolltag läuft wie bisher in der Übersicht und Einzelansicht; „Termin abschließen“ dort wechselt zur Nachbereitung.</p>
+            <p>3. <strong>Nachbereitung</strong> → Ergebnisse an die Schule, E-Mails oder Briefe an die Betriebe, fremde Ämter, Nachholtermin, Wiedervorlagen dieses Termins, „Nachbereitung abgeschlossen“.</p>
+            <p>4. <strong>Bögen &amp; Export</strong> → alle Durchsichtsbögen als PDF, Übersichtstabelle, Ergebnisliste (Excel), Gesamtpaket, Seriendruck.</p>
+            <p>Das Menü „Termin ▾“ in der Durchsicht bleibt für den Kontrolltag erhalten und führt über „Termin-Seite“ zurück auf die Seite.</p>
           </div>
 
           <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">

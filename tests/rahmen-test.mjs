@@ -60,7 +60,7 @@ console.log('\n══ UI-Vereinfachung Pakete 1–4: Wörter, Filterbalken, Men�
   // Paket 1 – Wörter
   check(/        Termine\n      <\/button>/.test(HTML) && /        Durchsicht\n      <\/button>/.test(HTML) && !/Kontrollplanung\n/.test(HTML) && !/Durchführung\n      <\/button>/.test(HTML), 'Menü: „Termine“ und „Durchsicht“ statt „Kontrollplanung“ und „Durchführung“');
   check(/<h2>Termine<\/h2>/.test(V) && /<h2>Durchsicht<\/h2>/.test(V) && !/<h2>Kontrollplanung<\/h2>/.test(V) && !/<h2>Durchführung<\/h2>/.test(V), 'Seitentitel = Menüpunkt');
-  check(/Durchsicht öffnen<\/button>/.test(V) && !/>Starten<\/button>/.test(V), 'Hauptknopf „Durchsicht öffnen“ statt „Starten“');
+  check(/label: '▸ Durchsicht öffnen', onclick: oeffnen/.test(V) && /TerminSeite\.oeffnen\(\$\{t\.id\}\)[^>]*>Öffnen<\/button>/.test(V) && !/>Starten<\/button>/.test(V), 'Hauptknopf „Öffnen“ (Termin-Seite) und „Durchsicht öffnen“ im Menü statt „Starten“');
   check(/✓ Termin abschließen/.test(K) && !/Kontrolle abschließen \(/.test(K) && !/✓ Kontrolle abschließen/.test(K) && /Termin wieder öffnen<\/button>/.test(K) && !/Kontrolle wieder öffnen<\/button>/.test(K) && /'Termin abschließen – Nachbereitung'/.test(K), '„Termin abschließen“ / „Termin wieder öffnen“ (der Termin ist der Tag, die Durchsicht die Arbeit je Azubi)');
   check(/\+ Termin<\/a>/.test(ST) && !/\+ Prüfung<\/a>/.test(ST) && /Einzeltermin anlegen/.test(ST) && !/Einzelprüfung anlegen/.test(ST), 'Stammdaten: „+ Termin“ / „Einzeltermin“ statt „Prüfung“');
   check(/„Termine“ plant ihn, „Durchsicht“ führt ihn durch, „Termin abschließen“ beendet den Tag/.test(V), 'Glossar nennt die drei Wörter');
@@ -72,7 +72,7 @@ console.log('\n══ UI-Vereinfachung Pakete 1–4: Wörter, Filterbalken, Men�
   // Paket 3 – Menü 11 → 8
   const menue = [...HTML.matchAll(/data-view="([a-z]+)"/g)].map(m => m[1]);
   check(menue.join(',') === 'dashboard,stammdaten,planung,kontrolle,nacherfassung,wiedervorlagen,berichte,einstellungen,hilfe' && !/App\.switchDB\(\)" style="opacity/.test(HTML), `Menü: ${menue.length} Einträge (Nacherfassung optional) – Import, Wartung, DB wechseln sind keine Menüpunkte mehr`);
-  check(/MENUE_ZUORDNUNG: \{ azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' \}/.test(APP), 'Import markiert Stammdaten, Wartung markiert Einstellungen');
+  check(/MENUE_ZUORDNUNG: \{ azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen', termin: 'planung' \}/.test(APP), 'Import markiert Stammdaten, Wartung markiert Einstellungen');
   check(/_stammdatenTabsHtml\(aktiv\) \{/.test(V) && /onclick="App\.navigate\('import'\)"[^>]*>Import<\/button>/.test(V) && /\$\{this\._stammdatenTabsHtml\('import'\)\}/.test(V) && /import: Views\.importView,/.test(APP), 'Import ist ein Reiter der Stammdaten');
   check(!/import: \{ label: 'IBYKUS-Import'/.test(APP) && /kontrolle: \{ label: 'Durchsicht \(Kontrolltag\)'/.test(APP), 'Sichtbare Menüpunkte: kein Schalter mehr für Import');
   check(/onclick="App\.switchDB\(\)" title="Verbindung trennen[^"]*">↻ Datenbank wechseln<\/button>/.test(V), '„Datenbank wechseln“ steht unter Wartung → Verbindung');
@@ -114,7 +114,7 @@ console.log('\n══ Hilfe in zwölf Kapiteln ══');
   check(abschnitte === 14 && (V.match(/<h4 class="help-untertitel">/g) || []).length === 14, `Zusammengeführte Kapitel behalten ihre Inhalte als Abschnitte (${abschnitte}; 14. = E-Mails an die Betriebe)`);
   for (const t of ['Ordnerstruktur', 'KW-Raster & Bulk-Editing', 'Tastenkürzel (vollständig)', 'Datensicherung', 'Nacherfassung (Übernahme von Altdaten)', 'Häufig gestellte Fragen (FAQ)']) check(new RegExp('<h4 class="help-untertitel">[^<]*' + t.replace(/[()&]/g, '\\$&') + '</h4>').test(V), `Abschnitt „${t}“ erhalten`);
   check(/id="help_neu"/.test(V) && /id="help_warning"/.test(V) && /id="help_glossar"/.test(V), 'Sonderkarten „Was ist neu“, Warnhinweis und Glossar bleiben');
-  check(/HILFE_MAP: \{ dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' \}/.test(APP), 'Kontexthilfe je Ansicht zeigt ins passende Kapitel');
+  check(/HILFE_MAP: \{ dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', termin: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' \}/.test(APP), 'Kontexthilfe je Ansicht zeigt ins passende Kapitel');
   check(/\.help-abschnitt \{/.test(CSS) && /\.help-untertitel \{/.test(CSS), 'Stile für Abschnitte');
 }
 

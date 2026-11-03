@@ -145,6 +145,8 @@ const KontrolleHandler = {
     const fremdeCount = liste.filter(s => App.istFremdesAmt(s)).length;
     const zurUebersicht = "KontrolleHandler._viewMode='uebersicht';";
     return [
+      { label: '▦ Termin-Seite (Vorbereitung · Nachbereitung · Bögen)', onclick: `TerminSeite.oeffnen(${terminId})`, title: 'Alle Phasen dieses Termins auf einer Seite' },
+      { trenner: true },
       { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(true)' },
       { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(false)' },
       istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,

@@ -117,7 +117,14 @@ folgen denselben vier Phasen.
   Aufklapper, Prüfer) und „Wer“ (Klassen mit eingeklappten Filtern, Schule aus Schritt 1
   vorgewählt, einzelne Azubis als Aufklapper, Bemerkung); Kopf, Schritte und Fußzeile mit
   „Speichern“ stehen, nur der Inhalt scrollt.
-- **Paket 7 offen.**
+- **Paket 7 umgesetzt** (November 2026): Termin-Seite (`TerminSeite`, Ansicht `termin`) mit Kopf
+  und den vier Phasen als Abschnitte; „Öffnen“ in der Termine-Liste und auf dem Dashboard führt
+  dorthin, die aktuelle Phase ist aufgeklappt, die anderen zeigen ihren Stand; Dashboard
+  „Wo stehen wir?“ und Hilfe folgen den Phasen. Abweichend vom Vorschlag bleiben das Menü
+  „Termin ▾“ in der Durchsicht (am Kontrolltag braucht man es dort) und die Export-Liste
+  unter Berichte erhalten – beide führen zusätzlich auf die Termin-Seite bzw. bleiben ein
+  zweiter Weg zu denselben Dialogen.
+- **Alle sieben Pakete sind umgesetzt.**
 
 ## 5. Reihenfolge und Aufwand
 | Paket | Aufwand | Risiko | Wirkung |
