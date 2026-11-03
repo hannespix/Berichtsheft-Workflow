@@ -146,44 +146,36 @@
       <button id="jgFilterBtn" class="fp-btn" onclick="App.toggleJgDropdown()" title="Jahrgangs-Filter">
         Alle Jahrgänge ▾
       </button>
-      <div id="jgFilterDropdown" class="fp-dropdown" style="display:none;min-width:240px;max-height:400px;overflow-y:auto"></div>
+      <div id="jgFilterDropdown" class="fp-dropdown" style="display:none"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="bgFilterBtn" class="fp-btn" onclick="App.toggleBgDropdown()" title="Berufsgruppen-Filter (Mehrfachauswahl)">
         Alle Berufe ▾
       </button>
-      <div id="bgFilterDropdown" class="fp-dropdown" style="display:none;min-width:220px"></div>
+      <div id="bgFilterDropdown" class="fp-dropdown" style="display:none"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="amtFilterBtn" class="fp-btn" onclick="App.toggleAmtDropdown()" title="Zuständiges Amt (Mehrfachauswahl)">
         § Alle Ämter ▾
       </button>
-      <div id="amtFilterDropdown" class="fp-dropdown" style="display:none;min-width:200px"></div>
+      <div id="amtFilterDropdown" class="fp-dropdown" style="display:none"></div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="bavFilterBtn" class="fp-btn" onclick="App.toggleBavDropdown()" title="BAV-Status Filter">
         ▤ Aktive BAV ▾
       </button>
-      <div id="bavFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px">
-        <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('aktiv')">
-          <span id="bavOpt_aktiv" style="display:inline-block;width:16px">✓</span> Aktive BAV
-          <div style="font-size:12px;color:#888;margin-left:20px">Laufende Ausbildungsverhältnisse</div>
-        </div>
-        <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('alle')">
-          <span id="bavOpt_alle" style="display:inline-block;width:16px"></span> Alle BAV
-          <div style="font-size:12px;color:#888;margin-left:20px">Inkl. beendete Ausbildungsverhältnisse</div>
-        </div>
-        <div style="padding:4px 12px;cursor:pointer;font-size:13px" class="fp-dd-item" onclick="App.setBavFilter('ende')">
-          <span id="bavOpt_ende" style="display:inline-block;width:16px"></span> Beendete BAV
-          <div style="font-size:12px;color:#888;margin-left:20px">Nur beendete Ausbildungsverhältnisse</div>
-        </div>
+      <div id="bavFilterDropdown" class="fp-dropdown" style="display:none" role="menu" aria-label="Ausbildungsverhältnisse">
+        <div class="fp-dd-titel">Ausbildungsverhältnisse</div>
+        <div class="fp-dd-opt" role="menuitemradio" aria-checked="true" tabindex="0" onclick="App.setBavFilter('aktiv')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><span class="fp-dd-mark" id="bavOpt_aktiv">✓</span><span>Aktive BAV</span><span class="fp-dd-sub">laufend</span></div>
+        <div class="fp-dd-opt" role="menuitemradio" aria-checked="false" tabindex="0" onclick="App.setBavFilter('alle')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><span class="fp-dd-mark" id="bavOpt_alle"></span><span>Alle BAV</span><span class="fp-dd-sub">auch beendete</span></div>
+        <div class="fp-dd-opt" role="menuitemradio" aria-checked="false" tabindex="0" onclick="App.setBavFilter('ende')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><span class="fp-dd-mark" id="bavOpt_ende"></span><span>Beendete BAV</span><span class="fp-dd-sub">nur beendete</span></div>
       </div>
     </div>
     <div style="position:relative;display:inline-block">
       <button id="extraFilterBtn" class="fp-btn" onclick="App.toggleExtraFilterDropdown()" title="Weitere Filter hinzufügen">
         + Filter ▾
       </button>
-      <div id="extraFilterDropdown" class="fp-dropdown" style="display:none;min-width:180px;max-height:400px;overflow-y:auto"></div>
+      <div id="extraFilterDropdown" class="fp-dropdown" style="display:none" role="menu" aria-label="Weitere Filter"></div>
     </div>
     <div id="extraFilterChips" style="display:contents"></div>
     <span id="dbLastSaved" style="display:none">–</span>

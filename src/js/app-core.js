@@ -320,8 +320,8 @@ const App = {
     available.forEach(([k, def]) => { if (!byCat[def.cat]) byCat[def.cat] = []; byCat[def.cat].push([k, def]); });
     const catOrder = ['Ausbildung', 'Prüfungen', 'Standort', 'Kontrolle', 'Datenqualität'];
     dd.innerHTML = catOrder.filter(c => byCat[c]).map(cat => `
-      <div style="padding:4px 12px 2px;font-size:12px;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">${esc(cat)}</div>
-      ${byCat[cat].map(([k, def]) => `<div class="fp-dd-item" style="padding:4px 12px;cursor:pointer;font-size:12px" onclick="App._addExtraFilter('${k}')">${esc(def.label)}</div>`).join('')}
+      <div class="fp-dd-titel">${esc(cat)}</div>
+      ${byCat[cat].map(([k, def]) => `<div class="fp-dd-opt" role="menuitem" tabindex="0" onclick="App._addExtraFilter('${k}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><span class="fp-dd-mark">+</span>${esc(def.label)}</div>`).join('')}
     `).join('');
     dd.style.display = '';
     this._clampDropdown(dd);
@@ -442,14 +442,10 @@ const App = {
         const sel = f.value.map(String);
         input = `<span style="position:relative;display:inline-block">
           <button type="button" id="efBtn_${idx}" style="font-size:12px;padding:1px 8px;border:1px solid var(--tb-border);background:var(--tb-bg);color:var(--tb-fg);border-radius:4px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="App._efToggle(${idx});event.stopPropagation()">${esc(this._efLabel(idx))} ▾</button>
-          <div id="efDd_${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:80;background:var(--clr-white);color:var(--clr-text);border:1px solid var(--clr-sand);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.3);min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;padding:2px 0;text-align:left">
-            <div style="display:flex;gap:10px;padding:3px 10px;border-bottom:1px solid var(--clr-sand);font-size:12px">
-              <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},true);return false">alle</a>
-              <a href="#" style="color:var(--clr-forest)" onclick="App._efAll(${idx},false);return false">keine</a>
-              <span style="margin-left:auto;color:var(--clr-text-light)">Mehrfachauswahl</span>
-            </div>
-            ${opts.map(o => `<label style="display:flex;align-items:center;gap:6px;padding:2px 10px;cursor:pointer;font-size:12px;white-space:nowrap" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
-              <input type="checkbox" class="chk-ef-${idx}" value="${esc(String(o.v))}" data-l="${esc(String(o.l))}" ${sel.includes(String(o.v)) ? 'checked' : ''} onchange="App._efChange(${idx})" style="accent-color:var(--clr-forest)"> ${esc(String(o.l))}
+          <div id="efDd_${idx}" class="fp-dropdown" style="display:none;max-height:260px">
+            <div class="fp-dd-kopf"><span class="fp-dd-sub">Mehrfachauswahl</span><span class="fp-dd-links"><a href="#" onclick="App._efAll(${idx},true);return false">alle</a><span>·</span><a href="#" onclick="App._efAll(${idx},false);return false">keine</a></span></div>
+            ${opts.map(o => `<label class="fp-dd-opt">
+              <input type="checkbox" class="chk-ef-${idx}" value="${esc(String(o.v))}" data-l="${esc(String(o.l))}" ${sel.includes(String(o.v)) ? 'checked' : ''} onchange="App._efChange(${idx})"> ${esc(String(o.l))}
             </label>`).join('')}
           </div>
         </span>`;
@@ -604,7 +600,10 @@ const App = {
     }
     ['aktiv','alle','ende'].forEach(k => {
       const el = document.getElementById('bavOpt_' + k);
-      if (el) el.textContent = k === val ? '✓' : '';
+      if (!el) return;
+      el.textContent = k === val ? '✓' : '';
+      const zeile = el.closest('.fp-dd-opt');
+      if (zeile) zeile.setAttribute('aria-checked', k === val ? 'true' : 'false');
     });
     document.getElementById('bavFilterDropdown').style.display = 'none';
     this._updateFilterCount();
@@ -812,11 +811,7 @@ const App = {
     const isAll = active.length === 0;
 
     dd.innerHTML = `
-      <div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-        <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
-          <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleBgAll()" style="accent-color:var(--clr-forest)"> Alle / Keine
-        </label>
-      </div>
+      <div class="fp-dd-kopf"><label><input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleBgAll()"> Alle / Keine</label></div>
       ${Object.entries(groups).map(([grp, subGroups]) => {
         const allFrs = Object.values(subGroups).flat();
         const groupIds = allFrs.map(f => f.id);
@@ -825,22 +820,22 @@ const App = {
         const expanded = this._bgExpanded && this._bgExpanded[grp];
         const subTyps = Object.keys(subGroups).sort((a,b) => a === grp ? -1 : b === grp ? 1 : a.localeCompare(b));
         const hasSubGroups = subTyps.length > 1;
-        return `<div style="border-bottom:1px solid var(--clr-sand-light)">
-          <div style="display:flex;align-items:center;gap:4px;padding:5px 12px;cursor:pointer" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
-            <input type="checkbox" class="chk-bg-group" data-typ="${esc(grp)}" data-ids="${groupIds.join(',')}" ${allChecked ? 'checked' : ''} ${someChecked ? 'style="accent-color:var(--clr-amber)"' : 'style="accent-color:var(--clr-forest)"'} onchange="App._toggleBgGroup(this)">
-            <span onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" style="flex:1;font-size:12px;font-weight:600;color:var(--clr-forest-dark);cursor:pointer">${esc(grp)}</span>
-            <span style="font-size:12px;color:var(--clr-text-light)">${allFrs.length}</span>
-            <span onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" style="font-size:12px;cursor:pointer;color:var(--clr-text-light);width:14px;text-align:center">${expanded ? '▾' : '▸'}</span>
+        return `<div class="fp-dd-gruppe">
+          <div class="fp-dd-opt hervor">
+            <input type="checkbox" class="chk-bg-group" data-typ="${esc(grp)}" data-ids="${groupIds.join(',')}" ${allChecked ? 'checked' : ''} ${someChecked ? 'style="accent-color:var(--clr-amber)"' : ''} onchange="App._toggleBgGroup(this)" aria-label="${esc(grp)}">
+            <span style="flex:1" onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()">${esc(grp)}</span>
+            <span class="fp-dd-rechts">${allFrs.length}</span>
+            <span class="fp-dd-pfeil" role="button" tabindex="0" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Fachrichtungen ${esc(grp)} ${expanded ? 'einklappen' : 'ausklappen'}" onclick="App._toggleBgExpand('${esc(grp)}');event.stopPropagation()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">${expanded ? '▾' : '▸'}</span>
           </div>
-          <div style="display:${expanded ? 'block' : 'none'};padding-left:20px;padding-bottom:4px;background:var(--clr-warm)">
+          <div class="fp-dd-unter" style="display:${expanded ? 'block' : 'none'}">
             ${subTyps.map(typ => {
               const frs = subGroups[typ];
               const subLabel = hasSubGroups ? (typ === grp ? grp : typ) : null;
-              return (subLabel ? `<div style="font-size:12px;font-weight:600;color:var(--clr-sage);text-transform:uppercase;letter-spacing:0.04em;padding:4px 8px 1px;margin-top:2px">${esc(subLabel)}</div>` : '') +
-              frs.map(fr => `<label style="display:flex;align-items:center;gap:5px;padding:2px 12px 2px 8px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='rgba(0,0,0,0.03)'" onmouseleave="this.style.background=''">
-                <input type="checkbox" class="chk-bg-fr" value="${fr.id}" data-typ="${esc(grp)}" ${isAll || active.includes(fr.id) ? 'checked' : ''} onchange="App._onBgFrChange('${esc(grp)}')" style="accent-color:var(--clr-forest);width:13px;height:13px">
-                <span style="color:var(--clr-text-light)">${esc(fr.bezeichnung)}</span>
-                <span style="margin-left:auto;font-size:12px;color:var(--clr-text-light)">${esc(fr.code)}</span>
+              return (subLabel ? `<div class="fp-dd-titel">${esc(subLabel)}</div>` : '') +
+              frs.map(fr => `<label class="fp-dd-opt eingerueckt">
+                <input type="checkbox" class="chk-bg-fr" value="${fr.id}" data-typ="${esc(grp)}" ${isAll || active.includes(fr.id) ? 'checked' : ''} onchange="App._onBgFrChange('${esc(grp)}')">
+                <span>${esc(fr.bezeichnung)}</span>
+                <span class="fp-dd-rechts">${esc(fr.code)}</span>
               </label>`).join('');
             }).join('')}
           </div>
@@ -950,17 +945,12 @@ const App = {
       const isAll = active.length === 0;
 
       dd.innerHTML = `
-        <div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-          <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
-            <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleAmtAll(this.checked)"> Alle / Keine
-          </label>
-        </div>
-        ${codes.map(c => `<div style="padding:3px 12px">
-          <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" class="chk-amt" value="${c}" ${isAll || active.includes(c) ? 'checked' : ''} onchange="App._updateAmtFilter()">
-            <strong>${c}</strong> ${esc(this.AEMTER[c]||'?')}
-          </label>
-        </div>`).join('')}
+        <div class="fp-dd-kopf"><label><input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleAmtAll(this.checked)"> Alle / Keine</label></div>
+        <div class="fp-dd-titel">Zuständiges Amt</div>
+        ${codes.map(c => `<label class="fp-dd-opt">
+          <input type="checkbox" class="chk-amt" value="${c}" ${isAll || active.includes(c) ? 'checked' : ''} onchange="App._updateAmtFilter()">
+          <strong>${c}</strong> <span class="fp-dd-sub">${esc(this.AEMTER[c]||'?')}</span>
+        </label>`).join('')}
       `;
       dd.style.display = 'block';
       this._clampDropdown(dd);
@@ -1238,40 +1228,36 @@ const App = {
     // VEREINIGUNG (AP-Jahrgang ODER ZP-Kohorte) – so lassen sich z.B.
     // ZP 2026 + ZP 2027 + AP Sommer 2027 + AP Winter 2028 gemeinsam anzeigen.
     const beideAktiv = !isAllJg && activeJg[0] !== -1 && !isAllZp && activeZp[0] !== '---';
-    const sektionLinks = (cls) => `<span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0">
-      <a href="#" style="font-size:12px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',true);return false">alle</a>
-      <span style="color:var(--clr-sand)">·</span>
-      <a href="#" style="font-size:12px;color:var(--clr-forest)" onclick="App._jgSectionAll('${cls}',false);return false">keine</a>
+    const sektionLinks = (cls) => `<span class="fp-dd-links">
+      <a href="#" onclick="App._jgSectionAll('${cls}',true);return false">alle</a>
+      <span>·</span>
+      <a href="#" onclick="App._jgSectionAll('${cls}',false);return false">keine</a>
     </span>`;
 
-    let html = `<div style="padding:4px 12px;border-bottom:1px solid var(--clr-sand)">
-      <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
-        <input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleJgAll()" style="accent-color:var(--clr-forest)"> Alle (kein Filter)
-      </label>
-    </div>
-    <div id="jgUnionHint" style="display:${beideAktiv ? '' : 'none'};padding:3px 12px;font-size:12px;color:var(--clr-forest);background:var(--clr-green-light);border-bottom:1px solid var(--clr-sand)">AP + ZP kombiniert: zeigt Azubis aus <strong>allen</strong> gewählten Kohorten</div>`;
+    let html = `<div class="fp-dd-kopf"><label><input type="checkbox" ${isAll ? 'checked' : ''} onchange="App._toggleJgAll()"> Alle / Keine</label></div>
+    <div id="jgUnionHint" class="fp-dd-hinweis" style="display:${beideAktiv ? '' : 'none'}">AP + ZP kombiniert: zeigt Azubis aus <strong>allen</strong> gewählten Kohorten</div>`;
 
     // ── AP Section ──
-    html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:12px;font-weight:700;color:var(--clr-forest);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Abschlussprüfung (AP)${sektionLinks('chk-jg')}</div>`;
+    html += `<div class="fp-dd-titel">Abschlussprüfung (AP)${sektionLinks('chk-jg')}</div>`;
     jgs.forEach(j => {
       const label = this._prefixLabel(j.bezeichnung) || j.typ;
       const chk = isAllJg || activeJg.includes(j.id);
-      html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
-        <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-forest)">
-        <strong>${esc(j.bezeichnung)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${label} ${j.jahr}</span>
+      html += `<label class="fp-dd-opt eingerueckt">
+        <input type="checkbox" class="chk-jg" value="${j.id}" ${chk?'checked':''} onchange="App._applyJgZp()">
+        <strong>${esc(j.bezeichnung)}</strong> <span class="fp-dd-sub">${label} ${j.jahr}</span>
       </label>`;
     });
 
     // ── ZP Section ──
     if (zpSorted.length) {
-      html += `<div style="display:flex;align-items:center;padding:4px 12px 2px;font-size:12px;font-weight:700;color:var(--clr-amber);text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid var(--clr-sand);margin-top:2px">Zwischenprüfung (ZP)${sektionLinks('chk-zp')}</div>`;
+      html += `<div class="fp-dd-titel">Zwischenprüfung (ZP)${sektionLinks('chk-zp')}</div>`;
       zpSorted.forEach(code => {
         const sem = this._prefixLabel(code) || code[0];
         const yr = code.substring(1);
         const chk = isAllZp || activeZp.includes(code);
-        html += `<label style="display:flex;align-items:center;gap:6px;padding:2px 12px 2px 16px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''">
+        html += `<label class="fp-dd-opt eingerueckt">
           <input type="checkbox" class="chk-zp" value="${esc(code)}" ${chk?'checked':''} onchange="App._applyJgZp()" style="accent-color:var(--clr-amber)">
-          <strong>${esc(code)}</strong> <span style="color:var(--clr-text-light);font-size:12px">${sem} ${yr}</span>
+          <strong>${esc(code)}</strong> <span class="fp-dd-sub">${sem} ${yr}</span>
         </label>`;
       });
     }
