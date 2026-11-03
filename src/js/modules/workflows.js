@@ -304,7 +304,7 @@ const Workflows = {
         '<button class="btn btn-secondary" onclick="Workflows.emailBetriebeBCC(' + terminId + ')" title="E-Mail mit allen Betrieben im BCC">✉︎ BCC</button>' +
         '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckCSV(' + terminId + ')">CSV</button>' +
         (App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckWord(' + terminId + ')">✎ Word</button>' : '') +
-        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckPDF(' + terminId + ')">▤ PDF-Briefe</button>');
+        '<button class="btn btn-primary" onclick="Workflows.briefeBearbeiten(' + terminId + ')" title="Alle Briefe in der Vorschau bearbeiten und als PDF, Word oder E-Mail-Entwurf ausgeben">✎ Briefe</button>');
   },
 
   // ── BCC Serien-E-Mail an alle Betriebe ──
@@ -314,7 +314,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const emails = [...new Set(betriebe.map(g => g.email).filter(Boolean))];
     const ohne = betriebe.filter(g => !g.email);
-    const { betreff, body } = App.renderVorlage('betrieb_bcc', t.ctx);
+    const { betreff, body } = App.renderVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
     App.closeModal();
     App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
       <div style="margin-bottom:8px;font-size:12px">
@@ -334,7 +334,7 @@ const Workflows = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
         <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
-        ${ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.exportSeriendruckPDF(${terminId}, true)" title="PDF-Briefe nur für Betriebe ohne E-Mail">▤ Briefe für ${ohne.length} ohne E-Mail</button>` : ''}
+        ${ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${terminId}, { nurOhneEmail: true })" title="Briefe nur für Betriebe ohne E-Mail – in der Vorschau bearbeiten">✎ Briefe für ${ohne.length} ohne E-Mail</button>` : ''}
         <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     this._bccEmails = emails;
   },
@@ -541,7 +541,7 @@ const Workflows = {
             ? `<button class="btn btn-sm ${st ? 'btn-secondary' : ''}" style="padding:2px 8px;font-size:12px${st ? '' : ';background:var(--clr-forest);color:var(--clr-white);border:none'}" onclick="Workflows._openIndividualEmail(${terminId},${idx})" title="${st ? 'Erneut in Outlook öffnen' : 'In Outlook öffnen'}">✉︎ ${st ? 'Erneut öffnen' : 'Öffnen'}</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailKopieren(${idx})" title="Empfänger, Betreff und Text in die Zwischenablage">▤ Text</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailVorschau(${idx})" title="Text anzeigen">Vorschau</button>`
-            : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._individualData.betriebe[${idx}].key)" title="Brief nur für diesen Betrieb">▤ Brief</button>
+            : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._individualData.betriebe[${idx}].key })" title="Brief nur für diesen Betrieb – in der Vorschau bearbeiten">✎ Brief</button>
                ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
         </span>
       </div>
@@ -569,13 +569,13 @@ const Workflows = {
     const typ = this._betriebVorlageTyp(g, d.isDone);
     const o = d.opts || this._betriebMailOptsLaden();
     const name = this._signaturName(o);
-    const ctx = { ...d.t.ctx,
+    const ctx = this._antwortCtx({ ...d.t.ctx,
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(App.wvFrist('nachholung_abwesend')) };
+      frist: formatDate(App.wvFrist('nachholung_abwesend')) });
     let { betreff, body } = App.renderVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
@@ -728,24 +728,50 @@ const Workflows = {
   // App.briefEinstellung (Einstellungen → Kontakt), Telefon/E-Mail aus den
   // Prüfer-Stammdaten.
   BRIEF: { L: 25, R: 185, X2: 125, FUSS_Y: 264, ZEILE: 4.6 },
+  // Briefe im Brief-Editor öffnen (Vorschau, jedes Feld änderbar, PDF/Word/E-Mail)
+  briefeBearbeiten(terminId, opts) {
+    if (typeof BriefEditor === 'undefined') return this.exportSeriendruckPDF(terminId, opts && opts.nurOhneEmail, opts && opts.nurKey);
+    BriefEditor.oeffnen(terminId, opts || {});
+  },
+  // Brief-Dateien (PDF) ohne Editor – für Anhänge, Gesamtpaket und Smoke-Test.
+  // opts.modelle: bereits (im Editor) bearbeitete Briefe statt neu erzeugter
   exportSeriendruckPDF(terminId, nurOhneEmail, nurKey, opts) {
+    let modelle = (opts && opts.modelle) || this.briefModelle(terminId, { nurOhneEmail, nurKey });
+    // Im Brief-Editor bearbeitete Briefe gehen bearbeitet mit (z. B. Gesamtpaket)
+    const entwuerfe = !(opts && opts.modelle) && typeof BriefEditor !== 'undefined' && BriefEditor._entwuerfe ? BriefEditor._entwuerfe[terminId] : null;
+    if (entwuerfe) modelle = modelle.map(m => entwuerfe[m.key] || m);
+    if (!modelle || !modelle.length) { if (opts && opts.bytes) return null; return App.toast('Keine passenden Betriebe', 'warning'); }
+    const bytes = this.briefPdfBytes(modelle);
+    if (opts && opts.bytes) return bytes;
     const t = this._ctxTermin(terminId);
-    if (!t) return;
+    App.downloadBlob(bytes, App.safeFilename(['Anschreiben_Betriebe', t ? t.ctx.schule : '', t ? t.termin.geplant_datum : ''], 'pdf'), 'application/pdf');
+    App.toast(`PDF mit ${modelle.length} Anschreiben erstellt`, 'success');
+  },
+  // Alle Briefe eines Termins als Modelle (eins je Betrieb)
+  briefModelle(terminId, opts) {
+    const o = opts || {};
+    const t = this._ctxTermin(terminId);
+    if (!t) return [];
     const isDone = t.termin.status === 'durchgefuehrt';
     let { betriebe } = this._betriebeDesTermins(terminId, isDone);
-    if (nurOhneEmail) betriebe = betriebe.filter(g => !g.email);
-    if (nurKey) betriebe = betriebe.filter(g => String(g.key) === String(nurKey));
-    if (!betriebe.length) { if (opts && opts.bytes) return null; return App.toast('Keine passenden Betriebe', 'warning'); }
+    if (o.nurOhneEmail) betriebe = betriebe.filter(g => !g.email);
+    if (o.nurKey) betriebe = betriebe.filter(g => String(g.key) === String(o.nurKey));
+    return betriebe.map(g => this._briefModell(g, t, isDone));
+  },
+  // Ein Dokument mit allen Briefen (je Brief eigene Seitenzählung)
+  briefPdfBytes(modelle) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    betriebe.forEach((g, idx) => {
-      if (idx > 0) doc.addPage();
-      this._briefZeichnen(doc, g, t, isDone);
-    });
-    if (opts && opts.bytes) return new Uint8Array(doc.output('arraybuffer'));
-    doc.save(App.safeFilename(['Anschreiben_Betriebe', t.ctx.schule, t.termin.geplant_datum], 'pdf'));
-    App.closeModal();
-    App.toast(`PDF mit ${betriebe.length} Anschreiben erstellt`, 'success');
+    modelle.forEach((m, idx) => { if (idx > 0) doc.addPage(); this._briefZeichnen(doc, m); });
+    return new Uint8Array(doc.output('arraybuffer'));
+  },
+  // Antwortadresse für Betriebe und Azubis: das Funktionspostfach, nicht die
+  // E-Mail der Sachbearbeitung (Einstellung brief_antwort). Ohne Signatur
+  // (pruefer_email leer) bleibt es leer.
+  _antwortCtx(ctx) {
+    const antwort = App.antwortEmail();
+    if (!antwort) return ctx;
+    return { ...ctx, antwort_email: antwort, ...(ctx && ctx.pruefer_email === '' ? {} : { pruefer_email: antwort }) };
   },
   // Betreff und Text eines Briefs aus der Vorlage (ohne Absenderblock am Ende –
   // der steht im Briefkopf), Übersichtszeilen je Azubi nach der Kontrolle
@@ -754,13 +780,13 @@ const Workflows = {
     // E-Mail (Mängel / Nachholung / ohne Beanstandung) – ein Brief nach der
     // Kontrolle kündigte sonst einen vergangenen Termin an
     const typ = isDone ? this._betriebVorlageTyp(g, true) : 'brief_betrieb';
-    const { betreff, body } = App.renderVorlage(typ, { ...t.ctx, anrede: this._anrede(g.ap),
+    const { betreff, body } = App.renderVorlage(typ, this._antwortCtx({ ...t.ctx, anrede: this._anrede(g.ap),
       azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
       azubi_block: this._azubiBlock(g.azubis, isDone),
       hinweis: this._betriebHinweis(isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')),
-      rp_adresse: '', rp_name: '' });
+      rp_adresse: '', rp_name: '' }));
     // Helvetica in jsPDF kennt keine Pfeile/Häkchen – die Zeilen der Vorlage
     // (→ aus dem Mängel-Block) sonst als „!'“ gedruckt
     const pdfText = (s) => String(s || '').replace(/→/g, '–').replace(/✓|✔/g, 'OK').replace(/⚠/g, '!');
@@ -777,18 +803,66 @@ const Workflows = {
     }) : [];
     return { typ, betreff: pdfText(betreff), zeilen, uebersicht };
   },
+  // ── Brief als Modell: jedes automatisch erzeugte Element ist ein Feld, das
+  //    der Brief-Editor (BriefEditor) ändern kann. PDF, Word und E-Mail
+  //    entstehen aus demselben Modell – was im Editor steht, steht im Brief. ──
+  BRIEF_TABELLE_KOPF: ['Auszubildende/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage'],
+  _briefModell(g, t, isDone) {
+    const b = g.betrieb || {};
+    const absender = App.absenderCtx(t.ctx.pruefer);
+    const inhalt = this._briefInhalt(g, t, isDone);
+    const anschrift = [g.ap || '', b.b_firma || g.name, b.b_firma && b.b_name && b.b_firma !== b.b_name ? b.b_name : '', b.b_strasse, `${b.b_plz || ''} ${b.b_ort || ''}`.trim()]
+      .filter(Boolean).slice(0, 6);
+    const iGruss = inhalt.zeilen.findIndex(z => /^\s*Mit freundlichen Gr/i.test(z));
+    const textZeilen = iGruss >= 0 ? inhalt.zeilen.slice(0, iGruss) : inhalt.zeilen;
+    const nameZeilen = iGruss >= 0 ? inhalt.zeilen.slice(iGruss + 1).map(z => z.trim()).filter(Boolean) : [];
+    while (textZeilen.length && !textZeilen[textZeilen.length - 1].trim()) textZeilen.pop();
+    const gz = App.briefEinstellung('geschaeftszeichen');
+    // Infoblock: Gruppen werden mit etwas Abstand gesetzt
+    const info = [
+      { label: 'Name:', wert: t.ctx.pruefer, gruppe: 1 },
+      { label: 'Telefon:', wert: absender.pruefer_telefon, gruppe: 1 },
+      // Rückfragen der Betriebe und Azubis an das Funktionspostfach
+      { label: 'E-Mail:', wert: App.antwortEmail() || absender.pruefer_email, gruppe: 1 },
+      { label: 'Geschäftszeichen:', wert: gz, gruppe: 2, zusatz: gz ? '(bei Antwort bitte angeben)' : '' },
+      { label: 'Datum:', wert: absender.datum_heute, gruppe: 3 },
+      { label: isDone ? 'Kontrolle am:' : 'Kontrolltermin:', wert: t.ctx.datum, gruppe: 4 },
+      { label: 'Berufsschule:', wert: t.ctx.schule, gruppe: 4 },
+    ].filter(z => z.wert);
+    const cc = this._betriebMailCc(g);
+    return {
+      v: 1, terminId: t.termin.id, key: String(g.key), typ: inhalt.typ, isDone,
+      betriebName: b.b_firma || g.name || '', email: g.email || '', cc,
+      azubiIds: g.azubis.filter(a => a.ke && a.ke.ergebnis).map(a => a.id),
+      keIds: g.azubis.filter(a => a.ke).map(a => a.ke.id),
+      ruecksende: App.briefEinstellung('ruecksende'),
+      anschrift: anschrift.join('\n'),
+      abteilung: App.briefEinstellung('abteilung'),
+      info,
+      betreff: inhalt.betreff,
+      text: textZeilen.join('\n'),
+      tabelle: inhalt.uebersicht.length ? { kopf: this.BRIEF_TABELLE_KOPF.slice(), zeilen: inhalt.uebersicht.map(z => z.slice()) } : null,
+      gruss: iGruss >= 0 ? inhalt.zeilen[iGruss].trim() : '',
+      unterschrift: nameZeilen.join('\n'),
+      anlagen: isDone ? App.briefEinstellung('anlagen').split('\n').map(z => z.trim()).filter(Boolean).join('\n') : '',
+      kopfFolge: `Regierungspräsidium Freiburg · ${App.briefEinstellung('abteilung').split(' – ')[0]} · ${inhalt.betreff}`,
+      datenschutz: App.briefEinstellung('datenschutz'),
+      fusszeile: App.briefEinstellung('fusszeile'),
+    };
+  },
   _briefLogo() {
     try { return (typeof PDFExport !== 'undefined' && PDFExport._logoDataUrl) ? PDFExport._logoDataUrl() : null; } catch(e) { return null; }
   },
-  // Ein Brief (ggf. mehrere Seiten) für einen Betrieb; Kopf, Fuß und
+  // Helvetica in jsPDF: Zeichen ohne Glyphe ersetzen (auch in Editor-Eingaben)
+  _pdfText(s) { return String(s || '').replace(/→/g, '–').replace(/✓|✔/g, 'OK').replace(/⚠/g, '!'); },
+  // Ein Brief (ggf. mehrere Seiten) aus dem Modell; Kopf, Fuß und
   // Seitenzahlen werden nach dem Text für alle Seiten dieses Briefs gezeichnet
-  _briefZeichnen(doc, g, t, isDone) {
+  _briefZeichnen(doc, m) {
     const B = this.BRIEF, L = B.L, R = B.R, W = R - L, X2 = B.X2;
     const grau = [108, 101, 96], tinte = [30, 30, 30];
-    const b = g.betrieb || {};
-    const absender = App.absenderCtx(t.ctx.pruefer);
+    const T = (s) => this._pdfText(s);
+    const zeilenVon = (s) => String(s || '').split('\n');
     const ersteSeite = doc.internal.getNumberOfPages();
-    const inhalt = this._briefInhalt(g, t, isDone);
 
     // Logo (wie Oberfläche und Durchsichtsbogen), sonst Schriftzug
     const logo = this._briefLogo();
@@ -797,58 +871,47 @@ const Workflows = {
 
     // Rücksendeangabe über dem Anschriftfeld
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...grau);
-    doc.text(App.briefEinstellung('ruecksende'), L, 37);
+    if (m.ruecksende) doc.text(T(m.ruecksende).split('\n')[0], L, 37);
 
-    // Anschrift (Fensterfeld): Ansprechpartner, Betrieb, Zusatz, Straße, PLZ Ort
-    const anschrift = [g.ap || '', b.b_firma || g.name, b.b_firma && b.b_name && b.b_firma !== b.b_name ? b.b_name : '', b.b_strasse, `${b.b_plz || ''} ${b.b_ort || ''}`.trim()]
-      .filter(Boolean).slice(0, 6);
+    // Anschrift (Fensterfeld)
     doc.setFontSize(11); doc.setTextColor(...tinte);
     let ya = 52;
-    anschrift.forEach(z => { doc.splitTextToSize(String(z), 85).forEach(zz => { doc.text(zz, L, ya); ya += 5; }); });
+    zeilenVon(m.anschrift).filter(z => z.trim()).slice(0, 7).forEach(z => { doc.splitTextToSize(T(z), 85).forEach(zz => { doc.text(zz, L, ya); ya += 5; }); });
 
     // Infoblock rechts
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...tinte);
-    const abt = doc.splitTextToSize(App.briefEinstellung('abteilung'), 60);
+    const abt = doc.splitTextToSize(T(m.abteilung), 60);
     abt.slice(0, 3).forEach((z, i) => doc.text(z, X2, 40 + i * 3.8));
-    let yi = Math.max(52, 40 + abt.length * 3.8 + 5);
-    const zeile = (label, wert, fett) => {
-      if (!wert) return;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau); doc.text(label, X2, yi);
-      doc.setFont('helvetica', fett ? 'bold' : 'normal'); doc.setTextColor(...tinte);
+    let yi = Math.max(52, 40 + Math.min(abt.length, 3) * 3.8 + 5);
+    let gruppe = null;
+    (m.info || []).forEach(z => {
+      if (!String(z.wert || '').trim() && !String(z.label || '').trim()) return;
+      if (gruppe !== null && z.gruppe !== gruppe) yi += 2;
+      gruppe = z.gruppe;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau); doc.text(T(z.label), X2, yi);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...tinte);
       // Lange Werte (E-Mail, Schulname) erst verkleinern, dann umbrechen –
       // sonst bricht eine Adresse mitten im Wort
+      const wert = T(z.wert);
       let fs = 9;
       doc.setFontSize(fs);
       while (fs > 7 && doc.getTextWidth(String(wert)) > 38) { fs -= 0.5; doc.setFontSize(fs); }
       const teile = doc.splitTextToSize(String(wert), 38);
-      teile.forEach((z, i) => doc.text(z, X2 + 24, yi + i * 4));
+      teile.forEach((zz, i) => doc.text(zz, X2 + 24, yi + i * 4));
       yi += 4.5 + (teile.length - 1) * 4;
-    };
-    zeile('Name:', t.ctx.pruefer);
-    zeile('Telefon:', absender.pruefer_telefon);
-    zeile('E-Mail:', absender.pruefer_email);
-    yi += 2;
-    const gz = App.briefEinstellung('geschaeftszeichen');
-    if (gz) { zeile('Geschäftszeichen:', gz); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...tinte); doc.text('(bei Antwort bitte angeben)', X2 + 24, yi - 0.5); yi += 4; }
-    yi += 2;
-    zeile('Datum:', absender.datum_heute);
-    yi += 2;
-    zeile(isDone ? 'Kontrolle am:' : 'Kontrolltermin:', t.ctx.datum);
-    zeile('Berufsschule:', t.ctx.schule);
+      if (z.zusatz) { doc.setFontSize(7.5); doc.text(T(z.zusatz), X2 + 24, yi - 0.5); yi += 4; }
+    });
 
     // Betreff
     let y = Math.max(98, ya + 8, yi + 6);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...tinte);
-    doc.splitTextToSize(inhalt.betreff, W).forEach(z => { doc.text(z, L, y); y += 5.2; });
+    doc.splitTextToSize(T(m.betreff), W).forEach(z => { doc.text(z, L, y); y += 5.2; });
     y += 5;
 
-    // Text der Vorlage – Grußformel und Name werden gesondert gesetzt
+    // Text – Einrückung der Vorlage bleibt erhalten
     const neueSeite = () => { doc.addPage(); return 32; };
-    const iGruss = inhalt.zeilen.findIndex(z => /^\s*Mit freundlichen Gr/i.test(z));
-    const textZeilen = iGruss >= 0 ? inhalt.zeilen.slice(0, iGruss) : inhalt.zeilen;
-    const nameZeilen = iGruss >= 0 ? inhalt.zeilen.slice(iGruss + 1).map(z => z.trim()).filter(Boolean) : [];
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...tinte);
-    textZeilen.forEach(z => {
+    zeilenVon(T(m.text)).forEach(z => {
       if (!z.trim()) { y += 2.4; return; }
       const einzug = (z.match(/^\s*/) || [''])[0].length;
       const x = L + Math.min(einzug, 8) * 1.1;
@@ -859,14 +922,15 @@ const Workflows = {
     });
 
     // Übersicht je Azubi (nach der Kontrolle): Ergebnis, Wiedervorlage, Fehltage
-    if (inhalt.uebersicht.length && typeof doc.autoTable === 'function') {
+    const tab = m.tabelle && m.tabelle.zeilen && m.tabelle.zeilen.length ? m.tabelle : null;
+    if (tab && typeof doc.autoTable === 'function') {
       y += 1;
       if (y > B.FUSS_Y - 24) y = neueSeite();
       doc.autoTable({
         startY: y,
         margin: { left: L, right: 210 - R, top: 32, bottom: 297 - B.FUSS_Y + 4 },
-        head: [['Auszubildende/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage']],
-        body: inhalt.uebersicht,
+        head: [tab.kopf.map(T)],
+        body: tab.zeilen.map(z => z.map(T)),
         theme: 'grid',
         styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.4, textColor: tinte, lineColor: [200, 196, 192], lineWidth: 0.2, overflow: 'linebreak' },
         headStyles: { fillColor: [242, 240, 239], textColor: tinte, fontStyle: 'bold' },
@@ -877,20 +941,22 @@ const Workflows = {
     }
 
     // Grußformel, Platz für die Unterschrift, Name, Anlagen – zusammenhalten
-    const anlagen = isDone ? App.briefEinstellung('anlagen').split('\n').map(z => z.trim()).filter(Boolean) : [];
-    const blockH = (iGruss >= 0 ? 6 + 12 + nameZeilen.length * B.ZEILE : 0) + (anlagen.length ? 7 + anlagen.length * B.ZEILE : 0);
+    const nameZeilen = zeilenVon(m.unterschrift).map(z => z.trim()).filter(Boolean);
+    const anlagen = zeilenVon(m.anlagen).map(z => z.trim()).filter(Boolean);
+    const gruss = String(m.gruss || '').trim();
+    const blockH = (gruss ? 6 + 12 + nameZeilen.length * B.ZEILE : nameZeilen.length * B.ZEILE) + (anlagen.length ? 7 + anlagen.length * B.ZEILE : 0);
     if (y + blockH > B.FUSS_Y) y = neueSeite();
-    if (iGruss >= 0) {
+    if (gruss) {
       y += 2;
-      doc.text(inhalt.zeilen[iGruss].trim(), L, y);
+      doc.text(T(gruss), L, y);
       y += 12;                                  // Raum für die handschriftliche Unterschrift
-      nameZeilen.forEach(z => { doc.text(z, L, y); y += B.ZEILE; });
     }
+    nameZeilen.forEach(z => { doc.text(T(z), L, y); y += B.ZEILE; });
     if (anlagen.length) {
       y += 3;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text('Anlagen', L, y); y += 4.4;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      anlagen.forEach(z => { doc.text(z, L, y); y += B.ZEILE; });
+      anlagen.forEach(z => { doc.text(T(z), L, y); y += B.ZEILE; });
     }
 
     // Kopf der Folgeseiten, Fußzeile und „Seite x von y“ für alle Seiten dieses Briefs
@@ -900,28 +966,30 @@ const Workflows = {
       doc.setPage(p);
       if (p > ersteSeite) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...grau);
-        doc.text(`Regierungspräsidium Freiburg · ${App.briefEinstellung('abteilung').split(' – ')[0]} · ${inhalt.betreff}`.substring(0, 120), L, 18);
-        doc.text(`${b.b_firma || g.name}`.substring(0, 60), R, 18, { align: 'right' });
+        doc.text(T(m.kopfFolge).substring(0, 120), L, 18);
+        doc.text(T(m.betriebName).substring(0, 60), R, 18, { align: 'right' });
         doc.setDrawColor(200, 196, 192); doc.setLineWidth(0.2); doc.line(L, 20.5, R, 20.5);
       } else {
         // Falz- und Lochmarken (DIN 5008)
         doc.setDrawColor(140); doc.setLineWidth(0.2);
         doc.line(5, 105, 10, 105); doc.line(5, 210, 10, 210); doc.line(5, 148.5, 12, 148.5);
       }
-      this._briefFuss(doc, p - ersteSeite + 1, gesamt);
+      this._briefFuss(doc, p - ersteSeite + 1, gesamt, m);
     }
     doc.setPage(letzteSeite);
     doc.setTextColor(0); doc.setLineWidth(0.2); doc.setDrawColor(0);
   },
   // Fußzeile: Datenschutzhinweis, Seitenzahl, Dienstgebäude in drei Spalten
-  _briefFuss(doc, seite, gesamt) {
+  _briefFuss(doc, seite, gesamt, m) {
     const B = this.BRIEF, L = B.L, R = B.R, grau = [108, 101, 96];
+    const datenschutz = m ? m.datenschutz : App.briefEinstellung('datenschutz');
+    const fusszeile = m ? m.fusszeile : App.briefEinstellung('fusszeile');
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau);
-    const ds = doc.splitTextToSize(App.briefEinstellung('datenschutz'), R - L).slice(0, 3);
+    const ds = doc.splitTextToSize(this._pdfText(datenschutz), R - L).slice(0, 3);
     ds.forEach((z, i) => doc.text(z, L, 268 + i * 3.2));
     doc.setFontSize(7.5); doc.text(`Seite ${seite} von ${gesamt}`, R, 279.5, { align: 'right' });
     doc.setDrawColor(200, 196, 192); doc.setLineWidth(0.2); doc.line(L, 281.5, R, 281.5);
-    const teile = App.briefEinstellung('fusszeile').split('|').map(z => z.trim()).filter(Boolean);
+    const teile = this._pdfText(fusszeile).split('|').map(z => z.trim()).filter(Boolean);
     const spalten = [L, L + 62, L + 118];
     doc.setFontSize(6.5);
     teile.forEach((z, i) => {
@@ -956,11 +1024,11 @@ const Workflows = {
     const ktSchule = w.kt_id ? App.getTerminSchule(w.kt_id) : null;
     // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
     const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
-    const ctx = { ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
+    const ctx = this._antwortCtx({ ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
       frist: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_alt: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
       betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
-      datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' };
+      datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' });
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
     // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
@@ -1037,7 +1105,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._nachholung.betroffen[${idx}].key)">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._nachholung.betroffen[${idx}].key })">✎ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };
@@ -1048,8 +1116,8 @@ const Workflows = {
   _nachholungMail(idx) {
     const n = this._nachholung; if (!n) return;
     const g = n.betroffen[idx];
-    const ctx = { ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
-      azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt };
+    const ctx = this._antwortCtx({ ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
+      azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt });
     const { betreff, body } = App.renderVorlage('nachholung', ctx);
     this.openMailto(g.email, betreff, body);
   },
@@ -1092,8 +1160,8 @@ const Workflows = {
     const g = (this._sammel || [])[i];
     if (!g) return;
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || 'Ausbildungsberater';
-    const ctx = { ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
-      azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') };
+    const ctx = this._antwortCtx({ ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
+      azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') });
     const { betreff, body } = App.renderVorlage('wv_sammel', ctx);
     this.openMailto(g.email, betreff, body);
     g.wvs.forEach(w => this.versandVermerken(w.id, 'email', w.mahnstufe ? 'wv_erinnerung' : 'wv_mahnung', 'Sammel-Erinnerung'));

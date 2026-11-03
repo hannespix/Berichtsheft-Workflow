@@ -65,6 +65,7 @@ APP_MODULES=(
   "src/js/modules/bulk-schueler.js"
   "src/js/modules/bulk-wv.js"
   "src/js/modules/workflows.js"
+  "src/js/modules/brief-editor.js"
   "src/js/modules/wiedervorlagen.js"
   "src/js/modules/berichte.js"
   "src/js/modules/table-sort.js"
