@@ -1026,7 +1026,7 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
   .ke-griff { display: none; }
 }
 /* Sichtbarer Tastaturfokus auf allen Knöpfen, Links und Menüs (gelber BW-Marker) */
-.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .kt-schritt:focus-visible, .kt-kw > summary:focus-visible, .kt-filter > summary:focus-visible, .kt-einzeln > summary:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
+.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .kt-schritt:focus-visible, .kt-kw > summary:focus-visible, .kt-filter > summary:focus-visible, .ts-phase > summary:focus-visible, .ts-phase-schritt button:focus-visible, .kt-einzeln > summary:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
 /* Große Schrift (Einstellung je Rechner): ganze Oberfläche um 20 % vergrößert –
    Chrome/Edge skalieren mit zoom Layout und Schrift gemeinsam */
 body.grosse-schrift { zoom: 1.2; }
@@ -1638,3 +1638,41 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .kt-einzeln-inhalt { padding-top: 8px; }
 .kt-hinweis-inline { font-weight: 400; color: var(--clr-text-light); }
 @media (max-height: 720px) { .kt-liste { max-height: 22vh; } }
+
+/* ── Termin-Seite (UI-Vereinfachung Paket 7): ein Ort je Termin ── */
+.ts-seite { display: flex; flex-direction: column; gap: 12px; }
+.ts-kopf { padding: 14px 18px; }
+.ts-titel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ts-titel h1 { font-family: var(--font-display); font-size: 22px; margin: 0; color: var(--clr-forest-dark); }
+.ts-kw { font-size: 14px; color: var(--clr-sage); font-weight: 400; }
+.ts-ort { font-size: 14px; color: var(--clr-text-light); font-weight: 400; }
+.ts-punkt { color: var(--clr-sage-light); }
+.ts-kette { font-size: 12px; white-space: nowrap; }
+.ts-kopf-aktionen { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ts-meta { margin-top: 4px; font-size: 13px; color: var(--clr-text-light); }
+.ts-bemerkung { margin-top: 4px; font-size: 13px; }
+.ts-phasen { list-style: none; margin: 12px 0 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.ts-phase-schritt button { border: 1px solid var(--clr-sand); background: var(--clr-warm); border-radius: 999px; padding: 4px 12px 4px 6px; font-size: 12px; color: var(--clr-text); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.ts-nr { width: 20px; height: 20px; border-radius: 50%; background: var(--clr-sand); color: var(--clr-text); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: 0 0 auto; }
+.ts-phase-schritt.aktiv button { background: var(--clr-forest); color: var(--clr-white); border-color: var(--clr-forest); font-weight: 600; }
+.ts-phase-schritt.aktiv .ts-nr, .ts-phase.aktiv > summary .ts-nr { background: var(--clr-gelb); color: var(--clr-text); }
+.ts-phase-schritt.erledigt .ts-nr, .ts-phase > summary .ts-nr { }
+.ts-phase { padding: 0; }
+.ts-phase > summary { display: flex; align-items: center; gap: 10px; padding: 12px 18px; cursor: pointer; list-style: none; flex-wrap: wrap; }
+.ts-phase > summary::-webkit-details-marker { display: none; }
+.ts-phase > summary h2 { font-family: var(--font-display); font-size: 17px; margin: 0; color: var(--clr-forest-dark); }
+.ts-phase.aktiv { border-left: 4px solid var(--clr-forest); }
+.ts-stand { font-size: 12px; color: var(--clr-text-light); margin-left: auto; }
+.ts-inhalt { padding: 0 18px 14px; border-top: 1px solid var(--clr-sand); }
+.ts-zeile { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--clr-sand); font-size: 13px; flex-wrap: wrap; }
+.ts-zeile:last-of-type { border-bottom: none; }
+.ts-label { flex: 0 0 170px; color: var(--clr-text-light); }
+.ts-wert { flex: 1 1 200px; min-width: 0; }
+.ts-aktion { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.ts-knoepfe { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.ts-fortschritt { margin-top: 12px; }
+.ts-hinweis { font-size: 12px; color: var(--clr-text-light); margin: 10px 0 0; }
+.ts-h3 { font-family: var(--font-display); font-size: 14px; margin: 14px 0 6px; color: var(--clr-forest-dark); display: flex; gap: 8px; align-items: center; }
+.ts-zahl { font-size: 12px; font-weight: 400; color: var(--clr-text-light); }
+.ts-tabelle { font-size: 13px; }
+@media (max-width: 640px) { .ts-label { flex-basis: 100%; } .ts-aktion { margin-left: 0; } .ts-stand { margin-left: 0; flex-basis: 100%; } }

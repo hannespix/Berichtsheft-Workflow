@@ -6746,7 +6746,7 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
   .ke-griff { display: none; }
 }
 /* Sichtbarer Tastaturfokus auf allen Knöpfen, Links und Menüs (gelber BW-Marker) */
-.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .kt-schritt:focus-visible, .kt-kw > summary:focus-visible, .kt-filter > summary:focus-visible, .kt-einzeln > summary:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
+.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .kt-schritt:focus-visible, .kt-kw > summary:focus-visible, .kt-filter > summary:focus-visible, .ts-phase > summary:focus-visible, .ts-phase-schritt button:focus-visible, .kt-einzeln > summary:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
 /* Große Schrift (Einstellung je Rechner): ganze Oberfläche um 20 % vergrößert –
    Chrome/Edge skalieren mit zoom Layout und Schrift gemeinsam */
 body.grosse-schrift { zoom: 1.2; }
@@ -7358,6 +7358,44 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .kt-einzeln-inhalt { padding-top: 8px; }
 .kt-hinweis-inline { font-weight: 400; color: var(--clr-text-light); }
 @media (max-height: 720px) { .kt-liste { max-height: 22vh; } }
+
+/* ── Termin-Seite (UI-Vereinfachung Paket 7): ein Ort je Termin ── */
+.ts-seite { display: flex; flex-direction: column; gap: 12px; }
+.ts-kopf { padding: 14px 18px; }
+.ts-titel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ts-titel h1 { font-family: var(--font-display); font-size: 22px; margin: 0; color: var(--clr-forest-dark); }
+.ts-kw { font-size: 14px; color: var(--clr-sage); font-weight: 400; }
+.ts-ort { font-size: 14px; color: var(--clr-text-light); font-weight: 400; }
+.ts-punkt { color: var(--clr-sage-light); }
+.ts-kette { font-size: 12px; white-space: nowrap; }
+.ts-kopf-aktionen { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ts-meta { margin-top: 4px; font-size: 13px; color: var(--clr-text-light); }
+.ts-bemerkung { margin-top: 4px; font-size: 13px; }
+.ts-phasen { list-style: none; margin: 12px 0 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.ts-phase-schritt button { border: 1px solid var(--clr-sand); background: var(--clr-warm); border-radius: 999px; padding: 4px 12px 4px 6px; font-size: 12px; color: var(--clr-text); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.ts-nr { width: 20px; height: 20px; border-radius: 50%; background: var(--clr-sand); color: var(--clr-text); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: 0 0 auto; }
+.ts-phase-schritt.aktiv button { background: var(--clr-forest); color: var(--clr-white); border-color: var(--clr-forest); font-weight: 600; }
+.ts-phase-schritt.aktiv .ts-nr, .ts-phase.aktiv > summary .ts-nr { background: var(--clr-gelb); color: var(--clr-text); }
+.ts-phase-schritt.erledigt .ts-nr, .ts-phase > summary .ts-nr { }
+.ts-phase { padding: 0; }
+.ts-phase > summary { display: flex; align-items: center; gap: 10px; padding: 12px 18px; cursor: pointer; list-style: none; flex-wrap: wrap; }
+.ts-phase > summary::-webkit-details-marker { display: none; }
+.ts-phase > summary h2 { font-family: var(--font-display); font-size: 17px; margin: 0; color: var(--clr-forest-dark); }
+.ts-phase.aktiv { border-left: 4px solid var(--clr-forest); }
+.ts-stand { font-size: 12px; color: var(--clr-text-light); margin-left: auto; }
+.ts-inhalt { padding: 0 18px 14px; border-top: 1px solid var(--clr-sand); }
+.ts-zeile { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--clr-sand); font-size: 13px; flex-wrap: wrap; }
+.ts-zeile:last-of-type { border-bottom: none; }
+.ts-label { flex: 0 0 170px; color: var(--clr-text-light); }
+.ts-wert { flex: 1 1 200px; min-width: 0; }
+.ts-aktion { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.ts-knoepfe { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.ts-fortschritt { margin-top: 12px; }
+.ts-hinweis { font-size: 12px; color: var(--clr-text-light); margin: 10px 0 0; }
+.ts-h3 { font-family: var(--font-display); font-size: 14px; margin: 14px 0 6px; color: var(--clr-forest-dark); display: flex; gap: 8px; align-items: center; }
+.ts-zahl { font-size: 12px; font-weight: 400; color: var(--clr-text-light); }
+.ts-tabelle { font-size: 13px; }
+@media (max-width: 640px) { .ts-label { flex-basis: 100%; } .ts-aktion { margin-left: 0; } .ts-stand { margin-left: 0; flex-basis: 100%; } }
 </style>
 </head>
 <body>
@@ -7855,7 +7893,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-03 14:52 UTC',
+  BUILD: '2026-11-03 15:01 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -16791,7 +16829,7 @@ const App = {
   },
 
   // ── Kontextbezogene Hilfe (F1 / ?-Link im Seitentitel) ──
-  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
+  HILFE_MAP: { dashboard: 'help_1', stammdaten: 'help_2', azubi: 'help_2', import: 'help_3', planung: 'help_4', termin: 'help_4', kontrolle: 'help_5', nacherfassung: 'help_3', wiedervorlagen: 'help_6', berichte: 'help_7', einstellungen: 'help_10', wartung: 'help_10', hilfe: 'help_0' },
   kontextHilfe(view) {
     const id = this.HILFE_MAP[view || this.currentView] || 'help_0';
     if (this.currentView !== 'hilfe') this.navigate('hilfe');
@@ -18612,7 +18650,7 @@ Mit freundlichen Grüßen
     } catch(e) {}
   },
 
-  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' },
+  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen', termin: 'planung' },
   // Filterbalken nur dort, wo er filtert (Listen); Dashboard, Einstellungen,
   // Hilfe, Azubi-Seite und die Einzelansicht der Durchsicht laufen ohne
   FILTER_ANSICHTEN: ['stammdaten', 'planung', 'kontrolle', 'nacherfassung', 'wiedervorlagen', 'berichte'],
@@ -18682,6 +18720,7 @@ Mit freundlichen Grüßen
       wartung: Views.wartung,
       hilfe: Views.hilfe,
       azubi: () => AzubiSeite.render(),
+      termin: () => TerminSeite.render(),
     };
     const fn = views[this.currentView];
     if (fn) fn.call(Views);
@@ -19354,15 +19393,16 @@ const Views = {
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-forest)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <strong style="font-size:14px;color:var(--clr-forest-dark)">Wo stehen wir?</strong>
-          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Durchsicht → Nachbereitung → Berichte</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → je Termin: Vorbereitung → Durchsicht → Nachbereitung → Bögen & Export</span>
           <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           ${stufe(st.importAlterTage !== null && st.importAlterTage <= 90, 'Import', st.letzterImport ? `zuletzt ${formatDate(st.letzterImport)} (vor ${st.importAlterTage} Tagen)` : 'noch kein Import protokolliert')}
           ${stufe(!!(st.kampagne && st.kampagne.termine), 'Kampagne', st.kampagne ? `${esc(st.kampagne.titel)}: ${formatDate(st.kampagne.vonIso)}–${formatDate(st.kampagne.bisIso)} · ${st.kampagne.termine} Termin(e)` : '–')}
-          ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Termine', `${st.termineOffen} geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
+          ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Vorbereitung', `${st.termineOffen} Termin(e) geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
           ${stufe(!st.ohneAbschluss, 'Durchsicht', st.ohneAbschluss ? `${st.ohneAbschluss} Termin(e) ohne Abschluss` : 'keine offenen Abschlüsse')}
           ${stufe(!st.ohneNachbereitung && !st.wvUeberfaellig, 'Nachbereitung', `${st.ohneNachbereitung} ohne Nachbereitung · ${st.wvUeberfaellig} WV überfällig`)}
+          ${stufe(!st.ohneNachbereitung, 'Bögen & Export', st.ohneNachbereitung ? 'nach der Nachbereitung' : 'Berichte & Export')}
         </div>
       </div>`;
 
@@ -19441,7 +19481,8 @@ const Views = {
               <td>${esc(frAj)}</td>
               <td>${esc(t.pruefer)}</td>
               <td style="white-space:nowrap">
-                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Kontrolle starten (${schuelerCount} Azubis)" style="font-size:12px;padding:2px 8px">▸ Starten</button>
+                <button class="btn btn-sm btn-secondary" onclick="TerminSeite.oeffnen(${t.id})" title="Termin-Seite: Vorbereitung, Durchsicht, Nachbereitung, Bögen" style="font-size:12px;padding:2px 8px">Öffnen</button>
+                <button class="btn btn-sm btn-primary" onclick="App.navigate('kontrolle');setTimeout(()=>{document.getElementById('selKontrolltermin').value='${t.id}';KontrolleHandler.loadTermin(${t.id})},100)" title="Durchsicht starten (${schuelerCount} Azubis)" style="font-size:12px;padding:2px 8px">▸ Starten</button>
               </td>
             </tr>`;}).join('')}
           </tbody></table>` : '<div class="empty-state"><p>Keine anstehenden Termine</p></div>'}
@@ -20291,15 +20332,15 @@ const Views = {
             <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td style="white-space:nowrap">
               ${(() => {
-                // Ein Hauptknopf je Termin, passend zum Status; alles Weitere im ⋯-Menü
+                // Ein Hauptknopf je Termin: „Öffnen“ führt auf die Termin-Seite
+                // (Vorbereitung → Durchsicht → Nachbereitung → Bögen & Export);
+                // der Hinweis nennt die Phase, die dran ist. Alles Weitere im ⋯-Menü.
                 const oeffnen = `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)`;
                 const abg = t.status === 'durchgefuehrt';
-                const haupt = t.status === 'geplant'
-                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Termin öffnen und mit der Durchsicht beginnen">Durchsicht öffnen</button>`
-                  : abg && !t.nachbereitet_am
-                    ? `<button class="btn btn-sm btn-primary" onclick="${oeffnen}" title="Ergebnisse an Schule und Betriebe, PDFs, fremde Ämter">Nachbereiten</button>`
-                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchsicht öffnen">Öffnen</button>`;
+                const phase = t.nachbereitet_am ? 'Bögen & Export' : abg ? 'Nachbereitung' : t.geplant_datum <= App._heuteIso() ? 'Durchsicht' : 'Vorbereitung';
+                const haupt = `<button class="btn btn-sm ${abg && !t.nachbereitet_am ? 'btn-primary' : t.status === 'geplant' ? 'btn-success' : 'btn-secondary'}" onclick="TerminSeite.oeffnen(${t.id})" title="Termin-Seite: ${phase} ist dran">Öffnen</button>`;
                 return haupt + ' ' + App.menue('⋯', [
+                  { label: '▸ Durchsicht öffnen', onclick: oeffnen, title: 'Direkt in die Übersicht der Durchsicht' },
                   { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
                   { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
                   { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
@@ -21762,6 +21803,12 @@ const Views = {
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
             <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
+            <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
+            <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>
+            <p>2. <strong>Durchsicht</strong> → Fortschritt (bewertet, in Ordnung, beanstandet, offen) und „Durchsicht öffnen“ – die Arbeit am Kontrolltag läuft wie bisher in der Übersicht und Einzelansicht; „Termin abschließen“ dort wechselt zur Nachbereitung.</p>
+            <p>3. <strong>Nachbereitung</strong> → Ergebnisse an die Schule, E-Mails oder Briefe an die Betriebe, fremde Ämter, Nachholtermin, Wiedervorlagen dieses Termins, „Nachbereitung abgeschlossen“.</p>
+            <p>4. <strong>Bögen &amp; Export</strong> → alle Durchsichtsbögen als PDF, Übersichtstabelle, Ergebnisliste (Excel), Gesamtpaket, Seriendruck.</p>
+            <p>Das Menü „Termin ▾“ in der Durchsicht bleibt für den Kontrolltag erhalten und führt über „Termin-Seite“ zurück auf die Seite.</p>
           </div>
 
           <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
@@ -26083,6 +26130,12 @@ const ImportHandler = {
 
 // ── planung.js ──
 const PlanungHandler = {
+  // Nach Speichern, Löschen, Anfrage-Vermerk, Nachholtermin, Kampagne: die
+  // Termine-Liste neu zeichnen – oder die Termin-Seite, wenn sie offen ist
+  _auffrischen() {
+    if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') { TerminSeite.render(); return; }
+    Views.planung();
+  },
   filterStatus(status) {
     const rows = document.querySelectorAll('#planTableBody tr');
     let visible = 0;
@@ -27058,7 +27111,7 @@ const PlanungHandler = {
     }
     App.invalidateTerminCache();
     App.closeModal();
-    Views.planung();
+    this._auffrischen();
     App.toast('Termin gespeichert', 'success');
   },
   async deleteTermin(id) {
@@ -27081,7 +27134,7 @@ const PlanungHandler = {
     if (!(await App.confirm(text, { titel: 'Termin löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
-    Views.planung();
+    this._auffrischen();
     App.toast(`Termin gelöscht${nErg ? ` (inkl. ${nErg} Ergebnis(se))` : ''}`, 'success');
   },
   exportICS() {
@@ -27145,19 +27198,19 @@ const PlanungHandler = {
     const r = this._nachholterminAnlegen(terminId, datum);
     if (!r.ok) return App.toast(r.grund, 'warning');
     App.toast(`Nachholtermin am ${formatDate(datum)} mit ${r.anzahl} Azubi(s) angelegt`, 'success');
-    Views.planung();
+    this._auffrischen();
   },
 
   // ── Termin-Statuskette: Zusage der Schule vermerken / Anfrage zurücksetzen ──
   terminBestaetigen(id) {
     App.terminSchritt(id, 'bestaetigt');
     App.toast('Zusage der Schule vermerkt', 'success');
-    Views.planung();
+    this._auffrischen();
   },
   async terminAnfrageZuruecksetzen(id) {
     if (!(await App.confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?', { titel: 'Vermerke zurücksetzen', ok: 'Zurücksetzen' }))) return;
     App.terminSchritt(id, 'anfrage_zurueck');
-    Views.planung();
+    this._auffrischen();
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
@@ -27406,7 +27459,7 @@ const PlanungHandler = {
     });
     App.invalidateTerminCache();
     App.closeModal();
-    Views.planung();
+    this._auffrischen();
     App.toast(`${angelegt} Schultermin(e) angelegt – je Schule mit genau den dort anwesenden Azubis`, 'success');
   },
 
@@ -28643,6 +28696,8 @@ const KontrolleHandler = {
     const fremdeCount = liste.filter(s => App.istFremdesAmt(s)).length;
     const zurUebersicht = "KontrolleHandler._viewMode='uebersicht';";
     return [
+      { label: '▦ Termin-Seite (Vorbereitung · Nachbereitung · Bögen)', onclick: `TerminSeite.oeffnen(${terminId})`, title: 'Alle Phasen dieses Termins auf einer Seite' },
+      { trenner: true },
       { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(true)' },
       { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(false)' },
       istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
@@ -33660,7 +33715,7 @@ const Workflows = {
     this.openMailto(adresse || p.to, p.subject, p.body, p.cc);
     if (p.terminId) {
       App.terminSchritt(p.terminId, p.isDone ? 'nachbereitet' : 'angefragt');
-      try { if (App.currentView === 'planung') Views.planung(); } catch(e) {}
+      try { if (App.currentView === 'planung') Views.planung(); else if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') TerminSeite.render(); } catch(e) {}
     }
     App.closeModal();
   },
@@ -37817,6 +37872,243 @@ const AzubiSeite = {
         if (i >= 0) { KontrolleHandler.currentIndex = i; KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.enterSchüler(); }
       }, 200);
     }, 100);
+  },
+};
+
+// ── termin-seite.js ──
+// ══════════════════════════════════════════════════════════════
+//  TERMIN-SEITE: ein Ort je Termin statt vier (UI-Vereinfachung Paket 7)
+//  Analog zur Azubi-Seite: Kopf mit den Eckdaten, darunter die vier Phasen
+//  Vorbereitung → Durchsicht → Nachbereitung → Bögen & Export als Abschnitte.
+//  Die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren
+//  Stand. Alle Aktionen sind die bisherigen Dialoge und Exporte – sie werden
+//  nur von einer Stelle aus geöffnet. Die Durchsicht selbst (Übersicht und
+//  Einzelansicht) bleibt die Ansicht „kontrolle“.
+// ══════════════════════════════════════════════════════════════
+
+const TerminSeite = {
+  _id: null,
+  _springe: '',
+  _offen: {},            // je Termin: von Hand auf-/zugeklappte Phasen
+  PHASEN: [
+    ['vorbereitung', 'Vorbereitung'],
+    ['durchsicht', 'Durchsicht'],
+    ['nachbereitung', 'Nachbereitung'],
+    ['export', 'Bögen & Export'],
+  ],
+  WOCHENTAGE: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+
+  oeffnen(id, phase) {
+    this._id = parseInt(id);
+    this._springe = phase || '';
+    try { App.uSet('termin_id', String(this._id)); } catch(e) {}
+    App.navigate('termin');
+  },
+  istOffen(id) {
+    if (App.currentView !== 'termin' || this._id == null) return false;
+    if (id != null && Number(id) !== Number(this._id)) return false;
+    return !!document.getElementById('tsSeite');
+  },
+  zurueck() { App.navigate('planung'); },
+  springe(phase) {
+    const el = document.getElementById('tsPhase_' + phase);
+    if (!el) return;
+    if ('open' in el) el.open = true;
+    if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  // Durchsicht dieses Termins öffnen (Übersicht am Kontrolltag)
+  durchsichtOeffnen() {
+    const id = this._id;
+    App.navigate('kontrolle');
+    setTimeout(() => KontrolleHandler.startKontrolle(id), 100);
+  },
+  nachbereitetVermerken() {
+    App.terminSchritt(this._id, 'nachbereitet');
+    App.toast('Nachbereitung als abgeschlossen vermerkt', 'success');
+    this.render();
+  },
+  async loeschen() {
+    const id = this._id;
+    await PlanungHandler.deleteTermin(id);
+    if (!App.query('SELECT id FROM kontrolltermine WHERE id=?', [id]).length) App.navigate('planung');
+  },
+  // Auf-/Zuklappen von Hand merken, damit ein Neuzeichnen (nach einer Aktion)
+  // die Entscheidung nicht überschreibt
+  _toggle(phase, el) {
+    if (!this._offen[this._id]) this._offen[this._id] = {};
+    this._offen[this._id][phase] = !!el.open;
+  },
+
+  // ── Stand des Termins: Zahlen und die Phase, die dran ist ──
+  stand(t) {
+    const id = t.id;
+    const heute = App._heuteIso();
+    const abg = t.status === 'durchgefuehrt';
+    const schueler = App.getTerminSchueler(id);
+    const n = schueler.length;
+    const fremde = schueler.filter(s => App.istFremdesAmt(s)).length;
+    const ke = App.query('SELECT schueler_id, anwesend, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]);
+    const ids = new Set(schueler.map(s => s.id));
+    const keDa = ke.filter(k => ids.has(k.schueler_id));
+    const bewertet = keDa.filter(k => k.ergebnis).length;
+    const ok = keDa.filter(k => k.ergebnis === 'in_ordnung').length;
+    const abwesend = keDa.filter(k => k.anwesend === 0 && !k.ergebnis).length;
+    const offen = Math.max(0, n - bewertet - abwesend);
+    let betriebe = [], mitMail = 0;
+    try { betriebe = Workflows._betriebeDesTermins(id, false).betriebe; mitMail = betriebe.filter(b => b.email).length; } catch(e) {}
+    const wv = App.query(`SELECT w.*, s.nachname, s.vorname FROM wiedervorlagen w
+      JOIN kontrollergebnisse k ON w.kontrollergebnis_id=k.id JOIN schueler s ON w.schueler_id=s.id
+      WHERE k.kontrolltermin_id=? ORDER BY CASE w.status WHEN 'ueberfaellig' THEN 0 WHEN 'offen' THEN 1 ELSE 2 END, w.frist_datum, s.nachname`, [id]);
+    const wvOffen = wv.filter(w => w.status === 'offen' || w.status === 'ueberfaellig').length;
+    const kette = App.terminKette(t);
+    const phase = t.nachbereitet_am ? 'export' : abg ? 'nachbereitung' : (bewertet > 0 || t.geplant_datum <= heute) ? 'durchsicht' : 'vorbereitung';
+    return { heute, abg, schueler, n, fremde, bewertet, ok, maengel: bewertet - ok, abwesend, offen, betriebe, mitMail, wv, wvOffen, kette, phase };
+  },
+
+  render() {
+    const c = document.getElementById('mainContent');
+    if (!c) return;
+    if (this._id == null) { try { this._id = parseInt(App.uGet('termin_id', '')) || null; } catch(e) {} }
+    const t = this._id != null ? App.query('SELECT * FROM kontrolltermine WHERE id=?', [this._id])[0] : null;
+    if (!t) { this._id = null; App.navigate('planung'); return; }
+    const st = this.stand(t);
+    const klassen = App.getTerminKlassen(t.id);
+    const ortBs = App.getTerminSchule(t.id);
+    const ortName = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '');
+    const ortOrt = ortBs ? (ortBs.ort || '') : '';
+    const wt = this.WOCHENTAGE[new Date(t.geplant_datum + 'T00:00:00').getDay()] || '';
+    const frAj = App.formatTerminFrAj ? App.formatTerminFrAj(t.id) : '';
+    const meta = [
+      t.typ === 'einsendung' ? '✉︎ Einsendung' : 'Schultermin',
+      klassen.length ? klassen.map(k => k.klassenbezeichnung).join(' + ') : '',
+      frAj,
+      `${st.n} Azubi${st.n === 1 ? '' : 's'}${st.fremde ? ` (${st.fremde} fremde Ämter)` : ''}`,
+      t.pruefer ? 'Prüfer: ' + t.pruefer : '',
+    ].filter(Boolean);
+    const phasenIdx = this.PHASEN.findIndex(([k]) => k === st.phase);
+    const merk = this._offen[t.id] || {};
+    const offenIst = (k, i) => (k in merk) ? merk[k] : i === phasenIdx;
+    c.innerHTML = `
+      <div class="page-header kompakt">
+        <div class="page-header-left"><button class="btn btn-secondary btn-sm" onclick="TerminSeite.zurueck()">‹ Termine</button></div>
+      </div>
+      <div id="tsSeite" class="ts-seite" data-id="${t.id}">
+        <div class="card ts-kopf">
+          <div class="ts-titel">
+            <h1>${wt} ${formatDate(t.geplant_datum)} <span class="ts-kw">(KW ${getKW(t.geplant_datum)})</span>${ortName ? ` <span class="ts-punkt">·</span> ${esc(ortName)}` : ''}${ortOrt ? ` <span class="ts-ort">${esc(ortOrt)}</span>` : ''}</h1>
+            ${statusBadge(t.status)}
+            ${st.kette.label ? `<span class="ts-kette" style="color:${st.kette.farbe}">${esc(st.kette.label)}</span>` : ''}
+            <span class="ts-kopf-aktionen">
+              ${st.abg ? '' : `<button class="btn btn-sm btn-success" onclick="TerminSeite.durchsichtOeffnen()" title="Übersicht der Durchsicht öffnen">▸ Durchsicht öffnen</button>`}
+              <button class="btn btn-sm btn-secondary" onclick="PlanungHandler.editTermin(${t.id})" title="Datum, Ort, Prüfer, Klassen, Azubis, Bemerkung">✎ Bearbeiten</button>
+              ${App.menue('⋯', [
+                { label: '▸ Durchsicht öffnen', onclick: 'TerminSeite.durchsichtOeffnen()' },
+                st.abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
+                { trenner: true },
+                { label: '✕ Termin löschen', onclick: 'TerminSeite.loeschen()' },
+              ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein')}
+            </span>
+          </div>
+          <div class="ts-meta">${meta.map(esc).join(' <span class="ts-punkt">·</span> ')}</div>
+          ${t.bemerkung ? `<div class="ts-bemerkung">${esc(t.bemerkung)}</div>` : ''}
+          <ol class="ts-phasen" aria-label="Phasen">
+            ${this.PHASEN.map(([k, titel], i) => `<li class="ts-phase-schritt ${i < phasenIdx ? 'erledigt' : i === phasenIdx ? 'aktiv' : ''}"><button type="button" onclick="TerminSeite.springe('${k}')" ${i === phasenIdx ? 'aria-current="step"' : ''}><span class="ts-nr">${i < phasenIdx ? '✓' : i + 1}</span> ${titel}</button></li>`).join('')}
+          </ol>
+        </div>
+        ${this.PHASEN.map(([k, titel], i) => `
+          <details class="card ts-phase ${i === phasenIdx ? 'aktiv' : ''}" id="tsPhase_${k}" ${offenIst(k, i) ? 'open' : ''} ontoggle="TerminSeite._toggle('${k}', this)">
+            <summary><span class="ts-nr">${i < phasenIdx ? '✓' : i + 1}</span><h2>${titel}</h2><span class="ts-stand">${this._standText(k, t, st)}</span></summary>
+            <div class="ts-inhalt">${this['_' + k](t, st, klassen, ortBs)}</div>
+          </details>`).join('')}
+      </div>`;
+    if (this._springe) { const ziel = this._springe; this._springe = ''; setTimeout(() => this.springe(ziel), 60); }
+  },
+
+  // Eine Zeile Stand je Phase (auch im zugeklappten Zustand sichtbar)
+  _standText(k, t, st) {
+    if (k === 'vorbereitung') return st.kette.schritt === 'bestaetigt' || st.kette.schritt === 'angefragt' ? st.kette.label : (st.abg ? 'erledigt' : 'noch nicht angefragt');
+    if (k === 'durchsicht') return st.abg ? `abgeschlossen${t.durchgefuehrt_datum ? ' am ' + formatDate(t.durchgefuehrt_datum) : ''} · ${st.bewertet} von ${st.n} bewertet` : (st.bewertet ? `${st.bewertet} von ${st.n} bewertet · ${st.offen} offen` : `${st.n} Azubis · noch nicht begonnen`);
+    if (k === 'nachbereitung') return t.nachbereitet_am ? `nachbereitet ${formatDate(t.nachbereitet_am)}` : st.abg ? `offen · ${st.wvOffen} offene Wiedervorlage${st.wvOffen === 1 ? '' : 'n'}` : 'nach dem Abschluss der Durchsicht';
+    return st.abg ? 'Bögen, Übersicht, Excel, Gesamtpaket' : 'nach der Durchsicht';
+  },
+
+  _zeile(label, wert, aktionen) {
+    return `<div class="ts-zeile"><span class="ts-label">${label}</span><span class="ts-wert">${wert}</span><span class="ts-aktion">${aktionen || ''}</span></div>`;
+  },
+
+  _vorbereitung(t, st, klassen, ortBs) {
+    const id = t.id;
+    const k = st.kette;
+    const anfrage = k.schritt === 'bestaetigt' ? `✓ ${esc(k.label)}` : k.schritt === 'angefragt' ? esc(k.label) : (ortBs && ortBs.frei ? 'freier Ort – keine Schulanfrage nötig' : 'noch nicht angefragt');
+    const anfrageAktionen = st.abg ? '' : [
+      `<button class="btn btn-sm ${k.schritt ? 'btn-secondary' : 'btn-primary'}" onclick="Workflows.emailSchule(${id})">✉︎ Termin bei der Schule anfragen</button>`,
+      k.schritt === 'angefragt' ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.terminBestaetigen(${id})" title="Zusage der Schule vermerken">✓ Zusage vermerken</button>` : '',
+      k.schritt === 'angefragt' || k.schritt === 'bestaetigt' ? `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${id})" title="Anfrage-Vermerk zurücksetzen">↺</button>` : '',
+    ].join(' ');
+    const betriebe = `${st.betriebe.length} Betrieb${st.betriebe.length === 1 ? '' : 'e'}${st.betriebe.length ? ` · ${st.mitMail} mit E-Mail` : ''}`;
+    const teilnehmer = [
+      `${st.n} Azubi${st.n === 1 ? '' : 's'}`,
+      klassen.length ? klassen.map(kl => `${esc(kl.klassenbezeichnung)} (${esc(kl.schule)})`).join(', ') : (t.typ === 'einsendung' ? 'einzeln zugeordnet' : 'ohne Klasse'),
+      st.fremde ? `${st.fremde} aus fremden Ämtern` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      ${this._zeile('Anfrage an die Schule', anfrage, anfrageAktionen)}
+      ${this._zeile('Betriebe ankündigen', betriebe, st.abg ? '' : `<button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${id})" title="Ankündigung je Betrieb: E-Mail, Brief oder CSV">▤ Betriebe anschreiben</button>`)}
+      ${this._zeile('Teilnehmer', teilnehmer, `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.editTermin(${id})">✎ Termin bearbeiten</button>`)}
+      ${this._zeile('Ort und Zeit', `${formatDate(t.geplant_datum)} (KW ${getKW(t.geplant_datum)})${ortBs ? ' · ' + esc(ortBs.name) + (ortBs.ort ? ', ' + esc(ortBs.ort) : '') : ' · <em>ohne Ort</em>'}${t.pruefer ? ' · ' + esc(t.pruefer) : ''}`, '')}`;
+  },
+
+  _durchsicht(t, st) {
+    const id = t.id;
+    const pct = st.n ? Math.round(st.bewertet / st.n * 100) : 0;
+    return `
+      <div class="fortschritt ts-fortschritt">
+        <div class="fs-kopf"><span class="fs-text"><strong>${st.bewertet} von ${st.n}</strong> bewertet · <span class="fs-ok">${st.ok} in Ordnung</span> · <span class="fs-mangel">${st.maengel} beanstandet</span> · ${st.offen} offen${st.abwesend ? ` · ${st.abwesend} abwesend` : ''}</span></div>
+        <div class="fs-balken" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Fortschritt der Durchsicht"><div style="width:${pct}%"></div></div>
+      </div>
+      <div class="ts-knoepfe">
+        <button class="btn ${st.abg ? 'btn-secondary' : 'btn-primary'}" onclick="TerminSeite.durchsichtOeffnen()">▸ Durchsicht öffnen</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.printUebersicht(${id})">⎙ Übersichtstabelle drucken</button>
+      </div>
+      ${st.abg
+        ? `<p class="ts-hinweis">✓ Abgeschlossen${t.durchgefuehrt_datum ? ' am ' + formatDate(t.durchgefuehrt_datum) : ''}. Zum Korrigieren die Durchsicht öffnen und im Menü „Termin ▾“ „Termin wieder öffnen“ wählen.</p>`
+        : `<p class="ts-hinweis">Am Kontrolltag: Durchsicht öffnen, Hefte durchsehen, am Ende „Termin abschließen“ – der Abschluss-Assistent legt Archiv-Bögen und Wiedervorlagen an und wechselt zur Nachbereitung.</p>`}`;
+  },
+
+  _nachbereitung(t, st) {
+    const id = t.id;
+    if (!st.abg) return `<p class="ts-hinweis">Die Nachbereitung beginnt nach dem Abschluss der Durchsicht: Ergebnisse an die Schule, Mitteilungen an die Betriebe, Weitergabe an fremde Ämter, Wiedervorlagen.</p>`;
+    const wvHtml = st.wv.length ? `<table class="data-table ts-tabelle"><thead><tr><th>Azubi</th><th>Art</th><th>Frist</th><th>Status</th><th></th></tr></thead><tbody>
+      ${st.wv.slice(0, 60).map(w => `<tr>
+        <td>${esc(w.nachname)}, ${esc(w.vorname)}</td>
+        <td><small>${esc(typeof wvArtLabel === 'function' ? wvArtLabel(w.art) : w.art)}</small></td>
+        <td>${w.frist_datum ? formatDate(w.frist_datum) : 'nächste Durchsicht'}</td>
+        <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-done' : w.status === 'ueberfaellig' ? 'badge-overdue' : 'badge-open'}">${esc(w.status)}</span></td>
+        <td>${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td>
+      </tr>`).join('')}
+    </tbody></table>${st.wv.length > 60 ? `<p class="ts-hinweis">… ${st.wv.length - 60} weitere unter Wiedervorlagen</p>` : ''}` : '<p class="ts-hinweis">Keine Wiedervorlagen zu diesem Termin.</p>';
+    return `
+      ${this._zeile('Ergebnisse an die Schule', 'Zahlen je Ergebnis, Abwesende', `<button class="btn btn-sm btn-primary" onclick="Workflows.emailSchule(${id})">✉︎ Ergebnisse an die Schule</button>`)}
+      ${this._zeile('Betriebe', `${st.betriebe.length} Betrieb${st.betriebe.length === 1 ? '' : 'e'} · ${st.mitMail} mit E-Mail`, `<button class="btn btn-sm btn-primary" onclick="Workflows.emailBetriebIndividuell(${id})" title="Arbeitsliste: je Betrieb eine E-Mail, Outlook-Entwürfe als ZIP">✉︎ E-Mails an die Betriebe</button> <button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${id})" title="Briefe im Brief-Editor (PDF, Word, E-Mail-Entwurf)">✎ Briefe</button>`)}
+      ${st.fremde ? this._zeile('Fremde Ämter', `${st.fremde} Azubi${st.fremde === 1 ? '' : 's'} anderer Ämter`, `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${id})">§ Fremde Ämter</button>`) : ''}
+      ${this._zeile('Nachholtermin', st.abwesend ? `${st.abwesend} abwesend` : 'niemand abwesend', `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.nachholterminAnlegen(${id})" title="Für die am Kontrolltag abwesenden Azubis">↻ Nachholtermin anlegen</button>`)}
+      ${this._zeile('Stand', t.nachbereitet_am ? `✓ nachbereitet am ${formatDate(t.nachbereitet_am)}` : 'Nachbereitung offen', t.nachbereitet_am ? '' : `<button class="btn btn-sm btn-success" onclick="TerminSeite.nachbereitetVermerken()" title="Wenn Schule und Betriebe informiert sind">✓ Nachbereitung abgeschlossen</button>`)}
+      <h3 class="ts-h3">Wiedervorlagen dieses Termins <span class="ts-zahl">${st.wvOffen} offen</span></h3>
+      ${wvHtml}`;
+  },
+
+  _export(t, st) {
+    const id = t.id;
+    return `
+      <div class="ts-knoepfe">
+        <button class="btn btn-primary" onclick="PlanungHandler.exportTerminPDF(${id})">▤ Alle Durchsichtsbögen als PDF</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.printUebersicht(${id})">⎙ Übersichtstabelle drucken</button>
+        ${typeof BerichteHandler !== 'undefined' && BerichteHandler.exportTerminExcel ? `<button class="btn btn-secondary" onclick="BerichteHandler.exportTerminExcel(${id})" title="Ergebnisliste aller Azubis dieses Termins">▤ Ergebnisliste (Excel)</button>` : ''}
+        ${typeof BerichteHandler !== 'undefined' && BerichteHandler.gesamtpaket ? `<button class="btn btn-secondary" onclick="BerichteHandler.gesamtpaket(${id})" title="PDFs + Seriendruck + E-Mail in einem Schritt">Gesamtpaket</button>` : ''}
+        <button class="btn btn-secondary" onclick="Workflows.exportSeriendruckCSV(${id})" title="Datenquelle für den Word-Seriendruck">▤ Seriendruck (CSV)</button>
+        <button class="btn btn-secondary" onclick="Workflows.exportSeriendruckWord(${id})">▤ Seriendruck (Word)</button>
+      </div>
+      <p class="ts-hinweis">${st.abg ? `${st.bewertet} bewertete Azubis.` : 'Bögen lassen sich schon vor dem Abschluss erzeugen (Stand jetzt).'} Weitere Berichte (Klassenübersicht, Statistik) unter Berichte & Export.</p>`;
   },
 };
 

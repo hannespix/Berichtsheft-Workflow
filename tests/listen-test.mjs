@@ -28,8 +28,8 @@ console.log('══ Menü-Helfer im Kern ══');
 console.log('\n══ Planung: ein Hauptknopf je Termin ══');
 {
   const tabelle = V.split("<tbody id=\"planTableBody\">")[1].split('</tbody>')[0];
-  check(/Durchsicht öffnen<\/button>/.test(tabelle) && /Nachbereiten<\/button>/.test(tabelle) && /Öffnen<\/button>/.test(tabelle) && /abg && !t\.nachbereitet_am/.test(tabelle), 'Hauptknopf folgt dem Status: Durchsicht öffnen · Nachbereiten · Öffnen');
-  check((tabelle.match(/<button /g) || []).length === 3, 'Genau drei Knopf-Varianten in der Zeile (Hauptknopf), alles Weitere im Menü');
+  check(/onclick="TerminSeite\.oeffnen\(\$\{t\.id\}\)" title="Termin-Seite: \$\{phase\} ist dran">Öffnen<\/button>/.test(tabelle) && /abg && !t\.nachbereitet_am/.test(tabelle), 'Hauptknopf „Öffnen“ führt auf die Termin-Seite, Farbe und Hinweis folgen der Phase');
+  check((tabelle.match(/<button /g) || []).length === 1 && /label: '▸ Durchsicht öffnen', onclick: oeffnen/.test(tabelle), 'Genau ein Hauptknopf in der Zeile, „Durchsicht öffnen“ und alles Weitere im Menü');
   for (const f of ['PlanungHandler.editTermin(${t.id})', 'Workflows.emailSchule(${t.id})', 'Workflows.seriendruckBetriebe(${t.id})', 'PlanungHandler.exportTerminPDF(${t.id})', 'PlanungHandler.fremdeAemter(${t.id})', 'KontrolleHandler.printUebersicht(${t.id})', 'PlanungHandler.nachholterminAnlegen(${t.id})', 'PlanungHandler.deleteTermin(${t.id})']) check(tabelle.includes(f), `Menü enthält ${f.split('(')[0]}`);
   check(/App\.menue\('⋯', \[/.test(tabelle) && /'klein'\)/.test(tabelle), 'Menü als schmaler ⋯-Knopf');
 }

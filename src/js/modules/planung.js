@@ -1,4 +1,10 @@
 const PlanungHandler = {
+  // Nach Speichern, Löschen, Anfrage-Vermerk, Nachholtermin, Kampagne: die
+  // Termine-Liste neu zeichnen – oder die Termin-Seite, wenn sie offen ist
+  _auffrischen() {
+    if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') { TerminSeite.render(); return; }
+    Views.planung();
+  },
   filterStatus(status) {
     const rows = document.querySelectorAll('#planTableBody tr');
     let visible = 0;
@@ -974,7 +980,7 @@ const PlanungHandler = {
     }
     App.invalidateTerminCache();
     App.closeModal();
-    Views.planung();
+    this._auffrischen();
     App.toast('Termin gespeichert', 'success');
   },
   async deleteTermin(id) {
@@ -997,7 +1003,7 @@ const PlanungHandler = {
     if (!(await App.confirm(text, { titel: 'Termin löschen', ok: 'Löschen', gefaehrlich: true }))) return;
     App.deleteTerminKaskade(id);
     App.invalidateTerminCache();
-    Views.planung();
+    this._auffrischen();
     App.toast(`Termin gelöscht${nErg ? ` (inkl. ${nErg} Ergebnis(se))` : ''}`, 'success');
   },
   exportICS() {
@@ -1061,19 +1067,19 @@ const PlanungHandler = {
     const r = this._nachholterminAnlegen(terminId, datum);
     if (!r.ok) return App.toast(r.grund, 'warning');
     App.toast(`Nachholtermin am ${formatDate(datum)} mit ${r.anzahl} Azubi(s) angelegt`, 'success');
-    Views.planung();
+    this._auffrischen();
   },
 
   // ── Termin-Statuskette: Zusage der Schule vermerken / Anfrage zurücksetzen ──
   terminBestaetigen(id) {
     App.terminSchritt(id, 'bestaetigt');
     App.toast('Zusage der Schule vermerkt', 'success');
-    Views.planung();
+    this._auffrischen();
   },
   async terminAnfrageZuruecksetzen(id) {
     if (!(await App.confirm('Anfrage- und Bestätigungsvermerk dieses Termins zurücksetzen?', { titel: 'Vermerke zurücksetzen', ok: 'Zurücksetzen' }))) return;
     App.terminSchritt(id, 'anfrage_zurueck');
-    Views.planung();
+    this._auffrischen();
   },
 
   // ── Batch PDF: Alle Durchsichtsbögen eines Kontrolltermins ──
@@ -1322,7 +1328,7 @@ const PlanungHandler = {
     });
     App.invalidateTerminCache();
     App.closeModal();
-    Views.planung();
+    this._auffrischen();
     App.toast(`${angelegt} Schultermin(e) angelegt – je Schule mit genau den dort anwesenden Azubis`, 'success');
   },
 

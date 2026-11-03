@@ -150,7 +150,7 @@ const Workflows = {
     this.openMailto(adresse || p.to, p.subject, p.body, p.cc);
     if (p.terminId) {
       App.terminSchritt(p.terminId, p.isDone ? 'nachbereitet' : 'angefragt');
-      try { if (App.currentView === 'planung') Views.planung(); } catch(e) {}
+      try { if (App.currentView === 'planung') Views.planung(); else if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') TerminSeite.render(); } catch(e) {}
     }
     App.closeModal();
   },
