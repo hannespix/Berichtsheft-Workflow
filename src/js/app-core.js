@@ -1190,6 +1190,7 @@ const App = {
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const reset = document.getElementById('filterReset');
     if (reset) reset.style.display = cnt > 0 ? '' : 'none';
+    this._filterKompaktAktualisieren();
   },
 
   // ── Dashboard Drill-Down (click chart → filter Azubi list) ──
@@ -10306,6 +10307,8 @@ Mit freundlichen Grüßen
         this._updateAmtButton();
       }
     }
+    // Dieser Stand ist der Standard – solange er gilt, zeigt der Balken einen Chip
+    this._filterStandardMerken();
 
     const validViews = ['dashboard','stammdaten','import','planung','kontrolle','nacherfassung','wiedervorlagen','berichte','einstellungen','hilfe'];
     const hashView = location.hash.replace('#','');
@@ -10384,9 +10387,8 @@ Mit freundlichen Grüßen
 
   // ── Sidebar Feature Toggle System ──
   SIDEBAR_FEATURES: {
-    nacherfassung: { label: 'Nacherfassung (vergangene Kontrollen)', default: false },
-    import: { label: 'IBYKUS-Import', default: true },
-    kontrolle: { label: 'Durchführung (Kontrolltag)', default: true },
+    nacherfassung: { label: 'Nacherfassung (vergangene Durchsichten)', default: false },
+    kontrolle: { label: 'Durchsicht (Kontrolltag)', default: true },
   },
 
   _getSidebarVisibility() {
@@ -11003,14 +11005,45 @@ Mit freundlichen Grüßen
     } catch(e) {}
   },
 
+  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' },
+  // Filterbalken nur dort, wo er filtert (Listen); Dashboard, Einstellungen,
+  // Hilfe, Azubi-Seite und die Einzelansicht der Durchsicht laufen ohne
+  FILTER_ANSICHTEN: ['stammdaten', 'planung', 'kontrolle', 'nacherfassung', 'wiedervorlagen', 'berichte'],
+  _filterbalkenAnpassen(view, einzelansicht) {
+    const ohne = !this.FILTER_ANSICHTEN.includes(view) || !!einzelansicht;
+    try { document.body.classList.toggle('ohne-filter', ohne); } catch(e) {}
+  },
+  // Standardfilter als ein Chip: Weichen die Filter nicht vom Stand beim Start
+  // ab, verdichtet sich der Balken zu „Filter: Gärtner · § 93 RP Freiburg ▾“;
+  // ein Klick klappt alle Chips auf. Sobald ein Filter abweicht, bleibt der
+  // Balken offen und die abweichenden Chips stehen schwarz.
+  _filterSchluessel() {
+    return JSON.stringify([this.filterJahrgang, this.filterZp, this.filterFachrichtungen, this.filterAmt, this.filterBavStatus, (this.extraFilters || []).filter(f => this._efAktiv(f))]);
+  },
+  _filterStandardMerken() { this._filterStandard = this._filterSchluessel(); this._filterKompaktAktualisieren(); },
+  filterAufklappen(an) { this._filterOffen = !!an; this._filterKompaktAktualisieren(); },
+  filterIstStandard() { return this._filterStandard !== undefined && this._filterSchluessel() === this._filterStandard; },
+  _filterKompaktAktualisieren() {
+    const panel = document.getElementById('filterPanel'); if (!panel || !panel.classList) return;
+    const standard = this.filterIstStandard();
+    panel.classList.toggle('kompakt', standard && !this._filterOffen);
+    const chip = document.getElementById('filterKompaktBtn');
+    if (chip) {
+      const teile = ['jgFilterBtn', 'bgFilterBtn', 'amtFilterBtn', 'bavFilterBtn'].map(id => document.getElementById(id)).filter(Boolean)
+        .map(b => String(b.textContent || '').replace(/[▾▤]/g, '').trim()).filter(t => t && !/^Alle /.test(t) && !/^§ Alle/.test(t));
+      chip.textContent = 'Filter: ' + (teile.length ? teile.join(' · ') : 'alle') + ' ▾';
+    }
+    const zu = document.getElementById('filterZuklappen'); if (zu) zu.style.display = standard && this._filterOffen ? '' : 'none';
+  },
   navigate(view, skipHash) {
     this.currentView = view;
     this.kopfZeigen();
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
-    // Die Azubi-Seite hat keinen eigenen Menüpunkt – sie gehört zu den Stammdaten
-    const menuView = view === 'azubi' ? 'stammdaten' : view;
+    // Azubi-Seite und Import gehören zu den Stammdaten, Wartung zu den Einstellungen
+    const menuView = this.MENUE_ZUORDNUNG[view] || view;
+    this._filterbalkenAnpassen(view);
     document.querySelectorAll('.sidebar-item').forEach(el => {
       el.classList.toggle('active', el.dataset.view === menuView);
     });

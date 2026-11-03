@@ -56,7 +56,7 @@ Berichte · Einstellungen · Hilfe.
   das Listen-Menü „⋯“ neben dem Umschalter.
 - Tabelle: „Titel“ entfällt als Spalte (steht als zweite Zeile unter dem Datum,
   wenn gesetzt), Fachrichtung in die Klassen-Spalte, Ort/Schule mit Ortsangabe
-  als zweite Zeile → 10 → 7 Spalten, mehr Luft je Zeile.
+  als zweite Zeile → 10 → 8 Spalten, mehr Luft je Zeile.
 Von 9 auf 4 Bedienelemente über der Tabelle.
 
 ### Paket 5 · Dialog „Neuer Termin“ in zwei Schritten (mittel)
@@ -101,7 +101,15 @@ folgen denselben vier Phasen.
   klarer beschriftet.
 - Die Azubi-Seite als Muster für Seiten statt Dialoge.
 
-## 4. Reihenfolge und Aufwand
+## 4. Stand
+- **Pakete 1–4 umgesetzt** (November 2026): Wörter, Filterbalken nur in Listen mit
+  Standard-Chip, Menü mit 8 Einträgen (Import als Reiter der Stammdaten, Wartung als
+  Reiter der Einstellungen), Termine-Kopf mit einem Hauptknopf und einem Umschalter,
+  Tabelle 10 → 8 Spalten (Datum mit Bemerkung, Ort, Klassen mit Fachrichtung, Jahrgang,
+  Azubis, Prüfer, Status, Aktionen).
+- **Pakete 5–7 offen.**
+
+## 5. Reihenfolge und Aufwand
 | Paket | Aufwand | Risiko | Wirkung |
 |---|---|---|---|
 | 1 Wörter | ½ Tag | gering (Tests prüfen Begriffe) | Orientierung |

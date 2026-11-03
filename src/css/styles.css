@@ -258,6 +258,20 @@ body.vollbild .topbar-btn#btnVollbild svg { transform: rotate(180deg); }
   color: var(--clr-text);
 }
 .filter-panel.open { display: flex; }
+/* Filterbalken nur in Listen (App.FILTER_ANSICHTEN); im Standardzustand ein Chip (App._filterKompaktAktualisieren) */
+body.ohne-filter .filter-panel { display: none; }
+.filter-panel .fp-kompakt { display: none; }
+.filter-panel.kompakt > * { display: none !important; }
+.filter-panel.kompakt > .fp-kompakt { display: inline-block !important; }
+/* Umschalter in einer Gruppe (Tabelle | Kalender | Jahr) */
+.seg { display: inline-flex; border: 1px solid var(--clr-sage-light); border-radius: var(--radius); overflow: hidden; }
+.seg .seg-btn { border: 0; background: var(--clr-white); color: var(--clr-text); padding: 6px 12px; font-size: 13px; cursor: pointer; min-height: 32px; }
+.seg .seg-btn + .seg-btn { border-left: 1px solid var(--clr-sage-light); }
+.seg .seg-btn.active { background: var(--clr-forest); color: var(--clr-white); }
+.seg .seg-btn:focus-visible { outline: 2px solid var(--clr-forest); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--clr-gelb); }
+.split { display: inline-flex; align-items: stretch; }
+.split > .btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .aktionen-menue > summary, .split > details > summary { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; height: 100%; }
 #btnSwitchDB { display: none !important; }  /* Datenbankwechsel steht in der Seitenleiste */
 .fp-btn {
   padding: 5px 12px;
