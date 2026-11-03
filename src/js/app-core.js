@@ -8164,7 +8164,10 @@ const App = {
   _b64Zeilen(bytes) { return (this._b64(bytes).match(/.{1,76}/g) || []).join('\r\n'); },
   _b64Text(text) { return this._b64(new TextEncoder().encode(String(text || ''))); },
   _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
-  emlErzeugen({ to, cc, subject, body, anhaenge }) {
+  // replyTo: Antwortadresse; ohne Angabe das Funktionspostfach (antwortKopf),
+  // false = keine Reply-To-Zeile
+  emlErzeugen({ to, cc, subject, body, anhaenge, replyTo }) {
+    const antwort = replyTo === false ? '' : (replyTo || this.antwortKopf());
     const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     const kopf = [
       'X-Unsent: 1',
@@ -8172,6 +8175,8 @@ const App = {
       'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
       'To: ' + (to || ''),
       ...(cc ? ['Cc: ' + cc] : []),
+      // lange Kopfzeile gefaltet (Zeilen ≤ 78 Zeichen): Name und Adresse getrennt
+      ...(antwort ? ['Reply-To: ' + antwort.replace(/ </, '\r\n <')] : []),
       'Subject: ' + this._mimeWort(subject || ''),
     ];
     const textTeil = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
@@ -8179,13 +8184,16 @@ const App = {
     if (!teile.length) return kopf.concat(textTeil).join('\r\n') + '\r\n';
     const zeilen = kopf.concat([`Content-Type: multipart/mixed; boundary="${grenze}"`, '', 'This is a multi-part message in MIME format.', '', '--' + grenze], textTeil);
     teile.forEach(a => {
-      const name = this.safeFilename(a.name.replace(/\.pdf$/i, ''), 'pdf');
-      const typ = a.typ || (/\.pdf$/i.test(a.name) ? 'application/pdf' : 'application/octet-stream');
+      // Endung bleibt (PDF, Word); ohne Endung gilt PDF
+      const endung = (a.name.match(/\.(pdf|docx|xlsx|txt)$/i) || [null, 'pdf'])[1].toLowerCase();
+      const name = this.safeFilename(a.name.replace(/\.(pdf|docx|xlsx|txt)$/i, ''), endung);
+      const typ = a.typ || this.EML_TYPEN[endung] || 'application/octet-stream';
       zeilen.push('', '--' + grenze, `Content-Type: ${typ}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(a.bytes));
     });
     zeilen.push('', '--' + grenze + '--', '');
     return zeilen.join('\r\n');
   },
+  EML_TYPEN: { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', txt: 'text/plain' },
   // Datei zum Herunterladen anbieten (Bytes oder Text)
   downloadBlob(daten, name, mime) {
     const blob = daten instanceof Blob ? daten : new Blob([daten], { type: mime || 'application/octet-stream' });
@@ -10208,6 +10216,7 @@ Mit freundlichen Grüßen
       pruefer: prueferName || 'Ausbildungsberater',
       pruefer_email: (pr && pr.email) || rpEmail || '',
       pruefer_telefon: (pr && pr.telefon) || '',
+      antwort_email: this.antwortEmail ? this.antwortEmail() : '',
       rp_adresse: rpAdressePost,
       rp_email: rpEmail,
       rp_name: 'Regierungspräsidium Freiburg',
@@ -10225,6 +10234,18 @@ Mit freundlichen Grüßen
     fusszeile: 'Dienstgebäude: Bertoldstraße 43, 79098 Freiburg i. Br. | Paketadresse: Bissierstraße 7, 79114 Freiburg i. Br. | E-Mail: abteilung3@rpf.bwl.de | Telefon: 0761 208-0 | Homepage: www.rp-freiburg.de | Serviceportal: www.service-bw.de',
     datenschutz: 'Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internetseite www.rp-freiburg.de unter „Datenschutzerklärungen“, Titel „A-01: Datenschutzerklärung zur Verwaltungstätigkeit der Regierungspräsidien“. Auf Wunsch werden diese Informationen in Papierform versandt.',
     anlagen: 'Berichtsheftdurchsichtsbogen\nBerichtsheft',
+    // Betriebe und Azubis antworten an das Funktionspostfach, nicht an die
+    // Sachbearbeitung (Reply-To der E-Mails, E-Mail im Briefkopf)
+    antwort: 'Freisprechung.GB@rpf.bwl.de',
+    antwort_name: 'Regierungspräsidium Freiburg',
+  },
+  antwortEmail() { return String(this.briefEinstellung('antwort') || '').trim(); },
+  // Kopfzeile „Reply-To“: "Name" <adresse>, Name als kodiertes Wort
+  antwortKopf() {
+    const mail = this.antwortEmail();
+    if (!mail) return '';
+    const name = String(this.briefEinstellung('antwort_name') || '').trim();
+    return name ? `${this._mimeWort(name)} <${mail}>` : mail;
   },
   // Gespeicherter Wert gewinnt – auch ein leerer (z. B. kein Geschäftszeichen);
   // nur ohne Eintrag gilt der Standardtext
@@ -11294,6 +11315,7 @@ Mit freundlichen Grüßen
 
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    { const mc = document.getElementById('modalContent'); if (mc && mc.classList) mc.classList.remove('modal-brief'); }
     // Fokus zurück zum auslösenden Element
     this._modalHatFokus = false;
     const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;

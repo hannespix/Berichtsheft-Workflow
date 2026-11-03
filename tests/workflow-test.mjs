@@ -350,7 +350,7 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   Workflows.emailBetriebIndividuell(900);
   check(modal && /E-Mails an 2 Betriebe/.test(modal.t) && /id="betriebMailListe"/.test(modal.b) && /id="betriebMailFuss"/.test(modal.f), 'Ein Dialog mit Liste und Fußzeile');
   check(/✉︎ Nächste öffnen \(1 von 1\)/.test(modal.f), 'Fußzeile: „Nächste öffnen (1 von 1)“ – der Betrieb ohne E-Mail zählt nicht');
-  check(/Gärtnerei Mail/.test(modal.b) && /Mängelmitteilung/.test(modal.b) && /→ Unterschriften des\/der Auszubildenden nachholen \(1 Woche: AJ 2: KW 40\)/.test(modal.b) && /Keine E-Mail hinterlegt/.test(modal.b) && /▤ Brief/.test(modal.b), 'Zeilen: Vorlage, Nachzuholendes je Azubi, Brief-Knopf ohne E-Mail');
+  check(/Gärtnerei Mail/.test(modal.b) && /Mängelmitteilung/.test(modal.b) && /→ Unterschriften des\/der Auszubildenden nachholen \(1 Woche: AJ 2: KW 40\)/.test(modal.b) && /Keine E-Mail hinterlegt/.test(modal.b) && /✎ Brief/.test(modal.b) && /Workflows\.briefeBearbeiten\(900, \{ nurKey:/.test(modal.b), 'Zeilen: Vorlage, Nachzuholendes je Azubi, Brief-Knopf ohne E-Mail');
   check(!/E-Mail \$\{i\} von \$\{mit\.length\}/.test(W_SRC) && !/btnNaechsteMail/.test(W_SRC) && /_naechsteBetriebMail\(\) \{/.test(W_SRC), 'Keine Kette von Zwischendialogen mehr');
   const d = Workflows._individualData;
   check(Workflows._betriebMailOffen().length === 1 && Workflows._betriebMailOffen()[0].g.name === 'Gärtnerei Mail', 'Offen ist genau der Betrieb mit E-Mail');
@@ -497,11 +497,11 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
 {
   console.log('\n— PDF-Briefe im Briefbogen (Logo, Infoblock, Übersicht, Unterschrift, Anlagen, Fußzeile) —');
   const W = read('src/js/modules/workflows.js'), A = read('src/js/app-core.js'), V = read('src/js/modules/views.js'), ST = read('src/js/modules/stammdaten.js');
-  check(/exportSeriendruckPDF\(terminId, nurOhneEmail, nurKey, opts\)/.test(W) && /if \(opts && opts\.bytes\) return new Uint8Array\(doc\.output\('arraybuffer'\)\)/.test(W), 'Briefe auch als Bytes abrufbar (Smoke-Test, Anhänge)');
-  check(/_briefZeichnen\(doc, g, t, isDone\)/.test(W) && /_briefFuss\(doc, p - ersteSeite \+ 1, gesamt\)/.test(W) && /doc\.setPage\(p\)/.test(W), 'Je Brief Kopf, Fuß und „Seite x von y“ nachträglich auf allen Seiten');
+  check(/exportSeriendruckPDF\(terminId, nurOhneEmail, nurKey, opts\)/.test(W) && /if \(opts && opts\.bytes\) return bytes;/.test(W) && /return new Uint8Array\(doc\.output\('arraybuffer'\)\)/.test(W), 'Briefe auch als Bytes abrufbar (Smoke-Test, Anhänge)');
+  check(/this\._briefZeichnen\(doc, m\)/.test(W) && /_briefFuss\(doc, p - ersteSeite \+ 1, gesamt, m\)/.test(W) && /doc\.setPage\(p\)/.test(W), 'Je Brief Kopf, Fuß und „Seite x von y“ nachträglich auf allen Seiten');
   check(/App\.briefEinstellung\('ruecksende'\)/.test(W) && /App\.briefEinstellung\('abteilung'\)/.test(W) && /App\.briefEinstellung\('geschaeftszeichen'\)/.test(W) && /App\.briefEinstellung\('datenschutz'\)/.test(W) && /App\.briefEinstellung\('fusszeile'\)/.test(W) && /App\.briefEinstellung\('anlagen'\)/.test(W), 'Alle Texte des Briefbogens aus den Einstellungen');
-  check(/zeile\('Telefon:', absender\.pruefer_telefon\)/.test(W) && /zeile\('E-Mail:', absender\.pruefer_email\)/.test(W) && /Kontrolle am:/.test(W) && /zeile\('Berufsschule:'/.test(W), 'Infoblock: Name, Telefon, E-Mail, Geschäftszeichen, Datum, Kontrolltermin, Schule, Klasse');
-  check(/head: \[\['Auszubildende\/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage'\]\]/.test(W) && /typeof doc\.autoTable === 'function'/.test(W), 'Übersicht je Azubi als Tabelle (autoTable), mit Rückfall');
+  check(/label: 'Telefon:', wert: absender\.pruefer_telefon/.test(W) && /label: 'E-Mail:', wert: App\.antwortEmail\(\) \|\| absender\.pruefer_email/.test(W) && /Kontrolle am:/.test(W) && /label: 'Berufsschule:'/.test(W), 'Infoblock: Name, Telefon, E-Mail (Funktionspostfach), Geschäftszeichen, Datum, Kontrolltermin, Schule');
+  check(/BRIEF_TABELLE_KOPF: \['Auszubildende\/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage'\]/.test(W) && /head: \[tab\.kopf\.map\(T\)\]/.test(W) && /typeof doc\.autoTable === 'function'/.test(W), 'Übersicht je Azubi als Tabelle (autoTable), mit Rückfall');
   check(/y \+= 12;\s*\/\/ Raum für die handschriftliche Unterschrift/.test(W) && /doc\.text\('Anlagen', L, y\)/.test(W) && /doc\.line\(5, 105, 10, 105\); doc\.line\(5, 210, 10, 210\); doc\.line\(5, 148\.5, 12, 148\.5\)/.test(W), 'Unterschriftenraum, Anlagen, Falz- und Lochmarken');
   check(/const pdfText = \(s\) => String\(s \|\| ''\)\.replace\(\/→\/g, '–'\)/.test(W) && /betreff: pdfText\(betreff\)/.test(W), 'Pfeile und Häkchen der Vorlage werden für Helvetica ersetzt (sonst „!\'“ im Druck)');
   check(/while \(fs > 7 && doc\.getTextWidth\(String\(wert\)\) > 38\)/.test(W), 'Lange Werte im Infoblock (E-Mail, Schule) werden verkleinert statt mitten im Wort umbrochen');

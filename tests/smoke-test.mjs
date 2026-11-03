@@ -129,6 +129,42 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before && (r.offen || 0) > 2000, `PDF-Brief vor der Kontrolle erzeugt (${r.offen || 0} Bytes)`);
 }
 
+// Brief-Editor: Vorschau im Briefbogen, Felder direkt änderbar, Ausgabe als
+// PDF, Word (gültiges XML) und E-Mail-Entwurf mit Antwortadresse
+{
+  const before = errors.length;
+  const terminId = await page.evaluate(() => {
+    const t = App.query("SELECT kt.id FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' ORDER BY (SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=kt.id) DESC LIMIT 1")[0];
+    if (!t) return null;
+    Workflows.briefeBearbeiten(t.id);
+    return t.id;
+  });
+  await page.waitForTimeout(400);
+  const felder = await page.locator('.bz-blatt .bz-feld').count();
+  check(terminId && felder >= 15, `Brief-Editor zeigt den Brief mit änderbaren Feldern (${felder})`);
+  if (process.env.BRIEF_SCREENSHOT) await page.screenshot({ path: process.env.BRIEF_SCREENSHOT, fullPage: false });
+  const betreff = page.locator('.bz-blatt .bz-betreff');
+  await betreff.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' (geändert)');
+  const r = await page.evaluate(() => {
+    const m = BriefEditor.aktuell();
+    const docx = BriefEditor.docxBytes([m]);
+    const z = new PizZip(docx);
+    const ok = (x) => !new DOMParser().parseFromString(x, 'application/xml').querySelector('parsererror');
+    const pdf = Workflows.briefPdfBytes([m]);
+    const eml = m.email ? BriefEditor.emlFuer(m, { anhang: 'beide', boegen: true }) : '';
+    return { betreff: m.betreff, xml: ok(z.file('word/document.xml').asText()) && ok(z.file('word/footer1.xml').asText()) && ok(z.file('word/styles.xml').asText()) && ok(z.file('[Content_Types].xml').asText()),
+      bild: !!z.file(/word\/media\/logo\./).length, pdf: pdf.length, eml: eml.length, reply: /Reply-To:[^\r]*\r\n <Freisprechung\.GB@rpf\.bwl\.de>/.test(eml), mail: !!m.email, n: BriefEditor.modelle().length };
+  });
+  check(/\(geändert\)$/.test(r.betreff), 'Tippen im Brief ändert den Betreff im Modell');
+  check(r.xml && r.bild, 'Word-Datei: wohlgeformtes XML, Logo eingebettet');
+  check(r.pdf > 2000, `PDF aus dem bearbeiteten Brief (${r.pdf} Bytes)`);
+  check(!r.mail || (r.eml > r.pdf && r.reply), 'E-Mail-Entwurf mit PDF und Word als Anhang, Antwort an das Funktionspostfach');
+  await page.evaluate(() => App.closeModal());
+  check(errors.length === before, 'Brief-Editor ohne Konsolenfehler');
+}
+
 // Rückfrage während einer Ladeanzeige (Feldfall Import → „Aktiver Jahrgang“):
 // Die Ladeanzeige (z-index 10000) lag über der Rückfrage, der Import wartete
 // endlos. Jetzt tritt sie für die Rückfrage zurück und kommt danach wieder.

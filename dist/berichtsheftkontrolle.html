@@ -7241,6 +7241,66 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
   body { overflow: visible; height: auto; }
   html { overflow: visible; }
 }
+
+/* ══ Brief-Editor (Briefe an Betriebe): Vorschau im Briefbogen, jedes Feld änderbar ══
+   Maße in Millimetern über --bz-mm (Pixel je Millimeter); Schrift nie unter 12 px,
+   deshalb sind Fußzeile und Infoblock in der Vorschau etwas größer als im Druck. */
+.modal.modal-brief { max-width: 1040px; width: 96%; max-height: 94vh; }
+.bz { --bz-mm: 3.7px; --bz-papier: #ffffff; --bz-tinte: #1e1e1e; --bz-grau: #6C6560; }
+.bz-leiste { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: var(--clr-warm); border-radius: var(--radius); font-size: 13px; }
+.bz-wahl { width: auto; max-width: 340px; font-size: 13px; padding: 4px 8px; }
+.bz-an { color: var(--clr-text-light); font-size: 12px; }
+.bz-warn { color: var(--clr-red); font-weight: 600; }
+.bz-abstand { flex: 1; }
+.bz-opt { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.bz-opt select { width: auto; font-size: 12px; padding: 2px 6px; }
+.bz-tipp { font-size: 12px; color: var(--clr-text-light); margin: 8px 2px; }
+.bz-buehne { background: var(--clr-sand); border-radius: var(--radius); padding: 16px; overflow: auto; max-height: 64vh; }
+.bz-blatt { width: calc(var(--bz-mm) * 210); min-height: calc(var(--bz-mm) * 297); margin: 0 auto; box-sizing: border-box;
+  padding: calc(var(--bz-mm) * 12) calc(var(--bz-mm) * 25) calc(var(--bz-mm) * 10);
+  background: var(--bz-papier); color: var(--bz-tinte); font-family: Arial, Helvetica, sans-serif;
+  font-size: max(12px, calc(var(--bz-mm) * 3.53)); line-height: 1.45; display: flex; flex-direction: column; }
+.bz-logo img { width: calc(var(--bz-mm) * 52); height: auto; display: block; }
+.bz-logo strong { font-size: 16px; }
+.bz-oben { display: grid; grid-template-columns: 1fr calc(var(--bz-mm) * 72); gap: calc(var(--bz-mm) * 8); margin-top: calc(var(--bz-mm) * 8); }
+.bz-ruecksende { font-size: 12px; color: var(--bz-grau); margin-bottom: calc(var(--bz-mm) * 4); }
+.bz-anschrift { font-size: max(13px, calc(var(--bz-mm) * 3.9)); min-height: calc(var(--bz-mm) * 25); }
+.bz-abteilung { font-weight: 700; font-size: 12px; line-height: 1.3; margin-bottom: 8px; }
+.bz-info-zeile { display: grid; grid-template-columns: calc(var(--bz-mm) * 30) 1fr 20px; align-items: start; gap: 2px; }
+.bz-info-gruppe { margin-top: 6px; }
+.bz-info-label { font-size: 12px; color: var(--bz-grau); }
+.bz-info-wert { font-size: 12px; overflow-wrap: anywhere; }
+.bz-info-zusatz { font-size: 12px; color: var(--bz-grau); }
+.bz-betreff { font-weight: 700; font-size: max(13px, calc(var(--bz-mm) * 3.9)); margin-top: calc(var(--bz-mm) * 10); margin-bottom: calc(var(--bz-mm) * 5); }
+.bz-text { white-space: pre-wrap; min-height: calc(var(--bz-mm) * 30); }
+.bz-tabelle-box { margin-top: calc(var(--bz-mm) * 3); }
+.bz-tabelle { width: 100%; border-collapse: collapse; font-size: 12px; }
+.bz-tabelle th, .bz-tabelle td { border: 1px solid #C8C4C0; padding: 3px 5px; vertical-align: top; text-align: left; }
+.bz-tabelle th { background: #F2F0EF; font-weight: 700; }
+.bz-tabelle td:nth-child(4), .bz-tabelle th:nth-child(4) { text-align: right; width: 12%; }
+.bz-tabelle .bz-tab-aktion { border: none; width: 22px; padding: 2px; background: transparent; }
+.bz-tab-knoepfe { display: flex; gap: 8px; margin-top: 4px; }
+.bz-gruss { margin-top: calc(var(--bz-mm) * 6); }
+.bz-unterschrift { height: calc(var(--bz-mm) * 12); display: flex; align-items: center; font-size: 12px; color: var(--clr-sage-light); font-style: italic; }
+.bz-name { white-space: pre-wrap; }
+.bz-anlagen { margin-top: calc(var(--bz-mm) * 4); }
+.bz-anlagen-titel { font-weight: 700; font-size: 12px; }
+.bz-anlagen .bz-feld { white-space: pre-wrap; }
+.bz-fusszeile { margin-top: auto; padding-top: calc(var(--bz-mm) * 8); color: var(--bz-grau); font-size: 12px; line-height: 1.35; }
+.bz-seite { text-align: right; border-bottom: 1px solid #C8C4C0; padding-bottom: 2px; margin: 4px 0; }
+.bz-dienst { overflow-wrap: anywhere; }
+/* Änderbares Feld: gestrichelt beim Zeigen, gelber Rahmen beim Bearbeiten */
+.bz-feld { outline: 1px dashed transparent; outline-offset: 2px; border-radius: 2px; cursor: text; min-height: 1.2em; white-space: pre-wrap; }
+.bz-feld:hover { outline-color: var(--clr-sage-light); }
+.bz-feld:focus { outline: 2px solid var(--bz-tinte); box-shadow: 0 0 0 4px var(--clr-gelb); }
+.bz-feld:empty::before { content: attr(data-leer); color: var(--clr-sage-light); font-style: italic; }
+.bz-mini { border: 1px solid var(--clr-sand); background: var(--clr-white); color: var(--clr-text-light); border-radius: 4px; font-size: 12px; line-height: 1; min-width: 20px; min-height: 20px; cursor: pointer; padding: 1px 4px; }
+.bz-mini:hover, .bz-mini:focus-visible { border-color: var(--clr-forest); color: var(--clr-text); }
+.bz-mini-text { padding: 3px 8px; margin-top: 4px; }
+.bz-fussgruppe { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; padding-left: 8px; border-left: 1px solid var(--clr-sand); }
+.bz-fusslabel { font-size: 12px; color: var(--clr-text-light); }
+@media (max-width: 720px) { .bz { --bz-mm: 2.6px; } .bz-buehne { padding: 6px; } .bz-oben { grid-template-columns: 1fr; gap: 12px; } }
+@media (prefers-reduced-motion: reduce) { .bz-feld { transition: none; } }
 </style>
 </head>
 <body>
@@ -7748,7 +7808,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-03 07:42 UTC',
+  BUILD: '2026-11-03 11:35 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -15664,7 +15724,10 @@ const App = {
   _b64Zeilen(bytes) { return (this._b64(bytes).match(/.{1,76}/g) || []).join('\r\n'); },
   _b64Text(text) { return this._b64(new TextEncoder().encode(String(text || ''))); },
   _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
-  emlErzeugen({ to, cc, subject, body, anhaenge }) {
+  // replyTo: Antwortadresse; ohne Angabe das Funktionspostfach (antwortKopf),
+  // false = keine Reply-To-Zeile
+  emlErzeugen({ to, cc, subject, body, anhaenge, replyTo }) {
+    const antwort = replyTo === false ? '' : (replyTo || this.antwortKopf());
     const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     const kopf = [
       'X-Unsent: 1',
@@ -15672,6 +15735,8 @@ const App = {
       'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
       'To: ' + (to || ''),
       ...(cc ? ['Cc: ' + cc] : []),
+      // lange Kopfzeile gefaltet (Zeilen ≤ 78 Zeichen): Name und Adresse getrennt
+      ...(antwort ? ['Reply-To: ' + antwort.replace(/ </, '\r\n <')] : []),
       'Subject: ' + this._mimeWort(subject || ''),
     ];
     const textTeil = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
@@ -15679,13 +15744,16 @@ const App = {
     if (!teile.length) return kopf.concat(textTeil).join('\r\n') + '\r\n';
     const zeilen = kopf.concat([`Content-Type: multipart/mixed; boundary="${grenze}"`, '', 'This is a multi-part message in MIME format.', '', '--' + grenze], textTeil);
     teile.forEach(a => {
-      const name = this.safeFilename(a.name.replace(/\.pdf$/i, ''), 'pdf');
-      const typ = a.typ || (/\.pdf$/i.test(a.name) ? 'application/pdf' : 'application/octet-stream');
+      // Endung bleibt (PDF, Word); ohne Endung gilt PDF
+      const endung = (a.name.match(/\.(pdf|docx|xlsx|txt)$/i) || [null, 'pdf'])[1].toLowerCase();
+      const name = this.safeFilename(a.name.replace(/\.(pdf|docx|xlsx|txt)$/i, ''), endung);
+      const typ = a.typ || this.EML_TYPEN[endung] || 'application/octet-stream';
       zeilen.push('', '--' + grenze, `Content-Type: ${typ}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(a.bytes));
     });
     zeilen.push('', '--' + grenze + '--', '');
     return zeilen.join('\r\n');
   },
+  EML_TYPEN: { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', txt: 'text/plain' },
   // Datei zum Herunterladen anbieten (Bytes oder Text)
   downloadBlob(daten, name, mime) {
     const blob = daten instanceof Blob ? daten : new Blob([daten], { type: mime || 'application/octet-stream' });
@@ -17708,6 +17776,7 @@ Mit freundlichen Grüßen
       pruefer: prueferName || 'Ausbildungsberater',
       pruefer_email: (pr && pr.email) || rpEmail || '',
       pruefer_telefon: (pr && pr.telefon) || '',
+      antwort_email: this.antwortEmail ? this.antwortEmail() : '',
       rp_adresse: rpAdressePost,
       rp_email: rpEmail,
       rp_name: 'Regierungspräsidium Freiburg',
@@ -17725,6 +17794,18 @@ Mit freundlichen Grüßen
     fusszeile: 'Dienstgebäude: Bertoldstraße 43, 79098 Freiburg i. Br. | Paketadresse: Bissierstraße 7, 79114 Freiburg i. Br. | E-Mail: abteilung3@rpf.bwl.de | Telefon: 0761 208-0 | Homepage: www.rp-freiburg.de | Serviceportal: www.service-bw.de',
     datenschutz: 'Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internetseite www.rp-freiburg.de unter „Datenschutzerklärungen“, Titel „A-01: Datenschutzerklärung zur Verwaltungstätigkeit der Regierungspräsidien“. Auf Wunsch werden diese Informationen in Papierform versandt.',
     anlagen: 'Berichtsheftdurchsichtsbogen\nBerichtsheft',
+    // Betriebe und Azubis antworten an das Funktionspostfach, nicht an die
+    // Sachbearbeitung (Reply-To der E-Mails, E-Mail im Briefkopf)
+    antwort: 'Freisprechung.GB@rpf.bwl.de',
+    antwort_name: 'Regierungspräsidium Freiburg',
+  },
+  antwortEmail() { return String(this.briefEinstellung('antwort') || '').trim(); },
+  // Kopfzeile „Reply-To“: "Name" <adresse>, Name als kodiertes Wort
+  antwortKopf() {
+    const mail = this.antwortEmail();
+    if (!mail) return '';
+    const name = String(this.briefEinstellung('antwort_name') || '').trim();
+    return name ? `${this._mimeWort(name)} <${mail}>` : mail;
   },
   // Gespeicherter Wert gewinnt – auch ein leerer (z. B. kein Geschäftszeichen);
   // nur ohne Eintrag gilt der Standardtext
@@ -18794,6 +18875,7 @@ Mit freundlichen Grüßen
 
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
+    { const mc = document.getElementById('modalContent'); if (mc && mc.classList) mc.classList.remove('modal-brief'); }
     // Fokus zurück zum auslösenden Element
     this._modalHatFokus = false;
     const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;
@@ -20667,8 +20749,10 @@ const Views = {
 `,
       briefkopf: `      <!-- Briefbogen für PDF-Briefe an Betriebe -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header">▤ Briefbogen für PDF-Briefe an Betriebe</div>
-        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die PDF-Briefe (Planung → „PDF-Briefe“, Nachbereitung → „Brief“ je Betrieb ohne E-Mail) folgen dem Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson (Name, Telefon und E-Mail aus Stammdaten → Prüfer), Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi mit Ergebnis, Wiedervorlage und Fehltagen; Platz für die Unterschrift, Anlagen, Fußzeile mit Datenschutzhinweis und Dienstgebäude. Vorbelegt sind die Angaben des RP Freiburg, Abteilung 3.</p>
+        <div class="card-header">▤ Briefbogen für Briefe an Betriebe</div>
+        <p style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Die Briefe (Planung → „Briefe“, Nachbereitung → „Brief“ je Betrieb) öffnen im Brief-Editor: Vorschau des Briefs, jedes Feld direkt änderbar, Ausgabe als PDF, Word oder E-Mail-Entwurf mit dem Brief als Anhang. Sie folgen dem Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson (Name, Telefon und E-Mail aus Stammdaten → Prüfer), Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi mit Ergebnis, Wiedervorlage und Fehltagen; Platz für die Unterschrift, Anlagen, Fußzeile mit Datenschutzhinweis und Dienstgebäude. Vorbelegt sind die Angaben des RP Freiburg, Abteilung 3.</p>
+        <div class="form-group"><label>Antwortadresse für Betriebe und Azubis (E-Mail im Briefkopf, „Antwort an“ der E-Mail-Entwürfe, E-Mail in den Texten an Betriebe)</label><input class="form-control" id="setBriefAntwort" value="${esc(brief('antwort'))}" placeholder="leer = E-Mail der Sachbearbeitung"></div>
+        <div class="form-group"><label>Name zur Antwortadresse</label><input class="form-control" id="setBriefAntwortName" value="${esc(brief('antwort_name'))}"></div>
         <div class="form-group"><label>Abteilung (Kopf rechts)</label><input class="form-control" id="setBriefAbteilung" value="${esc(brief('abteilung'))}"></div>
         <div class="form-group"><label>Rücksendeangabe (Zeile über der Anschrift)</label><input class="form-control" id="setBriefRuecksende" value="${esc(brief('ruecksende'))}"></div>
         <div class="form-group"><label>Geschäftszeichen</label><input class="form-control" id="setBriefGz" value="${esc(brief('geschaeftszeichen'))}" placeholder="leer = ohne Geschäftszeichen"></div>
@@ -21056,7 +21140,8 @@ const Views = {
     ];
     // Briefbogen der PDF-Briefe (leer = Standardtext des RP Freiburg)
     [['brief_abteilung', 'setBriefAbteilung'], ['brief_ruecksende', 'setBriefRuecksende'], ['brief_geschaeftszeichen', 'setBriefGz'],
-     ['brief_fusszeile', 'setBriefFuss'], ['brief_datenschutz', 'setBriefDatenschutz'], ['brief_anlagen', 'setBriefAnlagen']].forEach(([k, id]) => {
+     ['brief_fusszeile', 'setBriefFuss'], ['brief_datenschutz', 'setBriefDatenschutz'], ['brief_anlagen', 'setBriefAnlagen'],
+     ['brief_antwort', 'setBriefAntwort'], ['brief_antwort_name', 'setBriefAntwortName']].forEach(([k, id]) => {
       const el = document.getElementById(id);
       if (el) sets.push([k, String(el.value || '').trim()]);
     });
@@ -21692,7 +21777,7 @@ const Views = {
               <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
               <p>• <strong>Optionen</strong> über der Liste, je Person gemerkt: <em>Ansprechpartner namentlich ansprechen</em> (Standard aus – „Sehr geehrte Damen und Herren“ reicht meist), <em>Signatur</em> (Standard: die angemeldete Person; jeder andere Prüfer wählbar; oder „keine“ – dann endet der Text vor der Grußformel und Outlook hängt beim Senden die eigene Signatur an) und <em>Durchsichtsbögen anhängen</em>. Die Vorschau in der Liste zeigt sofort den geänderten Text.</p>
               <p>• <strong>⬇ Alle als Outlook-Entwürfe (ZIP)</strong> ist der Hauptweg, ohne Längengrenze. Je Betrieb entsteht eine .eml-Datei mit Empfänger, Betreff, Text und – nach der Kontrolle – den Durchsichtsbögen der genannten Azubis als PDF-Anhang; die betreffenden Azubis stehen im CC, sofern in den Stammdaten eine E-Mail-Adresse hinterlegt ist (die Zeile zeigt „CC Azubi: …“); alles zusammen in einer ZIP-Datei (mit LIESMICH). ZIP entpacken, .eml doppelklicken: das klassische Outlook öffnet sie als neuen Entwurf mit „Senden“ (das neue Outlook zeigt solche Dateien nur zum Lesen – dann den Weg „Nächste öffnen“ nutzen).</p>
-              <p>• <strong>▤ Brief</strong> (je Betrieb ohne E-Mail) und <strong>PDF-Briefe</strong> (Planung) erzeugen Briefe im Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson mit Telefon und E-Mail, Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi (Ergebnis, Wiedervorlage, Fehltage), Platz für die Unterschrift, Anlagen (Durchsichtsbogen, Berichtsheft), Fußzeile mit Datenschutzhinweis und Dienstgebäude, Falzmarken. Texte des Briefbogens unter Einstellungen → Kontakt → „Briefbogen“, Telefon der Prüfer unter Stammdaten → Prüfer.</p>
+              <p>• <strong>✎ Brief</strong> (je Betrieb ohne E-Mail) und <strong>✎ Briefe</strong> (Planung → Betriebe anschreiben) öffnen den <strong>Brief-Editor</strong>: der Brief steht als Vorschau im Briefbogen, ein Klick in ein Feld macht es änderbar – Anschrift, Infoblock (Zeilen hinzufügen oder entfernen), Betreff, Text, Übersicht je Azubi (Zellen, Zeilen), Grußformel, Name, Anlagen und Fußzeile. Mit ‹ › oder der Auswahl blättern Sie durch die Briefe; geänderte tragen ✎, „Zurücksetzen“ holt den automatischen Text. Ausgabe je Brief oder für alle: <strong>PDF</strong>, <strong>Word</strong> (.docx, je Brief ein Abschnitt mit eigener Seitenzählung) oder <strong>E-Mail-Entwurf</strong> (.eml mit Brieftext, dem Brief als PDF und/oder Word und auf Wunsch den Durchsichtsbögen als Anhang; mehrere als ZIP). Antworten der Betriebe und Azubis gehen an das Funktionspostfach <strong>Freisprechung.GB@rpf.bwl.de</strong> („Antwort an“ in jedem E-Mail-Entwurf, E-Mail im Briefkopf und in den Texten an Betriebe; änderbar unter Einstellungen → Kontakt → Briefbogen). Änderungen bleiben bis zum Neuladen der Seite erhalten. Die Briefe stehen im Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson mit Telefon und E-Mail, Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi (Ergebnis, Wiedervorlage, Fehltage), Platz für die Unterschrift, Anlagen (Durchsichtsbogen, Berichtsheft), Fußzeile mit Datenschutzhinweis und Dienstgebäude, Falzmarken. Texte des Briefbogens unter Einstellungen → Kontakt → „Briefbogen“, Telefon der Prüfer unter Stammdaten → Prüfer.</p>
               <p>• <strong>✉︎ Nächste öffnen</strong> ist der zweite Weg über den E-Mail-Link: je Klick startet Outlook mit Empfänger, Betreff und Text, die Zeile wird grün („geöffnet 10:32“). „Öffnen“ in der Zeile geht auch einzeln; „Vorschau“ zeigt den Text, „▤ Text“ kopiert Empfänger, Betreff und Text. Ein E-Mail-Link fasst nur etwa 2000 Zeichen: passt der Text nicht, sagt es die Zeile vorher; beim Öffnen startet Outlook mit Empfänger und Betreff, der Text liegt in der Zwischenablage und wird mit <strong>Strg+V</strong> eingefügt.</p>
               <p>• <strong>Versandnachweis:</strong> Das erste Öffnen einer Mängelmitteilung oder Nachhol-Aufforderung (oder das Erzeugen des Entwurfs) wird an den Wiedervorlagen der genannten Azubis vermerkt (Datum, per E-Mail, Mahnstufe 1) – die Liste zeigt dann kein „ohne Versand“ mehr. Sind alle Betriebe mit E-Mail erledigt, gilt der Termin als nachbereitet.</p>
             </div>
@@ -21821,7 +21906,7 @@ const Views = {
             <p>• <strong>RP-Adressen</strong> – Adresse für persönliche Vorlage und Post-Versand</p>
             <p>• <strong>E-Mail-Vorlage Freisprechung</strong> – Text für Freisprechungseinladungen</p>
             <p>• <strong>Vorlagen für E-Mails &amp; Briefe</strong> – Alle automatischen Schreiben (Terminanfrage/Ergebnis an die Schule, Betriebe einzeln oder als Sammel-Mail, Wiedervorlage/Mahnung, Nachholung, Übergabe an andere Ämter) lassen sich mit Platzhaltern anpassen; „Vorschau mit Beispieldaten" zeigt das Ergebnis</p>
-            <p>• <strong>Briefbogen für PDF-Briefe an Betriebe</strong> – Abteilung, Rücksendeangabe, Geschäftszeichen, Fußzeile (Dienstgebäude, Paketadresse, E-Mail, Telefon, Homepage, Serviceportal), Datenschutzhinweis und Anlagen; vorbelegt mit den Angaben des RP Freiburg, Abteilung 3. Name, Telefon und E-Mail der Ansprechperson kommen aus Stammdaten → Prüfer</p>
+            <p>• <strong>Briefbogen für PDF-Briefe an Betriebe</strong> – Antwortadresse für Betriebe und Azubis (Standard Freisprechung.GB@rpf.bwl.de), Abteilung, Rücksendeangabe, Geschäftszeichen, Fußzeile (Dienstgebäude, Paketadresse, E-Mail, Telefon, Homepage, Serviceportal), Datenschutzhinweis und Anlagen; vorbelegt mit den Angaben des RP Freiburg, Abteilung 3. Name, Telefon und E-Mail der Ansprechperson kommen aus Stammdaten → Prüfer</p>
             <p>• <strong>Ämter-E-Mails</strong> – Adressen der zuständigen Ausbildungsberater anderer Regierungspräsidien für das Übergabeschreiben</p>
             <p>• <strong>Papierkorb</strong> – Gelöschte Azubis und Termine 90 Tage lang samt Ergebnissen wiederherstellbar</p>
             <p>• <strong>Datenbank-Tools</strong> – Bestandsübersicht (Dateigröße, Zeilen je Tabelle, Jahrgänge), <em>Verdichten</em> (Wochendaten lange inaktiver Azubis entfernen, Ergebnisse und Statistik bleiben), <em>Jahrgänge mit Archiv löschen</em> (vorher SQLite + Excel nach <code>_bhk/archiv/</code>, gegengelesen, einzelne Azubis später zurückholbar), <em>Aufräumen</em> (verwaiste Zeilen, alte Logs, Blockpläne, Sync-Stempel) und <em>Datei neu aufbauen</em> (VACUUM – erst das macht die Datei kleiner). Jede Aktion: Vorschau mit Zahlen, automatisches Backup, neuer Snapshot für alle Nutzer. Läuft gerade eine Kompaktierung (z.B. nach dem Start), wartet das Werkzeug bis zu 3 Minuten, bevor es etwas ändert; kann der Snapshot danach nicht sofort geschrieben werden, bleibt der Stand im Speicher und wird automatisch nachgeholt (Fenster offen lassen); der Grund steht im Klartext in der Karte (auch „Safe Browsing“ als Schreibhindernis), „Sperre prüfen“ zeigt, wer die Kompaktierungs-Sperre hält, und gibt sie notfalls frei; eine eigene Sperre, deren Freigabe an einem Schreibfehler scheiterte, wird automatisch wieder übernommen und später freigegeben. Nicht im Offline-Modus, nicht bei Netzabriss und nicht in einer <strong>zweiten Registerkarte</strong> derselben Datenbank – die kann grundsätzlich keinen Snapshot schreiben (auch Import ist dort gesperrt)</p>
@@ -33643,7 +33728,7 @@ const Workflows = {
         '<button class="btn btn-secondary" onclick="Workflows.emailBetriebeBCC(' + terminId + ')" title="E-Mail mit allen Betrieben im BCC">✉︎ BCC</button>' +
         '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckCSV(' + terminId + ')">CSV</button>' +
         (App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckWord(' + terminId + ')">✎ Word</button>' : '') +
-        '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckPDF(' + terminId + ')">▤ PDF-Briefe</button>');
+        '<button class="btn btn-primary" onclick="Workflows.briefeBearbeiten(' + terminId + ')" title="Alle Briefe in der Vorschau bearbeiten und als PDF, Word oder E-Mail-Entwurf ausgeben">✎ Briefe</button>');
   },
 
   // ── BCC Serien-E-Mail an alle Betriebe ──
@@ -33653,7 +33738,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const emails = [...new Set(betriebe.map(g => g.email).filter(Boolean))];
     const ohne = betriebe.filter(g => !g.email);
-    const { betreff, body } = App.renderVorlage('betrieb_bcc', t.ctx);
+    const { betreff, body } = App.renderVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
     App.closeModal();
     App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
       <div style="margin-bottom:8px;font-size:12px">
@@ -33673,7 +33758,7 @@ const Workflows = {
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
         <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
-        ${ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.exportSeriendruckPDF(${terminId}, true)" title="PDF-Briefe nur für Betriebe ohne E-Mail">▤ Briefe für ${ohne.length} ohne E-Mail</button>` : ''}
+        ${ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${terminId}, { nurOhneEmail: true })" title="Briefe nur für Betriebe ohne E-Mail – in der Vorschau bearbeiten">✎ Briefe für ${ohne.length} ohne E-Mail</button>` : ''}
         <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
     this._bccEmails = emails;
   },
@@ -33880,7 +33965,7 @@ const Workflows = {
             ? `<button class="btn btn-sm ${st ? 'btn-secondary' : ''}" style="padding:2px 8px;font-size:12px${st ? '' : ';background:var(--clr-forest);color:var(--clr-white);border:none'}" onclick="Workflows._openIndividualEmail(${terminId},${idx})" title="${st ? 'Erneut in Outlook öffnen' : 'In Outlook öffnen'}">✉︎ ${st ? 'Erneut öffnen' : 'Öffnen'}</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailKopieren(${idx})" title="Empfänger, Betreff und Text in die Zwischenablage">▤ Text</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailVorschau(${idx})" title="Text anzeigen">Vorschau</button>`
-            : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._individualData.betriebe[${idx}].key)" title="Brief nur für diesen Betrieb">▤ Brief</button>
+            : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._individualData.betriebe[${idx}].key })" title="Brief nur für diesen Betrieb – in der Vorschau bearbeiten">✎ Brief</button>
                ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
         </span>
       </div>
@@ -33908,13 +33993,13 @@ const Workflows = {
     const typ = this._betriebVorlageTyp(g, d.isDone);
     const o = d.opts || this._betriebMailOptsLaden();
     const name = this._signaturName(o);
-    const ctx = { ...d.t.ctx,
+    const ctx = this._antwortCtx({ ...d.t.ctx,
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       anrede: o.anrede ? this._anrede(g.ap) : '',
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(App.wvFrist('nachholung_abwesend')) };
+      frist: formatDate(App.wvFrist('nachholung_abwesend')) });
     let { betreff, body } = App.renderVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
@@ -34067,24 +34152,50 @@ const Workflows = {
   // App.briefEinstellung (Einstellungen → Kontakt), Telefon/E-Mail aus den
   // Prüfer-Stammdaten.
   BRIEF: { L: 25, R: 185, X2: 125, FUSS_Y: 264, ZEILE: 4.6 },
+  // Briefe im Brief-Editor öffnen (Vorschau, jedes Feld änderbar, PDF/Word/E-Mail)
+  briefeBearbeiten(terminId, opts) {
+    if (typeof BriefEditor === 'undefined') return this.exportSeriendruckPDF(terminId, opts && opts.nurOhneEmail, opts && opts.nurKey);
+    BriefEditor.oeffnen(terminId, opts || {});
+  },
+  // Brief-Dateien (PDF) ohne Editor – für Anhänge, Gesamtpaket und Smoke-Test.
+  // opts.modelle: bereits (im Editor) bearbeitete Briefe statt neu erzeugter
   exportSeriendruckPDF(terminId, nurOhneEmail, nurKey, opts) {
+    let modelle = (opts && opts.modelle) || this.briefModelle(terminId, { nurOhneEmail, nurKey });
+    // Im Brief-Editor bearbeitete Briefe gehen bearbeitet mit (z. B. Gesamtpaket)
+    const entwuerfe = !(opts && opts.modelle) && typeof BriefEditor !== 'undefined' && BriefEditor._entwuerfe ? BriefEditor._entwuerfe[terminId] : null;
+    if (entwuerfe) modelle = modelle.map(m => entwuerfe[m.key] || m);
+    if (!modelle || !modelle.length) { if (opts && opts.bytes) return null; return App.toast('Keine passenden Betriebe', 'warning'); }
+    const bytes = this.briefPdfBytes(modelle);
+    if (opts && opts.bytes) return bytes;
     const t = this._ctxTermin(terminId);
-    if (!t) return;
+    App.downloadBlob(bytes, App.safeFilename(['Anschreiben_Betriebe', t ? t.ctx.schule : '', t ? t.termin.geplant_datum : ''], 'pdf'), 'application/pdf');
+    App.toast(`PDF mit ${modelle.length} Anschreiben erstellt`, 'success');
+  },
+  // Alle Briefe eines Termins als Modelle (eins je Betrieb)
+  briefModelle(terminId, opts) {
+    const o = opts || {};
+    const t = this._ctxTermin(terminId);
+    if (!t) return [];
     const isDone = t.termin.status === 'durchgefuehrt';
     let { betriebe } = this._betriebeDesTermins(terminId, isDone);
-    if (nurOhneEmail) betriebe = betriebe.filter(g => !g.email);
-    if (nurKey) betriebe = betriebe.filter(g => String(g.key) === String(nurKey));
-    if (!betriebe.length) { if (opts && opts.bytes) return null; return App.toast('Keine passenden Betriebe', 'warning'); }
+    if (o.nurOhneEmail) betriebe = betriebe.filter(g => !g.email);
+    if (o.nurKey) betriebe = betriebe.filter(g => String(g.key) === String(o.nurKey));
+    return betriebe.map(g => this._briefModell(g, t, isDone));
+  },
+  // Ein Dokument mit allen Briefen (je Brief eigene Seitenzählung)
+  briefPdfBytes(modelle) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    betriebe.forEach((g, idx) => {
-      if (idx > 0) doc.addPage();
-      this._briefZeichnen(doc, g, t, isDone);
-    });
-    if (opts && opts.bytes) return new Uint8Array(doc.output('arraybuffer'));
-    doc.save(App.safeFilename(['Anschreiben_Betriebe', t.ctx.schule, t.termin.geplant_datum], 'pdf'));
-    App.closeModal();
-    App.toast(`PDF mit ${betriebe.length} Anschreiben erstellt`, 'success');
+    modelle.forEach((m, idx) => { if (idx > 0) doc.addPage(); this._briefZeichnen(doc, m); });
+    return new Uint8Array(doc.output('arraybuffer'));
+  },
+  // Antwortadresse für Betriebe und Azubis: das Funktionspostfach, nicht die
+  // E-Mail der Sachbearbeitung (Einstellung brief_antwort). Ohne Signatur
+  // (pruefer_email leer) bleibt es leer.
+  _antwortCtx(ctx) {
+    const antwort = App.antwortEmail();
+    if (!antwort) return ctx;
+    return { ...ctx, antwort_email: antwort, ...(ctx && ctx.pruefer_email === '' ? {} : { pruefer_email: antwort }) };
   },
   // Betreff und Text eines Briefs aus der Vorlage (ohne Absenderblock am Ende –
   // der steht im Briefkopf), Übersichtszeilen je Azubi nach der Kontrolle
@@ -34093,13 +34204,13 @@ const Workflows = {
     // E-Mail (Mängel / Nachholung / ohne Beanstandung) – ein Brief nach der
     // Kontrolle kündigte sonst einen vergangenen Termin an
     const typ = isDone ? this._betriebVorlageTyp(g, true) : 'brief_betrieb';
-    const { betreff, body } = App.renderVorlage(typ, { ...t.ctx, anrede: this._anrede(g.ap),
+    const { betreff, body } = App.renderVorlage(typ, this._antwortCtx({ ...t.ctx, anrede: this._anrede(g.ap),
       azubi_liste: '  - ' + g.azubis.map(a => `${a.nachname}, ${a.vorname}`).join('\n  - '),
       azubi_block: this._azubiBlock(g.azubis, isDone),
       hinweis: this._betriebHinweis(isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')),
-      rp_adresse: '', rp_name: '' });
+      rp_adresse: '', rp_name: '' }));
     // Helvetica in jsPDF kennt keine Pfeile/Häkchen – die Zeilen der Vorlage
     // (→ aus dem Mängel-Block) sonst als „!'“ gedruckt
     const pdfText = (s) => String(s || '').replace(/→/g, '–').replace(/✓|✔/g, 'OK').replace(/⚠/g, '!');
@@ -34116,18 +34227,66 @@ const Workflows = {
     }) : [];
     return { typ, betreff: pdfText(betreff), zeilen, uebersicht };
   },
+  // ── Brief als Modell: jedes automatisch erzeugte Element ist ein Feld, das
+  //    der Brief-Editor (BriefEditor) ändern kann. PDF, Word und E-Mail
+  //    entstehen aus demselben Modell – was im Editor steht, steht im Brief. ──
+  BRIEF_TABELLE_KOPF: ['Auszubildende/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage'],
+  _briefModell(g, t, isDone) {
+    const b = g.betrieb || {};
+    const absender = App.absenderCtx(t.ctx.pruefer);
+    const inhalt = this._briefInhalt(g, t, isDone);
+    const anschrift = [g.ap || '', b.b_firma || g.name, b.b_firma && b.b_name && b.b_firma !== b.b_name ? b.b_name : '', b.b_strasse, `${b.b_plz || ''} ${b.b_ort || ''}`.trim()]
+      .filter(Boolean).slice(0, 6);
+    const iGruss = inhalt.zeilen.findIndex(z => /^\s*Mit freundlichen Gr/i.test(z));
+    const textZeilen = iGruss >= 0 ? inhalt.zeilen.slice(0, iGruss) : inhalt.zeilen;
+    const nameZeilen = iGruss >= 0 ? inhalt.zeilen.slice(iGruss + 1).map(z => z.trim()).filter(Boolean) : [];
+    while (textZeilen.length && !textZeilen[textZeilen.length - 1].trim()) textZeilen.pop();
+    const gz = App.briefEinstellung('geschaeftszeichen');
+    // Infoblock: Gruppen werden mit etwas Abstand gesetzt
+    const info = [
+      { label: 'Name:', wert: t.ctx.pruefer, gruppe: 1 },
+      { label: 'Telefon:', wert: absender.pruefer_telefon, gruppe: 1 },
+      // Rückfragen der Betriebe und Azubis an das Funktionspostfach
+      { label: 'E-Mail:', wert: App.antwortEmail() || absender.pruefer_email, gruppe: 1 },
+      { label: 'Geschäftszeichen:', wert: gz, gruppe: 2, zusatz: gz ? '(bei Antwort bitte angeben)' : '' },
+      { label: 'Datum:', wert: absender.datum_heute, gruppe: 3 },
+      { label: isDone ? 'Kontrolle am:' : 'Kontrolltermin:', wert: t.ctx.datum, gruppe: 4 },
+      { label: 'Berufsschule:', wert: t.ctx.schule, gruppe: 4 },
+    ].filter(z => z.wert);
+    const cc = this._betriebMailCc(g);
+    return {
+      v: 1, terminId: t.termin.id, key: String(g.key), typ: inhalt.typ, isDone,
+      betriebName: b.b_firma || g.name || '', email: g.email || '', cc,
+      azubiIds: g.azubis.filter(a => a.ke && a.ke.ergebnis).map(a => a.id),
+      keIds: g.azubis.filter(a => a.ke).map(a => a.ke.id),
+      ruecksende: App.briefEinstellung('ruecksende'),
+      anschrift: anschrift.join('\n'),
+      abteilung: App.briefEinstellung('abteilung'),
+      info,
+      betreff: inhalt.betreff,
+      text: textZeilen.join('\n'),
+      tabelle: inhalt.uebersicht.length ? { kopf: this.BRIEF_TABELLE_KOPF.slice(), zeilen: inhalt.uebersicht.map(z => z.slice()) } : null,
+      gruss: iGruss >= 0 ? inhalt.zeilen[iGruss].trim() : '',
+      unterschrift: nameZeilen.join('\n'),
+      anlagen: isDone ? App.briefEinstellung('anlagen').split('\n').map(z => z.trim()).filter(Boolean).join('\n') : '',
+      kopfFolge: `Regierungspräsidium Freiburg · ${App.briefEinstellung('abteilung').split(' – ')[0]} · ${inhalt.betreff}`,
+      datenschutz: App.briefEinstellung('datenschutz'),
+      fusszeile: App.briefEinstellung('fusszeile'),
+    };
+  },
   _briefLogo() {
     try { return (typeof PDFExport !== 'undefined' && PDFExport._logoDataUrl) ? PDFExport._logoDataUrl() : null; } catch(e) { return null; }
   },
-  // Ein Brief (ggf. mehrere Seiten) für einen Betrieb; Kopf, Fuß und
+  // Helvetica in jsPDF: Zeichen ohne Glyphe ersetzen (auch in Editor-Eingaben)
+  _pdfText(s) { return String(s || '').replace(/→/g, '–').replace(/✓|✔/g, 'OK').replace(/⚠/g, '!'); },
+  // Ein Brief (ggf. mehrere Seiten) aus dem Modell; Kopf, Fuß und
   // Seitenzahlen werden nach dem Text für alle Seiten dieses Briefs gezeichnet
-  _briefZeichnen(doc, g, t, isDone) {
+  _briefZeichnen(doc, m) {
     const B = this.BRIEF, L = B.L, R = B.R, W = R - L, X2 = B.X2;
     const grau = [108, 101, 96], tinte = [30, 30, 30];
-    const b = g.betrieb || {};
-    const absender = App.absenderCtx(t.ctx.pruefer);
+    const T = (s) => this._pdfText(s);
+    const zeilenVon = (s) => String(s || '').split('\n');
     const ersteSeite = doc.internal.getNumberOfPages();
-    const inhalt = this._briefInhalt(g, t, isDone);
 
     // Logo (wie Oberfläche und Durchsichtsbogen), sonst Schriftzug
     const logo = this._briefLogo();
@@ -34136,58 +34295,47 @@ const Workflows = {
 
     // Rücksendeangabe über dem Anschriftfeld
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...grau);
-    doc.text(App.briefEinstellung('ruecksende'), L, 37);
+    if (m.ruecksende) doc.text(T(m.ruecksende).split('\n')[0], L, 37);
 
-    // Anschrift (Fensterfeld): Ansprechpartner, Betrieb, Zusatz, Straße, PLZ Ort
-    const anschrift = [g.ap || '', b.b_firma || g.name, b.b_firma && b.b_name && b.b_firma !== b.b_name ? b.b_name : '', b.b_strasse, `${b.b_plz || ''} ${b.b_ort || ''}`.trim()]
-      .filter(Boolean).slice(0, 6);
+    // Anschrift (Fensterfeld)
     doc.setFontSize(11); doc.setTextColor(...tinte);
     let ya = 52;
-    anschrift.forEach(z => { doc.splitTextToSize(String(z), 85).forEach(zz => { doc.text(zz, L, ya); ya += 5; }); });
+    zeilenVon(m.anschrift).filter(z => z.trim()).slice(0, 7).forEach(z => { doc.splitTextToSize(T(z), 85).forEach(zz => { doc.text(zz, L, ya); ya += 5; }); });
 
     // Infoblock rechts
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...tinte);
-    const abt = doc.splitTextToSize(App.briefEinstellung('abteilung'), 60);
+    const abt = doc.splitTextToSize(T(m.abteilung), 60);
     abt.slice(0, 3).forEach((z, i) => doc.text(z, X2, 40 + i * 3.8));
-    let yi = Math.max(52, 40 + abt.length * 3.8 + 5);
-    const zeile = (label, wert, fett) => {
-      if (!wert) return;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau); doc.text(label, X2, yi);
-      doc.setFont('helvetica', fett ? 'bold' : 'normal'); doc.setTextColor(...tinte);
+    let yi = Math.max(52, 40 + Math.min(abt.length, 3) * 3.8 + 5);
+    let gruppe = null;
+    (m.info || []).forEach(z => {
+      if (!String(z.wert || '').trim() && !String(z.label || '').trim()) return;
+      if (gruppe !== null && z.gruppe !== gruppe) yi += 2;
+      gruppe = z.gruppe;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau); doc.text(T(z.label), X2, yi);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...tinte);
       // Lange Werte (E-Mail, Schulname) erst verkleinern, dann umbrechen –
       // sonst bricht eine Adresse mitten im Wort
+      const wert = T(z.wert);
       let fs = 9;
       doc.setFontSize(fs);
       while (fs > 7 && doc.getTextWidth(String(wert)) > 38) { fs -= 0.5; doc.setFontSize(fs); }
       const teile = doc.splitTextToSize(String(wert), 38);
-      teile.forEach((z, i) => doc.text(z, X2 + 24, yi + i * 4));
+      teile.forEach((zz, i) => doc.text(zz, X2 + 24, yi + i * 4));
       yi += 4.5 + (teile.length - 1) * 4;
-    };
-    zeile('Name:', t.ctx.pruefer);
-    zeile('Telefon:', absender.pruefer_telefon);
-    zeile('E-Mail:', absender.pruefer_email);
-    yi += 2;
-    const gz = App.briefEinstellung('geschaeftszeichen');
-    if (gz) { zeile('Geschäftszeichen:', gz); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...tinte); doc.text('(bei Antwort bitte angeben)', X2 + 24, yi - 0.5); yi += 4; }
-    yi += 2;
-    zeile('Datum:', absender.datum_heute);
-    yi += 2;
-    zeile(isDone ? 'Kontrolle am:' : 'Kontrolltermin:', t.ctx.datum);
-    zeile('Berufsschule:', t.ctx.schule);
+      if (z.zusatz) { doc.setFontSize(7.5); doc.text(T(z.zusatz), X2 + 24, yi - 0.5); yi += 4; }
+    });
 
     // Betreff
     let y = Math.max(98, ya + 8, yi + 6);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...tinte);
-    doc.splitTextToSize(inhalt.betreff, W).forEach(z => { doc.text(z, L, y); y += 5.2; });
+    doc.splitTextToSize(T(m.betreff), W).forEach(z => { doc.text(z, L, y); y += 5.2; });
     y += 5;
 
-    // Text der Vorlage – Grußformel und Name werden gesondert gesetzt
+    // Text – Einrückung der Vorlage bleibt erhalten
     const neueSeite = () => { doc.addPage(); return 32; };
-    const iGruss = inhalt.zeilen.findIndex(z => /^\s*Mit freundlichen Gr/i.test(z));
-    const textZeilen = iGruss >= 0 ? inhalt.zeilen.slice(0, iGruss) : inhalt.zeilen;
-    const nameZeilen = iGruss >= 0 ? inhalt.zeilen.slice(iGruss + 1).map(z => z.trim()).filter(Boolean) : [];
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...tinte);
-    textZeilen.forEach(z => {
+    zeilenVon(T(m.text)).forEach(z => {
       if (!z.trim()) { y += 2.4; return; }
       const einzug = (z.match(/^\s*/) || [''])[0].length;
       const x = L + Math.min(einzug, 8) * 1.1;
@@ -34198,14 +34346,15 @@ const Workflows = {
     });
 
     // Übersicht je Azubi (nach der Kontrolle): Ergebnis, Wiedervorlage, Fehltage
-    if (inhalt.uebersicht.length && typeof doc.autoTable === 'function') {
+    const tab = m.tabelle && m.tabelle.zeilen && m.tabelle.zeilen.length ? m.tabelle : null;
+    if (tab && typeof doc.autoTable === 'function') {
       y += 1;
       if (y > B.FUSS_Y - 24) y = neueSeite();
       doc.autoTable({
         startY: y,
         margin: { left: L, right: 210 - R, top: 32, bottom: 297 - B.FUSS_Y + 4 },
-        head: [['Auszubildende/r', 'Ergebnis der Durchsicht', 'Wiedervorlage bis', 'Fehltage']],
-        body: inhalt.uebersicht,
+        head: [tab.kopf.map(T)],
+        body: tab.zeilen.map(z => z.map(T)),
         theme: 'grid',
         styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.4, textColor: tinte, lineColor: [200, 196, 192], lineWidth: 0.2, overflow: 'linebreak' },
         headStyles: { fillColor: [242, 240, 239], textColor: tinte, fontStyle: 'bold' },
@@ -34216,20 +34365,22 @@ const Workflows = {
     }
 
     // Grußformel, Platz für die Unterschrift, Name, Anlagen – zusammenhalten
-    const anlagen = isDone ? App.briefEinstellung('anlagen').split('\n').map(z => z.trim()).filter(Boolean) : [];
-    const blockH = (iGruss >= 0 ? 6 + 12 + nameZeilen.length * B.ZEILE : 0) + (anlagen.length ? 7 + anlagen.length * B.ZEILE : 0);
+    const nameZeilen = zeilenVon(m.unterschrift).map(z => z.trim()).filter(Boolean);
+    const anlagen = zeilenVon(m.anlagen).map(z => z.trim()).filter(Boolean);
+    const gruss = String(m.gruss || '').trim();
+    const blockH = (gruss ? 6 + 12 + nameZeilen.length * B.ZEILE : nameZeilen.length * B.ZEILE) + (anlagen.length ? 7 + anlagen.length * B.ZEILE : 0);
     if (y + blockH > B.FUSS_Y) y = neueSeite();
-    if (iGruss >= 0) {
+    if (gruss) {
       y += 2;
-      doc.text(inhalt.zeilen[iGruss].trim(), L, y);
+      doc.text(T(gruss), L, y);
       y += 12;                                  // Raum für die handschriftliche Unterschrift
-      nameZeilen.forEach(z => { doc.text(z, L, y); y += B.ZEILE; });
     }
+    nameZeilen.forEach(z => { doc.text(T(z), L, y); y += B.ZEILE; });
     if (anlagen.length) {
       y += 3;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text('Anlagen', L, y); y += 4.4;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      anlagen.forEach(z => { doc.text(z, L, y); y += B.ZEILE; });
+      anlagen.forEach(z => { doc.text(T(z), L, y); y += B.ZEILE; });
     }
 
     // Kopf der Folgeseiten, Fußzeile und „Seite x von y“ für alle Seiten dieses Briefs
@@ -34239,28 +34390,30 @@ const Workflows = {
       doc.setPage(p);
       if (p > ersteSeite) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...grau);
-        doc.text(`Regierungspräsidium Freiburg · ${App.briefEinstellung('abteilung').split(' – ')[0]} · ${inhalt.betreff}`.substring(0, 120), L, 18);
-        doc.text(`${b.b_firma || g.name}`.substring(0, 60), R, 18, { align: 'right' });
+        doc.text(T(m.kopfFolge).substring(0, 120), L, 18);
+        doc.text(T(m.betriebName).substring(0, 60), R, 18, { align: 'right' });
         doc.setDrawColor(200, 196, 192); doc.setLineWidth(0.2); doc.line(L, 20.5, R, 20.5);
       } else {
         // Falz- und Lochmarken (DIN 5008)
         doc.setDrawColor(140); doc.setLineWidth(0.2);
         doc.line(5, 105, 10, 105); doc.line(5, 210, 10, 210); doc.line(5, 148.5, 12, 148.5);
       }
-      this._briefFuss(doc, p - ersteSeite + 1, gesamt);
+      this._briefFuss(doc, p - ersteSeite + 1, gesamt, m);
     }
     doc.setPage(letzteSeite);
     doc.setTextColor(0); doc.setLineWidth(0.2); doc.setDrawColor(0);
   },
   // Fußzeile: Datenschutzhinweis, Seitenzahl, Dienstgebäude in drei Spalten
-  _briefFuss(doc, seite, gesamt) {
+  _briefFuss(doc, seite, gesamt, m) {
     const B = this.BRIEF, L = B.L, R = B.R, grau = [108, 101, 96];
+    const datenschutz = m ? m.datenschutz : App.briefEinstellung('datenschutz');
+    const fusszeile = m ? m.fusszeile : App.briefEinstellung('fusszeile');
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...grau);
-    const ds = doc.splitTextToSize(App.briefEinstellung('datenschutz'), R - L).slice(0, 3);
+    const ds = doc.splitTextToSize(this._pdfText(datenschutz), R - L).slice(0, 3);
     ds.forEach((z, i) => doc.text(z, L, 268 + i * 3.2));
     doc.setFontSize(7.5); doc.text(`Seite ${seite} von ${gesamt}`, R, 279.5, { align: 'right' });
     doc.setDrawColor(200, 196, 192); doc.setLineWidth(0.2); doc.line(L, 281.5, R, 281.5);
-    const teile = App.briefEinstellung('fusszeile').split('|').map(z => z.trim()).filter(Boolean);
+    const teile = this._pdfText(fusszeile).split('|').map(z => z.trim()).filter(Boolean);
     const spalten = [L, L + 62, L + 118];
     doc.setFontSize(6.5);
     teile.forEach((z, i) => {
@@ -34295,11 +34448,11 @@ const Workflows = {
     const ktSchule = w.kt_id ? App.getTerminSchule(w.kt_id) : null;
     // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
     const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
-    const ctx = { ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
+    const ctx = this._antwortCtx({ ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
       frist: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_alt: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
       betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
-      datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' };
+      datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' });
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
     // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
@@ -34376,7 +34529,7 @@ const Workflows = {
     betroffen.forEach((g, idx) => {
       listHtml += `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <div><strong>${esc(g.name)}</strong> · ${g.azubis.map(a => esc(a.nachname + ', ' + a.vorname)).join(' / ')}<div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail – Brief drucken</span>'}</div></div>
-        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.exportSeriendruckPDF(${terminId}, false, Workflows._nachholung.betroffen[${idx}].key)">▤ Brief</button>`}
+        ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._nachholung.betroffen[${idx}].key })">✎ Brief</button>`}
       </div>`;
     });
     this._nachholung = { t, betroffen, fristTxt };
@@ -34387,8 +34540,8 @@ const Workflows = {
   _nachholungMail(idx) {
     const n = this._nachholung; if (!n) return;
     const g = n.betroffen[idx];
-    const ctx = { ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
-      azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt };
+    const ctx = this._antwortCtx({ ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
+      azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt });
     const { betreff, body } = App.renderVorlage('nachholung', ctx);
     this.openMailto(g.email, betreff, body);
   },
@@ -34431,8 +34584,8 @@ const Workflows = {
     const g = (this._sammel || [])[i];
     if (!g) return;
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || 'Ausbildungsberater';
-    const ctx = { ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
-      azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') };
+    const ctx = this._antwortCtx({ ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
+      azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') });
     const { betreff, body } = App.renderVorlage('wv_sammel', ctx);
     this.openMailto(g.email, betreff, body);
     g.wvs.forEach(w => this.versandVermerken(w.id, 'email', w.mahnstufe ? 'wv_erinnerung' : 'wv_mahnung', 'Sammel-Erinnerung'));
@@ -34529,6 +34682,436 @@ const Workflows = {
     }
     return { geoeffnet: !!w, zwischenablage };
   }
+};
+
+// ── brief-editor.js ──
+// ═══════════════════════════════════════════════════════════════════
+//  Brief-Editor: Briefe an die Betriebe als Vorschau im Briefbogen, jedes
+//  automatisch erzeugte Element direkt im Brief änderbar (Anschrift,
+//  Infoblock, Betreff, Text, Übersicht je Azubi, Grußformel, Unterschrift,
+//  Anlagen, Fußzeile). Aus demselben Modell entstehen PDF, Word (.docx) und
+//  ein E-Mail-Entwurf (.eml) mit dem Brief als Anhang – was im Editor steht,
+//  steht in jeder Ausgabe.
+//
+//  Modell: Workflows._briefModell(g, t, isDone) → { anschrift, info[], betreff,
+//  text, tabelle, gruss, unterschrift, anlagen, datenschutz, fusszeile, … }.
+//  Entwürfe bleiben je Termin und Betrieb bis zum Neuladen der Seite erhalten
+//  (BriefEditor._entwuerfe); „Zurücksetzen“ holt den automatischen Stand.
+// ═══════════════════════════════════════════════════════════════════
+const BriefEditor = {
+  _entwuerfe: {},          // { terminId: { key: modell } }
+  _stand: null,            // { terminId, keys[], aktiv, opts }
+  ANHANG_WAHL: [['pdf', 'Brief als PDF'], ['docx', 'Brief als Word'], ['beide', 'PDF und Word'], ['keiner', 'ohne Brief-Anhang']],
+
+  // ── Öffnen: alle Briefe des Termins (oder nur ohne E-Mail / ein Betrieb) ──
+  oeffnen(terminId, opts) {
+    const o = opts || {};
+    const frisch = Workflows.briefModelle(terminId, o);
+    if (!frisch.length) return App.toast('Keine passenden Betriebe für einen Brief', 'warning');
+    const ablage = this._entwuerfe[terminId] || (this._entwuerfe[terminId] = {});
+    frisch.forEach(m => { if (!ablage[m.key]) ablage[m.key] = m; });
+    this._stand = {
+      terminId, keys: frisch.map(m => m.key), aktiv: 0,
+      opts: { anhang: App.uGet('brief_anhang', 'pdf'), boegen: App.uGet('brief_boegen', '1') !== '0' },
+    };
+    if (o.nurKey) this._stand.aktiv = 0;
+    App.openModal('✎ Briefe an Betriebe', '<div id="bzInhalt"></div>', '<span id="bzFuss"></span>');
+    const mc = document.getElementById('modalContent'); if (mc) mc.classList.add('modal-brief');
+    this.zeichnen();
+  },
+  modelle() {
+    const s = this._stand; if (!s) return [];
+    const ablage = this._entwuerfe[s.terminId] || {};
+    return s.keys.map(k => ablage[k]).filter(Boolean);
+  },
+  aktuell() { return this.modelle()[this._stand ? this._stand.aktiv : 0] || null; },
+  geaendert(m) { return !!(m && m._geaendert); },
+
+  // ── Oberfläche ──
+  zeichnen() {
+    const s = this._stand; if (!s) return;
+    const ms = this.modelle(), m = this.aktuell();
+    const box = document.getElementById('bzInhalt'); if (!box || !m) return;
+    const o = s.opts;
+    box.innerHTML = `<div class="bz">
+      <div class="bz-leiste" role="toolbar" aria-label="Brief wählen und Ausgabe einstellen">
+        <button class="btn btn-sm btn-secondary" onclick="BriefEditor.blaettern(-1)" ${s.aktiv <= 0 ? 'disabled' : ''} aria-label="Vorheriger Brief">‹</button>
+        <select class="form-control bz-wahl" id="bzWahl" aria-label="Brief für Betrieb" onchange="BriefEditor.waehlen(+this.value)">
+          ${ms.map((x, i) => `<option value="${i}" ${i === s.aktiv ? 'selected' : ''}>${i + 1}. ${esc(x.betriebName)} – ${x.email ? 'E-Mail' : 'Post'}${x._geaendert ? ' ✎' : ''}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm btn-secondary" onclick="BriefEditor.blaettern(1)" ${s.aktiv >= ms.length - 1 ? 'disabled' : ''} aria-label="Nächster Brief">›</button>
+        <span class="bz-an">${m.email ? `✉︎ ${esc(m.email)}${m.cc ? ` · CC ${esc(m.cc)}` : ''}` : '<span class="bz-warn">keine E-Mail – Versand per Post</span>'}</span>
+        <span class="bz-abstand"></span>
+        <label class="bz-opt">E-Mail-Anhang
+          <select class="form-control" onchange="BriefEditor.option('anhang', this.value)">${this.ANHANG_WAHL.map(([k, l]) => `<option value="${k}" ${o.anhang === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        </label>
+        ${m.isDone ? `<label class="bz-opt"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="BriefEditor.option('boegen', this.checked)"> Durchsichtsbögen anhängen</label>` : ''}
+        <button class="btn btn-sm btn-secondary" onclick="BriefEditor.zuruecksetzen()" ${m._geaendert ? '' : 'disabled'} title="Alle Änderungen an diesem Brief verwerfen und den automatischen Text wiederherstellen">↺ Zurücksetzen</button>
+      </div>
+      <p class="bz-tipp">In den Brief klicken und tippen – jedes Feld ist änderbar. Änderungen gelten für diesen Brief und bleiben erhalten, bis die Seite neu geladen wird. Antworten der Betriebe gehen an <strong>${esc(App.antwortEmail() || 'die E-Mail der Sachbearbeitung')}</strong>.</p>
+      <div class="bz-buehne">${this._blattHtml(m)}</div>
+    </div>`;
+    const fuss = document.getElementById('bzFuss');
+    if (fuss) {
+      const mitMail = ms.filter(x => x.email).length;
+      fuss.innerHTML = `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        <span class="bz-fussgruppe" role="group" aria-label="Dieser Brief">
+          <span class="bz-fusslabel">Dieser Brief:</span>
+          <button class="btn btn-sm btn-secondary" onclick="BriefEditor.pdf(false)">▤ PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="BriefEditor.word(false)">✎ Word</button>
+          <button class="btn btn-sm btn-secondary" onclick="BriefEditor.eml(false)" ${m.email ? '' : 'disabled title="Keine E-Mail-Adresse hinterlegt"'}>✉︎ E-Mail-Entwurf</button>
+        </span>
+        ${ms.length > 1 ? `<span class="bz-fussgruppe" role="group" aria-label="Alle Briefe">
+          <span class="bz-fusslabel">Alle ${ms.length}:</span>
+          <button class="btn btn-sm btn-primary" onclick="BriefEditor.pdf(true)">▤ PDF</button>
+          <button class="btn btn-sm btn-primary" onclick="BriefEditor.word(true)">✎ Word</button>
+          <button class="btn btn-sm btn-primary" onclick="BriefEditor.eml(true)" ${mitMail ? '' : 'disabled'} title="Je Betrieb mit E-Mail ein Outlook-Entwurf (.eml) mit dem Brief als Anhang, zusammen als ZIP">✉︎ ${mitMail} E-Mail-Entwürfe (ZIP)</button>
+        </span>` : ''}`;
+    }
+  },
+  // Ein änderbares Feld im Brief (nur Text, Zeilenumbrüche bleiben)
+  _feld(pfad, wert, klasse, label, opts) {
+    const o = opts || {};
+    return `<${o.tag || 'div'} class="bz-feld ${klasse || ''}" contenteditable="plaintext-only" spellcheck="true" role="textbox" ${o.einzeilig ? '' : 'aria-multiline="true"'} aria-label="${esc(label)}" data-pfad="${esc(pfad)}" data-leer="${esc(o.leer || label)}" oninput="BriefEditor._eingabe(this)" onblur="BriefEditor._verlassen()">${esc(wert == null ? '' : String(wert))}</${o.tag || 'div'}>`;
+  },
+  _blattHtml(m) {
+    const logo = document.querySelector && document.querySelector('img.topbar-logo--pos');
+    const info = (m.info || []).map((z, i) => `<div class="bz-info-zeile ${i > 0 && m.info[i - 1].gruppe !== z.gruppe ? 'bz-info-gruppe' : ''}">
+        ${this._feld(`info.${i}.label`, z.label, 'bz-info-label', 'Bezeichnung im Infoblock', { einzeilig: true, leer: 'Bezeichnung' })}
+        <div class="bz-info-wert">${this._feld(`info.${i}.wert`, z.wert, '', z.label || 'Angabe im Infoblock', { leer: 'Angabe' })}${z.zusatz != null && z.zusatz !== '' ? this._feld(`info.${i}.zusatz`, z.zusatz, 'bz-info-zusatz', 'Zusatz', {}) : ''}</div>
+        <button class="bz-mini" onclick="BriefEditor.infoWeg(${i})" aria-label="Zeile ${esc(z.label)} entfernen" title="Zeile entfernen">×</button>
+      </div>`).join('');
+    const tab = m.tabelle;
+    const tabelle = tab ? `<div class="bz-tabelle-box">
+        <table class="bz-tabelle"><thead><tr>${tab.kopf.map((k, c) => `<th>${this._feld(`tabelle.kopf.${c}`, k, '', 'Spaltenkopf', { einzeilig: true })}</th>`).join('')}<th class="bz-tab-aktion"><span class="sr-only">Zeile</span></th></tr></thead>
+        <tbody>${tab.zeilen.map((z, r) => `<tr>${z.map((w, c) => `<td>${this._feld(`tabelle.zeilen.${r}.${c}`, w, '', `${tab.kopf[c] || 'Spalte'} ${r + 1}`)}</td>`).join('')}<td class="bz-tab-aktion"><button class="bz-mini" onclick="BriefEditor.zeileWeg(${r})" aria-label="Zeile ${r + 1} entfernen" title="Zeile entfernen">×</button></td></tr>`).join('')}</tbody></table>
+        <div class="bz-tab-knoepfe"><button class="bz-mini bz-mini-text" onclick="BriefEditor.zeileHinzu()">+ Zeile</button><button class="bz-mini bz-mini-text" onclick="BriefEditor.tabelleWeg()">Übersicht entfernen</button></div>
+      </div>` : (m.isDone ? `<div class="bz-tab-knoepfe"><button class="bz-mini bz-mini-text" onclick="BriefEditor.tabelleNeu()">+ Übersicht je Azubi</button></div>` : '');
+    return `<div class="bz-blatt" lang="de">
+      <div class="bz-logo">${logo && logo.src ? `<img src="${esc(logo.src)}" alt="Regierungspräsidium Freiburg">` : '<strong>Regierungspräsidium Freiburg</strong>'}</div>
+      <div class="bz-oben">
+        <div class="bz-links">
+          ${this._feld('ruecksende', m.ruecksende, 'bz-ruecksende', 'Rücksendeangabe', { einzeilig: true })}
+          ${this._feld('anschrift', m.anschrift, 'bz-anschrift', 'Anschrift', { leer: 'Anschrift (je Zeile eine Angabe)' })}
+        </div>
+        <div class="bz-rechts">
+          ${this._feld('abteilung', m.abteilung, 'bz-abteilung', 'Abteilung')}
+          <div class="bz-info">${info}</div>
+          <button class="bz-mini bz-mini-text" onclick="BriefEditor.infoHinzu()">+ Zeile</button>
+        </div>
+      </div>
+      ${this._feld('betreff', m.betreff, 'bz-betreff', 'Betreff')}
+      ${this._feld('text', m.text, 'bz-text', 'Brieftext')}
+      ${tabelle}
+      ${this._feld('gruss', m.gruss, 'bz-gruss', 'Grußformel', { einzeilig: true, leer: 'Grußformel (leer = ohne)' })}
+      <div class="bz-unterschrift" aria-hidden="true">Raum für die Unterschrift</div>
+      ${this._feld('unterschrift', m.unterschrift, 'bz-name', 'Name unter der Unterschrift', { leer: 'Name' })}
+      <div class="bz-anlagen"><div class="bz-anlagen-titel">Anlagen</div>${this._feld('anlagen', m.anlagen, '', 'Anlagen', { leer: 'keine Anlagen (je Zeile eine)' })}</div>
+      <div class="bz-fusszeile">
+        ${this._feld('datenschutz', m.datenschutz, 'bz-datenschutz', 'Datenschutzhinweis')}
+        <div class="bz-seite">Seite 1 von 1</div>
+        ${this._feld('fusszeile', m.fusszeile, 'bz-dienst', 'Fußzeile (Einträge mit | trennen)')}
+      </div>
+    </div>`;
+  },
+  _eingabe(el) {
+    const m = this.aktuell(); if (!m || !el) return;
+    // innerText hängt am Ende gern einen Umbruch an
+    const wert = String(el.innerText || '').replace(/ /g, ' ').replace(/\n$/, '');
+    this._setzen(m, el.getAttribute('data-pfad'), wert);
+  },
+  _verlassen() {
+    // Auswahlliste und „Zurücksetzen“ zeigen den Änderungsstand
+    const m = this.aktuell(); if (!m) return;
+    const w = document.getElementById('bzWahl');
+    if (w && w.options[this._stand.aktiv]) w.options[this._stand.aktiv].text = `${this._stand.aktiv + 1}. ${m.betriebName} – ${m.email ? 'E-Mail' : 'Post'}${m._geaendert ? ' ✎' : ''}`;
+    const z = document.querySelector && document.querySelector('.bz-leiste button[onclick="BriefEditor.zuruecksetzen()"]');
+    if (z) z.disabled = !m._geaendert;
+  },
+  // Pfad wie "info.2.wert" oder "tabelle.zeilen.0.1"
+  _setzen(m, pfad, wert) {
+    if (!m || !pfad) return false;
+    const teile = String(pfad).split('.');
+    let o = m;
+    for (let i = 0; i < teile.length - 1; i++) { o = o[/^\d+$/.test(teile[i]) ? +teile[i] : teile[i]]; if (o == null) return false; }
+    const k = teile[teile.length - 1];
+    o[/^\d+$/.test(k) ? +k : k] = wert;
+    m._geaendert = true;
+    return true;
+  },
+  _neu() { this.zeichnen(); },
+  waehlen(i) { if (!this._stand) return; this._stand.aktiv = Math.max(0, Math.min(this.modelle().length - 1, i)); this.zeichnen(); },
+  blaettern(d) { if (this._stand) this.waehlen(this._stand.aktiv + d); },
+  option(k, v) {
+    const s = this._stand; if (!s) return;
+    if (k === 'anhang') { s.opts.anhang = v; App.uSet('brief_anhang', v); }
+    if (k === 'boegen') { s.opts.boegen = !!v; App.uSet('brief_boegen', v ? '1' : '0'); }
+  },
+  infoHinzu() { const m = this.aktuell(); if (!m) return; m.info.push({ label: 'Neu:', wert: '', gruppe: 9 }); m._geaendert = true; this._neu(); },
+  infoWeg(i) { const m = this.aktuell(); if (!m) return; m.info.splice(i, 1); m._geaendert = true; this._neu(); },
+  zeileHinzu() { const m = this.aktuell(); if (!m || !m.tabelle) return; m.tabelle.zeilen.push(m.tabelle.kopf.map(() => '')); m._geaendert = true; this._neu(); },
+  zeileWeg(r) { const m = this.aktuell(); if (!m || !m.tabelle) return; m.tabelle.zeilen.splice(r, 1); m._geaendert = true; this._neu(); },
+  tabelleWeg() { const m = this.aktuell(); if (!m) return; m.tabelle = null; m._geaendert = true; this._neu(); },
+  tabelleNeu() { const m = this.aktuell(); if (!m) return; m.tabelle = { kopf: Workflows.BRIEF_TABELLE_KOPF.slice(), zeilen: [Workflows.BRIEF_TABELLE_KOPF.map(() => '')] }; m._geaendert = true; this._neu(); },
+  async zuruecksetzen() {
+    const s = this._stand, m = this.aktuell(); if (!s || !m) return;
+    if (m._geaendert && !(await App.confirm('Alle Änderungen an diesem Brief verwerfen und den automatischen Text wiederherstellen?', { titel: 'Brief zurücksetzen', ok: 'Zurücksetzen', gefaehrlich: true }))) return;
+    const neu = Workflows.briefModelle(s.terminId, { nurKey: m.key })[0];
+    if (neu) this._entwuerfe[s.terminId][m.key] = neu;
+    this.zeichnen();
+  },
+
+  // ── Ausgaben ──
+  _auswahl(alle) { return alle ? this.modelle() : [this.aktuell()].filter(Boolean); },
+  _dateiname(ms, ext) {
+    const t = Workflows._ctxTermin(this._stand.terminId);
+    const datum = t ? t.termin.geplant_datum : '';
+    return ms.length === 1
+      ? App.safeFilename(['Brief', ms[0].betriebName, datum], ext)
+      : App.safeFilename(['Briefe_Betriebe', t ? t.ctx.schule : '', datum], ext);
+  },
+  pdf(alle) {
+    const ms = this._auswahl(alle); if (!ms.length) return;
+    try {
+      App.downloadBlob(Workflows.briefPdfBytes(ms), this._dateiname(ms, 'pdf'), 'application/pdf');
+      App.toast(ms.length === 1 ? 'Brief als PDF erstellt' : `PDF mit ${ms.length} Briefen erstellt`, 'success');
+    } catch(e) { console.error('Brief-PDF:', e); App.toast('PDF konnte nicht erstellt werden: ' + (e.message || e), 'error'); }
+  },
+  word(alle) {
+    const ms = this._auswahl(alle); if (!ms.length) return;
+    try {
+      App.downloadBlob(this.docxBytes(ms), this._dateiname(ms, 'docx'), App.EML_TYPEN.docx);
+      App.toast(ms.length === 1 ? 'Brief als Word-Datei erstellt' : `Word-Datei mit ${ms.length} Briefen erstellt (je Brief ein Abschnitt)`, 'success');
+    } catch(e) { console.error('Brief-Word:', e); App.toast('Word-Datei konnte nicht erstellt werden: ' + (e.message || e), 'error'); }
+  },
+  eml(alle) {
+    const s = this._stand; if (!s) return;
+    const ms = this._auswahl(alle).filter(m => m.email);
+    if (!ms.length) return App.toast('Kein Betrieb mit E-Mail-Adresse – Brief als PDF oder Word ausgeben', 'warning');
+    try {
+      if (ms.length === 1) {
+        App.downloadBlob(this.emlFuer(ms[0], s.opts), this._dateiname(ms, 'eml'), 'message/rfc822');
+      } else {
+        if (typeof PizZip === 'undefined') return App.toast('ZIP-Bibliothek nicht geladen', 'error');
+        const zip = new PizZip();
+        ms.forEach((m, i) => zip.file(App.safeFilename([String(i + 1).padStart(2, '0'), m.betriebName], 'eml'), this.emlFuer(m, s.opts)));
+        const ohne = this.modelle().filter(m => !m.email);
+        zip.file('LIESMICH.txt', [
+          'E-Mail-Entwürfe der Berichtsheftkontrolle (Briefe an Betriebe)', '',
+          `${ms.length} Entwürfe mit dem Brief als Anhang. Antworten gehen an ${App.antwortEmail() || 'die Sachbearbeitung'}.`,
+          ohne.length ? `Ohne E-Mail (per Post): ${ohne.map(m => m.betriebName).join(', ')}` : '', '',
+          '1. ZIP entpacken (Rechtsklick → „Alle extrahieren“).',
+          '2. .eml-Datei doppelklicken: Outlook öffnet einen Entwurf mit Empfänger, Betreff, Text und Anhängen.',
+          '3. Prüfen, „Senden“.',
+        ].join('\r\n'));
+        App.downloadBlob(zip.generate({ type: 'uint8array', compression: 'DEFLATE' }), this._dateiname(ms, 'zip'), 'application/zip');
+      }
+      ms.forEach(m => this._versandVermerken(m));
+      App.toast(ms.length === 1 ? 'E-Mail-Entwurf erstellt – doppelklicken, in Outlook senden' : `${ms.length} E-Mail-Entwürfe als ZIP erstellt`, 'success', 8000);
+    } catch(e) { console.error('Brief-E-Mail:', e); App.toast('E-Mail-Entwurf konnte nicht erstellt werden: ' + (e.message || e), 'error'); }
+  },
+  // Versandnachweis an den offenen Wiedervorlagen (Mängel/Nachholung)
+  _versandVermerken(m) {
+    if (!m || !m.isDone || (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung')) return;
+    (m.keIds || []).forEach(keId => {
+      App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [keId])
+        .forEach(w => Workflows.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung', 'Brief-Editor: Entwurf (.eml) erzeugt'));
+    });
+  },
+
+  // ── E-Mail-Entwurf: Text des Briefs im Mailtext, Brief als Anhang,
+  //    Antwort an das Funktionspostfach (Reply-To) ──
+  mailText(m) {
+    const zeilen = [String(m.text || '').replace(/\s+$/, '')];
+    const tab = m.tabelle && m.tabelle.zeilen && m.tabelle.zeilen.length ? m.tabelle : null;
+    if (tab) {
+      zeilen.push('');
+      tab.zeilen.forEach(z => {
+        const teile = z.slice(1).map((w, i) => w && String(w).trim() ? `${tab.kopf[i + 1]}: ${w}` : '').filter(Boolean);
+        zeilen.push(`  - ${z[0]}${teile.length ? ' – ' + teile.join(' · ') : ''}`);
+      });
+    }
+    if (m.gruss) zeilen.push('', m.gruss);
+    if (m.unterschrift) zeilen.push(m.unterschrift);
+    const kontakt = ['Regierungspräsidium Freiburg', String(m.abteilung || '').split('\n')[0]].filter(Boolean);
+    const antwort = App.antwortEmail();
+    zeilen.push('', ...kontakt);
+    if (antwort) zeilen.push(`E-Mail: ${antwort}`);
+    const tel = (m.info || []).find(z => /^Telefon/i.test(z.label || ''));
+    if (tel && tel.wert) zeilen.push(`Telefon: ${tel.wert}`);
+    return zeilen.join('\n').replace(/\n{3,}/g, '\n\n') + '\n';
+  },
+  emlFuer(m, opts) {
+    const o = opts || {};
+    const anhaenge = [];
+    const basis = App.safeFilename(['Schreiben', m.betriebName]);
+    const art = o.anhang || 'pdf';
+    if (art === 'pdf' || art === 'beide') anhaenge.push({ name: basis + '.pdf', bytes: Workflows.briefPdfBytes([m]) });
+    if (art === 'docx' || art === 'beide') anhaenge.push({ name: basis + '.docx', bytes: this.docxBytes([m]) });
+    if (m.isDone && o.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
+      (m.azubiIds || []).forEach(sid => {
+        try { const b = PDFExport.bogenBytes(m.terminId, sid); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
+      });
+    }
+    return App.emlErzeugen({ to: m.email, cc: m.cc, subject: m.betreff, body: this.mailText(m), anhaenge });
+  },
+
+  // ── Word (.docx): eigener OOXML-Schreiber, je Brief ein Abschnitt mit
+  //    eigener Seitenzählung („Seite x von y“ über SECTIONPAGES) ──
+  _x(s) {
+    return String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+  _run(text, r) {
+    const o = r || {};
+    const pr = (o.b ? '<w:b/><w:bCs/>' : '') + (o.farbe ? `<w:color w:val="${o.farbe}"/>` : '') + (o.sz ? `<w:sz w:val="${o.sz}"/><w:szCs w:val="${o.sz}"/>` : '');
+    return `<w:r>${pr ? `<w:rPr>${pr}</w:rPr>` : ''}<w:t xml:space="preserve">${this._x(text)}</w:t></w:r>`;
+  },
+  _p(inhalt, p) {
+    const o = p || {};
+    const pr = (o.stil ? `<w:pStyle w:val="${o.stil}"/>` : '') + (o.keep ? '<w:keepNext/>' : '') + (o.tabs ? `<w:tabs>${o.tabs.map(t => `<w:tab w:val="left" w:pos="${t}"/>`).join('')}</w:tabs>` : '')
+      + (o.rand ? '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="2" w:color="C8C4C0"/></w:pBdr>' : '')
+      + `<w:spacing w:before="${o.vor || 0}" w:after="${o.nach || 0}"/>` + (o.einzug ? `<w:ind w:left="${o.einzug}"/>` : '') + (o.jc ? `<w:jc w:val="${o.jc}"/>` : '')
+      + (o.sz ? `<w:rPr><w:sz w:val="${o.sz}"/><w:szCs w:val="${o.sz}"/></w:rPr>` : '');
+    return `<w:p><w:pPr>${pr}</w:pPr>${inhalt || ''}</w:p>`;
+  },
+  _feldCode(code) {
+    return `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+  },
+  _zelle(breite, inhalt, o) {
+    const z = o || {};
+    return `<w:tc><w:tcPr><w:tcW w:w="${breite}" w:type="dxa"/>${z.fuell ? `<w:shd w:val="clear" w:color="auto" w:fill="${z.fuell}"/>` : ''}</w:tcPr>${inhalt || this._p('')}</w:tc>`;
+  },
+  _tabelle(spalten, zeilen, rahmen) {
+    const b = rahmen ? '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="C8C4C0"/><w:left w:val="single" w:sz="4" w:color="C8C4C0"/><w:bottom w:val="single" w:sz="4" w:color="C8C4C0"/><w:right w:val="single" w:sz="4" w:color="C8C4C0"/><w:insideH w:val="single" w:sz="4" w:color="C8C4C0"/><w:insideV w:val="single" w:sz="4" w:color="C8C4C0"/></w:tblBorders>'
+      : '<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>';
+    const mar = rahmen ? '<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar>' : '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>';
+    return `<w:tbl><w:tblPr><w:tblW w:w="${spalten.reduce((a, c) => a + c, 0)}" w:type="dxa"/><w:tblLayout w:type="fixed"/>${b}${mar}</w:tblPr><w:tblGrid>${spalten.map(c => `<w:gridCol w:w="${c}"/>`).join('')}</w:tblGrid>${zeilen.join('')}</w:tbl>`;
+  },
+  _mm(mm) { return Math.round(mm * 56.693); },     // Millimeter → Twips
+  _logoBytes() {
+    const logo = Workflows._briefLogo();
+    if (!logo || !logo.data || typeof atob !== 'function') return null;
+    try {
+      const m = String(logo.data).match(/^data:image\/(png|jpe?g);base64,(.*)$/);
+      if (!m) return null;
+      const bin = atob(m[2]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { bytes, ext: m[1] === 'png' ? 'png' : 'jpeg', ratio: logo.ratio || 4.14 };
+    } catch(e) { return null; }
+  },
+  _docxBrief(m, i, letzter, logo) {
+    const G = '6C6560';
+    const L = (s) => String(s || '').split('\n');
+    const teile = [];
+    if (logo) {
+      const cx = 52 * 36000, cy = Math.round(cx / logo.ratio);
+      teile.push(`<w:p><w:pPr><w:spacing w:before="0" w:after="200"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${i + 1}" name="Logo ${i + 1}" descr="Regierungspräsidium Freiburg"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${i + 1}" name="logo.${logo.ext}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`);
+    } else {
+      teile.push(this._p(this._run('Regierungspräsidium Freiburg', { b: true, sz: 24 }), { nach: 200 }));
+    }
+    // Kopf: links Rücksendeangabe + Anschrift, rechts Abteilung + Infoblock
+    const links = this._p(this._run(L(m.ruecksende)[0] || '', { sz: 13, farbe: G }), { nach: 160 })
+      + L(m.anschrift).filter(z => z.trim()).map(z => this._p(this._run(z, { sz: 22 }))).join('');
+    let rechts = L(m.abteilung).map(z => this._p(this._run(z, { b: true, sz: 17 }))).join('');
+    let gruppe = null;
+    (m.info || []).forEach((z, k) => {
+      if (!String(z.wert || '').trim() && !String(z.label || '').trim()) return;
+      const vor = k === 0 ? 160 : (gruppe !== null && z.gruppe !== gruppe ? 100 : 0);
+      gruppe = z.gruppe;
+      const werte = L(z.wert);
+      // Lange Werte (E-Mail, Schulname) kleiner statt umbrochen – wie im PDF
+      const sz = (w) => String(w || '').length > 30 ? 14 : String(w || '').length > 24 ? 16 : 18;
+      rechts += this._p(this._run(z.label, { sz: 14, farbe: G }) + '<w:r><w:tab/></w:r>' + this._run(werte[0], { sz: sz(werte[0]) }), { tabs: [this._mm(24)], vor, einzug: 0 });
+      werte.slice(1).forEach(w => { rechts += this._p('<w:r><w:tab/></w:r>' + this._run(w, { sz: sz(w) }), { tabs: [this._mm(24)] }); });
+      if (z.zusatz) rechts += this._p('<w:r><w:tab/></w:r>' + this._run(z.zusatz, { sz: 15 }), { tabs: [this._mm(24)] });
+    });
+    teile.push(this._tabelle([this._mm(96), this._mm(64)], [`<w:tr>${this._zelle(this._mm(96), links)}${this._zelle(this._mm(64), rechts)}</w:tr>`], false));
+    // Betreff, Text (Einrückung der Vorlage bleibt), Übersicht
+    teile.push(this._p(this._run(m.betreff, { b: true, sz: 22 }), { vor: 480, nach: 240 }));
+    L(m.text).forEach(z => {
+      if (!z.trim()) { teile.push(this._p('', { sz: 12 })); return; }
+      const einzug = (z.match(/^\s*/) || [''])[0].length;
+      teile.push(this._p(this._run(z.trim()), { einzug: einzug ? this._mm(Math.min(einzug, 8) * 1.1) : 0, nach: 20 }));
+    });
+    const tab = m.tabelle && m.tabelle.zeilen && m.tabelle.zeilen.length ? m.tabelle : null;
+    if (tab) {
+      const sp = [46, 62, 34, 18].map(x => this._mm(x));
+      const breite = (c) => sp[c] || sp[sp.length - 1];
+      const zelle = (w, c, kopf) => this._zelle(breite(c), this._p(this._run(w, { b: kopf, sz: 17 }), { jc: c === 3 ? 'right' : '' }), kopf ? { fuell: 'F2F0EF' } : {});
+      teile.push(this._p('', { vor: 80 }));
+      teile.push(this._tabelle(sp, [
+        `<w:tr><w:trPr><w:tblHeader/></w:trPr>${tab.kopf.map((k, c) => zelle(k, c, true)).join('')}</w:tr>`,
+        ...tab.zeilen.map(z => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${z.map((w, c) => zelle(w, c, false)).join('')}</w:tr>`),
+      ], true));
+    }
+    // Grußformel, Raum für die Unterschrift, Name, Anlagen
+    if (String(m.gruss || '').trim()) {
+      teile.push(this._p(this._run(m.gruss), { vor: 280, keep: true }));
+      teile.push(this._p('', { keep: true }), this._p('', { keep: true }), this._p('', { keep: true }));
+    } else teile.push(this._p('', { vor: 200 }));
+    L(m.unterschrift).filter(z => z.trim()).forEach(z => teile.push(this._p(this._run(z.trim()))));
+    const anlagen = L(m.anlagen).map(z => z.trim()).filter(Boolean);
+    if (anlagen.length) {
+      teile.push(this._p(this._run('Anlagen', { b: true, sz: 17 }), { vor: 240, keep: true }));
+      anlagen.forEach(z => teile.push(this._p(this._run(z))));
+    }
+    const sect = `<w:sectPr><w:footerReference w:type="default" r:id="rIdF${i + 1}"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="${this._mm(12)}" w:right="${this._mm(25)}" w:bottom="${this._mm(36)}" w:left="${this._mm(25)}" w:header="${this._mm(10)}" w:footer="${this._mm(8)}" w:gutter="0"/><w:pgNumType w:start="1"/></w:sectPr>`;
+    if (letzter) return { body: teile.join(''), sect };
+    return { body: teile.join('') + `<w:p><w:pPr>${sect}</w:pPr></w:p>`, sect: '' };
+  },
+  _docxFuss(m) {
+    const G = '6C6560';
+    const eintraege = String(m.fusszeile || '').split('|').map(z => z.trim()).filter(Boolean);
+    const spalten = [0, 1, 2].map(sp => eintraege.slice(sp * 2, sp * 2 + 2).map(z => this._p(this._run(z, { sz: 13, farbe: G }))).join('') || this._p(''));
+    const sw = [this._mm(62), this._mm(56), this._mm(42)];
+    return `<w:ftr ${this.NS}>`
+      + this._p(this._run(m.datenschutz || '', { sz: 14, farbe: G }), { nach: 60 })
+      + this._p(this._run('Seite ', { sz: 15, farbe: G }) + this._feldCode('PAGE').replace(/<w:r>/g, `<w:r><w:rPr><w:sz w:val="15"/><w:color w:val="${G}"/></w:rPr>`) + this._run(' von ', { sz: 15, farbe: G }) + this._feldCode('SECTIONPAGES').replace(/<w:r>/g, `<w:r><w:rPr><w:sz w:val="15"/><w:color w:val="${G}"/></w:rPr>`), { jc: 'right', rand: true, nach: 60 })
+      + this._tabelle(sw, [`<w:tr>${spalten.map((c, k) => this._zelle(sw[k], c)).join('')}</w:tr>`], false)
+      + this._p('')
+      + '</w:ftr>';
+  },
+  NS: 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"',
+  // Alle Briefe als eine .docx-Datei (Uint8Array)
+  docxBytes(modelle) {
+    if (typeof PizZip === 'undefined') throw new Error('ZIP-Bibliothek nicht geladen');
+    const ms = (modelle || []).filter(Boolean);
+    if (!ms.length) throw new Error('Kein Brief');
+    const logo = this._logoBytes();
+    const zip = new PizZip();
+    const ct = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+      '<Default Extension="xml" ContentType="application/xml"/>',
+      '<Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/>',
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>',
+      '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>',
+      ...ms.map((m, i) => `<Override PartName="/word/footer${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>`),
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>',
+      '</Types>'].join('');
+    zip.file('[Content_Types].xml', ct);
+    zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>');
+    const jetzt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    zip.file('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${this._x(ms.length === 1 ? ms[0].betreff : 'Briefe an Betriebe')}</dc:title><dc:creator>Regierungspräsidium Freiburg</dc:creator><dc:language>de-DE</dc:language><dcterms:created xsi:type="dcterms:W3CDTF">${jetzt}</dcterms:created></cp:coreProperties>`);
+    zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:color w:val="1E1E1E"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="de-DE"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Standard"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>`);
+    const rels = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+      '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>',
+      ...(logo ? [`<Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.${logo.ext}"/>`] : []),
+      ...ms.map((m, i) => `<Relationship Id="rIdF${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer${i + 1}.xml"/>`),
+      '</Relationships>'];
+    zip.file('word/_rels/document.xml.rels', rels.join(''));
+    if (logo) zip.file(`word/media/logo.${logo.ext}`, logo.bytes);
+    let body = '', sect = '';
+    ms.forEach((m, i) => {
+      const r = this._docxBrief(m, i, i === ms.length - 1, logo);
+      body += r.body; if (r.sect) sect = r.sect;
+      zip.file(`word/footer${i + 1}.xml`, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + this._docxFuss(m));
+    });
+    zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${this.NS}><w:body>${body}${sect}</w:body></w:document>`);
+    return zip.generate({ type: 'uint8array', compression: 'DEFLATE' });
+  },
 };
 
 // ── wiedervorlagen.js ──
