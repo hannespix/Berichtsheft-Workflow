@@ -106,18 +106,55 @@ const KontrolleHandler = {
     const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
     if (!t) return;
     const abg = t.status === 'durchgefuehrt';
-    const fremde = (this.currentSchuelerList || []).filter(x => x.zustaendiges_amt && x.zustaendiges_amt !== App.EIGENES_AMT).length;
+    const liste = this.currentSchuelerList || [];
+    const fremde = liste.filter(x => App.istFremdesAmt(x)).length;
+    // Eine Zeile: Datum · Ort · Azubis · Prüfer – die Klassen leise darunter
+    const ortBs = App.getTerminSchule(t.id);
+    const klassen = App.getTerminKlassen(t.id);
+    const ort = ortBs ? ortBs.name : (klassen.length ? klassen[0].schule : '');
+    const d = new Date(t.geplant_datum + 'T12:00:00');
+    const wt = isNaN(d) ? '' : d.toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '');
+    const kw = isNaN(d) ? '' : ' (KW ' + App._isoKW(d) + ')';
+    const haupt = [`${wt ? wt + ' ' : ''}${formatDate(t.geplant_datum)}${kw}`, t.typ === 'einsendung' ? '✉︎ Einsendung' : '', ort, `${liste.length} Azubi${liste.length === 1 ? '' : 's'}`, t.pruefer || ''].filter(Boolean).join(' · ');
+    const frAj = App.formatTerminFrAj(t.id);
+    const sub = [frAj && frAj !== '–' ? frAj : '', klassen.map(k => k.klassenbezeichnung).join(' + '), t.bemerkung || '', fremde ? `§ ${fremde} fremde Ämter` : ''].filter(Boolean).join(' · ');
     kurz.innerHTML = `<div class="termin-zeile">
       <span class="tz-label">Termin</span>
-      <strong class="tz-name">${esc(App.formatTerminLabel(t))}</strong>
+      <span class="tz-text"><strong class="tz-name">${esc(haupt)}</strong>${sub ? `<div class="tz-sub">${esc(sub)}</div>` : ''}</span>
       ${abg ? `<span class="badge-status badge-ok" style="font-size:12px">abgeschlossen ${formatDate(t.durchgefuehrt_datum || t.geplant_datum)}</span>` : ''}
       <span class="tz-nav">
-        <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.terminWechseln()" title="Anderen Kontrolltermin wählen">Termin wechseln</button>
-        ${this._menue('Termin', this._terminAktionen(t, fremde), 'Anfrage, Betriebe, Ämter, PDFs und Druck zu diesem Termin')}
+        <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.terminWechseln()" title="Anderen Termin wählen">Termin wechseln</button>
+        ${this._menue('Termin', this._terminMenue(t), 'Anwesenheit, Sammelaktionen, Anfrage, Betriebe, Ämter, PDFs und Druck zu diesem Termin')}
       </span>
     </div>`;
     kurz.style.display = ''; voll.style.display = 'none';
     try { document.querySelector('#mainContent .page-header')?.classList.add('kompakt'); } catch(e) {}
+  },
+  // EIN Menü „Termin ▾“ in der Terminzeile: Anwesenheit und Sammelaktionen der
+  // Übersicht, Azubi hinzufügen, Gruppierung, Ausschreiben, dann Anfrage /
+  // Ergebnisse, Betriebe, Ämter, PDFs, Druck. Vorher gab es zwei Menüs
+  // („Termin ▾“ oben, „Weitere Aktionen ▾“ unter der Tabelle).
+  _terminMenue(termin) {
+    const terminId = termin.id;
+    const liste = this.currentSchuelerList || [];
+    const istEinsendung = termin.typ === 'einsendung';
+    const keMap = {};
+    App.query('SELECT schueler_id, anwesend, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(k => { keMap[k.schueler_id] = k; });
+    const fehlendeHefte = liste.filter(s => { const ke = keMap[s.id]; return ke && ke.anwesend === 0 && !ke.ergebnis && !App.istFremdesAmt(s); }).map(s => s.id);
+    const offen = liste.filter(s => { const ke = keMap[s.id]; return !ke || (ke.anwesend !== 0 && !ke.ergebnis); }).length;
+    const fremdeCount = liste.filter(s => App.istFremdesAmt(s)).length;
+    const zurUebersicht = "KontrolleHandler._viewMode='uebersicht';";
+    return [
+      { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(true)' },
+      { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: zurUebersicht + 'KontrolleHandler.quickSetAllAnwesend(false)' },
+      istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
+      offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: zurUebersicht + 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
+      { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
+      { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;' + zurUebersicht + 'KontrolleHandler.renderUebersicht()' },
+      { label: '⇈ Stand dieses Rechners für alle übernehmen (ganzer Termin)', onclick: `Konsole.ausschreibenDialog(${terminId})`, title: 'Zeigen die Rechner verschiedene Stände: den Stand DIESES Rechners für alle Durchsichten dieses Termins als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
+      { trenner: true },
+      ...this._terminAktionen(termin, fremdeCount),
+    ].filter(Boolean);
   },
   // Terminzeile nach einer fremden Termin-Op nachziehen (Abschluss, Status,
   // Nachbereitung durch einen Kollegen) – nur wenn die kurze Zeile sichtbar ist
@@ -439,43 +476,38 @@ const KontrolleHandler = {
 
       const ergebnisLabels = {in_ordnung:'✓ OK',nachholung_naechste_durchsicht:'Nachholung',sachberichte_wetter_email:'E-Mail (Wetter)',berichte_bis_termin_email:'E-Mail (Berichte)',persoenliche_vorlage_rp:'Vorlage RP',post_an_rp:'Post RP'};
 
+      // Zulassung (Pflichtteile, Voraussetzung, Prüfungsausschuss) nur dort
+      // voll, wo sie zählt: letztes Lehrjahr, gesetzt, oder auf Wunsch (…)
+      const zulZeigen = this._zulAlle || imLetztenAJ || isZulassung || isPA || !!(this._zulZeigen && this._zulZeigen[s.id]);
       return `<tr style="${isPA ? 'background:var(--clr-red-light) !important;border-left:4px solid var(--clr-red)' : !isAnw ? 'opacity:0.5;background:var(--clr-warm)' : isDone && !isOK ? 'background:var(--clr-red-light)' : isDone && isOK ? 'background:var(--clr-green-light)' : ''}">
         <td style="text-align:center">${i+1}</td>
-        <td>
+        <td data-sort="${esc(s.nachname)}, ${esc(s.vorname)}">
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:12px;color:var(--clr-text-light)">${esc(s.ausbildungsstaette||'')} ${typeof AzubiSeite!=='undefined'?`<a href="#" onclick="event.preventDefault();AzubiSeite.oeffnen(${s.id}, 'uebersicht', { zurueck: { terminId: ${terminId}, schuelerId: ${s.id} } })" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Seite (Kontakt, Betrieb, Schule, Ausbildungsstand) – mit Rückweg in diese Durchsicht">${svgIcon('dashboard', 12)}</a>`:''}</div>
+          <div style="font-size:12px;color:var(--clr-text-light)"><span title="${esc(ampel.label)}" aria-label="${esc(ampel.label)}">${ampel.icon}</span> ${esc(s.ausbildungsstaette||'')}${frName !== '–' ? ` · ${esc(frName)}` : ''} ${typeof AzubiSeite!=='undefined'?`<a href="#" onclick="event.preventDefault();AzubiSeite.oeffnen(${s.id}, 'uebersicht', { zurueck: { terminId: ${terminId}, schuelerId: ${s.id} } })" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Seite (Kontakt, Betrieb, Schule, Ausbildungsstand) – mit Rückweg in diese Durchsicht">${svgIcon('dashboard', 12)}</a>`:''}</div>
         </td>
-        <td style="font-size:12px" data-sort="${esc(frName)}">${esc(frName)}</td>
         <td style="text-align:center">
-          <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)">
+          <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)" aria-label="${istEinsendung ? 'Heft eingegangen' : 'Anwesend'}: ${esc(s.nachname)}, ${esc(s.vorname)}">
         </td>
-        <td style="text-align:center" title="${esc(ampel.label)}">${ampel.icon}</td>
         <td data-sort="${ke.ergebnis || ''}">
           ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:12px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>`
             : (isAnw ? `<button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-green-light);color:var(--clr-forest-dark);border:1px solid var(--clr-green)" onclick="KontrolleHandler.quickMarkOK(${s.id})" title="Berichtsheft in Ordnung – Ergebnis + Pflichtteile setzen (Mängel/Bemerkungen bitte in der Einzelansicht)">✓ i.O.</button>` : '<span style="color:var(--clr-text-light);font-size:12px">– abwesend</span>')}
           ${wvOffen ? '<span style="color:var(--clr-red);font-size:12px;margin-left:4px" title="Offene Wiedervorlage vorhanden">WV!</span>' : ''}
         </td>
         <td data-sort="${fehlGesamt}" style="text-align:center;${fehlWarn ? 'color:var(--clr-red);font-weight:700' : ''}" title="${fehlGesamt} Fehltage (ohne Urlaub und Berufsschule) · bisher: ${fz.arbeitstageBisher} Arbeitstage = ${fz.prozentBisher.toFixed(1)} % · Gesamtdauer: ${arbeitstage} Arbeitstage = ${fz.prozent.toFixed(1)} % · Schwelle ${fz.schwelle} % der zurückgelegten Zeit">${fehlGesamt}<span style="font-size:12px;color:${fehlWarn?'var(--clr-red)':'var(--clr-text-light)'};margin-left:2px">${fehlProzent.toFixed(0)}%</span></td>
-        <td data-sort="${pflichtOK ? 1 : 0}" style="text-align:center" title="Pflichtteile (§ 43 Abs. 1 Nr. 2 BBiG): 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA) · Hinweis 1.4=${ke.p_1_4_auszubildende||'-'}">${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</td>
-        <td style="text-align:center">
-          <input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-green)" title="${esc(befundTitel)}${autoZulassung ? ' (automatisch vorgeschlagen)' : ''}${!befund.ok ? '\n\nTrotzdem setzbar (Einzelfallentscheidung / Prüfungsausschuss) – mit Begründung' : ''}" aria-label="Berichtsheft-Voraussetzung für die Zulassung erfüllt: ${esc(s.nachname)}, ${esc(s.vorname)}">
+        <td class="zul-zelle" data-sort="${(isPA ? 4 : isZulassung ? 3 : needsAttention ? 2 : pflichtOK ? 1 : 0)}">
+          ${zulZeigen ? `<span class="zul-pfl" title="Pflichtteile (§ 43 Abs. 1 Nr. 2 BBiG): 1.1=${ke.p_1_1_ausbildungsplan||'-'}${ke.p_1_1_gefuehrt === 'nein' ? ' (nicht geführt)' : ''}, 1.5=${ke.p_1_5_bescheinigungen||'-'}${ke.p_1_5_gefuehrt === 'nein' ? ' (nicht geführt)' : ''} (${(ke.bescheinigungen_anzahl||0)}/${reqUBA} ÜBA) · Hinweis 1.4=${ke.p_1_4_auszubildende||'-'}">Pfl. ${pflichtOK ? '<span style="color:var(--clr-green)">✓</span>' : '<span style="color:var(--clr-red)">✗</span>'}</span>
+          <label class="zul-chk" title="${esc(befundTitel)}${autoZulassung ? ' (automatisch vorgeschlagen)' : ''}${!befund.ok ? '\n\nTrotzdem setzbar (Einzelfallentscheidung / Prüfungsausschuss) – mit Begründung' : ''}"><input type="checkbox" ${isZulassung ? 'checked' : ''} onchange="KontrolleHandler.toggleZulassung(${s.id},this.checked)" style="accent-color:var(--clr-green)" aria-label="Berichtsheft-Voraussetzung für die Zulassung erfüllt: ${esc(s.nachname)}, ${esc(s.vorname)}"> Zul.</label>
+          <label class="zul-chk" title="Dem Prüfungsausschuss zur Entscheidung vorgelegt (§ 46 Abs. 1 Satz 2 BBiG)"><input type="checkbox" ${isPA ? 'checked' : ''} onchange="KontrolleHandler.togglePA(${s.id},this.checked)" style="accent-color:var(--clr-red)" aria-label="Prüfungsausschuss: ${esc(s.nachname)}, ${esc(s.vorname)}"> PA</label>
+          ${needsAttention ? `<span title="${esc(this.zulassungsMeldung(befund))}" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠︎</span>` : ''}${isZulassung && !trotzAbweichung ? '<span style="color:var(--clr-green);font-size:14px" title="Berichtsheft-Voraussetzung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">✓</span>' : ''}${trotzAbweichung ? `<span style="color:var(--clr-amber);font-size:13px;font-weight:700;cursor:help" title="Zulassung trotz Abweichung (Einzelfallentscheidung, Begründung in der Bemerkung).\n${esc(this.zulassungsMeldung(befund))}">✓!</span>` : ''}`
+          : `<button class="bz-mini" onclick="(KontrolleHandler._zulZeigen=KontrolleHandler._zulZeigen||{})[${s.id}]=true;KontrolleHandler.renderUebersicht()" title="Zulassung (Pflichtteile, Voraussetzung, Prüfungsausschuss) für diesen Azubi einblenden – im letzten Lehrjahr steht sie automatisch hier" aria-label="Zulassung einblenden: ${esc(s.nachname)}, ${esc(s.vorname)}">…</button>`}
         </td>
-        <td style="text-align:center">
-          <input type="checkbox" ${isPA ? 'checked' : ''} onchange="KontrolleHandler.togglePA(${s.id},this.checked)" style="width:18px;height:18px;accent-color:var(--clr-red)" title="Dem Prüfungsausschuss zur Entscheidung vorgelegt (§ 46 Abs. 1 Satz 2 BBiG)" aria-label="Prüfungsausschuss: ${esc(s.nachname)}, ${esc(s.vorname)}">
-        </td>
-        <td style="text-align:center">
-          ${needsAttention ? `<span title="${esc(this.zulassungsMeldung(befund))}" style="color:var(--clr-red);font-size:13px;font-weight:700;cursor:help">⚠︎</span>` : ''}
-          ${isZulassung && !trotzAbweichung ? '<span style="color:var(--clr-green);font-size:14px" title="Berichtsheft-Voraussetzung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">✓</span>' : ''}
-          ${trotzAbweichung ? `<span style="color:var(--clr-amber);font-size:13px;font-weight:700;cursor:help" title="Zulassung trotz Abweichung (Einzelfallentscheidung, Begründung in der Bemerkung).\n${esc(this.zulassungsMeldung(befund))}">✓!</span>` : ''}
-          ${isPA ? '<span style="color:var(--clr-red);font-size:12px;font-weight:700" title="Prüfungsausschuss (§ 46 Abs. 1 Satz 2 BBiG)">PA</span>' : ''}
-        </td>
-        <td>
+        <td style="white-space:nowrap">
           <button class="btn btn-sm btn-secondary" style="padding:3px 8px" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${i};KontrolleHandler.enterSchüler()" title="Einzelansicht" aria-label="Einzelansicht öffnen: ${esc(s.nachname)}, ${esc(s.vorname)}">→</button>
-          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:12px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Kontrolle entfernen" aria-label="Azubi aus dieser Kontrolle entfernen: ${esc(s.nachname)}, ${esc(s.vorname)}">✕</button>
+          <button class="btn btn-sm" style="padding:3px 6px;color:var(--clr-red);background:none;border:1px solid var(--clr-red-light);font-size:12px" onclick="KontrolleHandler.removeSchueler(${s.id})" title="Azubi aus dieser Durchsicht entfernen" aria-label="Azubi aus dieser Durchsicht entfernen: ${esc(s.nachname)}, ${esc(s.vorname)}">✕</button>
         </td>
       </tr>`;
     });
@@ -490,7 +522,7 @@ const KontrolleHandler = {
         groups[fr].push(rows[i]);
       });
       tableRows = Object.keys(groups).sort().map(fr =>
-        `<tr><td colspan="12" style="background:var(--clr-sand);font-weight:700;font-size:13px;padding:8px 12px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(fr)} (${groups[fr].length})</td></tr>` + groups[fr].join('')
+        `<tr><td colspan="7" style="background:var(--clr-sand);font-weight:700;font-size:13px;padding:8px 12px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(fr)} (${groups[fr].length})</td></tr>` + groups[fr].join('')
       ).join('');
     } else {
       tableRows = rows.join('');
@@ -509,107 +541,60 @@ const KontrolleHandler = {
     const fremdeCount = schueler.filter(s => s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT).length;
     const istAbgeschlossen = termin.status === 'durchgefuehrt';
     const container = document.getElementById('kontrolleContent');
+    const pctDone = nenner ? Math.round(doneCount / nenner * 100) : 0;
+    const pctOK = nenner ? Math.round(okCount / nenner * 100) : 0;
+    const pctMangel = nenner ? Math.round(mangelCount / nenner * 100) : 0;
+    const cockpit = (() => { if (termin.status === 'durchgefuehrt') return ''; const c = App.kontrolltagCockpit(terminId); if (!c.start) return ''; const hm = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+      return `⏱ Start ${hm(c.start)}${c.minutenProAzubi != null ? ` · Ø ${c.minutenProAzubi} Min./Azubi` : ''}${c.prognose ? ` · voraussichtlich fertig ${hm(c.prognose)}` : (c.offen === 0 && c.fertig ? ' · alle bewertet' : '')}`; })();
+    const zulAlleZeigbar = schueler.length > 0;
     container.innerHTML = `
       <div class="card" style="margin-top:12px;margin-bottom:12px">
         ${istAbgeschlossen ? `<div style="padding:8px 12px;background:var(--clr-green-light);border-left:4px solid var(--clr-green);border-radius:var(--radius);font-size:12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <strong>✓ Kontrolle abgeschlossen am ${formatDate(termin.durchgefuehrt_datum || termin.geplant_datum)}</strong> – die Durchsichtsbögen sind archiviert. Spätere Änderungen wirken nicht mehr auf die archivierten Bögen.
+          <strong>✓ Termin abgeschlossen am ${formatDate(termin.durchgefuehrt_datum || termin.geplant_datum)}</strong> – die Durchsichtsbögen sind archiviert. Spätere Änderungen wirken nicht mehr auf die archivierten Bögen.
           <button class="btn btn-sm btn-secondary" style="margin-left:auto" onclick="KontrolleHandler.reopenKontrolle()">Wieder öffnen</button>
         </div>` : ''}
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-          <div>
-            <strong style="font-size:16px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(klassenStr || termin.bemerkung || 'Kontrolltermin')}</strong>
-            <div style="font-size:12px;color:var(--clr-text-light)">${schuleName ? esc(schuleName) + ' · ' : ''}${formatDate(termin.geplant_datum)} · ${esc(termin.pruefer||'')} · ${schueler.length} Azubis${abwesend ? ` (${abwesend} abwesend)` : ''}${fremdeCount ? ` · § ${fremdeCount} fremde Ämter` : ''}</div>
+
+        <!-- Fortschritt mit Beschriftung (ersetzt die Zähl-Chips) + Umschalter -->
+        <div class="fortschritt">
+          <div class="fs-kopf">
+            <div class="fs-text"><strong>${doneCount} von ${nenner}</strong> ${istEinsendung ? 'eingegangenen Heften' : 'anwesenden Azubis'} bewertet (${pctDone} %) · <span class="fs-ok">✓ ${okCount} in Ordnung</span> · <span class="${mangelCount ? 'fs-mangel' : ''}">✗ ${mangelCount} beanstandet</span> · <strong>${offen} offen</strong>${abwesend ? ` · ${abwesend} ${istEinsendung ? 'Heft(e) fehlen' : 'abwesend'}` : ''}${zulCount ? ` · ${zulCount} Voraussetzung erfüllt` : ''}${paCount ? ` · <span class="fs-mangel">⚠︎ ${paCount} Prüfungsausschuss</span>` : ''}${cockpit ? `<div class="fs-cockpit" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">${cockpit}</div>` : ''}</div>
+            <div class="seg" role="group" aria-label="Ansicht der Durchsicht">
+              <button class="seg-btn active" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()">Übersicht</button>
+              <button class="seg-btn" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()">Einzelansicht</button>
+            </div>
           </div>
-          <div class="btn-group">
-            <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" style="${this._viewMode==='uebersicht'?'':'opacity:0.6'}">▤ Übersicht</button>
-            <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()" style="${this._viewMode==='einzeln'?'border:2px solid var(--clr-forest)':''}">Einzelansicht</button>
+          <div class="fs-balken" title="${okCount} in Ordnung · ${mangelCount} beanstandet · ${offen} offen">
+            <div style="width:${pctOK}%;background:var(--clr-green)"></div>
+            <div style="width:${pctMangel}%;background:var(--clr-red)"></div>
           </div>
         </div>
 
-        <!-- Statistik-Leiste -->
-        <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-          <div style="padding:6px 12px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
-            <strong>${anwCount}</strong>/${schueler.length} ${istEinsendung ? 'Hefte da' : 'anwesend'}
-          </div>
-          ${(() => { if (termin.status === 'durchgefuehrt') return ''; const c = App.kontrolltagCockpit(terminId); if (!c.start) return ''; const hm = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
-            return `<div style="padding:6px 12px;background:var(--clr-blue-light);border-radius:var(--radius);font-size:12px" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">⏱ Start ${hm(c.start)}${c.minutenProAzubi != null ? ` · Ø ${c.minutenProAzubi} Min./Azubi` : ''}${c.prognose ? ` · voraussichtlich fertig ${hm(c.prognose)}` : (c.offen === 0 && c.fertig ? ' · alle bewertet' : '')}</div>`; })()}
-          <div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            ✓ <strong>${okCount}</strong> in Ordnung
-          </div>
-          <div style="padding:6px 12px;background:${mangelCount?'var(--clr-red-light)':'var(--clr-warm)'};border-radius:var(--radius);font-size:12px">
-            ✗ <strong>${mangelCount}</strong> beanstandet
-          </div>
-          <div style="padding:6px 12px;background:${offen ? 'var(--clr-blue-light)' : 'var(--clr-green-light)'};border-radius:var(--radius);font-size:12px">
-            <strong>${offen}</strong> noch offen${abwesend ? ` <span style="color:var(--clr-text-light)">· ${abwesend} abwesend</span>` : ''}
-          </div>
-          ${zulCount ? `<div style="padding:6px 12px;background:var(--clr-green-light);border-radius:var(--radius);font-size:12px">
-            ${svgIcon('abschluss', 13)} <strong>${zulCount}</strong> Voraussetzung erfüllt
-          </div>` : ''}
-          ${paCount ? `<div style="padding:6px 12px;background:var(--clr-red-light);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--clr-red)">
-            ⚠︎ <strong>${paCount}</strong> Prüfungsausschuss
-          </div>` : ''}
-        </div>
-
-        <!-- Fortschrittsbalken -->
-        ${(() => {
-          const pctDone = nenner ? Math.round(doneCount / nenner * 100) : 0;
-          const pctOK = nenner ? Math.round(okCount / nenner * 100) : 0;
-          const pctMangel = nenner ? Math.round(mangelCount / nenner * 100) : 0;
-          return `<div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px;color:var(--clr-text-light)">
-              <span>Fortschritt: ${doneCount}/${nenner} anwesende Azubis bewertet (${pctDone}%)${abwesend ? ` · ${abwesend} abwesend` : ''}</span>
-              <span>${offen === 0 ? '✓ Alle Anwesenden bewertet!' : `${offen} offen`}</span>
-            </div>
-            <div style="height:8px;background:var(--clr-sand);border-radius:4px;overflow:hidden;display:flex">
-              <div style="width:${pctOK}%;background:var(--clr-green);transition:width 0.3s" title="${okCount} in Ordnung"></div>
-              <div style="width:${pctMangel}%;background:var(--clr-red);transition:width 0.3s" title="${mangelCount} beanstandet"></div>
-            </div>
-          </div>`;
-        })()}
-
-        <!-- Tabelle -->
+        <!-- Tabelle: 7 Spalten -->
         <div style="overflow-x:auto">
           <table class="data-table">
             <thead><tr>
               <th style="width:35px">#</th>
-              <th>Name / Betrieb</th>
-              <th title="Fachrichtung">FR</th>
-              <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei Durchsicht (Checkbox)'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
-              <th style="width:35px;text-align:center" title="Ampel-Status">↯</th>
+              <th>Azubi</th>
+              <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei der Durchsicht'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
               <th>Ergebnis</th>
-              <th style="width:55px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th>
-              <th style="width:45px;text-align:center" title="Pflichtteile 1.1 und 1.5 vollständig">Pfl.</th>
-              <th style="width:45px;text-align:center" title="Berichtsheft-Voraussetzung für die Zulassung zur Abschlussprüfung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG) – Zwischenprüfung, Verzeichnis und Vertragsende prüft die Prüfungsverwaltung">Zul.</th>
-              <th style="width:35px;text-align:center" title="Dem Prüfungsausschuss vorgelegt (§ 46 Abs. 1 Satz 2 BBiG)">PA</th>
-              <th style="width:55px;text-align:center" title="AP-Status">AP</th>
-              <th style="width:40px"></th>
+              <th style="width:60px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th>
+              <th style="min-width:150px" title="Pflichtteile 1.1 und 1.5 · Berichtsheft-Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG) · dem Prüfungsausschuss vorgelegt (§ 46 Abs. 1 Satz 2 BBiG). Automatisch im letzten Lehrjahr, sonst über „…“ je Azubi">Zulassung ${zulAlleZeigbar ? `<button class="bz-mini bz-mini-text" onclick="KontrolleHandler._zulAlle=!KontrolleHandler._zulAlle;KontrolleHandler.renderUebersicht()" title="${this._zulAlle ? 'Zulassung nur im letzten Lehrjahr zeigen' : 'Zulassung bei allen Azubis einblenden'}">${this._zulAlle ? 'nur letztes Jahr' : 'alle'}</button>` : ''}</th>
+              <th style="width:70px"></th>
             </tr></thead>
             <tbody>${tableRows}</tbody>
           </table>
         </div>
 
-        <!-- Aktionen: ein Hauptknopf, Prüferaufteilung, alles Weitere im Menü -->
+        <!-- Einzelansicht starten, Prüferaufteilung -->
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-sm btn-primary" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.nextOffen(true)">Einzelansicht (nächster offener)</button>
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;background:var(--clr-warm);border-radius:var(--radius)" title="Prüferaufteilung: „Ich nehme #von–bis" – Kollegen überspringen diesen Bereich beim Weiterschalten">
-            Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control">
+            Mein Bereich: #<input type="number" id="bereichVon" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.von : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control" aria-label="Mein Bereich von">–<input type="number" id="bereichBis" min="1" max="${schueler.length}" value="${this._bereich ? this._bereich.bis : ''}" style="width:52px;padding:1px 4px;font-size:12px" class="form-control" aria-label="Mein Bereich bis">
             <button class="btn btn-sm btn-secondary" style="padding:1px 6px;font-size:12px" onclick="KontrolleHandler.setzeBereichAusEingabe()">übernehmen</button>
             ${this._bereich ? `<a href="#" onclick="KontrolleHandler.setzeBereich(null);return false" style="font-size:12px;color:var(--clr-text-light)">✕</a>` : ''}
           </span>
           ${(App._otherPositions || []).filter(p => p.terminId === this.currentTerminId && p.bereich).map(p => `<span style="font-size:12px;padding:2px 8px;background:var(--clr-blue-light);border-radius:var(--radius)">${esc(p.pruefer)}: #${p.bereich.von}–${p.bereich.bis}</span>`).join('')}
-          <div style="margin-left:auto">
-            ${this._menue('Weitere Aktionen', [
-              { label: istEinsendung ? '✓ Alle Hefte da' : '✓ Alle anwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(true)' },
-              { label: istEinsendung ? '✗ Keine Hefte' : '✗ Alle abwesend', onclick: 'KontrolleHandler.quickSetAllAnwesend(false)' },
-              istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
-              offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
-              { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
-              { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;KontrolleHandler.renderUebersicht()' },
-              { label: '⇈ Stand dieses Rechners für alle übernehmen (ganzer Termin)', onclick: `Konsole.ausschreibenDialog(${terminId})`, title: 'Zeigen die Rechner verschiedene Stände: den Stand DIESES Rechners für alle Durchsichten dieses Termins als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
-              { trenner: true },
-              ...this._terminAktionen(termin, fremdeCount),
-            ].filter(Boolean), 'Anwesenheit, Sammelaktionen, Anfrage, Betriebe, PDFs und Druck')}
-          </div>
+          <span style="margin-left:auto;font-size:12px;color:var(--clr-text-light)">Anwesenheit, Sammelaktionen, Anschreiben und PDFs: Menü „Termin ▾“ oben</span>
         </div>
 
         <!-- Abschluss – direkt hier, wo man am Ende des Kontrolltags steht -->
@@ -619,6 +604,8 @@ const KontrolleHandler = {
         </div>` : ''}
       </div>
     `;
+    // Terminzeile (Menü „Termin ▾“ mit den aktuellen Zahlen) nachziehen
+    this._terminZeile();
   },
 
   // Einen Azubi direkt aus der Übersicht als "In Ordnung" markieren

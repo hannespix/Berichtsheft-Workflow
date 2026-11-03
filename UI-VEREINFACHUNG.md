@@ -107,7 +107,12 @@ folgen denselben vier Phasen.
   Reiter der Einstellungen), Termine-Kopf mit einem Hauptknopf und einem Umschalter,
   Tabelle 10 → 8 Spalten (Datum mit Bemerkung, Ort, Klassen mit Fachrichtung, Jahrgang,
   Azubis, Prüfer, Status, Aktionen).
-- **Pakete 5–7 offen.**
+- **Paket 6 umgesetzt** (November 2026): eine Terminzeile mit leiser Unterzeile, ein Menü
+  „Termin ▾“ (Sammelaktionen und Termin-Aktionen zusammen, „Weitere Aktionen“ entfällt),
+  Zähl-Chips als Beschriftung des Fortschrittsbalkens, Tabelle 12 → 7 Spalten mit einer
+  zusammengefassten Zulassungszelle (ausgeklappt nur im letzten Lehrjahr, bei gesetzter
+  Zulassung/PA oder per Klick; Kopf „alle / nur letztes Jahr“).
+- **Pakete 5 und 7 offen.**
 
 ## 5. Reihenfolge und Aufwand
 | Paket | Aufwand | Risiko | Wirkung |
