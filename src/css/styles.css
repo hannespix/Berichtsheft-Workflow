@@ -299,13 +299,39 @@ body.ohne-filter .filter-panel { display: none; }
   border: 1px solid var(--clr-sage-light);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
-  min-width: 160px;
-  max-height: 320px;
+  min-width: 240px;
+  max-width: 340px;
+  max-height: 380px;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 4px 0;
   margin-top: 4px;
+  text-align: left;
 }
-.fp-dd-item:hover { background: var(--clr-warm); }
+/* Ein Aussehen für alle Filter-Aufklapper (Jahrgänge, Berufe, Ämter, BAV,
+   + Filter und die Wertlisten der Zusatzfilter): Kopfzeile „Alle / Keine“,
+   Abschnittstitel in Kapitälchen, eine Zeile je Option mit Häkchen oder
+   Markierung, leiser Zusatz rechts – keine Inline-Styles, kein eigenes Muster. */
+.fp-dd-kopf { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--clr-sand); font-size: 13px; font-weight: 600; }
+.fp-dd-kopf label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.fp-dd-kopf input[type=checkbox], .fp-dd-opt input[type=checkbox] { accent-color: var(--clr-forest); margin: 0; width: 14px; height: 14px; flex: 0 0 auto; }
+.fp-dd-titel { display: flex; align-items: center; gap: 6px; white-space: nowrap; padding: 7px 12px 3px; font-size: 12px; font-weight: 700; color: var(--clr-sage); text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid var(--clr-sand); margin-top: 4px; }
+.fp-dropdown > .fp-dd-titel:first-child, .fp-dd-kopf + .fp-dd-titel, .fp-dd-hinweis + .fp-dd-titel { border-top: none; margin-top: 0; }
+.fp-dd-links { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px; display: flex; gap: 6px; }
+.fp-dd-links a { color: var(--clr-forest); }
+.fp-dd-opt { display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; line-height: 1.3; color: var(--clr-text); white-space: nowrap; }
+.fp-dd-opt:hover { background: var(--clr-warm); }
+.fp-dd-opt:focus-visible { outline: 2px solid var(--clr-forest); outline-offset: -2px; }
+.fp-dd-opt.eingerueckt { padding-left: 28px; }
+.fp-dd-opt.hervor { font-weight: 600; }
+.fp-dd-mark { display: inline-flex; width: 14px; justify-content: center; color: var(--clr-forest); font-weight: 700; flex: 0 0 auto; }
+.fp-dd-sub { color: var(--clr-text-light); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.fp-dd-rechts { margin-left: auto; color: var(--clr-text-light); font-size: 12px; padding-left: 8px; }
+.fp-dd-pfeil { color: var(--clr-text-light); width: 14px; text-align: center; cursor: pointer; }
+.fp-dd-hinweis { padding: 5px 12px; font-size: 12px; color: var(--clr-forest); background: var(--clr-green-light); border-bottom: 1px solid var(--clr-sand); }
+.fp-dd-gruppe { border-bottom: 1px solid var(--clr-sand-light); }
+.fp-dd-gruppe:last-child { border-bottom: none; }
+.fp-dd-unter { background: var(--clr-warm); padding: 2px 0 4px; }
+.fp-dd-unter .fp-dd-titel { border-top: none; margin-top: 2px; padding-left: 28px; }
 
 /* ── Layout ── */
 .app-layout {
