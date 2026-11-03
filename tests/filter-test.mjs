@@ -139,7 +139,7 @@ console.log('\n══ Quelltext-Zusicherungen: keine Exklusivität mehr, Planung
   check(/jgHit \|\| zpHit/.test(PLANUNG_SRC), 'Planung: AP/ZP-Vereinigung in der Klassenliste');
   check(/_terminFilterHtml\(/.test(PLANUNG_SRC) && /chk-tf-/.test(PLANUNG_SRC),
     'Planung: Termin-Dialog nutzt Mehrfachauswahl-Filter');
-  check((PLANUNG_SRC.match(/this\._terminFilterHtml\(jahrgaenge/g) || []).length === 2,
+  check(/this\._terminFilterHtml\(d\.jahrgaenge/.test(PLANUNG_SRC) && /addTermin\(\) \{ this\._terminDialog\(null\); \}/.test(PLANUNG_SRC) && /editTermin\(id\) \{ this\._terminDialog\(id\); \}/.test(PLANUNG_SRC),
     'Mehrfachauswahl in BEIDEN Dialogen (Neu + Bearbeiten)');
   check(!/option value="">Abschlussprüfung: Alle/.test(PLANUNG_SRC),
     'Alte Einfachauswahl-Selects sind entfernt');

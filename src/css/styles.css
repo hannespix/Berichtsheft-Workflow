@@ -1026,7 +1026,7 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
   .ke-griff { display: none; }
 }
 /* Sichtbarer Tastaturfokus auf allen Knöpfen, Links und Menüs (gelber BW-Marker) */
-.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
+.btn:focus-visible, .btn-icon:focus-visible, .tab-btn:focus-visible, .kt-schritt:focus-visible, .kt-kw > summary:focus-visible, .kt-filter > summary:focus-visible, .kt-einzeln > summary:focus-visible, .fp-btn:focus-visible, .topbar-btn:focus-visible, .aktionen-menue > summary:focus-visible, .aj-kopf:focus-visible, .sidebar-item:focus-visible, .kw-legend-toggle:focus-visible, a:focus-visible, .modal-tab-btn:focus-visible, .hamburger:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; box-shadow: 0 0 0 5px var(--clr-forest); }
 /* Große Schrift (Einstellung je Rechner): ganze Oberfläche um 20 % vergrößert –
    Chrome/Edge skalieren mit zoom Layout und Schrift gemeinsam */
 body.grosse-schrift { zoom: 1.2; }
@@ -1611,3 +1611,30 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .bz-fusslabel { font-size: 12px; color: var(--clr-text-light); }
 @media (max-width: 720px) { .bz { --bz-mm: 2.6px; } .bz-buehne { padding: 6px; } .bz-oben { grid-template-columns: 1fr; gap: 12px; } }
 @media (prefers-reduced-motion: reduce) { .bz-feld { transition: none; } }
+
+/* ── Termin-Dialog in zwei Schritten (UI-Vereinfachung Paket 5) ── */
+.kt-schritte { display: flex; gap: 6px; border-bottom: 1px solid var(--clr-sand); margin-bottom: 14px; }
+.kt-schritt { border: none; background: none; padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--clr-text-light); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.kt-schritt .kt-nr { width: 22px; height: 22px; border-radius: 50%; background: var(--clr-sand); color: var(--clr-text); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+.kt-schritt.active { color: var(--clr-forest); border-bottom-color: var(--clr-forest); }
+.kt-schritt.active .kt-nr { background: var(--clr-forest); color: var(--clr-white); }
+.kt-kw { margin-top: 6px; font-size: 12px; }
+.kt-kw > summary, .kt-filter > summary { cursor: pointer; color: var(--clr-forest); font-weight: 600; list-style: none; padding: 4px 0; }
+.kt-kw > summary::-webkit-details-marker, .kt-filter > summary::-webkit-details-marker { display: none; }
+.kt-kw-pop { margin-top: 6px; padding: 8px; background: var(--clr-warm); border-radius: var(--radius); }
+.kt-kw-legende { display: flex; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; align-items: center; }
+.kt-kw-legende i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
+.kt-kw-tipp { color: var(--clr-text-light); }
+.kt-filter { margin-bottom: 8px; font-size: 12px; }
+.kt-liste { max-height: 28vh; overflow-y: auto; border: 1px solid var(--clr-sand); border-radius: var(--radius); padding: 8px; }
+.kt-hinweis { font-size: 12px; color: var(--clr-text-light); margin-top: 4px; }
+.kt-fuss-platz { flex: 1; }
+/* Kopf, Schritte und Fußzeile stehen, nur der Inhalt scrollt – „Speichern“ bleibt sichtbar */
+.modal.kt-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.modal.kt-dialog .modal-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.kt-einzeln { margin-top: 12px; padding: 8px 16px; background: var(--clr-warm); border: 1px solid var(--clr-sand); border-radius: var(--radius); font-size: 13px; }
+.kt-einzeln > summary { cursor: pointer; font-weight: 600; color: var(--clr-forest); list-style: none; padding: 4px 0; }
+.kt-einzeln > summary::-webkit-details-marker { display: none; }
+.kt-einzeln-inhalt { padding-top: 8px; }
+.kt-hinweis-inline { font-weight: 400; color: var(--clr-text-light); }
+@media (max-height: 720px) { .kt-liste { max-height: 22vh; } }

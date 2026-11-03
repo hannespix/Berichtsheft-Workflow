@@ -112,7 +112,12 @@ folgen denselben vier Phasen.
   Zähl-Chips als Beschriftung des Fortschrittsbalkens, Tabelle 12 → 7 Spalten mit einer
   zusammengefassten Zulassungszelle (ausgeklappt nur im letzten Lehrjahr, bei gesetzter
   Zulassung/PA oder per Klick; Kopf „alle / nur letztes Jahr“).
-- **Pakete 5 und 7 offen.**
+- **Paket 5 umgesetzt** (November 2026): ein Dialog für „Neuer Termin“ und „Termin
+  bearbeiten“ in zwei Schritten – „Wo und wann“ (Art, Ort, Datum mit KW-Kalender als
+  Aufklapper, Prüfer) und „Wer“ (Klassen mit eingeklappten Filtern, Schule aus Schritt 1
+  vorgewählt, einzelne Azubis als Aufklapper, Bemerkung); Kopf, Schritte und Fußzeile mit
+  „Speichern“ stehen, nur der Inhalt scrollt.
+- **Paket 7 offen.**
 
 ## 5. Reihenfolge und Aufwand
 | Paket | Aufwand | Risiko | Wirkung |
