@@ -28,7 +28,7 @@ console.log('══ Menü-Helfer im Kern ══');
 console.log('\n══ Planung: ein Hauptknopf je Termin ══');
 {
   const tabelle = V.split("<tbody id=\"planTableBody\">")[1].split('</tbody>')[0];
-  check(/Starten<\/button>/.test(tabelle) && /Nachbereiten<\/button>/.test(tabelle) && /Öffnen<\/button>/.test(tabelle) && /abg && !t\.nachbereitet_am/.test(tabelle), 'Hauptknopf folgt dem Status: Starten · Nachbereiten · Öffnen');
+  check(/Durchsicht öffnen<\/button>/.test(tabelle) && /Nachbereiten<\/button>/.test(tabelle) && /Öffnen<\/button>/.test(tabelle) && /abg && !t\.nachbereitet_am/.test(tabelle), 'Hauptknopf folgt dem Status: Durchsicht öffnen · Nachbereiten · Öffnen');
   check((tabelle.match(/<button /g) || []).length === 3, 'Genau drei Knopf-Varianten in der Zeile (Hauptknopf), alles Weitere im Menü');
   for (const f of ['PlanungHandler.editTermin(${t.id})', 'Workflows.emailSchule(${t.id})', 'Workflows.seriendruckBetriebe(${t.id})', 'PlanungHandler.exportTerminPDF(${t.id})', 'PlanungHandler.fremdeAemter(${t.id})', 'KontrolleHandler.printUebersicht(${t.id})', 'PlanungHandler.nachholterminAnlegen(${t.id})', 'PlanungHandler.deleteTermin(${t.id})']) check(tabelle.includes(f), `Menü enthält ${f.split('(')[0]}`);
   check(/App\.menue\('⋯', \[/.test(tabelle) && /'klein'\)/.test(tabelle), 'Menü als schmaler ⋯-Knopf');
@@ -56,7 +56,7 @@ console.log('\n══ Stammdaten: Seiten à 50, Hauptknopf Öffnen (Azubi-Seite)
 console.log('\n══ Import-Seite nur noch Import, Azubi-Liste einmal ══');
 {
   check(!/schuelerViewContainer/.test(V) && !/SchuelerView\.render\(\)/.test(V) && !/SchuelerView\.init\(\)/.test(V), 'Import-Seite ohne zweite Azubi-Liste');
-  check(/<div id="csvSection">/.test(V) && /IBYKUS-Import \(CSV \/ Excel\)/.test(V) && /Die Azubi-Liste steht unter/.test(V), 'IBYKUS-Import aufgeklappt, Hinweis auf die Stammdaten');
+  check(/<div id="csvSection">/.test(V) && /IBYKUS-Import \(CSV \/ Excel\)/.test(V) && /\$\{this\._stammdatenTabsHtml\('import'\)\}/.test(V), 'IBYKUS-Import aufgeklappt, Import als Reiter der Stammdaten');
   check(/onclick="App\.navigate\('stammdaten'\)" title="Klick/.test(V) || /stat-card stat-info" style="cursor:pointer" onclick="App\.navigate\('stammdaten'\)"/.test(V), 'Startseiten-Kennzahl führt in die Stammdaten');
   check(!/getFilteredData\(\) \{/.test(SV) && /abschliessenJahrgang\(\) \{/.test(SV) && /ImportHandler\.ausbildungBeenden\(ids/.test(SV) && /StammdatenTab\._renderAzubiTable\(c\)/.test(SV), 'SchuelerView: nur noch „Jahrgang abschließen“, render() frischt die Stammdaten-Liste auf');
   check(/deleteAllJahrgang\(\) \{\n    const jahrgaenge = App\.query/.test(IH) && /doDeleteAllJahrgang\(\) \{/.test(IH) && /id="mDelJG"/.test(IH) && !/SchuelerView\.filters\.jahrgang/.test(IH), 'Jahrgang komplett löschen: eigener Dialog mit Auswahl statt Filter der alten Liste');
@@ -85,7 +85,7 @@ console.log('\n══ Begriffe: Azubi statt Schüler ══');
   for (const d of dateien) read(d).split('\n').forEach((z, i) => { if (/Schüler/.test(z) && !/enterSchüler|IBYKUS „Schüler/.test(z)) reste.push(`${d}:${i + 1}`); });
   check(reste.length === 0, `Kein „Schüler“ mehr in der Oberfläche${reste.length ? ' – Reste: ' + reste.slice(0, 5).join(', ') : ''}`);
   check(/enterSchüler\(\) \{/.test(K), 'Bezeichner unangetastet');
-  check(/Azubi-Akte/.test(V) && /Termin auswählen<\/div>/.test(V) && /<h2>Durchführung<\/h2>/.test(V), 'Azubi-Akte, „Termin auswählen“, Seitentitel unverändert');
+  check(/Azubi-Akte/.test(V) && /Termin auswählen<\/div>/.test(V) && /<h2>Durchsicht<\/h2>/.test(V), 'Azubi-Akte, „Termin auswählen“, Seitentitel = Menüpunkt „Durchsicht“');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

@@ -5978,6 +5978,20 @@ body.vollbild .topbar-btn#btnVollbild svg { transform: rotate(180deg); }
   color: var(--clr-text);
 }
 .filter-panel.open { display: flex; }
+/* Filterbalken nur in Listen (App.FILTER_ANSICHTEN); im Standardzustand ein Chip (App._filterKompaktAktualisieren) */
+body.ohne-filter .filter-panel { display: none; }
+.filter-panel .fp-kompakt { display: none; }
+.filter-panel.kompakt > * { display: none !important; }
+.filter-panel.kompakt > .fp-kompakt { display: inline-block !important; }
+/* Umschalter in einer Gruppe (Tabelle | Kalender | Jahr) */
+.seg { display: inline-flex; border: 1px solid var(--clr-sage-light); border-radius: var(--radius); overflow: hidden; }
+.seg .seg-btn { border: 0; background: var(--clr-white); color: var(--clr-text); padding: 6px 12px; font-size: 13px; cursor: pointer; min-height: 32px; }
+.seg .seg-btn + .seg-btn { border-left: 1px solid var(--clr-sage-light); }
+.seg .seg-btn.active { background: var(--clr-forest); color: var(--clr-white); }
+.seg .seg-btn:focus-visible { outline: 2px solid var(--clr-forest); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--clr-gelb); }
+.split { display: inline-flex; align-items: stretch; }
+.split > .btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .aktionen-menue > summary, .split > details > summary { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; height: 100%; }
 #btnSwitchDB { display: none !important; }  /* Datenbankwechsel steht in der Seitenleiste */
 .fp-btn {
   padding: 5px 12px;
@@ -7345,8 +7359,8 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
       <p style="font-weight:700;color:var(--clr-forest-dark);font-size:14px;margin-bottom:8px">Kurzanleitung</p>
       <p><strong>1.</strong> Arbeitsordner öffnen – der Ordner, in dem diese Datei liegt (Chrome fragt einmal nach der Berechtigung)</p>
       <p><strong>2.</strong> IBYKUS-CSV importieren (Azubi-Import)</p>
-      <p><strong>3.</strong> Kontrolltermine planen (Kontrollplanung)</p>
-      <p><strong>4.</strong> Berichtshefte kontrollieren (Durchführung)</p>
+      <p><strong>3.</strong> Termine für die Durchsichten anlegen (Termine)</p>
+      <p><strong>4.</strong> Berichtshefte durchsehen (Durchsicht)</p>
       <p><strong>5.</strong> Wiedervorlagen bearbeiten + Berichte exportieren</p>
       <p style="margin-top:8px">Die Datenbank liegt im Unterordner <strong>Datenbanken/</strong>, Protokolle und Sicherungen in <strong>_bhk/</strong>. Alle Kollegen öffnen denselben Arbeitsordner – dann sehen alle denselben Stand.</p>
       <p style="margin-top:8px">Ausführliche Hilfe mit allen Funktionen finden Sie nach dem Start unter <strong>Sidebar → Hilfe</strong>.</p>
@@ -7402,6 +7416,7 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 
   <!-- Filter Panel -->
   <div class="filter-panel" id="filterPanel">
+    <button id="filterKompaktBtn" class="fp-btn fp-kompakt" onclick="App.filterAufklappen(true)" title="Die Filter gelten wie beim Start – zum Ändern aufklappen">Filter ▾</button>
     <div style="position:relative;display:inline-block">
       <button id="jgFilterBtn" class="fp-btn" onclick="App.toggleJgDropdown()" title="Jahrgangs-Filter">
         Alle Jahrgänge ▾
@@ -7448,6 +7463,7 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
     <div id="extraFilterChips" style="display:contents"></div>
     <span id="dbLastSaved" style="display:none">–</span>
     <a href="#" id="filterReset" style="display:none;margin-left:auto;font-size:12px;color:var(--clr-forest);text-decoration:underline;white-space:nowrap" onclick="App.filterZuruecksetzen();return false" title="Alle Filter auf die Vorgabe zurücksetzen">✕ Filter zurücksetzen</a>
+    <a href="#" id="filterZuklappen" style="display:none;margin-left:auto;font-size:12px;color:var(--clr-text-light);text-decoration:underline;white-space:nowrap" onclick="App.filterAufklappen(false);return false" title="Filterbalken wieder zu einem Chip verdichten">Einklappen</a>
   </div>
 
   </div><!-- /kopf-block -->
@@ -7469,19 +7485,15 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
         Stammdaten
       </button>
-      <button class="sidebar-item sidebar-optional" data-view="import" data-feature="import" onclick="App.navigate('import')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Import
-      </button>
 
       <div class="sidebar-section">Kontrolle</div>
       <button class="sidebar-item" data-view="planung" onclick="App.navigate('planung')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        Kontrollplanung
+        Termine
       </button>
       <button class="sidebar-item sidebar-optional" data-view="kontrolle" data-feature="kontrolle" onclick="App.navigate('kontrolle')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-        Durchführung
+        Durchsicht
       </button>
       <button class="sidebar-item sidebar-optional" data-view="nacherfassung" data-feature="nacherfassung" onclick="App.navigate('nacherfassung')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
@@ -7503,17 +7515,9 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         Einstellungen
       </button>
-      <button class="sidebar-item" data-view="wartung" onclick="App.navigate('wartung')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-        Wartung
-      </button>
       <button class="sidebar-item" data-view="hilfe" onclick="App.navigate('hilfe')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         Hilfe
-      </button>
-      <button class="sidebar-item" onclick="App.switchDB()" style="opacity:0.6">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/></svg>
-        DB wechseln
       </button>
     </nav>
 
@@ -7808,7 +7812,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-03 13:29 UTC',
+  BUILD: '2026-11-03 13:51 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -8750,6 +8754,7 @@ const App = {
     if (el) el.textContent = cnt > 0 ? `(${cnt})` : '';
     const reset = document.getElementById('filterReset');
     if (reset) reset.style.display = cnt > 0 ? '' : 'none';
+    this._filterKompaktAktualisieren();
   },
 
   // ── Dashboard Drill-Down (click chart → filter Azubi list) ──
@@ -17866,6 +17871,8 @@ Mit freundlichen Grüßen
         this._updateAmtButton();
       }
     }
+    // Dieser Stand ist der Standard – solange er gilt, zeigt der Balken einen Chip
+    this._filterStandardMerken();
 
     const validViews = ['dashboard','stammdaten','import','planung','kontrolle','nacherfassung','wiedervorlagen','berichte','einstellungen','hilfe'];
     const hashView = location.hash.replace('#','');
@@ -17944,9 +17951,8 @@ Mit freundlichen Grüßen
 
   // ── Sidebar Feature Toggle System ──
   SIDEBAR_FEATURES: {
-    nacherfassung: { label: 'Nacherfassung (vergangene Kontrollen)', default: false },
-    import: { label: 'IBYKUS-Import', default: true },
-    kontrolle: { label: 'Durchführung (Kontrolltag)', default: true },
+    nacherfassung: { label: 'Nacherfassung (vergangene Durchsichten)', default: false },
+    kontrolle: { label: 'Durchsicht (Kontrolltag)', default: true },
   },
 
   _getSidebarVisibility() {
@@ -18563,14 +18569,45 @@ Mit freundlichen Grüßen
     } catch(e) {}
   },
 
+  MENUE_ZUORDNUNG: { azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' },
+  // Filterbalken nur dort, wo er filtert (Listen); Dashboard, Einstellungen,
+  // Hilfe, Azubi-Seite und die Einzelansicht der Durchsicht laufen ohne
+  FILTER_ANSICHTEN: ['stammdaten', 'planung', 'kontrolle', 'nacherfassung', 'wiedervorlagen', 'berichte'],
+  _filterbalkenAnpassen(view, einzelansicht) {
+    const ohne = !this.FILTER_ANSICHTEN.includes(view) || !!einzelansicht;
+    try { document.body.classList.toggle('ohne-filter', ohne); } catch(e) {}
+  },
+  // Standardfilter als ein Chip: Weichen die Filter nicht vom Stand beim Start
+  // ab, verdichtet sich der Balken zu „Filter: Gärtner · § 93 RP Freiburg ▾“;
+  // ein Klick klappt alle Chips auf. Sobald ein Filter abweicht, bleibt der
+  // Balken offen und die abweichenden Chips stehen schwarz.
+  _filterSchluessel() {
+    return JSON.stringify([this.filterJahrgang, this.filterZp, this.filterFachrichtungen, this.filterAmt, this.filterBavStatus, (this.extraFilters || []).filter(f => this._efAktiv(f))]);
+  },
+  _filterStandardMerken() { this._filterStandard = this._filterSchluessel(); this._filterKompaktAktualisieren(); },
+  filterAufklappen(an) { this._filterOffen = !!an; this._filterKompaktAktualisieren(); },
+  filterIstStandard() { return this._filterStandard !== undefined && this._filterSchluessel() === this._filterStandard; },
+  _filterKompaktAktualisieren() {
+    const panel = document.getElementById('filterPanel'); if (!panel || !panel.classList) return;
+    const standard = this.filterIstStandard();
+    panel.classList.toggle('kompakt', standard && !this._filterOffen);
+    const chip = document.getElementById('filterKompaktBtn');
+    if (chip) {
+      const teile = ['jgFilterBtn', 'bgFilterBtn', 'amtFilterBtn', 'bavFilterBtn'].map(id => document.getElementById(id)).filter(Boolean)
+        .map(b => String(b.textContent || '').replace(/[▾▤]/g, '').trim()).filter(t => t && !/^Alle /.test(t) && !/^§ Alle/.test(t));
+      chip.textContent = 'Filter: ' + (teile.length ? teile.join(' · ') : 'alle') + ' ▾';
+    }
+    const zu = document.getElementById('filterZuklappen'); if (zu) zu.style.display = standard && this._filterOffen ? '' : 'none';
+  },
   navigate(view, skipHash) {
     this.currentView = view;
     this.kopfZeigen();
     if (!skipHash) location.hash = '#' + view;
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
-    // Die Azubi-Seite hat keinen eigenen Menüpunkt – sie gehört zu den Stammdaten
-    const menuView = view === 'azubi' ? 'stammdaten' : view;
+    // Azubi-Seite und Import gehören zu den Stammdaten, Wartung zu den Einstellungen
+    const menuView = this.MENUE_ZUORDNUNG[view] || view;
+    this._filterbalkenAnpassen(view);
     document.querySelectorAll('.sidebar-item').forEach(el => {
       el.classList.toggle('active', el.dataset.view === menuView);
     });
@@ -19267,21 +19304,21 @@ const Views = {
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:stretch">
           ${stufe(st.pruefer > 0, '1. Prüfer anlegen', st.pruefer ? `${st.pruefer} Prüfer vorhanden` : 'Stammdaten → Prüfer')}
           ${stufe(false, '2. IBYKUS-Export importieren', 'CSV aus IBYKUS, Spalten werden erkannt')}
-          ${stufe(false, '3. Kampagne planen', 'Kontrollplanung → Kampagnen-Assistent')}
+          ${stufe(false, '3. Kampagne planen', 'Termine → Neuer Termin ▾ → Kampagne')}
         </div>
         <div style="margin-top:10px"><button class="btn btn-primary" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button></div>
       </div>` : `
       <div class="card" style="margin-bottom:20px;padding:14px 18px;border-left:4px solid var(--clr-forest)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <strong style="font-size:14px;color:var(--clr-forest-dark)">Wo stehen wir?</strong>
-          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Kontrolle → Nachbereitung → Berichte</span>
+          <span style="font-size:12px;color:var(--clr-text-light)">Jahresablauf: Import → Kampagne → Termine → Durchsicht → Nachbereitung → Berichte</span>
           <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="${schrittAktion(ns.schritt)}">▸ Nächster Schritt: ${esc(ns.text)}</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           ${stufe(st.importAlterTage !== null && st.importAlterTage <= 90, 'Import', st.letzterImport ? `zuletzt ${formatDate(st.letzterImport)} (vor ${st.importAlterTage} Tagen)` : 'noch kein Import protokolliert')}
           ${stufe(!!(st.kampagne && st.kampagne.termine), 'Kampagne', st.kampagne ? `${esc(st.kampagne.titel)}: ${formatDate(st.kampagne.vonIso)}–${formatDate(st.kampagne.bisIso)} · ${st.kampagne.termine} Termin(e)` : '–')}
           ${stufe(st.termineOffen > 0 && !st.nichtAngefragt, 'Termine', `${st.termineOffen} geplant${st.nichtAngefragt ? `, ${st.nichtAngefragt} nicht angefragt` : ''}`)}
-          ${stufe(!st.ohneAbschluss, 'Kontrolle', st.ohneAbschluss ? `${st.ohneAbschluss} Termin(e) ohne Abschluss` : 'keine offenen Abschlüsse')}
+          ${stufe(!st.ohneAbschluss, 'Durchsicht', st.ohneAbschluss ? `${st.ohneAbschluss} Termin(e) ohne Abschluss` : 'keine offenen Abschlüsse')}
           ${stufe(!st.ohneNachbereitung && !st.wvUeberfaellig, 'Nachbereitung', `${st.ohneNachbereitung} ohne Nachbereitung · ${st.wvUeberfaellig} WV überfällig`)}
         </div>
       </div>`;
@@ -19343,7 +19380,7 @@ const Views = {
       <div class="grid-2" style="margin-bottom:20px">
         <div class="card">
           <div class="card-header">
-            Nächste Kontrolltermine
+            Nächste Termine
             <button class="btn btn-sm btn-secondary" onclick="App.navigate('planung')">Alle anzeigen</button>
           </div>
           ${naechsteTermine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Schule</th><th>Fachrichtung / AJ</th><th>Prüfer</th><th></th></tr></thead><tbody>
@@ -19615,7 +19652,7 @@ const Views = {
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">Kontrollfortschritt</div>
             <div class="dash-chart-wrap dash-chart-wrap-sm"><canvas id="chartKontrollfortschritt" style="cursor:pointer"></canvas></div>
-            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Berichte / Kontrolle</div>
+            <div style="font-size:12px;color:var(--clr-text-light);margin-top:4px">Klick → Berichte / Durchsicht</div>
           </div>
           <div class="card dash-chart-card" style="text-align:center">
             <div class="card-header">Geschlechterquote</div>
@@ -19923,18 +19960,18 @@ const Views = {
         <p>Azubis, Betriebe, Berufsschulen, Klassen und Prüfer verwalten</p>
       </div>
       ${App.filterBadgeHtml()}
-      <div class="tabs">
-        <button class="tab-btn active" onclick="StammdatenTab.show('azubis',this)">Azubis</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('jahrgaenge',this)">Jahrgänge</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('schulen',this)">Berufsschulen</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('klassen',this)">Klassen</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('betriebe',this)">Betriebe</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('blockplan',this)">Blockpläne</button>
-        <button class="tab-btn" onclick="StammdatenTab.show('pruefer',this)">Prüfer</button>
-      </div>
+      ${this._stammdatenTabsHtml('azubis')}
       <div id="stammdatenContent"></div>
     </div>`;
     StammdatenTab.show('azubis', document.querySelector('.tab-btn.active'));
+  },
+  // Reiter der Stammdaten; „Import“ ist die eigene Ansicht `import` (kein Menüpunkt mehr)
+  STAMMDATEN_TABS: [['azubis', 'Azubis'], ['jahrgaenge', 'Jahrgänge'], ['schulen', 'Berufsschulen'], ['klassen', 'Klassen'], ['betriebe', 'Betriebe'], ['blockplan', 'Blockpläne'], ['pruefer', 'Prüfer']],
+  _stammdatenTabsHtml(aktiv) {
+    return `<div class="tabs">
+        ${this.STAMMDATEN_TABS.map(([k, l]) => `<button class="tab-btn${aktiv === k ? ' active' : ''}" onclick="${App.currentView === 'stammdaten' ? `StammdatenTab.show('${k}',this)` : `App.navigate('stammdaten');setTimeout(()=>StammdatenTab.show('${k}'),0)`}">${l}</button>`).join('')}
+        <button class="tab-btn${aktiv === 'import' ? ' active' : ''}" onclick="App.navigate('import')" title="IBYKUS-Export, Landesfachklassen und Ausbilder einlesen">Import</button>
+      </div>`;
   },
 
   // ════════════════════════════════════════════
@@ -19945,9 +19982,10 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Import</h2>
-        <p>IBYKUS-Export einlesen, Landesfachklassen und Ausbilder nachladen. Die Azubi-Liste steht unter <a href="#" onclick="event.preventDefault();App.navigate('stammdaten')" style="color:var(--clr-forest);font-weight:600">Stammdaten</a>.</p>
+        <h2>Stammdaten</h2>
+        <p>IBYKUS-Export einlesen, Landesfachklassen und Ausbilder nachladen</p>
       </div>
+      ${this._stammdatenTabsHtml('import')}
       ${ImportHandler.historieHtml()}
 
       <div class="card" style="margin-bottom:16px">
@@ -20087,8 +20125,8 @@ const Views = {
     const mc = document.getElementById('mainContent');
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Kontrollplanung</h2>
-        <p>Termine für Berichtsheftdurchsichten planen und verwalten</p>
+        <h2>Termine</h2>
+        <p>Durchsichten planen – an der Berufsschule, im Büro oder im Betrieb</p>
       </div>
       ${App.filterBadgeHtml()}
       ${PlanungHandler._vorlagenHinweisHtml()}
@@ -20101,20 +20139,27 @@ const Views = {
             <option value="alt">Ältere Termine (Archiv)</option>
             <option value="all">Alle anzeigen</option>
           </select>
-          <button class="btn btn-primary" onclick="PlanungHandler.addTermin()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Neuer Termin
-          </button>
-          ${PlanungHandler._vorlagenButtonHtml()}
-          <button class="btn btn-secondary" onclick="PlanungHandler.jahresplanAssistent()" title="Je Schule einen Termin mit genau den dort anwesenden Azubis anlegen (inkl. LFK und fremder Ämter)">
-            Kampagnen-Assistent
-          </button>
+          <span class="split">
+            <button class="btn btn-primary" onclick="PlanungHandler.addTermin()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Neuer Termin
+            </button>
+            ${App.menue('▾', [
+              { label: 'Kampagne: je Schule einen Termin anlegen …', onclick: 'PlanungHandler.jahresplanAssistent()', title: 'Je Schule einen Termin mit genau den dort anwesenden Azubis anlegen (inkl. LFK und fremder Ämter)' },
+              { trenner: true },
+              ...PlanungHandler._kontrollVorlagen().map(v => ({ label: `★ ${v.titel} · ${v.termin}`, onclick: `PlanungHandler._applyVorlage('${v.key}')`, title: `Kontroll-Vorlage: stellt die Kohorten-Filter ein${v.fehlt.length ? ' – fehlt: ' + v.fehlt.join(', ') : ''}` })),
+            ], 'Neuer Termin: Kampagne oder Kontroll-Vorlage', 'klein')}
+          </span>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-sm btn-secondary" id="planViewTbl" onclick="document.getElementById('planTable').style.display='';document.getElementById('planCalendar').style.display='none';this.style.fontWeight='700';document.getElementById('planViewCal').style.fontWeight='400'" style="font-weight:700">▤ Tabelle</button>
-          <button class="btn btn-sm btn-secondary" id="planViewCal" onclick="document.getElementById('planCalendar').style.display='';document.getElementById('planTable').style.display='none';this.style.fontWeight='700';document.getElementById('planViewTbl').style.fontWeight='400'">Kalender</button>
-          <button class="btn btn-secondary" onclick="Views.jahreskalenderToggle()" title="Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien">▦ Jahreskalender</button>
-          <button class="btn btn-secondary" onclick="PlanungHandler.exportICS()">ICS-Export</button>
+          <div class="seg" role="group" aria-label="Ansicht der Termine">
+            <button class="seg-btn active" id="planViewTbl" onclick="Views.planAnsicht('tabelle', this)">Tabelle</button>
+            <button class="seg-btn" id="planViewCal" onclick="Views.planAnsicht('kalender', this)">Kalender</button>
+            <button class="seg-btn" id="planViewJahr" onclick="Views.planAnsicht('jahr', this)" title="Jahreskalender mit Kampagnenfenstern, Blockwochen und Ferien">Jahr</button>
+          </div>
+          ${App.menue('⋯', [
+            { label: '▤ ICS-Export (Kalenderdatei)', onclick: 'PlanungHandler.exportICS()', title: 'Geplante Termine als Kalenderdatei für Outlook' },
+          ], 'Weitere Aktionen', 'klein')}
         </div>
       </div>
 
@@ -20183,7 +20228,7 @@ const Views = {
 
       <div id="planJahreskalender" style="display:none;margin-bottom:16px"></div>
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Titel</th><th>Schule</th><th>Klasse(n)</th><th>Fachrichtung</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Ort</th><th>Klasse(n)</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const ortBs = App.getTerminSchule(t.id);
@@ -20194,11 +20239,9 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
-            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}</td>
-            <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung||'')}">${esc(t.bemerkung || '–')}</td>
-            <td>${esc(schule)}${ort ? ` <small>(${esc(ort)})</small>` : ''}</td>
-            <td>${esc(klassenStr)}</td>
-            <td>${esc(frStr)}</td>
+            <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}${t.bemerkung ? `<div style="font-size:12px;color:var(--clr-text-light);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung)}">${esc(t.bemerkung)}</div>` : ''}</td>
+            <td>${esc(schule)}${ort ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(ort)}</div>` : ''}</td>
+            <td>${esc(klassenStr)}${frStr !== '–' ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(frStr)}</div>` : ''}</td>
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
@@ -20209,10 +20252,10 @@ const Views = {
                 const oeffnen = `App.navigate('kontrolle');setTimeout(()=>KontrolleHandler.startKontrolle(${t.id}),100)`;
                 const abg = t.status === 'durchgefuehrt';
                 const haupt = t.status === 'geplant'
-                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Kontrolltag öffnen und mit der Durchsicht beginnen">Starten</button>`
+                  ? `<button class="btn btn-sm btn-success" onclick="${oeffnen}" title="Termin öffnen und mit der Durchsicht beginnen">Durchsicht öffnen</button>`
                   : abg && !t.nachbereitet_am
                     ? `<button class="btn btn-sm btn-primary" onclick="${oeffnen}" title="Ergebnisse an Schule und Betriebe, PDFs, fremde Ämter">Nachbereiten</button>`
-                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchführung öffnen">Öffnen</button>`;
+                    : `<button class="btn btn-sm btn-secondary" onclick="${oeffnen}" title="Termin in der Durchsicht öffnen">Öffnen</button>`;
                 return haupt + ' ' + App.menue('⋯', [
                   { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
                   { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
@@ -20248,8 +20291,8 @@ const Views = {
 
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Durchführung</h2>
-        <p>Berichtsheftdurchsicht dokumentieren</p>
+        <h2>Durchsicht</h2>
+        <p>Berichtshefte am Termin durchsehen und die Ergebnisse festhalten</p>
       </div>
       ${App.filterBadgeHtml()}
       <div class="card" id="terminWahlCard">
@@ -20290,13 +20333,20 @@ const Views = {
   },
 
   // ── Jahreskalender: Kampagnenfenster, Blockwochen je Schule, Ferien BW, Termine ──
+  // Ein Umschalter statt drei Knöpfe: Tabelle | Kalender | Jahr
+  planAnsicht(art, btn) {
+    const z = { tabelle: 'planTable', kalender: 'planCalendar', jahr: 'planJahreskalender' };
+    Object.entries(z).forEach(([k, id]) => { const el = document.getElementById(id); if (el) el.style.display = k === art ? '' : 'none'; });
+    ['planViewTbl', 'planViewCal', 'planViewJahr'].forEach(id => { const b = document.getElementById(id); if (b) b.classList.toggle('active', b === btn || (!btn && id === { tabelle: 'planViewTbl', kalender: 'planViewCal', jahr: 'planViewJahr' }[art])); });
+    if (art === 'jahr') {
+      if (!this._jkSj) { const d = new Date(); this._jkSj = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; }
+      this.jahreskalender(this._jkSj, this._jkBs || 0);
+    }
+  },
   jahreskalenderToggle() {
     const box = document.getElementById('planJahreskalender');
     if (!box) return;
-    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
-    box.style.display = '';
-    if (!this._jkSj) { const d = new Date(); this._jkSj = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; }
-    this.jahreskalender(this._jkSj, this._jkBs || 0);
+    this.planAnsicht(box.style.display !== 'none' ? 'tabelle' : 'jahr');
   },
   jahreskalender(sjStart, bsId) {
     const box = document.getElementById('planJahreskalender');
@@ -20652,12 +20702,13 @@ const Views = {
           <strong>Gemeinsame Datenbank dieses Ordners:</strong> ${App._leitDb ? `„${esc(App._leitDb.name)}“${App._leitDb.gesetztVon ? ` (festgelegt von ${esc(App._leitDb.gesetztVon)}${App._leitDb.am ? ' am ' + esc(new Date(App._leitDb.am).toLocaleDateString('de-DE')) : ''})` : ''}` : 'noch nicht festgelegt'}.
           ${App.istLeitDb() === false ? `<strong style="color:var(--clr-amber)">Hier ist aber „${esc(App.autoLoadedDbName || '?')}“ geöffnet – Kollegen sehen Änderungen hier nicht.</strong>` : App.istLeitDb() === true ? 'Diese Datenbank ist hier geöffnet – alle Kollegen öffnen sie beim Start automatisch.' : 'Jeder Rechner öffnet die gemeinsame Datei beim Start automatisch, sobald sie festgelegt ist.'}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-secondary btn-sm" onclick="App.switchDB()" title="Verbindung trennen und einen anderen Arbeitsordner oder eine andere Datenbank öffnen">↻ Datenbank wechseln</button>
             ${App.istLeitDb() === false ? `<button class="btn btn-primary btn-sm" onclick="App.zurLeitDb()" title="Änderungen schreiben und mit der gemeinsamen Datenbank neu starten">→ Zur gemeinsamen Datenbank wechseln</button>` : ''}
             ${App.istLeitDb() !== true && App.autoLoadedDbName ? `<button class="btn btn-secondary btn-sm" onclick="App.dieseAlsLeitDb()" title="Die hier geöffnete Datei wird für alle Kollegen die gemeinsame">Diese Datenbank als gemeinsame festlegen</button>` : ''}
           </div>
         </div>
         <div style="font-size:13px;line-height:1.6;margin-top:8px"><strong>Arbeitsordner:</strong> „${esc(App.dirHandle ? (App.dirHandle.name || '?') : '–')}“ · Datenbank „${esc(App.autoLoadedDbName || '–')}“${App._ordnerKennung ? ` · Ordner-Kennung <code>${esc(App._ordnerKennung.id)}</code>` : ''}. Alle Kollegen müssen denselben Ordner und dieselbe Datei öffnen – jeder andere Ordner ist eine eigene Welt.</div>
-        ${App._ordnerGewechselt ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6"><strong>⚠ Anderer Arbeitsordner als zuletzt:</strong> jetzt „${esc(App._ordnerGewechselt.nach)}“, zuletzt „${esc(App._ordnerGewechselt.von)}“. Wenn das nicht beabsichtigt ist: „DB wechseln“ → Verbindung trennen und den gemeinsamen Ordner wählen.</div>` : ''}
+        ${App._ordnerGewechselt ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6"><strong>⚠ Anderer Arbeitsordner als zuletzt:</strong> jetzt „${esc(App._ordnerGewechselt.nach)}“, zuletzt „${esc(App._ordnerGewechselt.von)}“. Wenn das nicht beabsichtigt ist: „Datenbank wechseln“ → Verbindung trennen und den gemeinsamen Ordner wählen.</div>` : ''}
         ${(App._unterordnerMitDb || []).length ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6"><strong>⚠ Unterordner mit eigener Datenbank:</strong> ${App._unterordnerMitDb.map(f => `„${esc(f.ordner)}“ (${[f.datenbanken ? 'Datenbanken/' : '', f.bhk ? '_bhk/' : '', f.sqlite ? f.sqlite + ' × .sqlite' : ''].filter(Boolean).join(', ')})`).join(', ')}. Wählt ein Kollege beim Start diesen Ordner, arbeitet er getrennt von allen anderen. Alte Kopien bitte aus dem Arbeitsordner heraus verschieben.</div>` : ''}
         ${App._bhkFehlt ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-red, #b00020);background:#fdecea;font-size:13px;line-height:1.6"><strong>⚠ Unterordner „_bhk“ nicht zugänglich</strong> (${esc(App._bhkFehlt)}). Dieser Rechner schreibt seine Protokolle in den Hauptordner – die Kollegen lesen dort nicht. Ordnerrechte prüfen, Verbindung trennen und neu verbinden.</div>` : ''}
         ${(App._protokolleAusserhalb || []).length ? `<div style="margin-top:8px;padding:8px 10px;border-left:4px solid var(--clr-amber);background:var(--clr-amber-light, #fff7ed);font-size:13px;line-height:1.6"><strong>⚠ Protokolle außerhalb von „_bhk“:</strong> Im Hauptordner liegen ${App._protokolleAusserhalb.length} aktuelle Protokoll-Datei(en) (zuletzt ${esc(new Date(App._protokolleAusserhalb[0].juengste).toLocaleString('de-DE'))}). Ein anderer Rechner konnte „_bhk“ offenbar nicht öffnen und schreibt daneben – seine Änderungen kommen hier nicht an. Dort Ordnerrechte prüfen und neu verbinden; danach die Dateien nach „_bhk“ verschieben.</div>` : ''}
@@ -20949,14 +21000,18 @@ const Views = {
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
         <h2>Einstellungen</h2>
-        <p>Darstellung und Menü, Kontaktdaten und Vorlagen, Regeln und Textbausteine. Verbindung, Sicherungen, Papierkorb, Datenbank-Tools und Logbuch stehen unter <a href="#" onclick="event.preventDefault();App.navigate('wartung')" style="color:var(--clr-forest);font-weight:600">Wartung</a>.</p>
+        <p>Darstellung und Menü, Kontaktdaten und Vorlagen, Regeln und Textbausteine – Verbindung, Sicherungen, Papierkorb, Datenbank-Tools und Logbuch im Reiter „Wartung“</p>
       </div>
-      <div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${tab === k ? ' active' : ''}" onclick="Views.einstTab('${k}', this)">${l}</button>`).join('')}</div>
+      ${this._einstTabsHtml(tab)}
       <div id="einstTab_persoenlich" class="einst-tab" style="${tab === 'persoenlich' ? '' : 'display:none'}">${t.darstellung}${t.menue}</div>
       <div id="einstTab_kontakt" class="einst-tab" style="${tab === 'kontakt' ? '' : 'display:none'}">${t.kontakt}${t.briefkopf}${t.aemter}${t.vorlagen}${t.word}</div>
       <div id="einstTab_regeln" class="einst-tab" style="${tab === 'regeln' ? '' : 'display:none'}">${t.zulassung}${t.uba}${t.fristen}${t.kampagnen}${t.lfk}${t.ferien}${t.textbausteine}</div>
     </div>`;
     setTimeout(() => { this.renderTextbausteine(); this._vorlageLaden(); }, 0);
+  },
+  // Reiter der Einstellungen; „Wartung“ ist die eigene Ansicht `wartung` (kein Menüpunkt mehr)
+  _einstTabsHtml(aktiv) {
+    return `<div class="tabs">${this.EINST_TABS.map(([k, l]) => `<button class="tab-btn${aktiv === k ? ' active' : ''}" onclick="${App.currentView === 'einstellungen' ? `Views.einstTab('${k}', this)` : `App.uSet('einst_tab','${k}');App.navigate('einstellungen')`}">${l}</button>`).join('')}<button class="tab-btn${aktiv === 'wartung' ? ' active' : ''}" onclick="App.navigate('wartung')" title="Verbindung, Sicherungen und Papierkorb, Datenbank-Tools, Logbuch, Import-Historie">Wartung</button></div>`;
   },
   einstTab(k, btn) {
     try { App.uSet('einst_tab', k); } catch(e) {}
@@ -20969,9 +21024,10 @@ const Views = {
     const t = this._einstellungenTeile();
     mc.innerHTML = `<div class="fade-in">
       <div class="page-header">
-        <h2>Wartung</h2>
-        <p>Verbindung, Sicherungen und Papierkorb, Datenbank-Tools, Logbuch und Import-Historie</p>
+        <h2>Einstellungen</h2>
+        <p>Wartung: Verbindung, Sicherungen und Papierkorb, Datenbank-Tools, Logbuch und Import-Historie</p>
       </div>
+      ${this._einstTabsHtml('wartung')}
       ${t.verbindung}${t.backups}${t.dbtools}${t.logbuch}${t.historie}${t.dupes}
     </div>`;
     setTimeout(() => { this._backupsLaden(); if (typeof DbTools !== 'undefined') { try { DbTools.renderCard(); } catch(e) {} } }, 0);
@@ -21458,7 +21514,7 @@ const Views = {
             <p>Die Berichtsheftkontrolle ist ein lokales Arbeitsinstrument zur Planung, Durchführung und Dokumentation von Berichtsheft-Durchsichten in den Ausbildungsberufen des Gartenbaus. Die Anwendung läuft vollständig im Browser (Chrome/Edge) – sämtliche Daten verbleiben auf dem lokalen Rechner bzw. dem Netzlaufwerk des Regierungspräsidiums.</p>
             <p style="margin-top:8px"><strong>Typischer Arbeitsablauf:</strong></p>
             <p>1. <strong>IBYKUS-Import</strong> → Stammdaten der Auszubildenden aus dem BAV-System übernehmen</p>
-            <p>2. <strong>Kontrollplanung</strong> → Durchsichtstermine anlegen und Berufsschulklassen zuweisen</p>
+            <p>2. <strong>Termine</strong> → Durchsichtstermine anlegen (Schule, Büro oder Betrieb) und Berufsschulklassen zuweisen</p>
             <p>3. <strong>Kontrolldurchführung</strong> → Ausbildungsnachweise prüfen, Ergebnisse im KW-Raster dokumentieren</p>
             <p>4. <strong>Nachverfolgung</strong> → Wiedervorlagen bearbeiten, Durchsichtsbögen und Berichte exportieren</p>
           <div class="help-abschnitt">
@@ -21516,7 +21572,7 @@ const Views = {
             <p>• <strong>Azubi</strong> – Auszubildende/r (in IBYKUS „Schüler"). Die Listen zählen Azubis, nicht Berichtshefte.</p>
             <p>• <strong>Ausbildungsberater / Prüfer</strong> – wer die Durchsicht macht und den Bogen unterschreibt; oben rechts wählen.</p>
             <p>• <strong>Durchsicht</strong> – die Berichtsheftkontrolle EINES Azubis (Ergebnis, Mängel-Codes, Pflichtteile). Im Tool auch „Kontrollergebnis".</p>
-            <p>• <strong>Termin / Kontrolltermin</strong> – ein Tag an einer Schule (oder eine Einsendung) mit vielen Durchsichten; Statuskette angefragt → bestätigt → durchgeführt → nachbereitet.</p>
+            <p>• <strong>Termin / Kontrolltermin</strong> – ein Tag an einer Schule (oder eine Einsendung) mit vielen Durchsichten; Statuskette angefragt → bestätigt → durchgeführt → nachbereitet. Menü „Termine“ plant ihn, „Durchsicht“ führt ihn durch, „Termin abschließen“ beendet den Tag.</p>
             <p>• <strong>Kampagne</strong> – die Terminserie einer Kontrollrunde (z.B. 2.+3. Ausbildungsjahr im Nov./Dez., Zulassungskontrolle AP Sommer).</p>
             <p>• <strong>Kohorte / Jahrgang</strong> – Abschlussjahrgang (S2027, W2028) bzw. Zwischenprüfung (F2027, H2026); Lehrjahr wird aus dem Ausbildungsbeginn berechnet.</p>
             <p>• <strong>LFK</strong> – Landesfachklasse: Azubi besucht in höheren Jahren eine andere Schule (Standort für Termin und Anschreiben).</p>
@@ -21667,7 +21723,7 @@ const Views = {
 
           <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">
             <div class="card-header" style="font-size:15px">Kontrolltag: Durchsicht, Raster, Tastenkürzel, Undo</div>
-            <p>Das Kernmodul der Anwendung. Unter <em>Kontrolle</em> wird die eigentliche Durchsicht der Ausbildungsnachweise (Berichtshefte) dokumentiert.</p>
+            <p>Das Kernmodul der Anwendung. Unter <em>Durchsicht</em> wird die eigentliche Durchsicht der Ausbildungsnachweise (Berichtshefte) dokumentiert.</p>
             <p style="margin-top:8px"><strong>Ablauf je Auszubildendem:</strong></p>
             <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
@@ -22746,7 +22802,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignKlasse()">Klasse zuordnen</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
-      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzelprüfung erstellen</button>
+      <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzeltermin für die Auswahl</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
     <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
@@ -22778,13 +22834,13 @@ const StammdatenTab = {
           </td>
           <td style="font-size:12px">
             ${ktrls.slice(0,3).map(ke=>'<a href="#" onclick="App.navigate(\'kontrolle\');setTimeout(()=>{document.getElementById(\'selKontrolltermin\').value='+ke.kontrolltermin_id+';KontrolleHandler.loadTermin('+ke.kontrolltermin_id+');setTimeout(()=>{const idx=KontrolleHandler.currentSchuelerList.findIndex(x=>x.id==='+s.id+');if(idx>=0){KontrolleHandler.currentIndex=idx;KontrolleHandler._viewMode=\'einzeln\';KontrolleHandler.enterSch\u00fcler();}},200)},100);return false" style="display:inline-block;padding:1px 5px;margin:1px;border-radius:6px;text-decoration:none;background:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green-light)':'var(--clr-red-light)')+';color:'+(ke.ergebnis==='in_ordnung'?'var(--clr-green)':'var(--clr-red)')+'" title="'+formatDate(ke.geplant_datum)+'">'+(ke.ergebnis==='in_ordnung'?'OK':'!')+' '+formatDate(ke.geplant_datum).substring(0,6)+'</a>').join('')}
-            ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:12px;color:var(--clr-forest);text-decoration:none" title="Neue Einzelprüfung erstellen">+ Prüfung</a>':''}
+            ${ktrls.length===0?'<a href="#" onclick="StammdatenTab.quickEinsendung(['+s.id+']);return false" style="font-size:12px;color:var(--clr-forest);text-decoration:none" title="Termin nur für diesen Azubi anlegen (Einzeltermin)">+ Termin</a>':''}
             ${snpCnt?' <a href="#" onclick="StammdatenTab.showAzubiSnapshots('+s.id+');return false" style="padding:1px 5px;border-radius:6px;background:var(--clr-blue-light);color:var(--clr-blue);text-decoration:none" title="Archivierte B\u00f6gen">'+snpCnt+'x</a>':''}
           </td>
           <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="AzubiSeite.oeffnen(${s.id})" title="Azubi-Seite: Stammdaten, Ausbildungsverlauf, Akte, Kontrollen, Wiedervorlagen">Öffnen</button> ${App.menue('⋯', [
             typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'phasen')`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
             { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'akte')` },
-            { label: '▤ Einzelprüfung anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung)' },
+            { label: '▤ Einzeltermin anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung / Einzelprüfung)' },
             snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
             { trenner: true },
             { label: '✕ Azubi löschen', onclick: `ImportHandler.deleteSchueler(${s.id})` },
@@ -22966,7 +23022,7 @@ const StammdatenTab = {
       const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [id])[0];
       return s ? `${s.nachname}, ${s.vorname}` : '';
     }).filter(Boolean);
-    const autoTitel = names.length <= 3 ? 'Einzelprüfung ' + names.join('; ') : `Einzelprüfung ${names.length} Azubis`;
+    const autoTitel = names.length <= 3 ? 'Einzeltermin ' + names.join('; ') : `Einzeltermin ${names.length} Azubis`;
     App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
       [jgId || null, today, 'einsendung', autoTitel]);
     // last_insert_rowid statt MAX(id): die IDs sind wanduhr-basiert global –
@@ -22976,7 +23032,7 @@ const StammdatenTab = {
     schuelerIds.forEach(sid => {
       App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
     });
-    App.toast(`Einzelprüfung erstellt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
+    App.toast(`Einzeltermin angelegt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
     App.navigate('kontrolle');
     setTimeout(() => {
       const sel = document.getElementById('selKontrolltermin');
@@ -28763,6 +28819,7 @@ const KontrolleHandler = {
   },
 
   renderUebersicht() {
+    App._filterbalkenAnpassen('kontrolle', false);
     // Clean up our position when leaving Einzelansicht
     this.stopLiveSync();
     const terminId = this.currentTerminId;
@@ -29040,7 +29097,7 @@ const KontrolleHandler = {
         <!-- Abschluss – direkt hier, wo man am Ende des Kontrolltags steht -->
         ${!istAbgeschlossen ? `<div style="display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 12px;background:${offen === 0 ? 'var(--clr-green-light)' : 'var(--clr-warm)'};border-radius:var(--radius);flex-wrap:wrap">
           <div style="font-size:12px;flex:1;min-width:200px">${offen === 0 ? '<strong>Alle anwesenden Azubis sind bewertet.</strong> Beim Abschließen werden Archiv-Bögen, Wiedervorlagen und die Folgeaktionen (PDF, Schule, Betriebe, fremde Ämter) erzeugt.' : `<strong>${offen} Azubi(s) noch ohne Ergebnis.</strong> Abschließen ist trotzdem möglich – offene Azubis werden im Abschluss-Dialog aufgelistet.`}</div>
-          <button class="btn ${offen === 0 ? 'btn-success' : 'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${offen === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${offen} offen)`}</button>
+          <button class="btn ${offen === 0 ? 'btn-success' : 'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${offen === 0 ? '✓ Termin abschließen' : `Termin abschließen (${offen} offen)`}</button>
         </div>` : ''}
       </div>
     `;
@@ -30236,7 +30293,7 @@ const KontrolleHandler = {
               </div>
             </div>
             <div class="btn-group">
-              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${open === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${open} offen)`}</button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Kontrolle wieder öffnen</button>`}
+              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${open === 0 ? '✓ Termin abschließen' : `Termin abschließen (${open} offen)`}</button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Termin wieder öffnen</button>`}
             </div>
           </div>
         </div>`;
@@ -30830,6 +30887,7 @@ const KontrolleHandler = {
 
   // ── Enter a student: track prüfer + save immediately for sync ──
   enterSchüler() {
+    App._filterbalkenAnpassen('kontrolle', true);
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     // Außerhalb der Kontrolle (Tastenkürzel, später Auto-Weiter) nichts tun – sonst
@@ -31362,7 +31420,7 @@ const KontrolleHandler = {
     };
     const nachholFrist = App.wvFrist('nachholung_abwesend');
 
-    App.openModal('Kontrolle abschließen – Nachbereitung', `
+    App.openModal('Termin abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
       <div style="font-size:14px;margin-bottom:8px">
         <strong>${done} von ${total - abwesende.length}</strong> anwesenden Azubis kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''}${abwesende.length ? ` · ${abwesende.length} abwesend` : ''} · ${esc(schule)}
@@ -31532,7 +31590,7 @@ const KontrolleHandler = {
   },
 
   async reopenKontrolle() {
-    if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
+    if (!(await App.confirm('Termin wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
     this.renderKontrolleView();

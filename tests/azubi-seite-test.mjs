@@ -64,7 +64,7 @@ App.migrateDB();
 console.log('══ Registrierung ══');
 {
   check(/<script src="src\/js\/modules\/azubi-seite\.js"><\/script>/.test(read('index.html')) && /"src\/js\/modules\/azubi-seite\.js"/.test(read('build.sh')), 'Modul in index.html und build.sh eingetragen');
-  check(/azubi: \(\) => AzubiSeite\.render\(\)/.test(APP_SRC) && /azubi: 'help_2'/.test(APP_SRC) && /const menuView = view === 'azubi' \? 'stammdaten' : view/.test(APP_SRC), 'Ansicht „azubi“ im Kern: Rendern, Hilfe-Kapitel, Menüpunkt Stammdaten bleibt markiert');
+  check(/azubi: \(\) => AzubiSeite\.render\(\)/.test(APP_SRC) && /azubi: 'help_2'/.test(APP_SRC) && /MENUE_ZUORDNUNG: \{ azubi: 'stammdaten'/.test(APP_SRC) && /const menuView = this\.MENUE_ZUORDNUNG\[view\] \|\| view/.test(APP_SRC), 'Ansicht „azubi“ im Kern: Rendern, Hilfe-Kapitel, Menüpunkt Stammdaten bleibt markiert');
   check(/oeffneEditor\(abschnitt, id, title, bodyHtml, footerHtml = ''\) \{/.test(APP_SRC), 'App.oeffneEditor vorhanden');
   const ST = read('src/js/modules/stammdaten.js');
   check(/onclick="AzubiSeite\.oeffnen\(\$\{s\.id\}\)" title="Azubi-Seite/.test(ST) && />Öffnen<\/button>/.test(ST) && /AzubiSeite\.oeffnen\(\$\{s\.id\}, 'phasen'\)/.test(ST) && /AzubiSeite\.oeffnen\(\$\{s\.id\}, 'akte'\)/.test(ST), 'Azubi-Liste: Hauptknopf „Öffnen“, Menü springt zu Verlauf und Akte');

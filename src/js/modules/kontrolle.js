@@ -337,6 +337,7 @@ const KontrolleHandler = {
   },
 
   renderUebersicht() {
+    App._filterbalkenAnpassen('kontrolle', false);
     // Clean up our position when leaving Einzelansicht
     this.stopLiveSync();
     const terminId = this.currentTerminId;
@@ -614,7 +615,7 @@ const KontrolleHandler = {
         <!-- Abschluss – direkt hier, wo man am Ende des Kontrolltags steht -->
         ${!istAbgeschlossen ? `<div style="display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 12px;background:${offen === 0 ? 'var(--clr-green-light)' : 'var(--clr-warm)'};border-radius:var(--radius);flex-wrap:wrap">
           <div style="font-size:12px;flex:1;min-width:200px">${offen === 0 ? '<strong>Alle anwesenden Azubis sind bewertet.</strong> Beim Abschließen werden Archiv-Bögen, Wiedervorlagen und die Folgeaktionen (PDF, Schule, Betriebe, fremde Ämter) erzeugt.' : `<strong>${offen} Azubi(s) noch ohne Ergebnis.</strong> Abschließen ist trotzdem möglich – offene Azubis werden im Abschluss-Dialog aufgelistet.`}</div>
-          <button class="btn ${offen === 0 ? 'btn-success' : 'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${offen === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${offen} offen)`}</button>
+          <button class="btn ${offen === 0 ? 'btn-success' : 'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${offen === 0 ? '✓ Termin abschließen' : `Termin abschließen (${offen} offen)`}</button>
         </div>` : ''}
       </div>
     `;
@@ -1810,7 +1811,7 @@ const KontrolleHandler = {
               </div>
             </div>
             <div class="btn-group">
-              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${open === 0 ? '✓ Kontrolle abschließen' : `Kontrolle abschließen (${open} offen)`}</button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Kontrolle wieder öffnen</button>`}
+              ${!isDone ? `<button class="btn ${open===0?'btn-success':'btn-primary'}" onclick="KontrolleHandler.abschliessen()">${open === 0 ? '✓ Termin abschließen' : `Termin abschließen (${open} offen)`}</button>` : `<button class="btn btn-secondary" onclick="KontrolleHandler.reopenKontrolle()">Termin wieder öffnen</button>`}
             </div>
           </div>
         </div>`;
@@ -2404,6 +2405,7 @@ const KontrolleHandler = {
 
   // ── Enter a student: track prüfer + save immediately for sync ──
   enterSchüler() {
+    App._filterbalkenAnpassen('kontrolle', true);
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     // Außerhalb der Kontrolle (Tastenkürzel, später Auto-Weiter) nichts tun – sonst
@@ -2936,7 +2938,7 @@ const KontrolleHandler = {
     };
     const nachholFrist = App.wvFrist('nachholung_abwesend');
 
-    App.openModal('Kontrolle abschließen – Nachbereitung', `
+    App.openModal('Termin abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
       <div style="font-size:14px;margin-bottom:8px">
         <strong>${done} von ${total - abwesende.length}</strong> anwesenden Azubis kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''}${abwesende.length ? ` · ${abwesende.length} abwesend` : ''} · ${esc(schule)}
@@ -3106,7 +3108,7 @@ const KontrolleHandler = {
   },
 
   async reopenKontrolle() {
-    if (!(await App.confirm('Kontrolle wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
+    if (!(await App.confirm('Termin wieder öffnen?\n\nDer Status wird auf „geplant" zurückgesetzt und das Durchführungsdatum gelöscht. Die archivierten Durchsichtsbögen bleiben erhalten und werden beim erneuten Abschließen aktualisiert (kein Doppel-Eintrag).', { titel: 'Kontrolle öffnen', ok: 'Wieder öffnen' }))) return;
     App.run("UPDATE kontrolltermine SET status='geplant', durchgefuehrt_datum='' WHERE id=?", [this.currentTerminId]);
     App.toast('Kontrolle wieder geöffnet', 'success');
     this.renderKontrolleView();

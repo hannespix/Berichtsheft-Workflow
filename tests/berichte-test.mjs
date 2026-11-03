@@ -158,7 +158,7 @@ console.log('\n══ Stufe 2 (4): Vorjahresvergleich, Filter, Dialoge, Glossar 
   check(/this\.filterZp = \[\];\n    this\.filterFachrichtungen = \[\];\n    this\.filterAmt = \[\];\n    this\.filterBavStatus = 'aktiv';\n    this\.extraFilters = \[\];/.test(APP), 'Datenbank-Wechsel setzt alle globalen Filter zurück');
   check(/filterBadgeHtml\(\) \{ return ''; \}/.test(APP) && /filterZuruecksetzen\(\) \{/.test(APP), 'Keine zweite Filterzeile auf den Seiten – der Filterbalken ist die einzige Darstellung, Zurücksetzen als Funktion');
   const VIEWS = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8');
-  check(/id="help_glossar"/.test(VIEWS) && /<h2>Durchführung<\/h2>/.test(VIEWS) && /role="button" tabindex="0"/.test(VIEWS) && /Azubis gesamt/.test(VIEWS), 'Glossar in der Hilfe, Seitentitel = Sidebar-Label, Arbeitsliste per Tastatur bedienbar, „Azubis" statt „Schüler"');
+  check(/id="help_glossar"/.test(VIEWS) && /<h2>Durchsicht<\/h2>/.test(VIEWS) && /role="button" tabindex="0"/.test(VIEWS) && /Azubis gesamt/.test(VIEWS), 'Glossar in der Hilfe, Seitentitel = Sidebar-Label, Arbeitsliste per Tastatur bedienbar, „Azubis" statt „Schüler"');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

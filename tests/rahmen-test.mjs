@@ -47,11 +47,43 @@ console.log('\n══ Einstellungen in Reitern, Wartung als Menüpunkt ══');
   check(/id="einstTab_persoenlich"[^>]*>\$\{t\.darstellung\}\$\{t\.menue\}/.test(V) && /id="einstTab_kontakt"[^>]*>\$\{t\.kontakt\}\$\{t\.briefkopf\}\$\{t\.aemter\}\$\{t\.vorlagen\}\$\{t\.word\}/.test(V) && /id="einstTab_regeln"[^>]*>\$\{t\.zulassung\}\$\{t\.uba\}\$\{t\.fristen\}\$\{t\.kampagnen\}\$\{t\.lfk\}\$\{t\.ferien\}\$\{t\.textbausteine\}/.test(V), 'Persönlich: Darstellung + Menü · Kontakt: Kontaktdaten, Briefbogen, Ämter, Vorlagen, Word · Regeln: Zulassung, ÜBA, Fristen, Kampagnen, LFK, Ferien, Textbausteine');
   check(/  wartung\(\) \{/.test(V) && /\$\{t\.verbindung\}\$\{t\.backups\}\$\{t\.dbtools\}\$\{t\.logbuch\}\$\{t\.historie\}\$\{t\.dupes\}/.test(V), 'Wartung: Verbindung, Sicherungen/Papierkorb, Datenbank-Tools, Logbuch, Import-Historie, Duplikate');
   check(!/Datenbank-Statistik<\/div>/.test(V) && !/Jetzt speichern<\/button>/.test(V) && !/PRAGMA integrity_check/.test(V.split('_einstellungenTeile() {')[1].split('EINST_TABS')[0]), 'Doppelte Datenbank-Statistik und die Knöpfe aus der Zeit vor dem Auto-Save entfallen');
-  check(/data-view="wartung" onclick="App\.navigate\('wartung'\)"/.test(HTML) && /wartung: Views\.wartung,/.test(APP) && /wartung: 'help_10'/.test(APP), 'Menüpunkt Wartung, Ansicht registriert, Kontexthilfe');
+  check(!/data-view="wartung"/.test(HTML) && /_einstTabsHtml\(aktiv\) \{/.test(V) && /onclick="App\.navigate\('wartung'\)"[^>]*>Wartung<\/button>/.test(V) && /\$\{this\._einstTabsHtml\('wartung'\)\}/.test(V) && /wartung: Views\.wartung,/.test(APP) && /wartung: 'help_10'/.test(APP), 'Wartung ist der vierte Reiter der Einstellungen (kein Menüpunkt), Ansicht registriert, Kontexthilfe');
   check(/einstTab\(k, btn\) \{/.test(V) && /App\.uSet\('einst_tab', k\)/.test(V), 'Gewählter Reiter wird gemerkt');
   for (const [f, alt] of [['src/js/app-core.js', 'Einstellungen → Verbindung'], ['src/js/modules/konsole.js', 'Einstellungen → Verbindung'], ['src/js/modules/import-handler.js', 'Einstellungen → Papierkorb'], ['src/js/modules/import-handler.js', 'Einstellungen → Datenbank-Tools']]) check(!read(f).includes(alt), `Verweis „${alt}“ zeigt jetzt auf Wartung (${f.split('/').pop()})`);
   check(/App\.uSet\('einst_tab','regeln'\);App\.navigate\('einstellungen'\)/.test(read('src/js/modules/kw-nav.js')), 'Textbaustein-Link öffnet den richtigen Reiter');
   check(/DbTools\.cardHtml\(\)/.test(V) && /DbTools\.renderCard\(\)/.test(V) && /value="getaktet"/.test(V) && /Views\._backupsLaden\(\)|this\._backupsLaden\(\)/.test(V), 'Datenbank-Tools, Verbindungsstufe und Sicherungen weiter angebunden');
+}
+
+console.log('\n══ UI-Vereinfachung Pakete 1–4: Wörter, Filterbalken, Menü, Termine-Kopf ══');
+{
+  const K = read('src/js/modules/kontrolle.js'), ST = read('src/js/modules/stammdaten.js');
+  // Paket 1 – Wörter
+  check(/        Termine\n      <\/button>/.test(HTML) && /        Durchsicht\n      <\/button>/.test(HTML) && !/Kontrollplanung\n/.test(HTML) && !/Durchführung\n      <\/button>/.test(HTML), 'Menü: „Termine“ und „Durchsicht“ statt „Kontrollplanung“ und „Durchführung“');
+  check(/<h2>Termine<\/h2>/.test(V) && /<h2>Durchsicht<\/h2>/.test(V) && !/<h2>Kontrollplanung<\/h2>/.test(V) && !/<h2>Durchführung<\/h2>/.test(V), 'Seitentitel = Menüpunkt');
+  check(/Durchsicht öffnen<\/button>/.test(V) && !/>Starten<\/button>/.test(V), 'Hauptknopf „Durchsicht öffnen“ statt „Starten“');
+  check(/✓ Termin abschließen/.test(K) && !/Kontrolle abschließen \(/.test(K) && !/✓ Kontrolle abschließen/.test(K) && /Termin wieder öffnen<\/button>/.test(K) && !/Kontrolle wieder öffnen<\/button>/.test(K) && /'Termin abschließen – Nachbereitung'/.test(K), '„Termin abschließen“ / „Termin wieder öffnen“ (der Termin ist der Tag, die Durchsicht die Arbeit je Azubi)');
+  check(/\+ Termin<\/a>/.test(ST) && !/\+ Prüfung<\/a>/.test(ST) && /Einzeltermin anlegen/.test(ST) && !/Einzelprüfung anlegen/.test(ST), 'Stammdaten: „+ Termin“ / „Einzeltermin“ statt „Prüfung“');
+  check(/„Termine“ plant ihn, „Durchsicht“ führt ihn durch, „Termin abschließen“ beendet den Tag/.test(V), 'Glossar nennt die drei Wörter');
+  // Paket 2 – Filterbalken nur in Listen, Standard als ein Chip
+  check(/FILTER_ANSICHTEN: \['stammdaten', 'planung', 'kontrolle', 'nacherfassung', 'wiedervorlagen', 'berichte'\]/.test(APP) && /this\._filterbalkenAnpassen\(view\);/.test(APP) && /body\.ohne-filter \.filter-panel \{ display: none; \}/.test(CSS), 'Filterbalken nur in Listen (Dashboard, Einstellungen, Hilfe, Azubi-Seite ohne)');
+  check(/renderUebersicht\(\) \{\n    App\._filterbalkenAnpassen\('kontrolle', false\);/.test(K) && /enterSchüler\(\) \{\n    App\._filterbalkenAnpassen\('kontrolle', true\);/.test(K), 'Einzelansicht der Durchsicht ohne Filterbalken, Übersicht mit');
+  check(/id="filterKompaktBtn" class="fp-btn fp-kompakt" onclick="App\.filterAufklappen\(true\)"/.test(HTML) && /id="filterZuklappen"/.test(HTML) && /\.filter-panel\.kompakt > \* \{ display: none !important; \}/.test(CSS) && /\.filter-panel\.kompakt > \.fp-kompakt \{ display: inline-block !important; \}/.test(CSS), 'Standardzustand: ein Chip „Filter: … ▾“, aufklappbar');
+  check(/_filterStandardMerken\(\) \{/.test(APP) && /this\._filterStandardMerken\(\);\n/.test(APP.split('Default-Filter: Zuständiges Amt')[1]) && /this\._filterKompaktAktualisieren\(\);\n  \},/.test(APP.split('_updateFilterCount() {')[1]), 'Standard = Stand nach dem Start; jede Filteränderung prüft ihn neu');
+  // Paket 3 – Menü 11 → 8
+  const menue = [...HTML.matchAll(/data-view="([a-z]+)"/g)].map(m => m[1]);
+  check(menue.join(',') === 'dashboard,stammdaten,planung,kontrolle,nacherfassung,wiedervorlagen,berichte,einstellungen,hilfe' && !/App\.switchDB\(\)" style="opacity/.test(HTML), `Menü: ${menue.length} Einträge (Nacherfassung optional) – Import, Wartung, DB wechseln sind keine Menüpunkte mehr`);
+  check(/MENUE_ZUORDNUNG: \{ azubi: 'stammdaten', import: 'stammdaten', wartung: 'einstellungen' \}/.test(APP), 'Import markiert Stammdaten, Wartung markiert Einstellungen');
+  check(/_stammdatenTabsHtml\(aktiv\) \{/.test(V) && /onclick="App\.navigate\('import'\)"[^>]*>Import<\/button>/.test(V) && /\$\{this\._stammdatenTabsHtml\('import'\)\}/.test(V) && /import: Views\.importView,/.test(APP), 'Import ist ein Reiter der Stammdaten');
+  check(!/import: \{ label: 'IBYKUS-Import'/.test(APP) && /kontrolle: \{ label: 'Durchsicht \(Kontrolltag\)'/.test(APP), 'Sichtbare Menüpunkte: kein Schalter mehr für Import');
+  check(/onclick="App\.switchDB\(\)" title="Verbindung trennen[^"]*">↻ Datenbank wechseln<\/button>/.test(V), '„Datenbank wechseln“ steht unter Wartung → Verbindung');
+  // Paket 4 – Termine-Kopf und -Tabelle
+  const plan = V.split('<h2>Termine</h2>')[1].split('<!-- Kalender-Ansicht -->')[0];
+  check(/class="split"/.test(plan) && /PlanungHandler\.addTermin\(\)/.test(plan) && /Kampagne: je Schule einen Termin anlegen …/.test(plan) && /PlanungHandler\._kontrollVorlagen\(\)\.map/.test(plan) && !/Kampagnen-Assistent<\/button>/.test(plan) && !/_vorlagenButtonHtml/.test(plan), 'Ein Hauptknopf „+ Neuer Termin“ mit Menü (Kampagne, Kontroll-Vorlagen)');
+  check(/class="seg" role="group"/.test(plan) && /Views\.planAnsicht\('tabelle', this\)/.test(plan) && /Views\.planAnsicht\('kalender', this\)/.test(plan) && /Views\.planAnsicht\('jahr', this\)/.test(plan) && /ICS-Export \(Kalenderdatei\)/.test(plan) && !/Jahreskalender<\/button>/.test(plan), 'Ein Umschalter Tabelle | Kalender | Jahr, ICS-Export im ⋯-Menü');
+  check(/planAnsicht\(art, btn\) \{/.test(V) && /jahreskalenderToggle\(\) \{\n    const box = document\.getElementById\('planJahreskalender'\);\n    if \(!box\) return;\n    this\.planAnsicht\(/.test(V), 'planAnsicht schaltet die drei Bereiche, jahreskalenderToggle bleibt als Abkürzung');
+  const kopf = V.match(/<th>Datum<\/th><th>Ort<\/th>(?:<th>[^<]*<\/th>)+<th>Aktionen<\/th>/);
+  check(kopf && (kopf[0].match(/<th>/g) || []).length === 8 && !/<th>Titel<\/th>/.test(kopf[0]) && !/<th>Fachrichtung<\/th>/.test(kopf[0]), 'Termine-Tabelle: 8 Spalten – Titel unter dem Datum, Fachrichtung unter den Klassen');
+  check(/\$\{t\.bemerkung \? `<div style="font-size:12px;color:var\(--clr-text-light\);max-width:220px/.test(V) && /\$\{frStr !== '–' \? `<div style="font-size:12px;color:var\(--clr-text-light\)">\$\{esc\(frStr\)\}<\/div>` : ''\}/.test(V), 'Bemerkung und Fachrichtung als zweite Zeile');
 }
 
 console.log('\n══ Hilfe in zwölf Kapiteln ══');
