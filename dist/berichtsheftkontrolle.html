@@ -7808,7 +7808,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-03 11:35 UTC',
+  BUILD: '2026-11-03 12:50 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -33604,10 +33604,35 @@ const Workflows = {
     const grouped = {};
     schueler.forEach(s => {
       const key = s.betrieb_id || s.ausbildungsstaette || '?';
-      if (!grouped[key]) grouped[key] = { key, betrieb: s, betriebId: s.betrieb_id || null, name: s.b_name, email: s.b_email, ap: s.b_ap, azubis: [] };
+      if (!grouped[key]) grouped[key] = { key, betrieb: s, betriebId: s.betrieb_id || null, name: s.b_name, email: s.b_email, ap: this._ansprechperson(s), azubis: [] };
       grouped[key].azubis.push(s);
     });
     return { schueler, betriebe: Object.values(grouped), fremde };
+  },
+  // Ansprechperson eines Betriebs mit vollem Namen. IBYKUS liefert den Inhaber
+  // als Nachname (betriebe.name) und Vorname, die Firma als Zusatzbezeichnung;
+  // der Import schrieb den Vornamen zusätzlich als ansprechpartner – allein
+  // „Daniel“ stand dann über der Firma und in der Anrede.
+  _ansprechperson(b) {
+    const ap = String((b && b.b_ap) || '').trim(), vn = String((b && b.b_vorname) || '').trim(), nn = String((b && b.b_name) || '').trim();
+    const voll = [vn, nn].filter(Boolean).join(' ');
+    if (!ap) return vn ? voll : '';
+    if (vn && ap === vn) return voll;
+    return ap;
+  },
+  // Anschrift nach DIN 5008: Firma, Person (voller Name), Straße, PLZ Ort –
+  // ohne doppelte Zeilen; ohne Firma steht die Person (bzw. der Name) oben
+  _betriebAnschrift(b, fallbackName) {
+    const firma = String(b.b_firma || '').trim();
+    const nn = String(b.b_name || fallbackName || '').trim();
+    const person = this._ansprechperson(b);
+    const zeilen = [];
+    if (firma) { zeilen.push(firma); if (person) zeilen.push(person); }
+    else if (person && nn && person.endsWith(nn)) zeilen.push(person);
+    else { if (nn) zeilen.push(nn); if (person) zeilen.push(person); }
+    zeilen.push(String(b.b_strasse || '').trim(), `${b.b_plz || ''} ${b.b_ort || ''}`.trim());
+    const gesehen = new Set();
+    return zeilen.filter(z => { const k = z.toLowerCase(); if (!z || gesehen.has(k)) return false; gesehen.add(k); return true; }).slice(0, 6);
   },
   // Passende Vorlage je Betrieb: vor der Kontrolle Ankündigung; danach
   // Mängelmitteilung, Nachhol-Aufforderung (kein Azubi des Betriebs wurde
@@ -34235,8 +34260,7 @@ const Workflows = {
     const b = g.betrieb || {};
     const absender = App.absenderCtx(t.ctx.pruefer);
     const inhalt = this._briefInhalt(g, t, isDone);
-    const anschrift = [g.ap || '', b.b_firma || g.name, b.b_firma && b.b_name && b.b_firma !== b.b_name ? b.b_name : '', b.b_strasse, `${b.b_plz || ''} ${b.b_ort || ''}`.trim()]
-      .filter(Boolean).slice(0, 6);
+    const anschrift = this._betriebAnschrift(b, g.name);
     const iGruss = inhalt.zeilen.findIndex(z => /^\s*Mit freundlichen Gr/i.test(z));
     const textZeilen = iGruss >= 0 ? inhalt.zeilen.slice(0, iGruss) : inhalt.zeilen;
     const nameZeilen = iGruss >= 0 ? inhalt.zeilen.slice(iGruss + 1).map(z => z.trim()).filter(Boolean) : [];

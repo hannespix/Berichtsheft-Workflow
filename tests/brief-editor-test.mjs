@@ -83,6 +83,18 @@ console.log('══ Antwortadresse: Funktionspostfach statt Sachbearbeitung ═�
   check(/id="setBriefAntwort"/.test(V) && /\['brief_antwort', 'setBriefAntwort'\]/.test(V) && /id="setBriefAntwortName"/.test(V), 'Einstellungen → Kontakt → Briefbogen: Antwortadresse und Name');
 }
 
+console.log('\n══ Anschrift nach DIN 5008 ══');
+{
+  const A = (b) => Workflows._betriebAnschrift(b, '').join(' | ');
+  // Feldfall: IBYKUS-Inhaber „Müller, Daniel“, Firma als Zusatzbezeichnung, Import schrieb den Vornamen als Ansprechpartner
+  check(A({ b_name: 'Müller', b_vorname: 'Daniel', b_firma: 'Müller Garten- und Landschaftsbau GmbH', b_ap: 'Daniel', b_strasse: 'Am Hockenbuck 1', b_plz: '79227', b_ort: 'Schallstadt' })
+    === 'Müller Garten- und Landschaftsbau GmbH | Daniel Müller | Am Hockenbuck 1 | 79227 Schallstadt', 'Firma, Person mit vollem Namen, Straße, Ort (statt „Daniel / Firma / Müller“)');
+  check(A({ b_name: 'Grün', b_vorname: 'Gisela', b_firma: '', b_ap: 'Gisela', b_strasse: 'Weg 2', b_plz: '79100', b_ort: 'Freiburg' }) === 'Gisela Grün | Weg 2 | 79100 Freiburg', 'Ohne Firma: Inhaber in einer Zeile');
+  check(A({ b_name: 'Gärtnerei Mail', b_vorname: '', b_firma: '', b_ap: 'Frau Grün', b_strasse: 'Weg 1', b_plz: '79100', b_ort: 'Freiburg' }) === 'Gärtnerei Mail | Frau Grün | Weg 1 | 79100 Freiburg', 'Ohne Firma mit eigener Ansprechperson: Betrieb, Person');
+  check(A({ b_name: 'Stadt Freiburg', b_vorname: '', b_firma: 'Stadt Freiburg', b_ap: '', b_strasse: '', b_plz: '79098', b_ort: 'Freiburg' }) === 'Stadt Freiburg | 79098 Freiburg', 'Keine doppelten oder leeren Zeilen');
+  check(Workflows._ansprechperson({ b_name: 'Müller', b_vorname: 'Daniel', b_ap: 'Daniel' }) === 'Daniel Müller' && Workflows._ansprechperson({ b_name: 'Müller', b_vorname: 'Daniel', b_ap: 'Frau Weber' }) === 'Frau Weber', 'Ansprechperson: Vorname allein wird zum vollen Namen, eigene Angabe bleibt');
+}
+
 console.log('\n══ Brief als Modell ══');
 let modelle;
 {
