@@ -11355,7 +11355,7 @@ Mit freundlichen Grüßen
 
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
-    { const mc = document.getElementById('modalContent'); if (mc && mc.classList) mc.classList.remove('modal-brief'); }
+    { const mc = document.getElementById('modalContent'); if (mc && mc.classList) { mc.classList.remove('modal-brief'); mc.classList.remove('kt-dialog'); } }
     // Fokus zurück zum auslösenden Element
     this._modalHatFokus = false;
     const zurueck = this._modalVorherFokus; this._modalVorherFokus = null;

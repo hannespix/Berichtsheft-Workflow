@@ -118,8 +118,26 @@ console.log('\n══ getTerminSchule: Ort des Termins ══');
   db.run(`UPDATE kontrolltermine SET ort='' WHERE id=10`);
   const A = read('src/js/app-core.js'), P = read('src/js/modules/planung.js');
   check(/ort TEXT DEFAULT ''\n    \);\n    CREATE TABLE IF NOT EXISTS kontrollergebnisse/.test(A) && /run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A) && /this\.db\.run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A), 'kontrolltermine.ort in Schema, migrateDB und _migrateDiskDb');
-  check((P.match(/this\._ortFelderHtml\(/g) || []).length === 2 && /<option value="frei"/.test(P) && /id="mKtOrtFrei"/.test(P) && /berufsschule_id=\?,ort=\? WHERE id=\?/.test(P) && /typ,berufsschule_id,ort\) VALUES/.test(P), 'Beide Termin-Dialoge bieten „Anderer Ort (eintragen)“; Speichern schreibt ihn (neu und bearbeiten)');
+  check(/this\._ortFelderHtml\(t\)/.test(P) && /addTermin\(\) \{ this\._terminDialog\(null\); \}/.test(P) && /editTermin\(id\) \{ this\._terminDialog\(id\); \}/.test(P) && /<option value="frei"/.test(P) && /id="mKtOrtFrei"/.test(P) && /berufsschule_id=\?,ort=\? WHERE id=\?/.test(P) && /typ,berufsschule_id,ort\) VALUES/.test(P), 'Beide Termin-Dialoge bieten „Anderer Ort (eintragen)“; Speichern schreibt ihn (neu und bearbeiten)');
   check(/const koll = ortFrei \? \[\] : App\.terminKollisionen/.test(P) && /if \(!selectedKlassen\.length && !ortId && !ortFrei\)/.test(P), 'Freier Ort: keine Doppeltermin-Prüfung je Schule, zählt als Ort');
+
+  // ── UI-Vereinfachung Paket 5: Termin-Dialog in zwei Schritten ──
+  const CSS5 = fs.readFileSync(path.join(ROOT, 'src/css/styles.css'), 'utf8');
+  check(/_terminDialog\(id\) \{/.test(P) && /_terminDialogDaten\(id\) \{/.test(P) && /_terminDialogHtml\(d\) \{/.test(P) && /_terminDialogFussHtml\(id\) \{/.test(P), 'Paket 5: ein gemeinsamer Dialog (Daten, HTML, Fußzeile) für neu und bearbeiten');
+  check(/id="ktSchritt1" class="kt-seite"/.test(P) && /id="ktSchritt2" class="kt-seite" style="display:none"/.test(P) && /class="kt-schritte"/.test(P) && /id="ktTab1"/.test(P) && /id="ktTab2"/.test(P), 'Paket 5: zwei Seiten „Wo und wann“ und „Wer“ mit Schrittleiste');
+  const s1 = P.slice(P.indexOf('id="ktSchritt1"'), P.indexOf('id="ktSchritt2"'));
+  const s2 = P.slice(P.indexOf('id="ktSchritt2"'), P.indexOf('_terminDialogFussHtml(id) {'));
+  check(/id="btnTypSchule"/.test(s1) && /id="mKtTyp"/.test(s1) && /this\._ortFelderHtml\(t\)/.test(s1) && /id="mKtDatum"/.test(s1) && /class="chk-pruefer"/.test(s1), 'Schritt 1 enthält Art, Ort, Datum und Prüfer');
+  check(/<details id="bpKwPicker" class="kt-kw">/.test(s1) && /id="bpKwGrid"/.test(s1), 'Schritt 1: KW-Kalender als Aufklapper am Datumsfeld');
+  check(/<details id="ktFilter" class="kt-filter">/.test(s2) && /this\._terminFilterHtml\(d\.jahrgaenge/.test(s2) && /id="terminKlassenList" class="kt-liste"/.test(s2) && /id="smartStandortBox"/.test(s2) && /<details id="sectionEinsendungExtra" class="kt-einzeln"/.test(s2) && /id="mKtEinsendSuche"/.test(s2) && /id="mKtBem"/.test(s2), 'Schritt 2 enthält eingeklappte Filter, Klassenliste, Smart-Standort, einzelne Azubis als Aufklapper und Bemerkung am Ende');
+  check(/id="ktZurueck"/.test(P) && /id="ktWeiter"/.test(P) && /onclick="PlanungHandler\.saveTermin\(\$\{id \|\| ''\}\)">Speichern/.test(P), 'Fußzeile: Zurück, Weiter und Speichern (immer sichtbar)');
+  check(/_ktSchritt\(n\) \{/.test(P) && /if \(n === 2\) this\._ktSchuleVorbelegen\(\);/.test(P) && /_ktSchuleVorbelegen\(\) \{/.test(P) && /if \(this\._editTerminId \|\| this\._ktBsVorbelegt\) return;/.test(P) && /this\._tfChange\('bs'\);/.test(P), 'Beim Wechsel auf „Wer“ wird die Schule aus Schritt 1 einmal als Schul-Filter vorgewählt (nur neuer Termin)');
+  check(/_kwGewaehlt\(dateStr\) \{/.test(P) && /onclick="PlanungHandler\._kwGewaehlt\('\$\{dateStr\}'\)"/.test(P) && /p\.open = false;/.test(P), 'KW-Klick setzt das Datum und klappt den Kalender zu');
+  check(/_ktFilterStand\(\) \{/.test(P) && /this\._ktFilterStand\(\);\n  \},/.test(P) && /id="ktFilterStand"/.test(P), 'Aufklapper „Klassen eingrenzen“ nennt die Zahl der aktiven Filter');
+  check(/this\.updateBpHint\(\);\n  \},\n  \/\/ Freier Ort aus dem Dialog/.test(P), 'Ort geändert → KW-Kalender folgt dem Ort');
+  check(/if \(!dt\) \{ this\._ktSchritt\(1\);/.test(P) && /if \(!pr\) \{ this\._ktSchritt\(1\);/.test(P) && /\{ this\._ktSchritt\(2\); return App\.toast\('Mindestens eine Klasse oder einen Azubi auswählen/.test(P), 'Speichern springt vor der Fehlermeldung zum passenden Schritt');
+  check(/mc\.classList\.add\('kt-dialog'\)/.test(P) && /mc\.classList\.remove\('kt-dialog'\)/.test(APP_SRC) && /\.modal\.kt-dialog \{ display: flex; flex-direction: column; overflow: hidden; \}/.test(CSS5) && /\.modal\.kt-dialog \.modal-body \{ overflow-y: auto;/.test(CSS5), 'Kopf, Schritte und Fußzeile stehen, nur der Inhalt scrollt; closeModal räumt die Klasse weg');
+  check(!/Neuer Kontrolltermin \/ Einsendung/.test(P) && !/btnTypEinsend'\)\.style\.background/.test(P) && (P.match(/App\.openModal\(/g) || []).length === 3, 'Alte Doppel-Dialoge (zwei Typ-Knöpfe mit Inline-Styles, zwei Vorlagen) sind weg');
 }
 
 console.log('\n══ getStandortgruppen: Lehrjahr-Filter (2.+3. LJ an der Schule) ══');
