@@ -574,10 +574,21 @@ const StammdatenTab = {
       <div style="font-size:13px;margin-bottom:12px">${esc(s.ausbildungsstaette||'')} - ${snaps.length} archivierte B\u00f6gen</div>
       ${snaps.length ? `<table class="data-table"><thead><tr><th>Nr.</th><th>Datum</th><th>Pr\u00fcfer</th><th>Ergebnis</th><th>Aktion</th></tr></thead><tbody>
         ${snaps.map((snap, i) => `<tr><td>${snaps.length-i}</td><td>${formatDate(snap.snapshot_datum)}</td><td>${esc(snap.pruefer||'')}</td><td>${eLbl[snap.ergebnis]||snap.ergebnis||'-'}</td>
-          <td><button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" style="font-size:12px">Anzeigen</button>
-          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.exportSnapshotPDF(${snap.id})" style="font-size:12px">PDF</button></td></tr>`).join('')}
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.viewSnapshot(${snap.id})" style="font-size:12px">Anzeigen</button>
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.exportSnapshotPDF(${snap.id})" style="font-size:12px">PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.snapshotLoeschen(${snap.id}, ${sid})" style="font-size:12px;color:var(--clr-red)" title="Diesen archivierten Bogen löschen – das Ergebnis der Durchsicht bleibt" aria-label="Archiv-Bogen vom ${formatDate(snap.snapshot_datum)} löschen">✕</button>${App.scalar('SELECT COUNT(*) FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.id=?', [snap.kontrollergebnis_id]) ? '' : ' <span style="font-size:12px;color:var(--clr-amber)" title="Termin oder Ergebnis dieses Bogens wurde gelöscht">ohne Durchsicht</span>'}</td></tr>`).join('')}
       </tbody></table>` : '<p style="color:var(--clr-text-light)">Noch keine Durchsichtsb\u00f6gen.</p>'}
+      <p style="font-size:12px;color:var(--clr-text-light);margin-top:8px">Archivierte Bögen sind Momentaufnahmen vom Abschluss eines Termins. Löschen entfernt nur den Bogen; das Ergebnis der Durchsicht steht weiter auf der Azubi-Seite und lässt sich dort über ⋯ → „Durchsicht löschen“ entfernen.</p>
     `, '<button class="btn btn-secondary" onclick="App.closeModal()">Schlie\u00dfen</button>');
+  },
+  async snapshotLoeschen(snapId, sid) {
+    const snap = App.query('SELECT * FROM durchsicht_snapshots WHERE id=?', [snapId])[0];
+    if (!snap) return;
+    if (!(await App.confirm(`Archivierten Bogen vom ${formatDate(snap.snapshot_datum)} löschen?\n\nDas Ergebnis der Durchsicht bleibt erhalten. Das lässt sich nicht rückgängig machen.`, { titel: 'Archiv-Bogen löschen', ok: 'Löschen', gefaehrlich: true }))) return;
+    App.deleteSnapshot(snapId);
+    App.toast('Archiv-Bogen gelöscht', 'success');
+    this.showAzubiSnapshots(sid);
+    if (typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen(sid)) AzubiSeite.render();
   },
 
   jahrgaenge(c) {
