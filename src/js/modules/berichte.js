@@ -798,15 +798,13 @@ const BerichteHandler = {
 
   // Ergebnisliste eines Termins (alle Azubis) als Excel – für Ablage,
   // Weitergabe an die Schule oder als Grundlage für eigene Auswertungen
-  exportTerminExcel(terminId) {
-    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
-    const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
-    if (!termin) return App.toast('Termin nicht gefunden', 'error');
+  // Ergebniszeilen eines Termins (für den Excel-Export je Termin und über mehrere Termine)
+  _terminZeilen(termin, mitTermin) {
+    const terminId = termin.id;
     const bs = App.getTerminSchule(terminId);
     const liste = App.getTerminSchueler(terminId);
-    if (!liste.length) return App.toast('Keine Azubis in diesem Termin', 'warning');
     const eLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht', sachberichte_wetter_email: 'Sachberichte (Wetter) per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail bis Termin', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP', abwesend: 'Abwesend' };
-    const rows = liste.map(s => {
+    return liste.map(s => {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0] || {};
       const kl = App.query('SELECT k.klassenbezeichnung, bs.name as schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {};
       const betrieb = s.betrieb_id ? (App.scalar('SELECT name FROM betriebe WHERE id=?', [s.betrieb_id]) || '') : (s.ausbildungsstaette || '');
@@ -815,6 +813,7 @@ const BerichteHandler = {
         .filter(m => m.offen);
       const wv = App.query("SELECT frist_datum, status FROM wiedervorlagen WHERE schueler_id=? AND kontrollergebnis_id=? ORDER BY frist_datum DESC LIMIT 1", [s.id, ke.id || -1])[0];
       return {
+        ...(mitTermin ? { 'Termin': `${formatDate(termin.geplant_datum)} ${bs ? bs.name : (termin.typ === 'einsendung' ? 'Einsendung' : '')}`.trim() } : {}),
         'Nachname': s.nachname, 'Vorname': s.vorname, 'Betrieb': betrieb,
         'Schule': kl.schule || (bs ? bs.name : ''), 'Klasse': kl.klassenbezeichnung || '',
         'Zuständiges Amt': s.zustaendiges_amt ? App.amtLabel(s.zustaendiges_amt) : '',
@@ -826,12 +825,40 @@ const BerichteHandler = {
         'Kontrolliert am': formatDate(termin.durchgefuehrt_datum || termin.geplant_datum),
       };
     });
+  },
+  _ergebnisSpalten(mitTermin) {
+    const cols = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:30},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
+    return mitTermin ? [{wch:28}, ...cols] : cols;
+  },
+  exportTerminExcel(terminId) {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
+    const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!termin) return App.toast('Termin nicht gefunden', 'error');
+    const bs = App.getTerminSchule(terminId);
+    const rows = this._terminZeilen(termin, false);
+    if (!rows.length) return App.toast('Keine Azubis in diesem Termin', 'warning');
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:30},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
+    ws['!cols'] = this._ergebnisSpalten(false);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ergebnisse');
     XLSX.writeFile(wb, App.safeFilename(['Ergebnisse', bs ? bs.name : 'Termin', (termin.durchgefuehrt_datum || termin.geplant_datum || '').substring(0, 10)], 'xlsx'));
     App.toast(`Ergebnisliste mit ${rows.length} Azubis exportiert`, 'success');
+  },
+  // Ergebnisliste über mehrere Termine (Sammelauswertung): eine Datei, Spalte „Termin“
+  exportTermineExcel(terminIds) {
+    if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
+    const ids = (terminIds || []).map(Number).filter(Boolean);
+    if (!ids.length) return App.toast('Keine Termine gewählt', 'warning');
+    const termine = App.query(`SELECT * FROM kontrolltermine WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY geplant_datum, id`, ids);
+    const rows = termine.flatMap(t => this._terminZeilen(t, true));
+    if (!rows.length) return App.toast('Keine Azubis in den gewählten Terminen', 'warning');
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = this._ergebnisSpalten(true);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ergebnisse');
+    const von = termine[0].geplant_datum, bis = termine[termine.length - 1].geplant_datum;
+    XLSX.writeFile(wb, App.safeFilename(['Ergebnisse', `${termine.length}_Termine`, von === bis ? von : `${von}_bis_${bis}`], 'xlsx'));
+    App.toast(`Ergebnisliste über ${termine.length} Termine mit ${rows.length} Zeilen exportiert`, 'success');
   },
 
   exportZulassungExcel() {

@@ -11033,6 +11033,8 @@ Mit freundlichen Grüßen
     document.querySelectorAll('.sidebar-item').forEach(el => {
       el.classList.toggle('active', el.dataset.view === menuView);
     });
+    // Auswahl für die Sammelauswertung gilt nur in der Termine-Liste
+    if (view !== 'planung' && typeof Sammel !== 'undefined') { try { Sammel._ids.clear(); } catch(e) {} }
     // Stop live sync when leaving kontrolle
     if (view !== 'kontrolle' && typeof KontrolleHandler !== 'undefined') {
       KontrolleHandler.stopLiveSync();

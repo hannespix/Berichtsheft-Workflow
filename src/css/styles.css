@@ -1702,3 +1702,25 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .ts-zahl { font-size: 12px; font-weight: 400; color: var(--clr-text-light); }
 .ts-tabelle { font-size: 13px; }
 @media (max-width: 640px) { .ts-label { flex-basis: 100%; } .ts-aktion { margin-left: 0; } .ts-stand { margin-left: 0; flex-basis: 100%; } }
+
+/* ── Sammelauswertung: Häkchen in der Termine-Liste und Leiste darunter ── */
+.sl-th, .sl-td { width: 28px; text-align: center; padding-left: 10px !important; padding-right: 4px !important; }
+.sl-th input, .sl-td input { accent-color: var(--clr-forest); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+.sammel-leiste { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; margin-top: 10px; background: var(--clr-forest); color: var(--clr-white); border-radius: var(--radius); z-index: 5; }
+.sammel-leiste .sl-text { font-size: 13px; margin-right: 4px; }
+.sammel-leiste .btn-secondary { background: var(--clr-white); }
+/* Hauptknopf auf der dunklen Leiste: BaWü-Gelb mit dunkler Kontur (Gelb-Regel) */
+.sammel-leiste .btn-primary { background: var(--clr-gelb); color: var(--clr-text); border: 1px solid var(--clr-text); }
+.sammel-leiste .btn-primary:hover { background: var(--clr-gelb); color: var(--clr-text); filter: brightness(0.96); }
+.sammel-leiste .aktionen-menue > summary { background: var(--clr-white); color: var(--clr-text); }
+.sammel-leiste .sl-x { margin-left: auto; }
+.sm-hinweis { font-size: 13px; line-height: 1.5; margin: 0 0 10px; }
+.sm-liste { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; border: 1px solid var(--clr-sand); border-radius: var(--radius); padding: 6px 8px; }
+.sm-zeile { display: flex; align-items: center; gap: 10px; padding: 5px 6px; font-size: 13px; cursor: pointer; border-radius: var(--radius); }
+.sm-zeile:hover { background: var(--clr-warm); }
+.sm-zeile input { accent-color: var(--clr-forest); margin: 0; flex: 0 0 auto; }
+.sm-zeile > span:nth-child(2) { flex: 1; }
+.sm-bem { color: var(--clr-text-light); }
+.sm-bleibt { font-size: 12px; font-weight: 700; color: var(--clr-forest); min-width: 44px; text-align: right; }
+.sm-vorschau { margin-top: 10px; padding: 10px 12px; background: var(--clr-warm); border-radius: var(--radius); font-size: 13px; line-height: 1.6; }
+.sm-warn { color: var(--clr-amber); font-weight: 600; }
