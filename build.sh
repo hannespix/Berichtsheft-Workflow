@@ -74,6 +74,7 @@ APP_MODULES=(
   "src/js/modules/schueler-akte.js"
   "src/js/modules/azubi-seite.js"
   "src/js/modules/termin-seite.js"
+  "src/js/modules/sammel.js"
   "src/js/modules/db-tools.js"
   "src/js/modules/konsole.js"
 )

@@ -1087,7 +1087,7 @@ const Views = {
 
       <div id="planJahreskalender" style="display:none;margin-bottom:16px"></div>
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Ort</th><th>Klasse(n)</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table"><thead><tr><th class="sl-th"><input type="checkbox" id="planAlle" aria-label="Alle sichtbaren Termine für eine gemeinsame Auswertung wählen" title="Alle sichtbaren Termine wählen" onchange="Sammel.alle(this.checked)"></th><th>Datum</th><th>Ort</th><th>Klasse(n)</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const ortBs = App.getTerminSchule(t.id);
@@ -1098,6 +1098,7 @@ const Views = {
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
             return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
+            <td class="sl-td"><input type="checkbox" class="chk-termin" value="${t.id}" aria-label="Termin ${formatDate(t.geplant_datum)} für eine gemeinsame Auswertung wählen" ${Sammel.hat(t.id) ? 'checked' : ''} onchange="Sammel.toggle(${t.id}, this.checked)"></td>
             <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}${t.bemerkung ? `<div style="font-size:12px;color:var(--clr-text-light);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung)}">${esc(t.bemerkung)}</div>` : ''}</td>
             <td>${esc(schule)}${ort ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(ort)}</div>` : ''}</td>
             <td>${esc(klassenStr)}${frStr !== '–' ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(frStr)}</div>` : ''}</td>
@@ -1130,10 +1131,12 @@ const Views = {
             </td>
           </tr>`;}).join('')}
         </tbody></table>` : '<div class="empty-state"><h3>Keine Termine geplant</h3><p>Legen Sie einen neuen Kontrolltermin an.</p></div>'}
+        <div id="sammelLeiste" class="sammel-leiste" style="display:none" role="region" aria-label="Gewählte Termine"></div>
       </div>
     </div>`;
     // Apply default filter
     PlanungHandler.filterStatus(document.getElementById('planFilter')?.value || 'geplant');
+    if (typeof Sammel !== 'undefined') Sammel._leiste();
   },
 
   // ════════════════════════════════════════════
@@ -2584,6 +2587,11 @@ const Views = {
             <p>3. <strong>Nachbereitung</strong> → Ergebnisse an die Schule, E-Mails oder Briefe an die Betriebe, fremde Ämter, Nachholtermin, Wiedervorlagen dieses Termins, „Nachbereitung abgeschlossen“.</p>
             <p>4. <strong>Bögen &amp; Export</strong> → alle Durchsichtsbögen als PDF, Übersichtstabelle, Ergebnisliste (Excel), Gesamtpaket, Seriendruck.</p>
             <p>Das Menü „Termin ▾“ in der Durchsicht bleibt für den Kontrolltag erhalten und führt über „Termin-Seite“ zurück auf die Seite.</p>
+            <p style="margin-top:8px"><strong>Mehrere Termine gemeinsam auswerten:</strong> In der Termine-Liste Termine anhaken (das Häkchen im Tabellenkopf wählt alle sichtbaren, also z. B. alle Termine des gefilterten Jahrgangs). Darunter erscheint eine Leiste mit Auswertungen über die Auswahl – die Termine bleiben dabei, wie sie sind:</p>
+            <p>• <strong>Gemeinsame Übersicht</strong> → eine Zeile je Azubi über alle gewählten Termine (Betrieb, Klasse, Durchsicht, Ergebnis, Fehltage, Pflichtteile, Zulassung, PA), zum Drucken. Steht ein Azubi in mehreren Terminen (Nachholtermin, Einzelprüfung), zählt die jüngste Durchsicht mit Ergebnis.</p>
+            <p>• <strong>Zulassungsliste</strong> → dieselbe Auswahl, reduziert auf Azubis im letzten Lehrjahr oder mit gesetzter Zulassung/PA; die Spalte „Was fehlt“ nennt die fehlenden Voraussetzungen (§ 43 Abs. 1 Nr. 2 BBiG). Das ist die Liste für die Prüfungsverwaltung über mehrere Prüfungstage oder Einzelprüfungen.</p>
+            <p>• <strong>Excel</strong> → Ergebnisliste aller gewählten Termine in einer Datei (Spalte „Termin“), <strong>Alle Bögen (PDF)</strong> → Durchsichtsbögen je Termin.</p>
+            <p>• <strong>Zu einem Termin zusammenführen</strong> (⋯-Menü der Leiste, auch im ⋯-Menü der Termin-Seite) → nur für echte Doppelanlagen: ein Termin bleibt mit Datum, Ort, Prüfer und Status, die anderen geben Klassen, Azubis und Ergebnisse ab und werden gelöscht; bei doppelten Azubis bleibt das Ergebnis mit Inhalt. Die Bezeichnung lässt sich dabei neu setzen. Das lässt sich nicht rückgängig machen – für Listen über mehrere Termine deshalb die Auswertungen nutzen, nicht das Zusammenführen.</p>
           </div>
 
           <div id="help_5" class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-forest)">

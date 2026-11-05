@@ -126,6 +126,7 @@ const TerminSeite = {
               ${App.menue('⋯', [
                 { label: '▸ Durchsicht öffnen', onclick: 'TerminSeite.durchsichtOeffnen()' },
                 st.abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
+                { label: '⇥ Anderen Termin hierher zusammenführen …', onclick: `Sammel.zusammenfuehrenDialog([${t.id}], ${t.id})`, title: 'Nur für echte Doppelanlagen – dieser Termin bleibt' },
                 { trenner: true },
                 { label: '✕ Termin löschen', onclick: 'TerminSeite.loeschen()' },
               ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein')}
