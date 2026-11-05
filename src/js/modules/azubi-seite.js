@@ -241,18 +241,55 @@ const AzubiSeite = {
     const el = document.getElementById('azTeil_kontrollen');
     if (!el) return;
     const rows = App.query(`SELECT ke.id, ke.kontrolltermin_id, ke.ergebnis, ke.anwesend, ke.geaendert_am, ke.zulassung_ap, ke.pruefungsausschuss,
-        kt.geplant_datum, kt.durchgefuehrt_datum, kt.status AS kt_status, kt.bemerkung AS kt_bemerkung, bs.name AS schule
+        kt.geplant_datum, kt.durchgefuehrt_datum, kt.status AS kt_status, kt.bemerkung AS kt_bemerkung, bs.name AS schule,
+        (SELECT COUNT(*) FROM durchsicht_snapshots ds WHERE ds.kontrollergebnis_id=ke.id) AS snaps
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
       WHERE ke.schueler_id=? ORDER BY kt.geplant_datum DESC, ke.id DESC`, [s.id]);
-    if (!rows.length) { el.innerHTML = '<p class="az-leer">Noch keine Kontrolle zu diesem Azubi.</p>'; return; }
-    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th></th></tr></thead><tbody>
+    // Verwaiste Archiv-Bögen (Ergebnis oder Termin inzwischen gelöscht) sichtbar machen,
+    // sonst „verschwindet“ eine gelöschte Durchsicht nie ganz
+    const waisen = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots ds WHERE ds.schueler_id=? AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.id=ds.kontrollergebnis_id)', [s.id]) || 0;
+    const waisenHinweis = waisen ? `<p class="az-leer az-waisen">${waisen} archivierte${waisen === 1 ? 'r' : ''} Bogen ohne zugehörige Durchsicht (Termin oder Ergebnis wurde gelöscht) – <a href="#" onclick="StammdatenTab.showAzubiSnapshots(${s.id});return false">Archiv-Bögen ansehen und löschen</a></p>` : '';
+    if (!rows.length) { el.innerHTML = '<p class="az-leer">Noch keine Kontrolle zu diesem Azubi.</p>' + waisenHinweis; return; }
+    el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th title="Archivierte Durchsichtsbögen (unveränderliche Momentaufnahmen vom Abschluss des Termins)">Archiv</th><th></th></tr></thead><tbody>
       ${rows.map(r => {
         const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
         const vermerke = [r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
-        return `<tr><td>${esc(formatDate(r.durchgefuehrt_datum || r.geplant_datum))}</td><td>${esc([r.schule, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}${r.kt_status === 'durchgefuehrt' ? ' <span class="az-leer">(abgeschlossen)</span>' : ''}</td><td>${erg}</td><td>${esc(vermerke) || '<span class="az-leer">–</span>'}</td>
-          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins öffnen">Öffnen</button></td></tr>`;
+        const archiv = r.snaps ? `<a href="#" onclick="StammdatenTab.showAzubiSnapshots(${s.id});return false" title="Archivierte Bögen ansehen, als PDF ausgeben oder löschen">${r.snaps} ${r.snaps === 1 ? 'Bogen' : 'Bögen'}</a>` : '<span class="az-leer">–</span>';
+        const menue = App.menue('⋯', [
+          { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${r.kontrolltermin_id},${s.id})`, title: 'Bogen mit dem aktuellen Stand' },
+          r.snaps ? { label: `▤ Archiv-Bögen ansehen (${r.snaps})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
+          { trenner: true },
+          { label: '✕ Durchsicht löschen', onclick: `AzubiSeite.kontrolleLoeschen(${r.kontrolltermin_id}, ${s.id})`, title: 'Ergebnis, Wiedervorlagen, Mängel und Archiv-Bögen dieser Durchsicht entfernen' },
+        ].filter(Boolean), 'Weitere Aktionen zu dieser Durchsicht', 'klein');
+        return `<tr><td>${esc(formatDate(r.durchgefuehrt_datum || r.geplant_datum))}</td><td>${esc([r.schule, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}${r.kt_status === 'durchgefuehrt' ? ' <span class="az-leer">(abgeschlossen)</span>' : ''}</td><td>${erg}</td><td>${esc(vermerke) || '<span class="az-leer">–</span>'}</td><td>${archiv}</td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins öffnen">Öffnen</button> ${menue}</td></tr>`;
       }).join('')}
-    </tbody></table>`;
+    </tbody></table>${waisenHinweis}`;
+  },
+  // Eine Durchsicht dieses Azubis vollständig löschen (Ergebnis, Wiedervorlagen,
+  // Mängel, Archiv-Bögen, Einzelzuordnung). Hängt der Azubi über seine Klasse am
+  // Termin, erscheint beim nächsten Öffnen des Termins wieder ein leerer Bogen.
+  async kontrolleLoeschen(terminId, schuelerId) {
+    const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!s || !t) return;
+    const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, schuelerId])[0] || {};
+    const snaps = ke.id ? (App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [ke.id]) || 0) : 0;
+    const wv = ke.id ? (App.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=?', [ke.id]) || 0) : 0;
+    let ausKlasse = false;
+    try { ausKlasse = App.getTerminKlassenIds(terminId).includes(s.klasse_id); } catch(e) {}
+    const teile = [];
+    if (ke.ergebnis) teile.push(`das Ergebnis „${this.ERGEBNIS[ke.ergebnis] || ke.ergebnis}“`);
+    if (wv) teile.push(`${wv} Wiedervorlage${wv === 1 ? '' : 'n'}`);
+    if (snaps) teile.push(`${snaps} archivierte${snaps === 1 ? 'r' : ''} ${snaps === 1 ? 'Bogen' : 'Bögen'}`);
+    const text = `Durchsicht vom ${formatDate(t.durchgefuehrt_datum || t.geplant_datum)} für ${s.nachname}, ${s.vorname} löschen?`
+      + (teile.length ? `\n\nGelöscht werden ${teile.join(', ')}.` : '\n\nDiese Durchsicht hat noch kein Ergebnis.')
+      + (ausKlasse ? '\n\nHinweis: Der Azubi gehört zu einer Klasse dieses Termins. Beim nächsten Öffnen des Termins erscheint er dort wieder – ohne Ergebnis.' : '')
+      + '\n\nDas lässt sich nicht rückgängig machen.';
+    if (!(await App.confirm(text, { titel: 'Durchsicht löschen', ok: 'Löschen', gefaehrlich: true }))) return;
+    const n = App.deleteKontrollergebnisKaskade(terminId, schuelerId);
+    App.toast(`Durchsicht gelöscht${n.snapshots ? ` (${n.snapshots} Archiv-Bogen${n.snapshots === 1 ? '' : 'en'} entfernt)` : ''}`, 'success');
+    if (this.istOffen(schuelerId)) this.render();
   },
   _wiedervorlagen(s) {
     const el = document.getElementById('azTeil_wiedervorlagen');

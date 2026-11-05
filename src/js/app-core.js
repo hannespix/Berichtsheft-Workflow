@@ -6567,6 +6567,32 @@ const App = {
      'DELETE FROM schueler WHERE id=?',
     ].forEach(sql => { try { this.run(sql, [id]); } catch(e) { /* Tabelle evtl. nicht vorhanden */ } });
   },
+  // Eine Durchsicht eines Azubis an einem Termin vollständig entfernen:
+  //  Kontrollergebnis samt Wiedervorlagen (mit Notizen), KW-Mängeln und
+  //  Archiv-Bögen sowie die Einzelzuordnung zum Termin. Natürlicher Schlüssel
+  //  (Termin + Azubi), damit der Abgleich es auf jedem Rechner richtig trifft.
+  //  Hängt der Azubi über eine Klasse am Termin, entsteht beim nächsten Öffnen
+  //  des Termins wieder ein leerer Bogen (ohne Ergebnis) – das ist gewollt.
+  deleteKontrollergebnisKaskade(terminId, schuelerId) {
+    const ke = this.query('SELECT id FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, schuelerId])[0];
+    const n = { snapshots: 0, wiedervorlagen: 0 };
+    if (ke) {
+      n.snapshots = this.scalar('SELECT COUNT(*) FROM durchsicht_snapshots WHERE kontrollergebnis_id=?', [ke.id]) || 0;
+      n.wiedervorlagen = this.scalar('SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=?', [ke.id]) || 0;
+      ['DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id IN (SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=?)',
+       'DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=?',
+       'DELETE FROM kw_maengel WHERE kontrollergebnis_id=?',
+       'DELETE FROM durchsicht_snapshots WHERE kontrollergebnis_id=?'].forEach(q => { try { this.run(q, [ke.id]); } catch(e) {} });
+    }
+    this.run('DELETE FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, schuelerId]);
+    this.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, schuelerId]);
+    try { this.invalidateTerminCache(); } catch(e) {}
+    return n;
+  },
+  // Einen einzelnen Archiv-Bogen (Snapshot) löschen – das Ergebnis bleibt
+  deleteSnapshot(snapId) {
+    this.run('DELETE FROM durchsicht_snapshots WHERE id=?', [snapId]);
+  },
   deleteTerminKaskade(id, opts) {
     if (!id) return;
     if (!(opts && opts.ohnePapierkorb)) {
