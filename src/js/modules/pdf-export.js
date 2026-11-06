@@ -1,4 +1,14 @@
 const PDFExport = {
+  // Fehltage gesamt für den Bogen: jüngste Durchsicht → live aus Wochen + Pauschale;
+  // ältere Durchsicht → gespeicherter Stand, leer/0 → ebenfalls live
+  fehltageGesamtFuer(ke, schuelerId) {
+    if (!ke) return 0;
+    const gespeichert = parseInt(ke.fehltage_gesamt) || 0;
+    let juengste = true;
+    try { const f = App.getFehltageGesamt(schuelerId); juengste = !f.keId || f.keId === ke.id; } catch(e) {}
+    if (!juengste && gespeichert > 0) return gespeichert;
+    try { return App.fehltageGesamtKE(ke).gesamt; } catch(e) { return gespeichert; }
+  },
   // Hinweis unter den Fehltagen im Ergebnisblock (für den Betrieb, der den Bogen erhält)
   FEHLTAGE_HINWEIS: 'Weichen die angegebenen Fehltage von den Fehltagen in Ihrer betrieblichen Dokumentation ab, wenden Sie sich bitte an die Ausbildungsberatung.',
 
@@ -401,9 +411,12 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.setTextColor(80, 80, 80);
       // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule) –
-      // Prozent aus der GEDRUCKTEN Zahl (Stand des Ergebnisses), nicht aus der
-      // heutigen Wochensumme: sonst stand „7 (0,0 %)“ nebeneinander
-      const fzGesamt = ke?.fehltage_gesamt || 0;
+      // Prozent aus der GEDRUCKTEN Zahl, damit nie „7 (0,0 %)“ nebeneinander steht.
+      // Die Zahl selbst: für die jüngste Durchsicht des Azubis live aus den Wochen
+      // + Pauschale (App.fehltageGesamtKE) – die gespeicherte Spalte veraltete
+      // (Bogen „Fehltage gesamt: 0“ bei 8/23/54 Fehltagen in den Jahren); ältere
+      // Bögen behalten ihren damals gespeicherten Stand, solange er nicht leer ist.
+      const fzGesamt = PDFExport.fehltageGesamtFuer(ke, s.id);
       let fzText = `Fehltage gesamt: ${fzGesamt}`;
       try {
         const fz = App.fehlzeitenStand(s);

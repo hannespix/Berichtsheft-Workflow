@@ -7933,7 +7933,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-05 16:56 UTC',
+  BUILD: '2026-11-06 13:37 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -16253,6 +16253,34 @@ const App = {
       ORDER BY kt.geplant_datum DESC, ke.id DESC LIMIT 1`, [schuelerId])[0];
     const pauschal = ke ? (ke.pauschal || 0) : 0;
     return { kw, pauschal, gesamt: kw + pauschal, keId: ke ? ke.id : null };
+  },
+  // Fehltage-Stand EINES Kontrollergebnisses, live aus den Wochen: alle
+  // kw_status-Fehltage des Azubis + Pauschale dieses Ergebnisses. Die Spalte
+  // kontrollergebnisse.fehltage_gesamt ist nur ein Zwischenspeicher, den der
+  // H-Schreibweg nachführt – sie veraltete (Feldfall: Jahre 8/23/54, „Gesamt:
+  // 0 Tage“, PDF „Fehltage gesamt: 0 (0,0 %)“ bei 10,8 % in der Warnzeile),
+  // wenn ein später angelegtes Ergebnis den alten Stand kopierte oder die
+  // Wochen auf einem anderen Rechner kamen. Anzeige und Bogen rechnen deshalb
+  // hier, nicht aus der Spalte.
+  fehltageGesamtKE(ke) {
+    if (!ke) return { kw: 0, pauschal: 0, gesamt: 0 };
+    const kw = this.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [ke.schueler_id]) || 0;
+    const pauschal = parseInt(ke.fehltage_pauschal) || 0;
+    return { kw, pauschal, gesamt: kw + pauschal };
+  },
+  // Zwischenspeicher heilen: weicht fehltage_gesamt vom Live-Stand ab, wird er
+  // nachgezogen (UPDATE … WHERE id=? – im Protokoll auf den natürlichen Schlüssel
+  // umgeschrieben), damit Übersichten, Excel und Wiedervorlagen dieselbe Zahl
+  // zeigen. Liefert den Live-Stand.
+  fehltageGesamtNachziehen(ke) {
+    const f = this.fehltageGesamtKE(ke);
+    if (ke && ke.id != null && (parseInt(ke.fehltage_gesamt) || 0) !== f.gesamt) {
+      try {
+        this.run(`UPDATE kontrollergebnisse SET fehltage_gesamt=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [f.gesamt, ke.id]);
+        ke.fehltage_gesamt = f.gesamt;
+      } catch(e) {}
+    }
+    return f.gesamt;
   },
   // Lehrjahr-Filter (Audit 7 A2): dynamisch aus dem Ausbildungsverlauf statt
   // aus dem statischen klassen.lehrjahr, das ab dem zweiten Schuljahr
@@ -28041,6 +28069,16 @@ const NacherfassungHandler = {
 
 // ── pdf-export.js ──
 const PDFExport = {
+  // Fehltage gesamt für den Bogen: jüngste Durchsicht → live aus Wochen + Pauschale;
+  // ältere Durchsicht → gespeicherter Stand, leer/0 → ebenfalls live
+  fehltageGesamtFuer(ke, schuelerId) {
+    if (!ke) return 0;
+    const gespeichert = parseInt(ke.fehltage_gesamt) || 0;
+    let juengste = true;
+    try { const f = App.getFehltageGesamt(schuelerId); juengste = !f.keId || f.keId === ke.id; } catch(e) {}
+    if (!juengste && gespeichert > 0) return gespeichert;
+    try { return App.fehltageGesamtKE(ke).gesamt; } catch(e) { return gespeichert; }
+  },
   // Hinweis unter den Fehltagen im Ergebnisblock (für den Betrieb, der den Bogen erhält)
   FEHLTAGE_HINWEIS: 'Weichen die angegebenen Fehltage von den Fehltagen in Ihrer betrieblichen Dokumentation ab, wenden Sie sich bitte an die Ausbildungsberatung.',
 
@@ -28443,9 +28481,12 @@ const PDFExport = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.setTextColor(80, 80, 80);
       // Fehltage mit Anteil an der bisherigen Ausbildungszeit (ohne Urlaub/Berufsschule) –
-      // Prozent aus der GEDRUCKTEN Zahl (Stand des Ergebnisses), nicht aus der
-      // heutigen Wochensumme: sonst stand „7 (0,0 %)“ nebeneinander
-      const fzGesamt = ke?.fehltage_gesamt || 0;
+      // Prozent aus der GEDRUCKTEN Zahl, damit nie „7 (0,0 %)“ nebeneinander steht.
+      // Die Zahl selbst: für die jüngste Durchsicht des Azubis live aus den Wochen
+      // + Pauschale (App.fehltageGesamtKE) – die gespeicherte Spalte veraltete
+      // (Bogen „Fehltage gesamt: 0“ bei 8/23/54 Fehltagen in den Jahren); ältere
+      // Bögen behalten ihren damals gespeicherten Stand, solange er nicht leer ist.
+      const fzGesamt = PDFExport.fehltageGesamtFuer(ke, s.id);
       let fzText = `Fehltage gesamt: ${fzGesamt}`;
       try {
         const fz = App.fehlzeitenStand(s);
@@ -29923,6 +29964,9 @@ const KontrolleHandler = {
          prev.f_1_6_ausbildungsbetrieb || '']);
       ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     }
+    // Fehltage gesamt live aus den Wochen (+ Pauschale) – die gespeicherte
+    // Spalte kann veraltet sein (kopierter Altstand, Wochen vom Kollegen)
+    const fehlGesamt = App.fehltageGesamtNachziehen(ke);
 
     // Load CUMULATIVE KW data for this student (across all Durchsichten)
     const kwData = {};
@@ -30384,8 +30428,8 @@ const KontrolleHandler = {
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
           ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
-          <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
-          <input type="hidden" id="fehlGesamtInput" value="${ke.fehltage_gesamt}">
+          <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${fehlGesamt}</span> Tage</span>
+          <input type="hidden" id="fehlGesamtInput" value="${fehlGesamt}">
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
           <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
             <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:12px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">
