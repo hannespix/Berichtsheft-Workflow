@@ -143,6 +143,44 @@ console.log('\n══ Migrations-Parität (Disk-Datenbank) ══');
   diskDb.close();
 }
 
+console.log('\n══ Feldfall: „Gesamt: 0 Tage“ bei 8/23/54 Fehltagen in den Jahren ══');
+{
+  // Ein später angelegtes Ergebnis (Einsendung) kopierte fehltage_gesamt=0,
+  // die Wochen tragen aber 85 Fehltage → Anzeige und Bogen rechnen live
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,ausbildungsbeginn,ausbildungsende) VALUES (903,'Beathalter','Julian',1,'2023-09-01','2026-08-31')`);
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status) VALUES (903,'2025-03-01','durchgefuehrt'),(904,'2026-11-06','geplant')`);
+  db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,fehltage_pauschal,fehltage_gesamt) VALUES (9031,903,903,'in_ordnung',0,8),(9032,904,903,'nachholung_naechste_durchsicht',0,0)`);
+  db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES
+    (903,1,40,'H',5,1),(903,1,41,'H',3,1),(903,2,10,'H',23,1),(903,3,12,'H',30,1),(903,3,13,'H',24,1)`);
+  const ke = App.query('SELECT * FROM kontrollergebnisse WHERE id=9032')[0];
+  const f = App.fehltageGesamtKE(ke);
+  check(f.kw === 85 && f.pauschal === 0 && f.gesamt === 85, `fehltageGesamtKE = 85 aus den Wochen (${JSON.stringify(f)})`);
+  const g = App.fehltageGesamtNachziehen(ke);
+  check(g === 85 && ke.fehltage_gesamt === 85, `fehltageGesamtNachziehen liefert 85 und setzt das Objekt (${g}/${ke.fehltage_gesamt})`);
+  check(App.scalar('SELECT fehltage_gesamt FROM kontrollergebnisse WHERE id=9032') === 85, 'gespeicherte Spalte geheilt (0 → 85)');
+  // Pauschale zählt obendrauf
+  App.run('UPDATE kontrollergebnisse SET fehltage_pauschal=4 WHERE id=9032');
+  const ke2 = App.query('SELECT * FROM kontrollergebnisse WHERE id=9032')[0];
+  check(App.fehltageGesamtKE(ke2).gesamt === 89, 'Pauschale 4 kommt obendrauf (89)');
+  // Nichts zu heilen → kein Schreibvorgang
+  const vorher = App.scalar('SELECT geaendert_am FROM kontrollergebnisse WHERE id=9032');
+  App.run("UPDATE kontrollergebnisse SET fehltage_gesamt=89, geaendert_am='2000-01-01 00:00:00' WHERE id=9032");
+  App.fehltageGesamtNachziehen(App.query('SELECT * FROM kontrollergebnisse WHERE id=9032')[0]);
+  check(App.scalar('SELECT geaendert_am FROM kontrollergebnisse WHERE id=9032') === '2000-01-01 00:00:00', 'Stimmt die Spalte, wird nichts geschrieben');
+  void vorher;
+  // Bogen: jüngste Durchsicht live, ältere behält ihren Stand
+  const pdfSrc = read('src/js/modules/pdf-export.js');
+  vm.runInContext(pdfSrc + '\n;globalThis.PDFExport = PDFExport;', sandbox, { filename: 'pdf-export.js' });
+  const PDFExport = sandbox.PDFExport;
+  check(PDFExport.fehltageGesamtFuer(App.query('SELECT * FROM kontrollergebnisse WHERE id=9032')[0], 903) === 89, 'Bogen der jüngsten Durchsicht: 89 live');
+  check(PDFExport.fehltageGesamtFuer(App.query('SELECT * FROM kontrollergebnisse WHERE id=9031')[0], 903) === 8, 'Bogen einer älteren Durchsicht behält den damaligen Stand (8)');
+  App.run('UPDATE kontrollergebnisse SET fehltage_gesamt=0 WHERE id=9031');
+  check(PDFExport.fehltageGesamtFuer(App.query('SELECT * FROM kontrollergebnisse WHERE id=9031')[0], 903) === 85, 'Älterer Bogen ohne gespeicherten Stand (0) rechnet live (85)');
+  check(/const fzGesamt = PDFExport\.fehltageGesamtFuer\(ke, s\.id\)/.test(pdfSrc), 'generateBatch nutzt fehltageGesamtFuer');
+  const K = read('src/js/modules/kontrolle.js');
+  check(/const fehlGesamt = App\.fehltageGesamtNachziehen\(ke\);/.test(K) && /id="fehlGesamt">\$\{fehlGesamt\}</.test(K) && !/id="fehlGesamt">\$\{ke\.fehltage_gesamt\}/.test(K), 'Fehltage-Box der Durchsicht zeigt den Live-Stand, nicht die Spalte');
+}
+
 console.log('\n══ Audit 7 A1/A2: Fehltage gesamt einheitlich, Ausbildungsjahr-Untergrenze ══');
 {
   db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,ausbildungsbeginn,ausbildungsende) VALUES (901,'Pauschal','Petra',1,'2024-09-01','2027-08-31')`);

@@ -1297,6 +1297,9 @@ const KontrolleHandler = {
          prev.f_1_6_ausbildungsbetrieb || '']);
       ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     }
+    // Fehltage gesamt live aus den Wochen (+ Pauschale) – die gespeicherte
+    // Spalte kann veraltet sein (kopierter Altstand, Wochen vom Kollegen)
+    const fehlGesamt = App.fehltageGesamtNachziehen(ke);
 
     // Load CUMULATIVE KW data for this student (across all Durchsichten)
     const kwData = {};
@@ -1758,8 +1761,8 @@ const KontrolleHandler = {
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
           ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
-          <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${ke.fehltage_gesamt}</span> Tage</span>
-          <input type="hidden" id="fehlGesamtInput" value="${ke.fehltage_gesamt}">
+          <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${fehlGesamt}</span> Tage</span>
+          <input type="hidden" id="fehlGesamtInput" value="${fehlGesamt}">
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
           <label style="font-size:12px;color:var(--clr-text-light);display:flex;align-items:center;gap:4px" title="Fehltage, die pauschal (nicht wochengenau) erfasst wurden – z.B. aus der Nacherfassung eines Papierbogens. Werden zur KW-Summe addiert.">pauschal:
             <input type="number" min="0" max="999" class="form-control" style="width:58px;padding:2px 4px;font-size:12px;text-align:center" value="${ke.fehltage_pauschal || 0}" onchange="KontrolleHandler.setFehltagePauschal(${s.id}, ${ke.id}, this.value)">

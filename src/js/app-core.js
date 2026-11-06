@@ -8569,6 +8569,34 @@ const App = {
     const pauschal = ke ? (ke.pauschal || 0) : 0;
     return { kw, pauschal, gesamt: kw + pauschal, keId: ke ? ke.id : null };
   },
+  // Fehltage-Stand EINES Kontrollergebnisses, live aus den Wochen: alle
+  // kw_status-Fehltage des Azubis + Pauschale dieses Ergebnisses. Die Spalte
+  // kontrollergebnisse.fehltage_gesamt ist nur ein Zwischenspeicher, den der
+  // H-Schreibweg nachführt – sie veraltete (Feldfall: Jahre 8/23/54, „Gesamt:
+  // 0 Tage“, PDF „Fehltage gesamt: 0 (0,0 %)“ bei 10,8 % in der Warnzeile),
+  // wenn ein später angelegtes Ergebnis den alten Stand kopierte oder die
+  // Wochen auf einem anderen Rechner kamen. Anzeige und Bogen rechnen deshalb
+  // hier, nicht aus der Spalte.
+  fehltageGesamtKE(ke) {
+    if (!ke) return { kw: 0, pauschal: 0, gesamt: 0 };
+    const kw = this.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [ke.schueler_id]) || 0;
+    const pauschal = parseInt(ke.fehltage_pauschal) || 0;
+    return { kw, pauschal, gesamt: kw + pauschal };
+  },
+  // Zwischenspeicher heilen: weicht fehltage_gesamt vom Live-Stand ab, wird er
+  // nachgezogen (UPDATE … WHERE id=? – im Protokoll auf den natürlichen Schlüssel
+  // umgeschrieben), damit Übersichten, Excel und Wiedervorlagen dieselbe Zahl
+  // zeigen. Liefert den Live-Stand.
+  fehltageGesamtNachziehen(ke) {
+    const f = this.fehltageGesamtKE(ke);
+    if (ke && ke.id != null && (parseInt(ke.fehltage_gesamt) || 0) !== f.gesamt) {
+      try {
+        this.run(`UPDATE kontrollergebnisse SET fehltage_gesamt=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [f.gesamt, ke.id]);
+        ke.fehltage_gesamt = f.gesamt;
+      } catch(e) {}
+    }
+    return f.gesamt;
+  },
   // Lehrjahr-Filter (Audit 7 A2): dynamisch aus dem Ausbildungsverlauf statt
   // aus dem statischen klassen.lehrjahr, das ab dem zweiten Schuljahr
   // zwangsläufig veraltet. 30 s gecacht (ein Aufruf je Filterauswertung).
