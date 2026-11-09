@@ -356,6 +356,10 @@ const PDFExport = {
       doc.setFont('helvetica', 'italic'); doc.setFontSize(6);
       const fzHinweis = doc.splitTextToSize(PDFExport.FEHLTAGE_HINWEIS, halfW);
       leftH += fzHinweis.length * 2.6 + 1.5;
+      // Zulassung / Prüfungsausschuss (eine Zeile, 4 mm Vorschub + Luft nach unten) –
+      // fehlte in der Höhe: die Zeile hing auf der unteren Kastenlinie
+      const zulZeile = !!(ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1));
+      if (zulZeile) leftH += 4 + 3;
       // WV section
       const wv = ke ? App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [ke.id]) : [];
       const wvArt = wv.length ? wv[0].art : '';
@@ -431,7 +435,7 @@ const PDFExport = {
       curY += 1.5;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
       // Zulassung trotz Abweichung / Prüfungsausschuss
-      if (ke && (ke.zulassung_ap === 1 || ke.pruefungsausschuss === 1)) {
+      if (zulZeile) {
         curY += 4;
         const trotz = ke.zulassung_ap === 1 && String(ke.bemerkung || '').includes(KontrolleHandler.ZULASSUNG_TROTZ_PREFIX);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
