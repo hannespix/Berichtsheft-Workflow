@@ -4,6 +4,8 @@ const TableSort = {
     document.addEventListener('click', e => {
       const th = e.target.closest('.data-table th');
       if (!th || th.querySelector('input,button,svg')) return;
+      // Tabellen mit eigener Sortierung (Übersicht der Durchsicht: Gruppen, gemerkte Reihenfolge)
+      if (th.closest('table[data-sort-eigen]')) return;
       const txt = th.textContent.trim().replace(/[▲▼]/g, '').trim();
       if (!txt || txt === 'Aktionen' || txt.length > 35) return;
       const table = th.closest('table');

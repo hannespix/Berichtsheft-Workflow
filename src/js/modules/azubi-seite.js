@@ -162,6 +162,7 @@ const AzubiSeite = {
           <h3>Schule</h3>
           ${zeile('Berufsschule', schule ? schule.schule : '')}
           ${zeile('Klasse', schule ? schule.klassenbezeichnung : '')}
+          ${zeile('Klasse an der Schule', App.schulklasseNormal(s.schulklasse))}
           ${zeile('Fachrichtung', k.fr)}
           ${zeile('Jahrgang', k.jg)}
           ${zeile('Landesfachklasse', s.landesfachklasse)}

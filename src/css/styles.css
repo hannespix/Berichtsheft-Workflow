@@ -1714,6 +1714,27 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .sammel-leiste .btn-primary:hover { background: var(--clr-gelb); color: var(--clr-text); filter: brightness(0.96); }
 .sammel-leiste .aktionen-menue > summary { background: var(--clr-white); color: var(--clr-text); }
 .sammel-leiste .sl-x { margin-left: auto; }
+/* ── Übersicht der Durchsicht: Gruppieren, Sortieren, Klasse, Sammelaktionen ── */
+.ueb-leiste { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 8px; font-size: 13px; }
+.ueb-leiste label { display: inline-flex; align-items: center; gap: 6px; color: var(--clr-text-light); }
+.ueb-leiste select.form-control { width: auto; padding: 3px 8px; font-size: 13px; }
+.ueb-leiste-hinweis { margin-left: auto; font-size: 12px; color: var(--clr-text-light); }
+.ueb-sort { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
+.ueb-sort:hover { text-decoration: underline; }
+.ueb-sort.aktiv { font-weight: 700; }
+.ueb-sort:focus-visible, .ueb-klasse:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; }
+.ueb-tabelle .ueb-nr { width: 62px; white-space: nowrap; text-align: left; }
+.ueb-tabelle .ueb-nr label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ueb-tabelle .ueb-nr input, .ueb-gruppe input { width: 16px; height: 16px; accent-color: var(--clr-forest); margin: 0; }
+.ueb-klasse { width: 92px; padding: 3px 6px; font-size: 13px; }
+.ueb-klasse::placeholder { color: var(--clr-text-light); }
+.ueb-gruppe td { background: var(--clr-sand); padding: 7px 12px; font-size: 13px; }
+.ueb-gruppe label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-family: var(--font-display); color: var(--clr-forest-dark); }
+.ueb-gruppe-zahl { margin-left: 10px; font-size: 12px; color: var(--clr-text-light); }
+.ueb-tabelle tr.ueb-gewaehlt > td:first-child { box-shadow: inset 4px 0 0 var(--clr-forest); }
+.ueb-sammel { margin-top: 8px; }
+.ueb-sl-klasse { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ueb-sl-klasse input.form-control { width: 110px; padding: 3px 8px; font-size: 13px; color: var(--clr-text); background: var(--clr-white); }
 .sm-hinweis { font-size: 13px; line-height: 1.5; margin: 0 0 10px; }
 .sm-liste { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; border: 1px solid var(--clr-sand); border-radius: var(--radius); padding: 6px 8px; }
 .sm-zeile { display: flex; align-items: center; gap: 10px; padding: 5px 6px; font-size: 13px; cursor: pointer; border-radius: var(--radius); }
