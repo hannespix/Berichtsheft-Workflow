@@ -391,10 +391,10 @@ const KontrolleHandler = {
   //  Rechner – daran hängt „Mein Bereich #von–bis“. Gruppierung und Sortierung
   //  sind je Person gemerkt und bestimmen Anzeige, Druckliste und „Weiter“.
   // ═══════════════════════════════════════════
-  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['stand', 'Stand der Durchsicht']],
-  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
+  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Stand der Durchsicht']],
+  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
   UEB_STAND: ['Offen', 'Beanstandet', 'In Ordnung', 'Abwesend'],
-  UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb' },
+  UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb', amt: 'Ohne zuständiges Amt' },
   uebOrdnung() {
     // Vorgabe: keine Gruppe, Reihenfolge der Liste (#) – genau wie bisher
     const gruppe = App.uGet('ueb_gruppe', '') || '', sort = App.uGet('ueb_sort', 'nr') || 'nr';
@@ -427,12 +427,14 @@ const KontrolleHandler = {
     return { fr, klassen, ke, datum: t.durchgefuehrt_datum || t.geplant_datum || null, einsendung: t.typ === 'einsendung' };
   },
   // Werte eines Azubis: Klasse (frei), Fachrichtung, Lehrjahr, Stammdaten-Klasse,
-  // Betrieb, Stand (0 offen · 1 beanstandet · 2 in Ordnung · 3 abwesend)
+  // Betrieb, zuständiges Amt („93 RP Freiburg“), Stand (0 offen · 1 beanstandet ·
+  // 2 in Ordnung · 3 abwesend)
   _uebWert(s, i, ke, ctx, fehltage) {
     const anwesend = !ke || ke.anwesend !== 0;
     const ergebnis = ke && ke.ergebnis ? ke.ergebnis : '';
     let lehrjahr = null;
     try { lehrjahr = App.getLehrjahr(s.id, ctx.datum || undefined); } catch(e) {}
+    const amtCode = String(s.zustaendiges_amt || '').trim();
     return {
       i, name: `${s.nachname || ''}, ${s.vorname || ''}`,
       klasse: App.schulklasseNormal(s.schulklasse),
@@ -440,6 +442,7 @@ const KontrolleHandler = {
       lehrjahr: lehrjahr || null,
       fachklasse: ctx.klassen[s.klasse_id] || '',
       betrieb: String(s.ausbildungsstaette || '').trim(),
+      amt: amtCode ? App.amtLabel(amtCode) : '', eigenesAmt: !!amtCode && amtCode === App.EIGENES_AMT,
       standNr: ergebnis ? (ergebnis === 'in_ordnung' ? 2 : 1) : (anwesend ? 0 : 3),
       fehltage: fehltage == null ? 0 : fehltage,
     };
@@ -465,12 +468,14 @@ const KontrolleHandler = {
       const leer = o.gruppe === 'lehrjahr' ? !w.lehrjahr : (o.gruppe !== 'stand' && !k);
       const key = leer ? '' : String(k);
       if (!gruppen.has(key)) {
-        const label = leer ? this.UEB_OHNE[o.gruppe] : o.gruppe === 'stand' ? (k === 3 && ctx && ctx.einsendung ? 'Heft fehlt' : this.UEB_STAND[k]) : o.gruppe === 'lehrjahr' ? `${k}. Lehrjahr` : String(k);
-        gruppen.set(key, { key, label, leer, wert: k, indizes: [] });
+        const eigen = o.gruppe === 'amt' && w.eigenesAmt;
+        const label = leer ? this.UEB_OHNE[o.gruppe] : o.gruppe === 'stand' ? (k === 3 && ctx && ctx.einsendung ? 'Heft fehlt' : this.UEB_STAND[k]) : o.gruppe === 'lehrjahr' ? `${k}. Lehrjahr` : eigen ? `${k} (eigenes Amt)` : String(k);
+        // Zuständiges Amt: das eigene Amt zuerst, dann die fremden nach Nummer
+        gruppen.set(key, { key, label, leer, wert: k, rang: eigen ? 0 : 1, indizes: [] });
       }
       gruppen.get(key).indizes.push(w.i);
     });
-    return [...gruppen.values()].sort((a, b) => (a.leer - b.leer) || (typeof a.wert === 'number' && typeof b.wert === 'number' ? a.wert - b.wert : text(a.label, b.label)));
+    return [...gruppen.values()].sort((a, b) => (a.leer - b.leer) || (a.rang - b.rang) || (typeof a.wert === 'number' && typeof b.wert === 'number' ? a.wert - b.wert : text(a.label, b.label)));
   },
   // Gruppen für eine beliebige Azubi-Liste (Druckliste, Navigation)
   _uebGruppen(liste, terminId) {
