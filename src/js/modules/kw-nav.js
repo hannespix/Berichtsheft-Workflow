@@ -509,7 +509,7 @@ const KWNav = {
         } catch(e) {}
       }
       if (!proJahr.has(nr)) proJahr.set(nr, new Map());
-      proJahr.get(nr).set(pos, z.kw);
+      proJahr.get(nr).set(pos, z.sid ? App.kwText(z.sid, z.aj, z.kw) : z.kw);
     });
     return [...proJahr.keys()].sort((a, b) => a - b).map(nr => {
       const wochen = [...proJahr.get(nr).entries()].sort((a, b) => a[0] - b[0]);

@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════
-//  KW-Raster ab dem Ausbildungsbeginn: Zeilen = Ausbildungsjahre, die mit
-//  der Kalenderwoche des Beginns laut Stammdaten anfangen (1.8. → KW 31).
+//  KW-Raster ab dem Ausbildungsbeginn: Zeilen = Lehrjahre. Das erste beginnt
+//  mit der Kalenderwoche des Beginns laut Stammdaten (1.8. → KW 31, die
+//  Augustwochen stehen VOR dem ersten Schuljahr), jedes weitere mit KW 36,
+//  das letzte endet mit der Woche des Vertragsendes.
 //  Gespeicherte Kennungen (ausbildungsjahr, kalenderwoche) bleiben unverändert.
 //  Ausführen:  node tests/raster-test.mjs
 // ═══════════════════════════════════════════════════════════════════
@@ -72,27 +74,45 @@ let aug;
   check(info.jahre.length === 3 && info.jahre.map(j => j.nr).join() === '1,2,3', `drei Ausbildungsjahre (${kurz(aug)})`);
   const j1 = info.jahre[0].zellen;
   check(j1.slice(0, 6).map(z => `${z.aj}/${z.kw}`).join(' ') === '0/31 0/32 0/33 0/34 0/35 1/36', 'Jahr 1: KW 31–35 im Raster 0, ab KW 36 Raster 1');
-  check(j1.length === 52 && j1[51].aj === 1 && j1[51].kw === 30, 'Jahr 1 endet mit KW 30 (52 Wochen)');
-  check(info.jahre[1].zellen[0].aj === 1 && info.jahre[1].zellen[0].kw === 31, 'Jahr 2 beginnt mit (1, KW 31) – August 2026, vorher am Ende des ersten Rasters');
+  check(j1.length === 57 && j1[56].aj === 1 && j1[56].kw === 35, `1. Lehrjahr: fünf Augustwochen davor + ganzes Schuljahr bis KW 35 (${j1.length} Wochen)`);
+  const j2 = info.jahre[1];
+  check(j2.zellen.length === 52 && j2.zellen[0].aj === 2 && j2.zellen[0].kw === 36 && j2.zellen[51].kw === 35 && j2.einfach, '2. Lehrjahr beginnt mit dem Schuljahr in KW 36 und ist ein volles Schuljahr');
+  check(App.rasterJahrLabel(aug, j2).titel === 'Schuljahr 2026/27' && App.rasterJahrLabel(aug, j2).zusatz === '2. Lehrjahr', 'Kopf des 2. Lehrjahres: Schuljahr 2026/27 · 2. Lehrjahr');
   const j3 = info.jahre[2].zellen;
-  check(j3.length === 53 && j3[52].aj === 3 && j3[52].kw === 31 && j3[52].aktiv, 'Ende Mo 31.7.2028 (KW 31): die eine Woche hängt an Jahr 3 statt einer vierten Zeile');
+  check(j3.length === 48 && j3[0].aj === 3 && j3[0].kw === 36 && j3[47].aj === 3 && j3[47].kw === 31 && j3[47].aktiv && !info.jahre[2].einfach, `3. Lehrjahr beginnt in KW 36 und endet früher, mit der Woche des Vertragsendes KW 31 (${j3.length} Wochen)`);
+  check(j1.length + 52 + j3.length === 157, 'Summe der Wochen = Vertragsdauer (157 Wochen vom 1.8.2025 bis 31.7.2028)');
+  check(j1.filter(c => c.doppelt).map(c => `${c.aj}/${c.kw}`).join(' ') === '0/31 0/32 0/33 0/34 0/35 1/31 1/32 1/33 1/34 1/35' && !j3.some(c => c.doppelt), 'KW 31–35 stehen im 1. Lehrjahr zweimal (2025 und 2026) und sind als doppelt markiert');
+  check(App.kwText(aug, 0, 33) === '33/2025' && App.kwText(aug, 1, 33) === '33/2026' && App.kwText(aug, 1, 40) === '40' && App.kwText(aug, 3, 31) === '31', 'kwText nennt bei doppelten Wochen das Jahr');
+  // Anzeige-Zeilen: spaltengleich, kurze erste Zeile rechtsbündig über KW 36
+  const zl = App.rasterZeilen(j1);
+  check(zl.length === 5 && zl[0].zellen.length === 5 && zl[0].versatz === 8 && zl[1].versatz === 0 && zl[1].zellen[0].kw === 36 && zl.slice(1).every(r => r.zellen.length === 13), `1. Lehrjahr: eine kurze Zeile (KW 31–35, Spalte 9–13) + vier volle Zeilen ab KW 36 (${zl.map(r => r.versatz + ':' + r.zellen.length).join(' ')})`);
+  const zl3 = App.rasterZeilen(j3);
+  check(zl3.length === 4 && zl3[3].zellen.length === 9 && zl3[3].zellen[0].kw === 23 && zl3.every(r => r.versatz === 0), '3. Lehrjahr: letzte Zeile endet nach KW 31');
+  check(App.rasterZeilen(info.jahre[1].zellen).map(r => r.zellen[0].kw).join() === '36,49,10,23', 'volles Schuljahr: Zeilen beginnen in KW 36, 49, 10, 23');
+  check(App.rasterZeilen(j1.slice(0, 20), true).map(r => r.zellen.length + ':' + r.versatz).join() === '13:0,7:0', 'lose Wochen (außerhalb der Ausbildungszeit) einfach je 13');
   check(info.wochen.every(z => z.aktiv) && info.wochen.length === 157, 'alle Wochen vom Beginn bis zum Ende aktiv');
   const l = App.rasterJahrLabel(aug, info.jahre[0]);
-  check(l.titel === 'Ausbildungsjahr 1' && /^01\.08\.2025 – 26\.07\.2026 · 1\. Lehrjahr$/.test(l.zusatz), `Kopf: Ausbildungsjahr 1 · Zeitraum · Lehrjahr (${l.zusatz})`);
+  check(l.titel === 'Ausbildungsjahr 1' && /^01\.08\.2025 – 30\.08\.2026 · 1\. Lehrjahr$/.test(l.zusatz), `Kopf: Ausbildungsjahr 1 · Zeitraum · Lehrjahr (${l.zusatz})`);
   check(App.kwDateRange(31, info.jahre[0].zellen[0].sy).mon === '28.07.2025', 'Datum der ersten Zelle: Woche ab 28.07.2025');
-  check(App.jahrNr(aug, 0, 33) === 1 && App.jahrNr(aug, 1, 40) === 1 && App.jahrNr(aug, 1, 33) === 2 && App.jahrNr(aug, 3, 31) === 3, 'jahrNr: (0,33)→1 · (1,40)→1 · (1,33)→2 · (3,31)→3');
+  check(App.jahrNr(aug, 0, 33) === 1 && App.jahrNr(aug, 1, 40) === 1 && App.jahrNr(aug, 1, 33) === 1 && App.jahrNr(aug, 2, 40) === 2 && App.jahrNr(aug, 3, 31) === 3, 'jahrNr = Lehrjahr: (0,33)→1 · (1,40)→1 · (1,33)→1 · (2,40)→2 · (3,31)→3');
+  check(App.jahrNr(aug, 3, 34) === 3 && App.jahrNr(aug, 4, 40) === 3, 'Wochen nach dem Vertragsende zählen für Beschriftungen zum letzten Lehrjahr');
 }
 
 console.log('\n══ Weitere Beginne ══');
 {
   const sa = azubi('Aug26-Samstag', '2026-08-01', '2029-07-31');
-  check(App.rasterInfo(sa).start.kw === 32 && App.rasterInfo(sa).jahre.every(j => j.zellen.length === 52), 'Beginn Samstag 1.8.2026 → Woche ab Montag, KW 32; drei volle Zeilen');
+  check(App.rasterInfo(sa).start.kw === 32 && App.rasterInfo(sa).jahre.map(j => j.zellen.length).join() === '56,52,48', `Beginn Samstag 1.8.2026 → Woche ab Montag, KW 32; Lehrjahre mit 56, 52 und 48 Wochen (${kurz(sa)})`);
   const fr = azubi('Sep23-Freitag', '2023-09-01', '2026-08-31');
-  check(App.rasterInfo(fr).start.kw === 35 && App.rasterInfo(fr).start.aj === 0 && App.rasterInfo(fr).jahre.length === 3, `Beginn Freitag 1.9.2023 liegt in KW 35 → Raster ab KW 35 (${kurz(fr)})`);
+  check(App.rasterInfo(fr).start.kw === 35 && App.rasterInfo(fr).start.aj === 0 && App.rasterInfo(fr).jahre.length === 3 && App.rasterInfo(fr).jahre[0].zellen.length === 53 && App.rasterInfo(fr).jahre[1].zellen[0].kw === 36, `Beginn Freitag 1.9.2023 liegt in KW 35 → diese eine Woche steht vor dem 1. Lehrjahr (${kurz(fr)})`);
+  const okt = azubi('Okt25', '2025-10-01', '2028-09-30');
+  const io = App.rasterInfo(okt);
+  check(io.jahre.length === 3 && io.start.kw === 40 && io.start.aj === 1 && io.jahre[0].zellen.length === 48 && io.jahre[1].zellen[0].kw === 36 && io.jahre[1].einfach, `Beginn 1.10.: das 1. Lehrjahr ist kürzer (ab KW 40), das 2. beginnt in KW 36 (${kurz(okt)})`);
+  check(io.jahre[2].zellen.length === 56 && io.jahre[2].zellen[55].aj === 4 && io.jahre[2].zellen[55].kw === 39 && io.jahre[2].nr === 3, 'Restzeit im September hängt am letzten Lehrjahr (keine vierte Zeile)');
+  check(App.rasterZeilen(io.jahre[0].zellen)[0].versatz === 4 && App.rasterZeilen(io.jahre[0].zellen)[0].zellen.length === 9, 'späterer Beginn: erste Zeile beginnt in der Spalte ihrer KW');
   const mz = azubi('Maerz25', '2025-03-01', '2028-02-29');
   const im = App.rasterInfo(mz);
-  check(im.jahre.length === 3 && im.start.kw === 10 && im.start.aj === 1, `Beginn 1.3.2025 (Sa) → KW 10, drei Ausbildungsjahre statt vier Schuljahres-Zeilen (${kurz(mz)})`);
-  check(im.jahre[0].zellen[26].aj === 2 && im.jahre[0].zellen[26].kw === 36, 'Jahr 1 läuft über die Schuljahresgrenze: ab KW 36 Raster 2');
+  check(im.jahre.length === 3 && im.start.kw === 10 && im.start.aj === 1, `Beginn 1.3.2025 (Sa) → KW 10, drei Lehrjahre statt vier Schuljahres-Zeilen (${kurz(mz)})`);
+  check(im.jahre[0].zellen.length === 78 && im.jahre[0].zellen[26].aj === 2 && im.jahre[0].zellen[26].kw === 36 && im.jahre[1].zellen[0].kw === 36 && im.jahre[1].einfach && im.jahre[2].zellen.length === 26, '1. Lehrjahr = Vorlauf ab März + erstes Schuljahr (78 Wochen), 2. ab KW 36, 3. endet im Februar (26 Wochen)');
   const vk = azubi('Verk-Aug25', '2025-08-01', '2027-07-31', 36, 12);
   check(App.rasterInfo(vk).jahre.map(j => j.nr).join() === '2,3' && App.rasterInfo(vk).start.aj === 1, 'Verkürzer ab 1.8.: Ausbildungsjahre 2 und 3, Startwochen im Raster 1');
   const oe = azubi('ohne Ende', '2025-08-01', null);
@@ -154,12 +174,13 @@ console.log('\n══ Stichtag, „geprüft bis hier“, Fehltage, Beschriftung 
   db.run('UPDATE kw_status SET fehltage=2 WHERE schueler_id=? AND ausbildungsjahr=0 AND kalenderwoche=33', [aug]);
   db.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,fehltage,maengel_codes) VALUES (?,1,33,3,'A'),(?,1,40,1,'A')", [aug, aug]);
   const fj = App.rasterFehltage(aug);
-  check(fj[1] === 3 && fj[2] === 3 && fj[3] === 0, `Fehltage je Zeile: Jahr 1 = 2 + 1, Jahr 2 = 3 (${JSON.stringify(fj)})`);
-  check(KontrolleHandler.calcFehlSum(aug, 1) === 3 && KontrolleHandler.calcFehlSum(aug, 2) === 3, 'calcFehlSum rechnet je Zeile');
+  check(fj[1] === 6 && fj[2] === 0 && fj[3] === 0, `Fehltage je Lehrjahr: August 2025, Oktober 2025 und August 2026 zählen zum 1. Lehrjahr (${JSON.stringify(fj)})`);
+  check(KontrolleHandler.calcFehlSum(aug, 1) === 6 && KontrolleHandler.calcFehlSum(aug, 2) === 0, 'calcFehlSum rechnet je Zeile');
   // Beschriftung „AJ n“ = Zeile, zeitlich sortiert
   const z = App.autoHinweisCode(aug, 'A');
-  check(/\(2 Wochen: AJ 1: KW 40 · AJ 2: KW 33\)$/.test(z), `Hinweiszeile nennt das Ausbildungsjahr der Zeile: ${z}`);
-  check(KWNav._kwListe([{ aj: 0, kw: 34, sid: aug }, { aj: 0, kw: 35, sid: aug }, { aj: 1, kw: 36, sid: aug }, { aj: 1, kw: 31, sid: aug }]) === 'AJ1/KW34–36 · AJ2/KW31', 'KW-Liste: Bereich über die Raster-Grenze hinweg (AJ1/KW34–36), August des Folgejahres unter AJ2');
+  check(/\(2 Wochen: AJ 1: KW 40, 33\/2026\)$/.test(z), `Hinweiszeile nennt das Lehrjahr der Zeile und bei doppelten Wochen das Jahr: ${z}`);
+  const kl = KWNav._kwListe([{ aj: 0, kw: 34, sid: aug }, { aj: 0, kw: 35, sid: aug }, { aj: 1, kw: 36, sid: aug }, { aj: 1, kw: 31, sid: aug }, { aj: 2, kw: 40, sid: aug }]);
+  check(kl === 'AJ1/KW34/2025–36, 31/2026 · AJ2/KW40', `KW-Liste: Bereich über die Raster-Grenze hinweg, doppelte Wochen mit Jahr (${kl})`);
   // Wochen mit Inhalt außerhalb der Ausbildungszeit werden gemeldet
   db.run("INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes) VALUES (?,3,34,'B')", [aug]);
   const w = App.rasterWaisen(aug);
@@ -180,6 +201,9 @@ console.log('\n══ Verdrahtung ══');
   check(/info\.wochen\.filter\(w => w\.pos <= zelle\.pos/.test(N), 'Kaskade „geprüft bis hier“ über die Rasterreihenfolge ab dem Beginn');
   check(/const rInfo = App\.rasterInfo\(s\.id\);/.test(P) && /for \(const jahr of rJahre\)/.test(P) && !/getAJKWBounds/.test(P), 'Durchsichtsbogen (PDF) zeichnet dieselben Zeilen');
   check(/beginnt mit der Kalenderwoche des Ausbildungsbeginns aus den Stammdaten/.test(V), 'Hilfe erklärt den Beginn des Rasters');
+  check(/Jedes weitere Lehrjahr beginnt mit dem Schuljahr in KW 36/.test(V) && /KW 33\/2025/.test(V), 'Hilfe erklärt: früher Beginn vor dem 1. Lehrjahr, weitere Lehrjahre ab KW 36, doppelte Wochen mit Jahr');
+  check(/App\.rasterZeilen\(jahr\.zellen\)\.map\(\(row, ri\)/.test(K) && /grid-column-start:\$\{spalte\}/.test(K) && /row\.versatz \+ ci/.test(K) && /App\.rasterZeilen\(jahr\.zellen, !!jahr\.waisen\)/.test(P), 'Durchsicht und Bogen zeichnen spaltengleiche Zeilen (rasterZeilen, versatz)');
+  check(/App\.kwText\(s\.id, z\.aj, z\.kw\)/.test(K) && /App\.kwText\(z\.sid, z\.aj, z\.kw\)/.test(N) && /this\.kwText\(sid, r\.ausbildungsjahr, r\.kalenderwoche\)/.test(APP_SRC) && !/RASTER_REST_MAX/.test(APP_SRC), 'Beschriftungen nennen doppelte Wochen mit Jahr (kwText); keine 52-Wochen-Zeilen mehr');
 }
 
 console.log(`\n═══ Ergebnis: ${ok} OK, ${fehler} Fehler ═══`);

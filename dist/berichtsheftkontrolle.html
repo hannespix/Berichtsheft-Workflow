@@ -7953,7 +7953,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-17 12:51 UTC',
+  BUILD: '2026-11-17 18:17 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -17546,15 +17546,17 @@ const App = {
   //
   //  Gespeichert wird unverändert je Woche (ausbildungsjahr, kalenderwoche) =
   //  (Schuljahres-Raster, KW) – KEINE Datenmigration. Neu ist nur die
-  //  Zusammenstellung: Jahr n beginnt mit der KW des Ausbildungsbeginns
-  //  (Samstag/Sonntag → folgender Montag) und läuft 52 Wochen; jede Zelle
-  //  trägt ihre gespeicherte Kennung. Für einen Beginn in KW 36 (1.9.) sind
-  //  Zeile und Schuljahres-Raster identisch – dort ändert sich nichts. Die
-  //  Wochen vor dem ersten Schuljahr liegen im Raster davor (erstesAJ − 1,
-  //  bei Regelverträgen 0 – s. _migrateAjCheck).
+  //  Zusammenstellung der Zeilen. Seit Nov. 2026 (Vorgabe der Sachbearbeitung)
+  //  sind die Zeilen LEHRJAHRE: Das erste beginnt mit der KW des Ausbildungs-
+  //  beginns (Samstag/Sonntag → folgender Montag) – ein früherer Beginn (1.8.)
+  //  wird vor das erste Lehrjahr gestückelt, ein späterer (1.10.) verkürzt es –,
+  //  jedes weitere beginnt mit dem Schuljahr in KW 36, das letzte endet mit
+  //  der Woche des Vertragsendes. So stimmt die Zahl der Wochen insgesamt.
+  //  Die Wochen vor dem ersten Schuljahr liegen im Raster davor (erstesAJ − 1,
+  //  bei Regelverträgen 0 – s. _migrateAjCheck). Für einen Beginn am 1.9. in
+  //  KW 36 sind Zeile und Schuljahres-Raster identisch.
   // ═══════════════════════════════════════════
   KW_FOLGE: [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35],
-  RASTER_REST_MAX: 4,   // so viele Wochen über ein volles Jahr hinaus hängen an der letzten Zeile (statt einer Zeile mit 1–4 Wochen)
   RASTER_JAHRE_MAX: 6,
   _kwSI(kw) { return kw >= 36 ? kw - 36 : kw + 16; },   // Stelle in KW_FOLGE: 36 → 0 … 52 → 16, 1 → 17 … 35 → 51
   // ISO-Woche eines Datums: { kw (53 → 52, wie überall im Raster), jahr (ISO-Jahr) }
@@ -17608,8 +17610,8 @@ const App = {
     if (alt && alt.sig === sig) return alt.info;
     const F = this.KW_FOLGE;
     const info = { jahre: [], wochen: [], map: new Map(), start: null, endPos: 0, einfach: true, ajs, erstesAJ: ajs[0], firstSY: null, von: z.d1, bis: z.d2 };
-    const neu = (aj, kw, sy, pos, jahrIdx, aktiv) => {
-      const zelle = { aj, kw, sy, pos, jahr: ajs[0] + jahrIdx, jahrIndex: jahrIdx, aktiv };
+    const neu = (aj, kw, sy, pos, jahrIdx, aktiv, nr) => {
+      const zelle = { aj, kw, sy, pos, jahr: nr == null ? ajs[0] + jahrIdx : nr, jahrIndex: jahrIdx, aktiv, doppelt: false };
       info.wochen.push(zelle); info.map.set(aj + '_' + kw, zelle);
       return zelle;
     };
@@ -17635,12 +17637,18 @@ const App = {
     const en = ident(z.d2);
     let endPos = posVon(en.aj, en.kw);
     if (endPos < 0) endPos = 51;                             // Ende vor Beginn (Datenfehler): ein Jahr zeigen
-    let n = Math.floor(endPos / 52) + 1;
-    // 1–4 Wochen über ein volles Jahr hinaus: an die letzte Zeile hängen
-    if (n > 1 && endPos % 52 < this.RASTER_REST_MAX) n -= 1;
-    n = Math.max(1, Math.min(this.RASTER_JAHRE_MAX, n));
-    const rest = endPos - (n * 52 - 1);
-    const letztePos = n * 52 - 1 + (rest >= 1 && rest <= this.RASTER_REST_MAX ? rest : 0);
+    // Zeilen = Lehrjahre. Ein Schuljahres-Raster vor dem ersten Lehrjahr
+    // (Vorlauf: Augustwochen bei Beginn 1.8., Frühjahr bei Beginn 1.3.) gehört
+    // zur ersten Zeile, eines nach dem letzten (Restzeit im September) zur
+    // letzten – dazwischen wechselt die Zeile mit dem Schuljahr in KW 36.
+    let lj = null;
+    try { lj = this._lehrjahrInfo(schuelerId); } catch(e) {}
+    const ersteLJ = lj ? lj.erstesAJ : ajs[0];
+    const letzteLJ = Math.max(ersteLJ, lj ? lj.letztesLJ : ajs[ajs.length - 1]);
+    const ljVon = (aj) => Math.max(ersteLJ, Math.min(letzteLJ, lj ? lj.letztesLJ - (lj.rasterAnker - aj) : aj));
+    const ljStart = ljVon(st.aj);
+    const zeileVon = (aj) => Math.max(0, ljVon(aj) - ljStart);
+    const letztePos = endPos;
     // Unterbrechungen (Wochen je 7 Tage ab Beginn der Unterbrechung, wie bisher)
     const pause = new Set();
     z.unterbrechungen.forEach(([von, bis]) => {
@@ -17654,24 +17662,32 @@ const App = {
       const aj = st.aj + Math.floor(g / 52);
       if (aj > this.RASTER_JAHRE_MAX) break;                // Prüfregel der Tabelle: 0…6
       const kw = F[g % 52];
-      const jahrIdx = Math.min(n - 1, Math.floor(pos / 52));
-      if (!info.jahre[jahrIdx]) info.jahre[jahrIdx] = { nr: ajs[0] + jahrIdx, index: jahrIdx, zellen: [], einfach: false, sy: null, von: null, bis: null };
+      const jahrIdx = zeileVon(aj);
+      if (!info.jahre[jahrIdx]) info.jahre[jahrIdx] = { nr: ljStart + jahrIdx, index: jahrIdx, zellen: [], einfach: false, sy: null, von: null, bis: null };
       const sy = firstSY + (aj - ajs[0]);
-      info.jahre[jahrIdx].zellen.push(neu(aj, kw, sy, pos, jahrIdx, pos <= endPos && !pause.has(aj + '_' + kw)));
+      info.jahre[jahrIdx].zellen.push(neu(aj, kw, sy, pos, jahrIdx, pos <= endPos && !pause.has(aj + '_' + kw), ljStart + jahrIdx));
     }
-    info.einfach = st.kw === 36 && st.aj === ajs[0];
+    info.jahre = info.jahre.filter(Boolean);
     info.jahre.forEach((j, i) => {
-      j.einfach = info.einfach && j.zellen.length === 52;
-      j.sy = info.einfach ? firstSY + i : null;
+      // „einfach“ = die Zeile ist genau ein Schuljahr (KW 36 … 35)
+      j.einfach = j.zellen.length === 52 && j.zellen[0].kw === 36 && j.zellen[51].aj === j.zellen[0].aj;
+      j.sy = j.einfach ? j.zellen[0].sy : null;
+      // Wochen, deren KW-Nummer in der Zeile zweimal vorkommt (KW 31–35 bei
+      // Beginn 1.8.: im Startjahr und am Ende des ersten Schuljahres) –
+      // Beschriftungen nennen dann das Jahr dazu (kwText)
+      const zahl = {};
+      j.zellen.forEach(c => { zahl[c.kw] = (zahl[c.kw] || 0) + 1; });
+      j.zellen.forEach(c => { c.doppelt = zahl[c.kw] > 1; });
       const erste = j.zellen[0], letzte = j.zellen[j.zellen.length - 1];
       j.von = i === 0 ? z.d1 : this._kwMontag(erste.kw, erste.sy);
       const so = this._kwMontag(letzte.kw, letzte.sy); so.setDate(so.getDate() + 6);
       j.bis = i === info.jahre.length - 1 && z.d2 < so ? z.d2 : so;
     });
+    info.einfach = info.jahre.every(j => j.einfach);
     info.start = { aj: st.aj, kw: st.kw };
     info.endPos = endPos;
     info.firstSY = firstSY;
-    info._ident = ident; info._posVon = posVon;
+    info._ident = ident; info._posVon = posVon; info._nrVon = (aj) => ljStart + zeileVon(aj);
     this._rasterMerken(schuelerId, sig, info);
     return info;
   },
@@ -17682,7 +17698,7 @@ const App = {
     this._rasterCache.set(schuelerId, { sig, info });
   },
   rasterJahre(schuelerId) { return this.rasterInfo(schuelerId).jahre; },
-  // Nummer des Ausbildungsjahres (Zeile), in dem eine gespeicherte Woche steht –
+  // Nummer des Lehrjahres (Zeile), in dem eine gespeicherte Woche steht –
   // für alle Beschriftungen „AJ n“ (Bemerkung, Anschreiben, Fehltage je Jahr)
   jahrNr(schuelerId, aj, kw) {
     aj = parseInt(aj); kw = Math.min(52, parseInt(kw));
@@ -17690,10 +17706,39 @@ const App = {
       const info = this.rasterInfo(schuelerId);
       const zelle = info.map.get(aj + '_' + kw);
       if (zelle) return zelle.jahr;
-      if (!info._posVon) return aj;
-      const idx = Math.floor(info._posVon(aj, kw) / 52);
-      return info.erstesAJ + Math.max(0, Math.min(info.jahre.length - 1, idx));
+      if (!info._nrVon) return aj;
+      const nrs = info.jahre.map(j => j.nr);
+      return Math.max(nrs[0], Math.min(nrs[nrs.length - 1], info._nrVon(aj)));
     } catch(e) { return aj; }
+  },
+  // KW-Nummer für Beschriftungen: „33“, oder „33/2025“, wenn dieselbe KW in der
+  // Zeile zweimal vorkommt (früher Beginn: Augustwochen des Startjahres und
+  // des Folgejahres stehen beide im ersten Lehrjahr)
+  kwText(schuelerId, aj, kw) {
+    kw = Math.min(52, parseInt(kw));
+    try {
+      const zelle = schuelerId ? this.rasterInfo(schuelerId).map.get(parseInt(aj) + '_' + kw) : null;
+      if (zelle && zelle.doppelt && zelle.sy != null) return `${kw}/${kw >= 36 ? zelle.sy : zelle.sy + 1}`;
+    } catch(e) {}
+    return String(kw);
+  },
+  // Anzeige-Zeilen eines Lehrjahres zu je 13 Wochen, spaltengleich über alle
+  // Jahre: eine neue Zeile beginnt in KW 36, 49, 10 und 23. Ein früherer
+  // Beginn steht als kurze erste Zeile rechtsbündig über KW 36 (versatz =
+  // Spalte der ersten Woche). Rückgabe [{ zellen, versatz }].
+  rasterZeilen(zellen, frei) {
+    const out = [];
+    if (frei) {   // lose Wochen (Einträge außerhalb der Ausbildungszeit): einfach je 13
+      for (let i = 0; i < zellen.length; i += 13) out.push({ zellen: zellen.slice(i, i + 13), versatz: 0 });
+      return out;
+    }
+    let akt = null;
+    zellen.forEach(c => {
+      const sp = this._kwSI(c.kw) % 13;
+      if (!akt || sp === 0 || akt.zellen.length + akt.versatz >= 13) { akt = { zellen: [], versatz: sp }; out.push(akt); }
+      akt.zellen.push(c);
+    });
+    return out;
   },
   // Zelle der Woche, in der ein Datum liegt (null außerhalb des Rasters)
   rasterZelleAm(schuelerId, datum) {
@@ -17703,8 +17748,9 @@ const App = {
     const i = info._ident(d);
     return info.map.get(i.aj + '_' + i.kw) || null;
   },
-  // Kopfzeile eines Ausbildungsjahres: bei Beginn in KW 36 wie bisher
-  // „Schuljahr 2025/26 · 2. Lehrjahr“, sonst „Ausbildungsjahr 1 · 01.08.2025 – 31.07.2026 · 1. Lehrjahr“
+  // Kopfzeile eines Lehrjahres: ein volles Schuljahr (KW 36 … 35) heißt
+  // „Schuljahr 2026/27 · 2. Lehrjahr“, eine Zeile mit früherem Beginn oder
+  // früherem Ende „Ausbildungsjahr 1 · 01.08.2025 – 30.08.2026 · 1. Lehrjahr“
   rasterJahrLabel(schuelerId, jahr, ljInfo) {
     const fmt = d => d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` : '';
     // Lehrjahr des Schuljahres-Rasters, das die meisten Wochen der Zeile stellt (bei Gleichstand das spätere)
@@ -17986,7 +18032,7 @@ const App = {
       rows.sort((a, b) => pos(a) - pos(b));
     }
     const je = {};
-    rows.forEach(r => { const n = nrVon(r); (je[n] = je[n] || []).push(r.kalenderwoche); });
+    rows.forEach(r => { const n = nrVon(r); (je[n] = je[n] || []).push(sid ? this.kwText(sid, r.ausbildungsjahr, r.kalenderwoche) : r.kalenderwoche); });
     const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
       const kws = je[aj];
       const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');
@@ -22312,7 +22358,7 @@ const Views = {
             <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
           <div class="help-abschnitt">
             <h4 class="help-untertitel">KW-Raster & Bulk-Editing</h4>
-            <p>Das KW-Raster bildet alle Kalenderwochen der Ausbildung ab. <strong>Jede Zeile ist ein Ausbildungsjahr und beginnt mit der Kalenderwoche des Ausbildungsbeginns aus den Stammdaten</strong> (Beginn 1.9. = KW 36, Beginn 1.8. = KW 31; fällt der Beginn auf ein Wochenende, zählt die folgende Woche). Das Raster endet mit dem Ausbildungsende laut Stammdaten bzw. Ausbildungsverlauf; Wochen danach und Unterbrechungen sind grau. Stimmt der Anfang des Rasters nicht, bitte den Ausbildungsbeginn in den Stammdaten prüfen.</p>
+            <p>Das KW-Raster bildet alle Kalenderwochen der Ausbildung ab. <strong>Jeder Block ist ein Lehrjahr. Das erste beginnt mit der Kalenderwoche des Ausbildungsbeginns aus den Stammdaten</strong> (Beginn 1.9. = KW 36; fällt der Beginn auf ein Wochenende, zählt die folgende Woche). Beginnt der Vertrag früher, etwa am 1.8., stehen diese Wochen (KW 31–35) als kurze Zeile <em>vor</em> dem ersten Schuljahr und zählen zum 1. Lehrjahr; beginnt er später, ist das 1. Lehrjahr entsprechend kürzer. <strong>Jedes weitere Lehrjahr beginnt mit dem Schuljahr in KW 36</strong>, das letzte endet mit der Woche des Ausbildungsendes laut Stammdaten bzw. Ausbildungsverlauf – so stimmt die Zahl der Wochen insgesamt. Kommt eine Kalenderwoche in einem Lehrjahr zweimal vor (KW 31–35 bei Beginn 1.8.), nennen Bemerkung und Anschreiben das Jahr dazu („KW 33/2025“). Unterbrechungen sind grau. Stimmt der Anfang des Rasters nicht, bitte den Ausbildungsbeginn in den Stammdaten prüfen.</p>
             <p>Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
@@ -28598,7 +28644,10 @@ const PDFExport = {
         if (waisen.length) rJahre.push({ nr: 'x', index: rJahre.length, waisen: true, zellen: waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), aktiv: true })) });
       } catch(e) {}
       const schuelerAJs = rJahre.filter(j => !j.waisen);
-      const CH = schuelerAJs.length >= 4 ? 8.5 : CH_STD;
+      // Mehr als zwölf Rasterzeilen (früher Beginn: eine kurze Zeile mehr; vier
+      // Lehrjahre): niedrigere Zellen, damit der Bogen auf eine Seite passt
+      const rasterZeilenGesamt = schuelerAJs.reduce((n, j) => n + App.rasterZeilen(j.zellen).length, 0);
+      const CH = schuelerAJs.length >= 4 || rasterZeilenGesamt > 12 ? 8.5 : CH_STD;
       let ljInfo = null, fehlJe = {};
       try { ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : null; } catch(e) {}
       try { fehlJe = App.rasterFehltage(s.id); } catch(e) {}
@@ -28618,7 +28667,7 @@ const PDFExport = {
         const fehlSum = fehlJe[jahr.nr] || 0;
         let kopf = { titel: 'Außerhalb der Ausbildungszeit', zusatz: 'Einträge vor dem Beginn oder nach dem Ende laut Stammdaten' };
         if (!jahr.waisen) { try { kopf = App.rasterJahrLabel(s.id, jahr, ljInfo); } catch(e) { kopf = { titel: `Ausbildungsjahr ${jahr.nr}`, zusatz: '' }; } }
-        const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
+        const zeilen = App.rasterZeilen(jahr.zellen, !!jahr.waisen);
 
         // Rasterkopf: warme Fläche mit gelbem Marker, wie die Jahresköpfe am Bildschirm
         doc.setFillColor(...COL_WARM);
@@ -28640,9 +28689,9 @@ const PDFExport = {
 
         // KW cells
         zeilen.forEach(row => {
-          row.forEach((z, ci) => {
+          row.zellen.forEach((z, ci) => {
             const aj = z.aj, kw = z.kw;
-            const x = LM + ci * CW;
+            const x = LM + (row.versatz + ci) * CW;
             const d = kwData[`${aj}_${kw}`];
             const codes = (d && d.codes ? d.codes : '').split(',').map(c => c.trim()).filter(Boolean);
             const fehl = d?.fehltage || 0;
@@ -30755,7 +30804,7 @@ const KontrolleHandler = {
     // (App.rasterInfo); jede Zelle trägt ihre gespeicherte Kennung (aj, kw)
     const rInfo = App.rasterInfo(s.id);
     const fehlJe = App.rasterFehltage(s.id);
-    const kwZelle = (z, jahrNr, ri, ci) => {
+    const kwZelle = (z, jahrNr, ri, ci, spalte) => {
       const aj = z.aj, kw = z.kw;
       const key = `${aj}_${kw}`;
       const d = kwData[key];
@@ -30792,7 +30841,7 @@ const KontrolleHandler = {
       const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
       const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
       const title = `KW ${kw}${drLabel}${hasRealMaengel ? (hasZulMangel ? ' · Mängel: ' : ' · Hinweis (keine Zulassungsvoraussetzung): ')+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
-      return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
+      return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative${spalte ? `;grid-column-start:${spalte}` : ''}"
         data-ke="${ke.id}" data-sid="${s.id}" data-jahr="${jahrNr}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
         data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
         onclick="KWNav.focusCell(this,event)"
@@ -30800,10 +30849,12 @@ const KontrolleHandler = {
         ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
       </div>`;
     };
-    const rasterZeilen = (zellen) => { const z = []; for (let i = 0; i < zellen.length; i += 13) z.push(zellen.slice(i, i + 13)); return z; };
-    const renderKWGrid = (jahr) => rasterZeilen(jahr.zellen).map((row, ri) => `
+    // Zeilen zu 13 Wochen, spaltengleich über alle Lehrjahre (neue Zeile in
+    // KW 36, 49, 10, 23); ein früherer Beginn steht als kurze erste Zeile
+    // rechtsbündig über KW 36 (versatz = Spalte der ersten Woche)
+    const renderKWGrid = (jahr) => App.rasterZeilen(jahr.zellen).map((row, ri) => `
         <div class="kw-grid" data-jahr="${jahr.nr}" data-row="${ri}">
-          ${row.map((z, ci) => kwZelle(z, jahr.nr, ri, ci)).join('')}
+          ${row.zellen.map((z, ci) => kwZelle(z, jahr.nr, ri, row.versatz + ci, ci === 0 && row.versatz ? row.versatz + 1 : 0)).join('')}
         </div>
       `).join('') + `<div style="text-align:right;font-size:12px;color:var(--clr-text-light);padding:2px 4px;">
         Fehltage AJ${jahr.nr}: <strong id="fehlSumAj${jahr.nr}" style="color:var(--clr-text)">${fehlJe[jahr.nr] || 0}</strong>
@@ -31138,7 +31189,7 @@ const KontrolleHandler = {
         // „Ausbildungsjahr 1 · 01.08.2025 – 26.07.2026 · 1. Lehrjahr“
         const lbl = App.rasterJahrLabel(s.id, jahr, ljInfo);
         const vertragsjahr = (jahr.einfach ? (rInfo.erstesAJ !== 1 || rInfo.jahre.length !== 3) : nr !== jahr.index + 1) ? ` · ${jahr.index + 1}. Vertragsjahr` : '';
-        const bereichOpt = (gewaehlt) => jahr.zellen.map((z, i) => `<option value="${i}" ${i === gewaehlt ? 'selected' : ''}${!z.aktiv ? ' disabled' : ''}>${!z.aktiv ? '(' : ''}KW ${z.kw}${!z.aktiv ? ')' : ''}</option>`).join('');
+        const bereichOpt = (gewaehlt) => jahr.zellen.map((z, i) => `<option value="${i}" ${i === gewaehlt ? 'selected' : ''}${!z.aktiv ? ' disabled' : ''}>${!z.aktiv ? '(' : ''}KW ${App.kwText(s.id, z.aj, z.kw)}${!z.aktiv ? ')' : ''}</option>`).join('');
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
           <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
@@ -31173,7 +31224,7 @@ const KontrolleHandler = {
         const zellen = waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), sy: rInfo.firstSY != null ? rInfo.firstSY + (r.ausbildungsjahr - rInfo.erstesAJ) : null, aktiv: true }));
         return `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
           <div class="card-header" style="flex-wrap:wrap;gap:6px">Einträge außerhalb der Ausbildungszeit <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">– diese Wochen liegen vor dem Ausbildungsbeginn oder nach dem Ende laut Stammdaten. Bitte Beginn und Ende prüfen oder die Einträge leeren.</span></div>
-          ${rasterZeilen(zellen).map((row, ri) => `<div class="kw-grid" data-jahr="x" data-row="${ri}">${row.map((z, ci) => kwZelle(z, 'x', ri, ci)).join('')}</div>`).join('')}
+          ${App.rasterZeilen(zellen, true).map((row, ri) => `<div class="kw-grid" data-jahr="x" data-row="${ri}">${row.zellen.map((z, ci) => kwZelle(z, 'x', ri, ci)).join('')}</div>`).join('')}
         </div>`;
       })()}
 
@@ -32689,7 +32740,7 @@ const KontrolleHandler = {
     let y = 42;
     const snapJahre = App.rasterInfo(s.id).jahre;
     for (const jahr of snapJahre) {
-      const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
+      const zeilen = App.rasterZeilen(jahr.zellen);
       doc.setFont('helvetica','bold'); doc.setFontSize(8);
       doc.text(`Ausbildungsjahr ${jahr.nr}`, 14, y);
       // Show geprüfte KWs
@@ -32702,9 +32753,9 @@ const KontrolleHandler = {
       y += 4;
       zeilen.forEach(row => {
         const cw = 13.8;
-        row.forEach((z, ci) => {
+        row.zellen.forEach((z, ci) => {
           const aj = z.aj, kw = z.kw;
-          const x = 14 + ci * cw;
+          const x = 14 + (row.versatz + ci) * cw;
           const d = kwDataMap[`${aj}_${kw}`];
           const hasCodes = d && d.maengel_codes;
           const hasBehoben = d && d.behobene_codes && !hasCodes;
@@ -33316,7 +33367,7 @@ const KWNav = {
         } catch(e) {}
       }
       if (!proJahr.has(nr)) proJahr.set(nr, new Map());
-      proJahr.get(nr).set(pos, z.kw);
+      proJahr.get(nr).set(pos, z.sid ? App.kwText(z.sid, z.aj, z.kw) : z.kw);
     });
     return [...proJahr.keys()].sort((a, b) => a - b).map(nr => {
       const wochen = [...proJahr.get(nr).entries()].sort((a, b) => a[0] - b[0]);
@@ -35102,7 +35153,7 @@ const Workflows = {
           ergebnisDetails += `${a.nachname}, ${a.vorname}: ${a.ke?.ergebnis ? (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis) : 'nicht kontrolliert'}\n`;
           if (a.maengel.length) {
             maengelListe += `${a.nachname}, ${a.vorname}:\n`;
-            a.maengel.forEach(m => { maengelListe += `  AJ ${App.jahrNr(m.schueler_id || a.id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
+            a.maengel.forEach(m => { maengelListe += `  AJ ${App.jahrNr(m.schueler_id || a.id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${App.kwText(m.schueler_id || a.id, m.ausbildungsjahr, m.kalenderwoche)}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
           }
         });
         const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') AND w.frist_datum != '' ORDER BY w.frist_datum LIMIT 1`);
@@ -35431,7 +35482,7 @@ const Workflows = {
     const prueferName = w.ke_pruefer2 || w.ke_pruefer || (w.kt_pruefer || '').split(',')[0].trim() || KontrolleHandler?.activePruefer || App.query('SELECT name FROM pruefer WHERE aktiv=1 LIMIT 1')[0]?.name || 'Ausbildungsberater';
     const maengel = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND maengel_codes != "" ORDER BY ausbildungsjahr, kalenderwoche', [w.schueler_id]);
     const maengelText = maengel.length
-      ? maengel.map(m => `  - AJ ${App.jahrNr(w.schueler_id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => KWNav.CODE_LABELS[c] || c).join(', ')}${m.fehltage ? ' (' + m.fehltage + ' Fehltage)' : ''}`).join('\n')
+      ? maengel.map(m => `  - AJ ${App.jahrNr(w.schueler_id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${App.kwText(w.schueler_id, m.ausbildungsjahr, m.kalenderwoche)}: ${m.maengel_codes.split(',').map(c => KWNav.CODE_LABELS[c] || c).join(', ')}${m.fehltage ? ' (' + m.fehltage + ' Fehltage)' : ''}`).join('\n')
       : '  (keine offenen Mängel)';
     const heute = todayStr();
     const ueberfaellig = w.status === 'ueberfaellig' || (w.status === 'offen' && w.frist_datum && w.frist_datum < heute);
