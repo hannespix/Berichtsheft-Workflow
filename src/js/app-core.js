@@ -9841,15 +9841,17 @@ const App = {
   //
   //  Gespeichert wird unverändert je Woche (ausbildungsjahr, kalenderwoche) =
   //  (Schuljahres-Raster, KW) – KEINE Datenmigration. Neu ist nur die
-  //  Zusammenstellung: Jahr n beginnt mit der KW des Ausbildungsbeginns
-  //  (Samstag/Sonntag → folgender Montag) und läuft 52 Wochen; jede Zelle
-  //  trägt ihre gespeicherte Kennung. Für einen Beginn in KW 36 (1.9.) sind
-  //  Zeile und Schuljahres-Raster identisch – dort ändert sich nichts. Die
-  //  Wochen vor dem ersten Schuljahr liegen im Raster davor (erstesAJ − 1,
-  //  bei Regelverträgen 0 – s. _migrateAjCheck).
+  //  Zusammenstellung der Zeilen. Seit Nov. 2026 (Vorgabe der Sachbearbeitung)
+  //  sind die Zeilen LEHRJAHRE: Das erste beginnt mit der KW des Ausbildungs-
+  //  beginns (Samstag/Sonntag → folgender Montag) – ein früherer Beginn (1.8.)
+  //  wird vor das erste Lehrjahr gestückelt, ein späterer (1.10.) verkürzt es –,
+  //  jedes weitere beginnt mit dem Schuljahr in KW 36, das letzte endet mit
+  //  der Woche des Vertragsendes. So stimmt die Zahl der Wochen insgesamt.
+  //  Die Wochen vor dem ersten Schuljahr liegen im Raster davor (erstesAJ − 1,
+  //  bei Regelverträgen 0 – s. _migrateAjCheck). Für einen Beginn am 1.9. in
+  //  KW 36 sind Zeile und Schuljahres-Raster identisch.
   // ═══════════════════════════════════════════
   KW_FOLGE: [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35],
-  RASTER_REST_MAX: 4,   // so viele Wochen über ein volles Jahr hinaus hängen an der letzten Zeile (statt einer Zeile mit 1–4 Wochen)
   RASTER_JAHRE_MAX: 6,
   _kwSI(kw) { return kw >= 36 ? kw - 36 : kw + 16; },   // Stelle in KW_FOLGE: 36 → 0 … 52 → 16, 1 → 17 … 35 → 51
   // ISO-Woche eines Datums: { kw (53 → 52, wie überall im Raster), jahr (ISO-Jahr) }
@@ -9903,8 +9905,8 @@ const App = {
     if (alt && alt.sig === sig) return alt.info;
     const F = this.KW_FOLGE;
     const info = { jahre: [], wochen: [], map: new Map(), start: null, endPos: 0, einfach: true, ajs, erstesAJ: ajs[0], firstSY: null, von: z.d1, bis: z.d2 };
-    const neu = (aj, kw, sy, pos, jahrIdx, aktiv) => {
-      const zelle = { aj, kw, sy, pos, jahr: ajs[0] + jahrIdx, jahrIndex: jahrIdx, aktiv };
+    const neu = (aj, kw, sy, pos, jahrIdx, aktiv, nr) => {
+      const zelle = { aj, kw, sy, pos, jahr: nr == null ? ajs[0] + jahrIdx : nr, jahrIndex: jahrIdx, aktiv, doppelt: false };
       info.wochen.push(zelle); info.map.set(aj + '_' + kw, zelle);
       return zelle;
     };
@@ -9930,12 +9932,18 @@ const App = {
     const en = ident(z.d2);
     let endPos = posVon(en.aj, en.kw);
     if (endPos < 0) endPos = 51;                             // Ende vor Beginn (Datenfehler): ein Jahr zeigen
-    let n = Math.floor(endPos / 52) + 1;
-    // 1–4 Wochen über ein volles Jahr hinaus: an die letzte Zeile hängen
-    if (n > 1 && endPos % 52 < this.RASTER_REST_MAX) n -= 1;
-    n = Math.max(1, Math.min(this.RASTER_JAHRE_MAX, n));
-    const rest = endPos - (n * 52 - 1);
-    const letztePos = n * 52 - 1 + (rest >= 1 && rest <= this.RASTER_REST_MAX ? rest : 0);
+    // Zeilen = Lehrjahre. Ein Schuljahres-Raster vor dem ersten Lehrjahr
+    // (Vorlauf: Augustwochen bei Beginn 1.8., Frühjahr bei Beginn 1.3.) gehört
+    // zur ersten Zeile, eines nach dem letzten (Restzeit im September) zur
+    // letzten – dazwischen wechselt die Zeile mit dem Schuljahr in KW 36.
+    let lj = null;
+    try { lj = this._lehrjahrInfo(schuelerId); } catch(e) {}
+    const ersteLJ = lj ? lj.erstesAJ : ajs[0];
+    const letzteLJ = Math.max(ersteLJ, lj ? lj.letztesLJ : ajs[ajs.length - 1]);
+    const ljVon = (aj) => Math.max(ersteLJ, Math.min(letzteLJ, lj ? lj.letztesLJ - (lj.rasterAnker - aj) : aj));
+    const ljStart = ljVon(st.aj);
+    const zeileVon = (aj) => Math.max(0, ljVon(aj) - ljStart);
+    const letztePos = endPos;
     // Unterbrechungen (Wochen je 7 Tage ab Beginn der Unterbrechung, wie bisher)
     const pause = new Set();
     z.unterbrechungen.forEach(([von, bis]) => {
@@ -9949,24 +9957,32 @@ const App = {
       const aj = st.aj + Math.floor(g / 52);
       if (aj > this.RASTER_JAHRE_MAX) break;                // Prüfregel der Tabelle: 0…6
       const kw = F[g % 52];
-      const jahrIdx = Math.min(n - 1, Math.floor(pos / 52));
-      if (!info.jahre[jahrIdx]) info.jahre[jahrIdx] = { nr: ajs[0] + jahrIdx, index: jahrIdx, zellen: [], einfach: false, sy: null, von: null, bis: null };
+      const jahrIdx = zeileVon(aj);
+      if (!info.jahre[jahrIdx]) info.jahre[jahrIdx] = { nr: ljStart + jahrIdx, index: jahrIdx, zellen: [], einfach: false, sy: null, von: null, bis: null };
       const sy = firstSY + (aj - ajs[0]);
-      info.jahre[jahrIdx].zellen.push(neu(aj, kw, sy, pos, jahrIdx, pos <= endPos && !pause.has(aj + '_' + kw)));
+      info.jahre[jahrIdx].zellen.push(neu(aj, kw, sy, pos, jahrIdx, pos <= endPos && !pause.has(aj + '_' + kw), ljStart + jahrIdx));
     }
-    info.einfach = st.kw === 36 && st.aj === ajs[0];
+    info.jahre = info.jahre.filter(Boolean);
     info.jahre.forEach((j, i) => {
-      j.einfach = info.einfach && j.zellen.length === 52;
-      j.sy = info.einfach ? firstSY + i : null;
+      // „einfach“ = die Zeile ist genau ein Schuljahr (KW 36 … 35)
+      j.einfach = j.zellen.length === 52 && j.zellen[0].kw === 36 && j.zellen[51].aj === j.zellen[0].aj;
+      j.sy = j.einfach ? j.zellen[0].sy : null;
+      // Wochen, deren KW-Nummer in der Zeile zweimal vorkommt (KW 31–35 bei
+      // Beginn 1.8.: im Startjahr und am Ende des ersten Schuljahres) –
+      // Beschriftungen nennen dann das Jahr dazu (kwText)
+      const zahl = {};
+      j.zellen.forEach(c => { zahl[c.kw] = (zahl[c.kw] || 0) + 1; });
+      j.zellen.forEach(c => { c.doppelt = zahl[c.kw] > 1; });
       const erste = j.zellen[0], letzte = j.zellen[j.zellen.length - 1];
       j.von = i === 0 ? z.d1 : this._kwMontag(erste.kw, erste.sy);
       const so = this._kwMontag(letzte.kw, letzte.sy); so.setDate(so.getDate() + 6);
       j.bis = i === info.jahre.length - 1 && z.d2 < so ? z.d2 : so;
     });
+    info.einfach = info.jahre.every(j => j.einfach);
     info.start = { aj: st.aj, kw: st.kw };
     info.endPos = endPos;
     info.firstSY = firstSY;
-    info._ident = ident; info._posVon = posVon;
+    info._ident = ident; info._posVon = posVon; info._nrVon = (aj) => ljStart + zeileVon(aj);
     this._rasterMerken(schuelerId, sig, info);
     return info;
   },
@@ -9977,7 +9993,7 @@ const App = {
     this._rasterCache.set(schuelerId, { sig, info });
   },
   rasterJahre(schuelerId) { return this.rasterInfo(schuelerId).jahre; },
-  // Nummer des Ausbildungsjahres (Zeile), in dem eine gespeicherte Woche steht –
+  // Nummer des Lehrjahres (Zeile), in dem eine gespeicherte Woche steht –
   // für alle Beschriftungen „AJ n“ (Bemerkung, Anschreiben, Fehltage je Jahr)
   jahrNr(schuelerId, aj, kw) {
     aj = parseInt(aj); kw = Math.min(52, parseInt(kw));
@@ -9985,10 +10001,39 @@ const App = {
       const info = this.rasterInfo(schuelerId);
       const zelle = info.map.get(aj + '_' + kw);
       if (zelle) return zelle.jahr;
-      if (!info._posVon) return aj;
-      const idx = Math.floor(info._posVon(aj, kw) / 52);
-      return info.erstesAJ + Math.max(0, Math.min(info.jahre.length - 1, idx));
+      if (!info._nrVon) return aj;
+      const nrs = info.jahre.map(j => j.nr);
+      return Math.max(nrs[0], Math.min(nrs[nrs.length - 1], info._nrVon(aj)));
     } catch(e) { return aj; }
+  },
+  // KW-Nummer für Beschriftungen: „33“, oder „33/2025“, wenn dieselbe KW in der
+  // Zeile zweimal vorkommt (früher Beginn: Augustwochen des Startjahres und
+  // des Folgejahres stehen beide im ersten Lehrjahr)
+  kwText(schuelerId, aj, kw) {
+    kw = Math.min(52, parseInt(kw));
+    try {
+      const zelle = schuelerId ? this.rasterInfo(schuelerId).map.get(parseInt(aj) + '_' + kw) : null;
+      if (zelle && zelle.doppelt && zelle.sy != null) return `${kw}/${kw >= 36 ? zelle.sy : zelle.sy + 1}`;
+    } catch(e) {}
+    return String(kw);
+  },
+  // Anzeige-Zeilen eines Lehrjahres zu je 13 Wochen, spaltengleich über alle
+  // Jahre: eine neue Zeile beginnt in KW 36, 49, 10 und 23. Ein früherer
+  // Beginn steht als kurze erste Zeile rechtsbündig über KW 36 (versatz =
+  // Spalte der ersten Woche). Rückgabe [{ zellen, versatz }].
+  rasterZeilen(zellen, frei) {
+    const out = [];
+    if (frei) {   // lose Wochen (Einträge außerhalb der Ausbildungszeit): einfach je 13
+      for (let i = 0; i < zellen.length; i += 13) out.push({ zellen: zellen.slice(i, i + 13), versatz: 0 });
+      return out;
+    }
+    let akt = null;
+    zellen.forEach(c => {
+      const sp = this._kwSI(c.kw) % 13;
+      if (!akt || sp === 0 || akt.zellen.length + akt.versatz >= 13) { akt = { zellen: [], versatz: sp }; out.push(akt); }
+      akt.zellen.push(c);
+    });
+    return out;
   },
   // Zelle der Woche, in der ein Datum liegt (null außerhalb des Rasters)
   rasterZelleAm(schuelerId, datum) {
@@ -9998,8 +10043,9 @@ const App = {
     const i = info._ident(d);
     return info.map.get(i.aj + '_' + i.kw) || null;
   },
-  // Kopfzeile eines Ausbildungsjahres: bei Beginn in KW 36 wie bisher
-  // „Schuljahr 2025/26 · 2. Lehrjahr“, sonst „Ausbildungsjahr 1 · 01.08.2025 – 31.07.2026 · 1. Lehrjahr“
+  // Kopfzeile eines Lehrjahres: ein volles Schuljahr (KW 36 … 35) heißt
+  // „Schuljahr 2026/27 · 2. Lehrjahr“, eine Zeile mit früherem Beginn oder
+  // früherem Ende „Ausbildungsjahr 1 · 01.08.2025 – 30.08.2026 · 1. Lehrjahr“
   rasterJahrLabel(schuelerId, jahr, ljInfo) {
     const fmt = d => d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` : '';
     // Lehrjahr des Schuljahres-Rasters, das die meisten Wochen der Zeile stellt (bei Gleichstand das spätere)
@@ -10281,7 +10327,7 @@ const App = {
       rows.sort((a, b) => pos(a) - pos(b));
     }
     const je = {};
-    rows.forEach(r => { const n = nrVon(r); (je[n] = je[n] || []).push(r.kalenderwoche); });
+    rows.forEach(r => { const n = nrVon(r); (je[n] = je[n] || []).push(sid ? this.kwText(sid, r.ausbildungsjahr, r.kalenderwoche) : r.kalenderwoche); });
     const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
       const kws = je[aj];
       const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');

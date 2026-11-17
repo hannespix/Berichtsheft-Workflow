@@ -1669,7 +1669,7 @@ const KontrolleHandler = {
     // (App.rasterInfo); jede Zelle trägt ihre gespeicherte Kennung (aj, kw)
     const rInfo = App.rasterInfo(s.id);
     const fehlJe = App.rasterFehltage(s.id);
-    const kwZelle = (z, jahrNr, ri, ci) => {
+    const kwZelle = (z, jahrNr, ri, ci, spalte) => {
       const aj = z.aj, kw = z.kw;
       const key = `${aj}_${kw}`;
       const d = kwData[key];
@@ -1706,7 +1706,7 @@ const KontrolleHandler = {
       const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
       const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
       const title = `KW ${kw}${drLabel}${hasRealMaengel ? (hasZulMangel ? ' · Mängel: ' : ' · Hinweis (keine Zulassungsvoraussetzung): ')+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
-      return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
+      return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative${spalte ? `;grid-column-start:${spalte}` : ''}"
         data-ke="${ke.id}" data-sid="${s.id}" data-jahr="${jahrNr}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
         data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
         onclick="KWNav.focusCell(this,event)"
@@ -1714,10 +1714,12 @@ const KontrolleHandler = {
         ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
       </div>`;
     };
-    const rasterZeilen = (zellen) => { const z = []; for (let i = 0; i < zellen.length; i += 13) z.push(zellen.slice(i, i + 13)); return z; };
-    const renderKWGrid = (jahr) => rasterZeilen(jahr.zellen).map((row, ri) => `
+    // Zeilen zu 13 Wochen, spaltengleich über alle Lehrjahre (neue Zeile in
+    // KW 36, 49, 10, 23); ein früherer Beginn steht als kurze erste Zeile
+    // rechtsbündig über KW 36 (versatz = Spalte der ersten Woche)
+    const renderKWGrid = (jahr) => App.rasterZeilen(jahr.zellen).map((row, ri) => `
         <div class="kw-grid" data-jahr="${jahr.nr}" data-row="${ri}">
-          ${row.map((z, ci) => kwZelle(z, jahr.nr, ri, ci)).join('')}
+          ${row.zellen.map((z, ci) => kwZelle(z, jahr.nr, ri, row.versatz + ci, ci === 0 && row.versatz ? row.versatz + 1 : 0)).join('')}
         </div>
       `).join('') + `<div style="text-align:right;font-size:12px;color:var(--clr-text-light);padding:2px 4px;">
         Fehltage AJ${jahr.nr}: <strong id="fehlSumAj${jahr.nr}" style="color:var(--clr-text)">${fehlJe[jahr.nr] || 0}</strong>
@@ -2052,7 +2054,7 @@ const KontrolleHandler = {
         // „Ausbildungsjahr 1 · 01.08.2025 – 26.07.2026 · 1. Lehrjahr“
         const lbl = App.rasterJahrLabel(s.id, jahr, ljInfo);
         const vertragsjahr = (jahr.einfach ? (rInfo.erstesAJ !== 1 || rInfo.jahre.length !== 3) : nr !== jahr.index + 1) ? ` · ${jahr.index + 1}. Vertragsjahr` : '';
-        const bereichOpt = (gewaehlt) => jahr.zellen.map((z, i) => `<option value="${i}" ${i === gewaehlt ? 'selected' : ''}${!z.aktiv ? ' disabled' : ''}>${!z.aktiv ? '(' : ''}KW ${z.kw}${!z.aktiv ? ')' : ''}</option>`).join('');
+        const bereichOpt = (gewaehlt) => jahr.zellen.map((z, i) => `<option value="${i}" ${i === gewaehlt ? 'selected' : ''}${!z.aktiv ? ' disabled' : ''}>${!z.aktiv ? '(' : ''}KW ${App.kwText(s.id, z.aj, z.kw)}${!z.aktiv ? ')' : ''}</option>`).join('');
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
           <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
@@ -2087,7 +2089,7 @@ const KontrolleHandler = {
         const zellen = waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), sy: rInfo.firstSY != null ? rInfo.firstSY + (r.ausbildungsjahr - rInfo.erstesAJ) : null, aktiv: true }));
         return `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
           <div class="card-header" style="flex-wrap:wrap;gap:6px">Einträge außerhalb der Ausbildungszeit <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">– diese Wochen liegen vor dem Ausbildungsbeginn oder nach dem Ende laut Stammdaten. Bitte Beginn und Ende prüfen oder die Einträge leeren.</span></div>
-          ${rasterZeilen(zellen).map((row, ri) => `<div class="kw-grid" data-jahr="x" data-row="${ri}">${row.map((z, ci) => kwZelle(z, 'x', ri, ci)).join('')}</div>`).join('')}
+          ${App.rasterZeilen(zellen, true).map((row, ri) => `<div class="kw-grid" data-jahr="x" data-row="${ri}">${row.zellen.map((z, ci) => kwZelle(z, 'x', ri, ci)).join('')}</div>`).join('')}
         </div>`;
       })()}
 
@@ -3603,7 +3605,7 @@ const KontrolleHandler = {
     let y = 42;
     const snapJahre = App.rasterInfo(s.id).jahre;
     for (const jahr of snapJahre) {
-      const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
+      const zeilen = App.rasterZeilen(jahr.zellen);
       doc.setFont('helvetica','bold'); doc.setFontSize(8);
       doc.text(`Ausbildungsjahr ${jahr.nr}`, 14, y);
       // Show geprüfte KWs
@@ -3616,9 +3618,9 @@ const KontrolleHandler = {
       y += 4;
       zeilen.forEach(row => {
         const cw = 13.8;
-        row.forEach((z, ci) => {
+        row.zellen.forEach((z, ci) => {
           const aj = z.aj, kw = z.kw;
-          const x = 14 + ci * cw;
+          const x = 14 + (row.versatz + ci) * cw;
           const d = kwDataMap[`${aj}_${kw}`];
           const hasCodes = d && d.maengel_codes;
           const hasBehoben = d && d.behobene_codes && !hasCodes;

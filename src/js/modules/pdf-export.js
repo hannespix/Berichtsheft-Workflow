@@ -134,7 +134,10 @@ const PDFExport = {
         if (waisen.length) rJahre.push({ nr: 'x', index: rJahre.length, waisen: true, zellen: waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), aktiv: true })) });
       } catch(e) {}
       const schuelerAJs = rJahre.filter(j => !j.waisen);
-      const CH = schuelerAJs.length >= 4 ? 8.5 : CH_STD;
+      // Mehr als zwölf Rasterzeilen (früher Beginn: eine kurze Zeile mehr; vier
+      // Lehrjahre): niedrigere Zellen, damit der Bogen auf eine Seite passt
+      const rasterZeilenGesamt = schuelerAJs.reduce((n, j) => n + App.rasterZeilen(j.zellen).length, 0);
+      const CH = schuelerAJs.length >= 4 || rasterZeilenGesamt > 12 ? 8.5 : CH_STD;
       let ljInfo = null, fehlJe = {};
       try { ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : null; } catch(e) {}
       try { fehlJe = App.rasterFehltage(s.id); } catch(e) {}
@@ -154,7 +157,7 @@ const PDFExport = {
         const fehlSum = fehlJe[jahr.nr] || 0;
         let kopf = { titel: 'Außerhalb der Ausbildungszeit', zusatz: 'Einträge vor dem Beginn oder nach dem Ende laut Stammdaten' };
         if (!jahr.waisen) { try { kopf = App.rasterJahrLabel(s.id, jahr, ljInfo); } catch(e) { kopf = { titel: `Ausbildungsjahr ${jahr.nr}`, zusatz: '' }; } }
-        const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
+        const zeilen = App.rasterZeilen(jahr.zellen, !!jahr.waisen);
 
         // Rasterkopf: warme Fläche mit gelbem Marker, wie die Jahresköpfe am Bildschirm
         doc.setFillColor(...COL_WARM);
@@ -176,9 +179,9 @@ const PDFExport = {
 
         // KW cells
         zeilen.forEach(row => {
-          row.forEach((z, ci) => {
+          row.zellen.forEach((z, ci) => {
             const aj = z.aj, kw = z.kw;
-            const x = LM + ci * CW;
+            const x = LM + (row.versatz + ci) * CW;
             const d = kwData[`${aj}_${kw}`];
             const codes = (d && d.codes ? d.codes : '').split(',').map(c => c.trim()).filter(Boolean);
             const fehl = d?.fehltage || 0;
