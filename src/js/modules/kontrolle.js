@@ -795,7 +795,8 @@ const KontrolleHandler = {
     const heute = new Date();
     const ziel = App.ajKwFuerStichtag(s.id, heute, App._isoKW(heute));
     if (!ziel) return null;
-    if (this._ajZustand.get(ziel.aj) === false) { this._ajZustand.set(ziel.aj, true); this.renderSchueler(); }
+    const jahrNr = App.jahrNr(s.id, ziel.aj, ziel.kw);
+    if (this._ajZustand.get(jahrNr) === false) { this._ajZustand.set(jahrNr, true); this.renderSchueler(); }
     const cell = document.querySelector(`.kw-cell[data-aj="${ziel.aj}"][data-kw="${ziel.kw}"]`);
     if (cell && cell.focus) { try { cell.scrollIntoView({ block: 'center' }); } catch(e) {} cell.focus(); }
     return ziel;
@@ -1329,10 +1330,6 @@ const KontrolleHandler = {
       { code: 'I', label: 'Sonstiges' },
     ];
 
-    const kwRows = KW_GRID;
-
-    // Calculate active KW ranges from AV-Beginn/AV-Ende
-    const ajBounds = App.getAJKWBounds(s.id);
 
     const ergebnisOptions = this.ERGEBNIS_OPTIONEN;
     // Für KWNav.updateCellVisual: entscheidet, ob D als Zulassungsmangel zählt
@@ -1353,60 +1350,63 @@ const KontrolleHandler = {
         <option value="nein" ${val==='nein'?'selected':''}>nicht geführt</option>
       </select>`;
 
-    const renderKWGrid = (aj) => {
+    // Raster: Zeilen = Ausbildungsjahre ab dem Ausbildungsbeginn laut Stammdaten
+    // (App.rasterInfo); jede Zelle trägt ihre gespeicherte Kennung (aj, kw)
+    const rInfo = App.rasterInfo(s.id);
+    const fehlJe = App.rasterFehltage(s.id);
+    const kwZelle = (z, jahrNr, ri, ci) => {
+      const aj = z.aj, kw = z.kw;
+      const key = `${aj}_${kw}`;
+      const d = kwData[key];
+      const dr = z.sy ? App.kwDateRange(kw, z.sy) : null;
+      const drLabel = dr ? ` · ${dr.label}` : '';
+      // Wochen außerhalb der Ausbildungszeit grau – außer sie tragen Einträge (zeigen, nie verstecken)
+      if (!z.aktiv && !(d && (d.codes || d.behoben || d.fehltage || d.bemerkung))) {
+        return `<div class="kw-cell kw-inactive" data-jahr="${jahrNr}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}" title="KW ${kw}${drLabel} – außerhalb der Ausbildungszeit"><span class="kw-num">${kw}</span></div>`;
+      }
       const ajSessionKWs = sessionKWs[aj] || [];
-      const bounds = ajBounds[aj] || { inactiveKWs: [], syStart: null };
-      const inactiveSet = new Set(bounds.inactiveKWs);
-      return kwRows.map((row, ri) => `
-        <div class="kw-grid" data-aj="${aj}" data-row="${ri}">
-          ${row.map((kw, ci) => {
-            const isInactive = inactiveSet.has(kw);
-            const dr = bounds.syStart ? App.kwDateRange(kw, bounds.syStart) : null;
-            const drLabel = dr ? ` · ${dr.label}` : '';
-            if (isInactive) {
-              return `<div class="kw-cell kw-inactive" data-aj="${aj}" data-kw="${kw}" title="KW ${kw}${drLabel} – außerhalb der Ausbildungszeit"><span class="kw-num">${kw}</span></div>`;
-            }
-            const key = `${aj}_${kw}`;
-            const d = kwData[key];
-            const hasCodes = d && d.codes;
-            const hasBehoben = d && d.behoben;
-            const codeStr = hasCodes ? d.codes : '';
-            const behobenStr = hasBehoben ? d.behoben : '';
-            const fehl = d && d.fehltage ? d.fehltage : 0;
-            const hasBem = d && d.bemerkung;
-            const isSessionKW = ajSessionKWs.includes(kw);
-            const isPastPruef = d && d.geprueft && !isSessionKW;
-            // H (Fehltage) allein = kein Mangel → kein rot; D/I ohne
-            // Zusatzvereinbarung = Hinweis (gelb), kein Zulassungsmangel
-            const hasRealMaengel = hasCodes && codeStr.split(',').some(c => c.trim() && c.trim() !== 'H');
-            const hasZulMangel = hasCodes && App.istZulassungsMangel(codeStr, ke);
-            const isHOnly = hasCodes && !hasRealMaengel;
-            // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for D/I, kw-behoben (orange), kw-ok (green)
-            let cls = '';
-            if (hasZulMangel) cls = 'kw-issue';
-            else if (hasRealMaengel) cls = 'kw-hinweis';
-            else if (hasBehoben) cls = 'kw-behoben';
-            else if (isPastPruef || isHOnly) cls = 'kw-ok';
-            if (fehl > 0 && !hasRealMaengel) cls += ' kw-fehltage-only';
-            if (isSessionKW) cls += ' kw-session';
-            const fehlDisplay = fehl > 0 && !(hasCodes && codeStr.includes('H')) ? `<span class="kw-fehltage">${fehl}</span>` : '';
-            // Merge H with Fehltage: "A,H" + 3 → display "A H3"
-            const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
-            const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
-            const title = `KW ${kw}${drLabel}${hasRealMaengel ? (hasZulMangel ? ' · Mängel: ' : ' · Hinweis (keine Zulassungsvoraussetzung): ')+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
-            return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
-              data-ke="${ke.id}" data-sid="${s.id}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
-              data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
-              onclick="KWNav.focusCell(this,event)"
-              title="${esc(title)}">
-              ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
-            </div>`;
-          }).join('')}
-        </div>
-      `).join('') + `<div style="text-align:right;font-size:12px;color:var(--clr-text-light);padding:2px 4px;">
-        Fehltage AJ${aj}: <strong id="fehlSumAj${aj}" style="color:var(--clr-text)">${this.calcFehlSum(s.id, aj)}</strong>
+      const hasCodes = d && d.codes;
+      const hasBehoben = d && d.behoben;
+      const codeStr = hasCodes ? d.codes : '';
+      const behobenStr = hasBehoben ? d.behoben : '';
+      const fehl = d && d.fehltage ? d.fehltage : 0;
+      const hasBem = d && d.bemerkung;
+      const isSessionKW = ajSessionKWs.includes(kw);
+      const isPastPruef = d && d.geprueft && !isSessionKW;
+      // H (Fehltage) allein = kein Mangel → kein rot; D/I ohne
+      // Zusatzvereinbarung = Hinweis (gelb), kein Zulassungsmangel
+      const hasRealMaengel = hasCodes && codeStr.split(',').some(c => c.trim() && c.trim() !== 'H');
+      const hasZulMangel = hasCodes && App.istZulassungsMangel(codeStr, ke);
+      const isHOnly = hasCodes && !hasRealMaengel;
+      // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for D/I, kw-behoben (orange), kw-ok (green)
+      let cls = '';
+      if (hasZulMangel) cls = 'kw-issue';
+      else if (hasRealMaengel) cls = 'kw-hinweis';
+      else if (hasBehoben) cls = 'kw-behoben';
+      else if (isPastPruef || isHOnly) cls = 'kw-ok';
+      if (fehl > 0 && !hasRealMaengel) cls += ' kw-fehltage-only';
+      if (isSessionKW) cls += ' kw-session';
+      const fehlDisplay = fehl > 0 && !(hasCodes && codeStr.includes('H')) ? `<span class="kw-fehltage">${fehl}</span>` : '';
+      // Merge H with Fehltage: "A,H" + 3 → display "A H3"
+      const displayCodes = (fehl > 0 && codeStr.includes('H')) ? codeStr.replace(/\bH\b/, `H${fehl}`) : codeStr;
+      const bemIndicator = hasBem ? `<span style="position:absolute;top:0;right:1px;line-height:1"></span>` : '';
+      const title = `KW ${kw}${drLabel}${hasRealMaengel ? (hasZulMangel ? ' · Mängel: ' : ' · Hinweis (keine Zulassungsvoraussetzung): ')+codeStr : ''}${isHOnly ? ' · Fehltage: '+fehl : ''}${hasBehoben ? ' · Behoben: '+behobenStr : ''}${fehl && !isHOnly ? ' · '+fehl+' Fehltag(e)' : ''}${hasBem ? ' · Bemerkung: '+d.bemerkung : ''}${isPastPruef ? ' · früher geprüft' : ''}${isSessionKW ? ' · diese Sitzung' : ''}`;
+      return `<div class="kw-cell ${cls}" tabindex="0" style="position:relative"
+        data-ke="${ke.id}" data-sid="${s.id}" data-jahr="${jahrNr}" data-aj="${aj}" data-kw="${kw}" data-row="${ri}" data-col="${ci}"
+        data-codes="${esc(codeStr)}" data-behoben="${esc(behobenStr)}" data-fehltage="${fehl}"
+        onclick="KWNav.focusCell(this,event)"
+        title="${esc(title)}">
+        ${bemIndicator}<span class="kw-num">${kw}</span>${hasCodes ? `<span class="kw-codes">${displayCodes.replace(/,/g,' ')}</span>` : ''}${hasBehoben && !hasCodes ? `<span class="kw-codes" style="text-decoration:line-through;opacity:0.5">${behobenStr.replace(/,/g,' ')}</span>` : ''}${fehlDisplay}
       </div>`;
     };
+    const rasterZeilen = (zellen) => { const z = []; for (let i = 0; i < zellen.length; i += 13) z.push(zellen.slice(i, i + 13)); return z; };
+    const renderKWGrid = (jahr) => rasterZeilen(jahr.zellen).map((row, ri) => `
+        <div class="kw-grid" data-jahr="${jahr.nr}" data-row="${ri}">
+          ${row.map((z, ci) => kwZelle(z, jahr.nr, ri, ci)).join('')}
+        </div>
+      `).join('') + `<div style="text-align:right;font-size:12px;color:var(--clr-text-light);padding:2px 4px;">
+        Fehltage AJ${jahr.nr}: <strong id="fehlSumAj${jahr.nr}" style="color:var(--clr-text)">${fehlJe[jahr.nr] || 0}</strong>
+      </div>`;
 
     // Schmale, mitlaufende Kürzel-Leiste unter dem Azubi-Kopf (Vorgabe: sichtbar; ✕ merkt sich das Ausblenden je Person, „?“ holt sie zurück)
     const legendHidden = App.uGet('legend_hidden', '0') !== '0';
@@ -1704,62 +1704,80 @@ const KontrolleHandler = {
       </div>
 
       <!-- KW Grids -->
-      ${(() => { const ajs = App.getSchuelerAJs(s.id); const ajJetzt = App.getCurrentAJ(s.ausbildungsbeginn, s.id) || 0; const ljInfo = App._lehrjahrInfo(s.id); return ajs.map(aj => {
-        const ajSessionKWs = sessionKWs[aj] || [];
+      ${(() => {
+        const ljInfo = App._lehrjahrInfo(s.id);
+        const hatDatum = !!rInfo.von;
+        const heuteZelle = hatDatum ? App.rasterZelleAm(s.id, new Date()) : null;
+        const jetztIdx = heuteZelle ? heuteZelle.jahrIndex : (hatDatum && new Date() < rInfo.von ? 0 : rInfo.jahre.length - 1);
+        return rInfo.jahre.map(jahr => {
+        const nr = jahr.nr;
         // Progress: count geprüft vs total KWs
-        const kwRange = KW_ALL;
         let geprueftCount = 0, maengelCount = 0;
-        kwRange.forEach(kw => {
-          const key = `${aj}_${kw}`;
-          const d = kwData[key];
-          if (d?.geprueft || ajSessionKWs.includes(kw)) geprueftCount++;
+        jahr.zellen.forEach(z => {
+          const d = kwData[`${z.aj}_${z.kw}`];
+          if (d?.geprueft || (sessionKWs[z.aj] || []).includes(z.kw)) geprueftCount++;
           if (d?.codes && d.codes !== '' && d.codes.split(',').some(c => c.trim() && c.trim() !== 'H')) maengelCount++;
         });
-        const pct = Math.round(geprueftCount / 52 * 100);
-        const barCol = pct >= 90 ? 'var(--clr-green)' : pct >= 50 ? 'var(--clr-amber)' : 'var(--clr-sage)';
-        const bnd = ajBounds[aj] || { startKW: 36, endKW: 35, inactiveKWs: [], schoolYear: '', syStart: null };
-        const activeCount = 52 - bnd.inactiveKWs.length;
+        const aktive = jahr.zellen.filter(z => z.aktiv);
+        const activeCount = aktive.length;
         const activePct = activeCount > 0 ? Math.round(geprueftCount / activeCount * 100) : 0;
-        const kwRangeLabel = bnd.inactiveKWs.length > 0 ? ` · KW ${bnd.startKW}–${bnd.endKW} (${activeCount} Wo.)` : '';
+        const barCol = activePct >= 90 ? 'var(--clr-green)' : activePct >= 50 ? 'var(--clr-amber)' : 'var(--clr-sage)';
+        const kwRangeLabel = activeCount && activeCount < jahr.zellen.length ? ` · KW ${aktive[0].kw}–${aktive[aktive.length - 1].kw} (${activeCount} Wo.)` : '';
         // Frühere, vollständig geprüfte Jahre ohne offene Mängel eingeklappt –
         // das Raster begann sonst mit zwei Bildschirmen Vergangenheit
-        const frueher = ajJetzt && aj < ajJetzt;
+        const frueher = hatDatum && jahr.index < jetztIdx;
         // Künftige Jahre ohne eine geprüfte Woche ebenso eingeklappt: das Raster
         // zeigte sonst vier volle Jahre, davon zwei leer
-        const kuenftig = ajJetzt && aj > ajJetzt && !geprueftCount && !maengelCount;
-        const zu = this._ajZustand.has(aj) ? this._ajZustand.get(aj) === false : ((frueher && !maengelCount && geprueftCount >= activeCount) || kuenftig);
+        const kuenftig = hatDatum && jahr.index > jetztIdx && !geprueftCount && !maengelCount;
+        const zu = this._ajZustand.has(nr) ? this._ajZustand.get(nr) === false : ((frueher && !maengelCount && geprueftCount >= activeCount) || kuenftig);
+        // Kopf: bei Beginn in KW 36 „Schuljahr 2025/26 · 2. Lehrjahr“, sonst
+        // „Ausbildungsjahr 1 · 01.08.2025 – 26.07.2026 · 1. Lehrjahr“
+        const lbl = App.rasterJahrLabel(s.id, jahr, ljInfo);
+        const vertragsjahr = (jahr.einfach ? (rInfo.erstesAJ !== 1 || rInfo.jahre.length !== 3) : nr !== jahr.index + 1) ? ` · ${jahr.index + 1}. Vertragsjahr` : '';
+        const bereichOpt = (gewaehlt) => jahr.zellen.map((z, i) => `<option value="${i}" ${i === gewaehlt ? 'selected' : ''}${!z.aktiv ? ' disabled' : ''}>${!z.aktiv ? '(' : ''}KW ${z.kw}${!z.aktiv ? ')' : ''}</option>`).join('');
         return `
         <div class="card" style="margin-bottom:12px${zu ? ';padding-bottom:6px' : ''}">
-          <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${aj}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
-            <span title="Ein Raster ist ein Schuljahr (KW 36 bis 35). Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${bnd.schoolYear ? 'Schuljahr ' + bnd.schoolYear : 'Ausbildungsjahr ' + aj} <span style="font-weight:400;color:var(--clr-sage)">· ${App.lehrjahrLabel(s.id, aj, ljInfo)}${ajs[0] !== 1 || ajs.length !== 3 ? ` · ${aj - ajs[0] + 1}. Vertragsjahr` : ''}</span>${aj === ajJetzt ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
+          <div class="card-header aj-kopf" style="flex-wrap:wrap;gap:6px" role="button" tabindex="0" aria-expanded="${zu ? 'false' : 'true'}" onclick="KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();KontrolleHandler.toggleAJ(${nr}, ${zu ? 'true' : 'false'})}" title="${zu ? 'Aufklappen' : 'Einklappen'}">
+            <span title="Jede Zeile ist ein Ausbildungsjahr ab dem Ausbildungsbeginn laut Stammdaten – das Raster beginnt mit der Kalenderwoche des Beginns (1.9. = KW 36, 1.8. = KW 31) und endet mit dem Ausbildungsende. Lehrjahr = Klassenstufe der Berufsschule, Vertragsjahr = Zählung im Berichtsheft (Verkürzer steigen im 2. Lehrjahr ein, ihr Heft beginnt mit dem 1. Vertragsjahr)."><span style="display:inline-block;width:12px;color:var(--clr-forest)">${zu ? '▸' : '▾'}</span>${lbl.titel} <span style="font-weight:400;color:var(--clr-sage)">· ${lbl.zusatz}${vertragsjahr}</span>${hatDatum && jahr.index === jetztIdx ? ' <span style="font-size:12px;font-weight:600;color:var(--clr-forest);padding:1px 6px;border-radius:8px;background:var(--clr-leaf-light)">aktuell</span>' : ''}</span>
             <span style="font-size:12px;font-weight:400;color:var(--clr-sage)">
-              ${geprueftCount}/${activeCount} gepr\u00fcft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} M\u00e4ngel</span>` : ''}
+              ${geprueftCount}/${activeCount} geprüft${kwRangeLabel}${maengelCount ? ` · <span style="color:var(--clr-red)">${maengelCount} Mängel</span>` : ''}
             </span>
             <div style="margin-left:auto;display:${zu ? 'none' : 'flex'};align-items:center;gap:4px;font-size:12px" onclick="event.stopPropagation()">
-              <span style="color:var(--clr-text-light)">Bereich pr\u00fcfen:</span>
-              <select id="kwRangeFrom_${aj}" class="form-control kw-bereich-select" aria-label="Bereich von Kalenderwoche" style="padding:2px 4px;font-size:12px">
-                ${KW_ALL.map(kw => `<option value="${kw}" ${kw===36?'selected':''}${bnd.inactiveKWs.includes(kw)?' disabled':''}>${bnd.inactiveKWs.includes(kw)?'(':''}KW ${kw}${bnd.inactiveKWs.includes(kw)?')':''}</option>`).join('')}
+              <span style="color:var(--clr-text-light)">Bereich prüfen:</span>
+              <select id="kwRangeFrom_${nr}" class="form-control kw-bereich-select" aria-label="Bereich von Kalenderwoche" style="padding:2px 4px;font-size:12px">
+                ${bereichOpt(0)}
               </select>
-              <span>\u2013</span>
-              <select id="kwRangeTo_${aj}" class="form-control kw-bereich-select" aria-label="Bereich bis Kalenderwoche" style="padding:2px 4px;font-size:12px">
-                ${KW_ALL.map(kw => `<option value="${kw}" ${kw===35?'selected':''}${bnd.inactiveKWs.includes(kw)?' disabled':''}>${bnd.inactiveKWs.includes(kw)?'(':''}KW ${kw}${bnd.inactiveKWs.includes(kw)?')':''}</option>`).join('')}
+              <span>–</span>
+              <select id="kwRangeTo_${nr}" class="form-control kw-bereich-select" aria-label="Bereich bis Kalenderwoche" style="padding:2px 4px;font-size:12px">
+                ${bereichOpt(jahr.zellen.length - 1)}
               </select>
-              <button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:12px" onclick="KontrolleHandler.markRangeChecked(${aj})">✓ Als geprüft</button>
-              <button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="KontrolleHandler.unmarkRangeChecked(${aj})">✕ Entfernen</button>
+              <button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:12px" onclick="KontrolleHandler.markRangeChecked(${nr})">✓ Als geprüft</button>
+              <button class="btn btn-sm" style="padding:2px 8px;font-size:12px;background:var(--clr-red-light);color:var(--clr-red);border:1px solid var(--clr-red)" onclick="KontrolleHandler.unmarkRangeChecked(${nr})">✕ Entfernen</button>
             </div>
           </div>
           <div style="height:4px;background:var(--clr-sand);border-radius:2px;margin:0 0 4px">
             <div style="height:100%;width:${activePct}%;background:${barCol};border-radius:2px;transition:width 0.3s"></div>
           </div>
-          ${zu ? `<div style="font-size:12px;color:var(--clr-text-light);padding:2px 8px 0">${kuenftig ? 'Künftiges Ausbildungsjahr – noch keine geprüfte Woche.' : frueher ? `Früheres Ausbildungsjahr – ${geprueftCount}/${activeCount} Wochen geprüft${maengelCount ? '' : ', keine offenen Mängel'}.` : `${geprueftCount}/${activeCount} Wochen geprüft.`} <a href="#" onclick="event.preventDefault();KontrolleHandler.toggleAJ(${aj}, true)" style="color:var(--clr-forest)">Aufklappen</a></div>` : renderKWGrid(aj)}
+          ${zu ? `<div style="font-size:12px;color:var(--clr-text-light);padding:2px 8px 0">${kuenftig ? 'Künftiges Ausbildungsjahr – noch keine geprüfte Woche.' : frueher ? `Früheres Ausbildungsjahr – ${geprueftCount}/${activeCount} Wochen geprüft${maengelCount ? '' : ', keine offenen Mängel'}.` : `${geprueftCount}/${activeCount} Wochen geprüft.`} <a href="#" onclick="event.preventDefault();KontrolleHandler.toggleAJ(${nr}, true)" style="color:var(--clr-forest)">Aufklappen</a></div>` : renderKWGrid(jahr)}
         </div>`;
       }).join(''); })()}
+      ${(() => {
+        // Einträge in Wochen, die laut Stammdaten vor dem Beginn oder nach dem
+        // Ende liegen (z.B. nach einer Korrektur des Ausbildungsbeginns): zeigen
+        const waisen = App.rasterWaisen(s.id);
+        if (!waisen.length) return '';
+        const zellen = waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), sy: rInfo.firstSY != null ? rInfo.firstSY + (r.ausbildungsjahr - rInfo.erstesAJ) : null, aktiv: true }));
+        return `<div class="card" style="margin-bottom:12px;border-left:4px solid var(--clr-amber)">
+          <div class="card-header" style="flex-wrap:wrap;gap:6px">Einträge außerhalb der Ausbildungszeit <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">– diese Wochen liegen vor dem Ausbildungsbeginn oder nach dem Ende laut Stammdaten. Bitte Beginn und Ende prüfen oder die Einträge leeren.</span></div>
+          ${rasterZeilen(zellen).map((row, ri) => `<div class="kw-grid" data-jahr="x" data-row="${ri}">${row.map((z, ci) => kwZelle(z, 'x', ri, ci)).join('')}</div>`).join('')}
+        </div>`;
+      })()}
 
       <!-- Fehltage (Ergebnis und Bemerkung stehen in der festen Leiste unten) -->
       ${(() => { const fz = App.fehlzeitenStand(s); return `<div class="card" style="margin-bottom:12px">
         <div class="card-header" title="Zeiten ohne aktive Ausbildung: Krankheit und unentschuldigtes Fehlen. Urlaub und Berufsschule sind Ausbildungszeit und zählen nicht.">Fehltage <span style="font-weight:400;font-size:12px;color:var(--clr-text-light)">(Krankheit, unentschuldigt – ohne Urlaub und Berufsschule)</span></div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:13px">
-          ${App.getSchuelerAJs(s.id).map(aj => `<span>AJ${aj}: <strong id="fehlSumAj${aj}_display">${this.calcFehlSum(s.id, aj)}</strong></span>`).join('')}
+          ${rInfo.jahre.map(j => `<span>AJ${j.nr}: <strong id="fehlSumAj${j.nr}_display">${fehlJe[j.nr] || 0}</strong></span>`).join('')}${fehlJe.x ? `<span title="Fehltage in Wochen außerhalb der Ausbildungszeit laut Stammdaten">außerhalb: <strong>${fehlJe.x}</strong></span>` : ''}
           <span style="font-size:12px;color:var(--clr-text-light)">│</span>
           <span style="font-size:15px;font-weight:700;color:var(--clr-forest-dark)">Gesamt: <span id="fehlGesamt">${fehlGesamt}</span> Tage</span>
           <input type="hidden" id="fehlGesamtInput" value="${fehlGesamt}">
@@ -2152,7 +2170,7 @@ const KontrolleHandler = {
     const bausteine = JSON.parse(App.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
     const liste = mehrere && KWNav._kwListe ? KWNav._kwListe(ziele) : '';
 
-    App.openModal(mehrere ? `${ziele.length} KWs – ${liste}` : `KW ${kw} – Ausbildungsjahr ${aj}`, `
+    App.openModal(mehrere ? `${ziele.length} KWs – ${liste}` : `KW ${kw} – Ausbildungsjahr ${cellEl && cellEl.dataset && cellEl.dataset.sid ? App.jahrNr(parseInt(cellEl.dataset.sid), aj, kw) : aj}`, `
       ${mehrere ? `<div style="margin-bottom:10px;padding:6px 10px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">Gilt für <strong>${ziele.length} markierte Wochen</strong> (${esc(liste)}): Häkchen, Fehltage und Bemerkung werden in jede Woche übernommen${codesJe.some(cs => cs.length !== currentCodes.length) || !fehlJe.every(f => f === fehlJe[0]) || !bemJe.every(b => b === bemJe[0]) ? ' – <span style="color:var(--clr-amber)">die Wochen sind bisher unterschiedlich belegt, gezeigt wird nur, was allen gemeinsam ist</span>' : ''}</div>` : ''}
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <button class="btn btn-success" style="flex:1;font-weight:600" id="kwBtnOK" onclick="KontrolleHandler.saveKWOk(${keId},${aj},${kw})">✓ Keine Beanstandungen <kbd style="font-size:12px;opacity:0.7;margin-left:4px">O</kbd></button>
@@ -2286,26 +2304,12 @@ const KontrolleHandler = {
   // ── Focus next KW cell after modal close ──
   _focusNextKW(aj, kw) {
     setTimeout(() => {
-      const allKWs = KW_ALL;
-      const idx = allKWs.indexOf(kw);
-      const s = this.currentSchuelerList?.[this.currentIndex];
-      const schuelerAJs = s ? App.getSchuelerAJs(s.id) : [1,2,3];
-
-      // Try next KW in same AJ
-      if (idx >= 0 && idx < allKWs.length - 1) {
-        const nextKW = allKWs[idx + 1];
-        const cell = document.querySelector(`.kw-cell[data-aj="${aj}"][data-kw="${nextKW}"]:not(.kw-inactive)`);
-        if (cell) { cell.focus(); return; }
-      }
-      // End of AJ → try first active KW in next AJ
-      const ajIdx = schuelerAJs.indexOf(aj);
-      if (ajIdx >= 0 && ajIdx < schuelerAJs.length - 1) {
-        const nextAJ = schuelerAJs[ajIdx + 1];
-        const cell = document.querySelector(`.kw-cell[data-aj="${nextAJ}"]:not(.kw-inactive)`);
-        if (cell) { cell.focus(); return; }
-      }
-      // Fallback: refocus current cell
       const current = document.querySelector(`.kw-cell[data-aj="${aj}"][data-kw="${kw}"]`);
+      // Nächste aktive Zelle in Rasterreihenfolge – über Zeilen- und Jahresgrenzen hinweg
+      const alle = Array.from(document.querySelectorAll('.kw-cell[tabindex="0"]'));
+      const idx = current ? alle.indexOf(current) : -1;
+      if (idx >= 0 && idx < alle.length - 1) { alle[idx + 1].focus(); return; }
+      // Fallback: refocus current cell
       if (current) current.focus();
     }, 50);
   },
@@ -2875,8 +2879,9 @@ const KontrolleHandler = {
   },
 
   // Calculate Fehltage sum for one Ausbildungsjahr (from cumulative kw_status)
-  calcFehlSum(schuelerId, aj) {
-    return App.scalar(`SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=?`, [schuelerId, aj]) || 0;
+  // Fehltage eines Ausbildungsjahres = der ZEILE im Raster (ab dem Ausbildungsbeginn)
+  calcFehlSum(schuelerId, jahrNr) {
+    return App.rasterFehltage(schuelerId)[jahrNr] || 0;
   },
 
   // ── Ausgewählte als "In Ordnung" markieren ──
@@ -3107,80 +3112,63 @@ const KontrolleHandler = {
   },
 
   // ── Mark KW range as checked (geprüft) ──
-  markRangeChecked(aj) {
+  // jahrNr = Ausbildungsjahr der ZEILE (ab dem Ausbildungsbeginn); die Auswahl
+  // nennt die Stellen in dieser Zeile, jede Zelle trägt ihre gespeicherte Kennung
+  _bereichZellen(sid, jahrNr) {
+    const jahr = App.rasterInfo(sid).jahre.find(j => j.nr === jahrNr);
+    const vonEl = document.getElementById(`kwRangeFrom_${jahrNr}`), bisEl = document.getElementById(`kwRangeTo_${jahrNr}`);
+    if (!jahr || !vonEl || !bisEl) return null;
+    const von = parseInt(vonEl.value), bis = parseInt(bisEl.value);
+    if (isNaN(von) || isNaN(bis) || von < 0 || bis >= jahr.zellen.length || von > bis) return null;
+    return { jahr, zellen: jahr.zellen.slice(von, bis + 1), vonKW: jahr.zellen[von].kw, bisKW: jahr.zellen[bis].kw };
+  },
+  markRangeChecked(jahrNr) {
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
     if (!ke) return;
-    const fromKW = parseInt(document.getElementById(`kwRangeFrom_${aj}`).value);
-    const toKW = parseInt(document.getElementById(`kwRangeTo_${aj}`).value);
-    const allKWs = KW_ALL;
-    const fromIdx = allKWs.indexOf(fromKW);
-    const toIdx = allKWs.indexOf(toKW);
-    if (fromIdx < 0 || toIdx < 0 || fromIdx > toIdx) return App.toast('Ungültiger Bereich', 'error');
-    const rangeKWs = allKWs.slice(fromIdx, toIdx + 1);
-    const schuelerAJs = App.getSchuelerAJs(s.id);
-    const ajBounds = App.getAJKWBounds(s.id);
+    const bereich = this._bereichZellen(s.id, jahrNr);
+    if (!bereich) return App.toast('Ungültiger Bereich', 'error');
     let count = 0;
-
-    // 1) Mark the selected range in this AJ
-    rangeKWs.forEach(kw => {
-      const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
+    const setzen = (z, zaehleNurNeue) => {
+      const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, z.aj, z.kw]);
       if (existing.length) {
-        App.run('UPDATE kw_status SET geprueft=1 WHERE id=?', [existing[0].id]);
+        if (!existing[0].geprueft || !zaehleNurNeue) count++;
+        if (!existing[0].geprueft) App.run('UPDATE kw_status SET geprueft=1 WHERE id=?', [existing[0].id]);
       } else {
-        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, aj, kw, ke.id]);
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, z.aj, z.kw, ke.id]);
+        count++;
       }
-      KWNav.trackSessionKW(ke.id, aj, kw, ke.schueler_id ?? s?.id);
-      count++;
-    });
+      KWNav.trackSessionKW(ke.id, z.aj, z.kw, ke.schueler_id ?? s?.id);
+    };
 
-    // 2) Cascade: mark ALL active KWs in earlier AJs as geprüft
-    const earlierAJs = schuelerAJs.filter(a => a < aj);
-    earlierAJs.forEach(prevAJ => {
-      const bounds = ajBounds[prevAJ] || { inactiveKWs: [] };
-      const inactiveSet = new Set(bounds.inactiveKWs);
-      allKWs.forEach(kw => {
-        if (inactiveSet.has(kw)) return; // skip inactive KWs
-        const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, kw]);
-        if (existing.length) {
-          if (!existing[0].geprueft) {
-            App.run('UPDATE kw_status SET geprueft=1 WHERE id=?', [existing[0].id]);
-            count++;
-          }
-        } else {
-          App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,geprueft,erstellt_bei) VALUES (?,?,?,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1', [s.id, prevAJ, kw, ke.id]);
-          count++;
-        }
-        KWNav.trackSessionKW(ke.id, prevAJ, kw, ke.schueler_id ?? s?.id);
-      });
-    });
+    // 1) Mark the selected range in this Ausbildungsjahr
+    bereich.zellen.forEach(z => setzen(z, false));
 
-    const cascadeInfo = earlierAJs.length ? ` (+ AJ${earlierAJs.join('+AJ')} komplett)` : '';
-    App.toast(`${count} KWs als geprüft markiert: AJ${aj} KW ${fromKW}–${toKW}${cascadeInfo}`, 'success');
+    // 2) Cascade: mark ALL active KWs in earlier Ausbildungsjahren as geprüft
+    const fruehere = App.rasterInfo(s.id).jahre.filter(j => j.index < bereich.jahr.index);
+    fruehere.forEach(j => j.zellen.filter(z => z.aktiv).forEach(z => setzen(z, true)));
+
+    const cascadeInfo = fruehere.length ? ` (+ AJ${fruehere.map(j => j.nr).join('+AJ')} komplett)` : '';
+    App.toast(`${count} KWs als geprüft markiert: AJ${jahrNr} KW ${bereich.vonKW}–${bereich.bisKW}${cascadeInfo}`, 'success');
     this.renderSchueler();
   },
 
   // ── Remove geprüft marking from KW range ──
-  unmarkRangeChecked(aj) {
+  unmarkRangeChecked(jahrNr) {
     const s = this.currentSchuelerList[this.currentIndex];
     if (!s) return;
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
     if (!ke) return;
-    const fromKW = parseInt(document.getElementById(`kwRangeFrom_${aj}`).value);
-    const toKW = parseInt(document.getElementById(`kwRangeTo_${aj}`).value);
-    const allKWs = KW_ALL;
-    const fromIdx = allKWs.indexOf(fromKW);
-    const toIdx = allKWs.indexOf(toKW);
-    if (fromIdx < 0 || toIdx < 0 || fromIdx > toIdx) return App.toast('Ungültiger Bereich', 'error');
-    const rangeKWs = allKWs.slice(fromIdx, toIdx + 1);
+    const bereich = this._bereichZellen(s.id, jahrNr);
+    if (!bereich) return App.toast('Ungültiger Bereich', 'error');
 
     // Parse session tracking ONCE before loop
     let sessionData = {};
     try { sessionData = JSON.parse(ke.geprueft_kws || '{}'); } catch(e) {}
 
     let count = 0;
-    rangeKWs.forEach(kw => {
+    bereich.zellen.forEach(({ aj, kw }) => {
       const existing = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, kw]);
       if (existing.length) {
         const row = existing[0];
@@ -3200,7 +3188,7 @@ const KontrolleHandler = {
     // Write session tracking ONCE after loop
     App.run('UPDATE kontrollergebnisse SET geprueft_kws=? WHERE id=?', [JSON.stringify(sessionData), ke.id]);
 
-    App.toast(`${count} KWs (AJ${aj}: KW ${fromKW}–${toKW}) Prüfmarkierung entfernt`, 'success');
+    App.toast(`${count} KWs (AJ${jahrNr}: KW ${bereich.vonKW}–${bereich.bisKW}) Prüfmarkierung entfernt`, 'success');
     this.renderSchueler();
   },
 
@@ -3231,7 +3219,7 @@ const KontrolleHandler = {
       ${maengelRows.length ? `<div style="max-height:200px;overflow-y:auto">
         <table class="data-table"><thead><tr><th>AJ</th><th>KW</th><th>Mängel</th><th>Behoben</th><th>Fehltage</th></tr></thead><tbody>
           ${maengelRows.map(r => `<tr>
-            <td>${r.ausbildungsjahr}</td><td>KW ${r.kalenderwoche}</td>
+            <td>${s ? App.jahrNr(s.id, r.ausbildungsjahr, r.kalenderwoche) : r.ausbildungsjahr}</td><td>KW ${r.kalenderwoche}</td>
             <td style="color:var(--clr-red)">${esc(r.maengel_codes)}</td>
             <td style="color:var(--clr-green)">${esc(r.behobene_codes || '')}</td>
             <td>${r.fehltage||0}</td>
@@ -3239,11 +3227,25 @@ const KontrolleHandler = {
         </tbody></table>
       </div>` : '<p style="color:var(--clr-green)">Keine Mängel zum Zeitpunkt dieser Durchsicht.</p>'}
       <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">
-        Geprüfte KWs: ${Object.entries(geprueftKWs).map(([aj, kws]) => `AJ${aj}: ${kws.length ? kws.join(', ') : '–'}`).join(' · ') || '–'}
+        Geprüfte KWs: ${this._geprueftJeJahr(s?.id, geprueftKWs).map(([nr, kws]) => `AJ${nr}: ${kws.length ? kws.join(', ') : '–'}`).join(' · ') || '–'}
       </div>`;
     App.openModal(`Durchsicht vom ${formatDate(snap.snapshot_datum)}`, body,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <button class="btn btn-primary" onclick="KontrolleHandler.exportSnapshotPDF(${snapId})">▤ Als PDF drucken</button>`);
+  },
+
+  // Geprüfte Wochen eines Snapshots ({ rasterKennung: [kw] }) je Ausbildungsjahr
+  // der Zeile, in Rasterreihenfolge: [[nr, [kw, …]], …]
+  _geprueftJeJahr(sid, geprueftKWs) {
+    const je = new Map();
+    const karte = sid ? App.rasterInfo(sid).map : null;
+    const paare = [];
+    Object.entries(geprueftKWs || {}).forEach(([aj, kws]) => (kws || []).forEach(kw => {
+      const z = karte && karte.get(parseInt(aj) + '_' + Math.min(52, kw));
+      paare.push({ nr: z ? z.jahr : (sid ? App.jahrNr(sid, aj, kw) : parseInt(aj)), kw, pos: z ? z.pos : parseInt(aj) * 52 + App._kwSI(kw) });
+    }));
+    paare.sort((a, b) => a.pos - b.pos).forEach(p => { if (!je.has(p.nr)) je.set(p.nr, []); je.get(p.nr).push(p.kw); });
+    return [...je.entries()].sort((a, b) => a[0] - b[0]);
   },
 
   // ── PDF from historical snapshot ──
@@ -3263,7 +3265,6 @@ const KontrolleHandler = {
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    const kwGridOrder = KW_GRID;
 
     // Header
     doc.setFont('helvetica','bold'); doc.setFontSize(12);
@@ -3277,20 +3278,23 @@ const KontrolleHandler = {
 
     // KW Grids
     let y = 42;
-    const snapAJs = App.getSchuelerAJs(s.id);
-    for (const aj of snapAJs) {
+    const snapJahre = App.rasterInfo(s.id).jahre;
+    for (const jahr of snapJahre) {
+      const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
       doc.setFont('helvetica','bold'); doc.setFontSize(8);
-      doc.text(`Ausbildungsjahr ${aj}`, 14, y);
+      doc.text(`Ausbildungsjahr ${jahr.nr}`, 14, y);
       // Show geprüfte KWs
-      const geprueft = geprueftKWs[aj] || geprueftKWs[String(aj)] || [];
+      const istGeprueft = z => (geprueftKWs[z.aj] || geprueftKWs[String(z.aj)] || []).includes(z.kw);
+      const geprueft = jahr.zellen.filter(istGeprueft).map(z => z.kw);
       if (geprueft.length) {
         doc.setFont('helvetica','normal'); doc.setFontSize(6);
         doc.text(`Geprüft: KW ${geprueft[0]}–${geprueft[geprueft.length-1]}`, 60, y);
       }
       y += 4;
-      kwGridOrder.forEach(row => {
+      zeilen.forEach(row => {
         const cw = 13.8;
-        row.forEach((kw, ci) => {
+        row.forEach((z, ci) => {
+          const aj = z.aj, kw = z.kw;
           const x = 14 + ci * cw;
           const d = kwDataMap[`${aj}_${kw}`];
           const hasCodes = d && d.maengel_codes;
@@ -3298,7 +3302,7 @@ const KontrolleHandler = {
           doc.setDrawColor(180);
           if (hasCodes) { doc.setFillColor(253,240,239); doc.rect(x, y, cw, 6, 'FD'); }
           else if (hasBehoben) { doc.setFillColor(255,245,230); doc.rect(x, y, cw, 6, 'FD'); }
-          else if (geprueft.includes(kw)) { doc.setFillColor(240,250,240); doc.rect(x, y, cw, 6, 'FD'); }
+          else if (istGeprueft(z)) { doc.setFillColor(240,250,240); doc.rect(x, y, cw, 6, 'FD'); }
           else { doc.rect(x, y, cw, 6); }
           doc.setFont('helvetica','normal'); doc.setFontSize(7);
           doc.setTextColor(hasCodes?192:100, hasCodes?57:100, hasCodes?43:100);
@@ -3315,9 +3319,10 @@ const KontrolleHandler = {
         y += 6.5;
       });
       // Fehltage sum
-      const sum = kwRows.filter(r => r.ausbildungsjahr == aj).reduce((s,r) => s + (r.fehltage||0), 0);
+      const imJahr = new Set(jahr.zellen.map(z => z.aj + '_' + z.kw));
+      const sum = kwRows.filter(r => imJahr.has(r.ausbildungsjahr + '_' + Math.min(52, r.kalenderwoche))).reduce((s,r) => s + (r.fehltage||0), 0);
       doc.setTextColor(0); doc.setFontSize(7);
-      doc.text(`Fehltage AJ${aj}: ${sum}`, 160, y-1); y += 3;
+      doc.text(`Fehltage AJ${jahr.nr}: ${sum}`, 160, y-1); y += 3;
     }
 
     // Pflichtteile
@@ -3369,16 +3374,15 @@ const KontrolleHandler = {
   },
 
   autoUpdateFehltage(schuelerId, keId) {
-    let total = 0;
-    const ajs = App.getSchuelerAJs(schuelerId);
-    for (const aj of ajs) {
-      const sum = this.calcFehlSum(schuelerId, aj);
-      total += sum;
-      const gridEl = document.getElementById(`fehlSumAj${aj}`);
-      if (gridEl) gridEl.textContent = sum;
-      const displayEl = document.getElementById(`fehlSumAj${aj}_display`);
-      if (displayEl) displayEl.textContent = sum;
-    }
+    // Summe ALLER Wochen (auch außerhalb der Zeilen), Anzeige je Ausbildungsjahr
+    let total = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [schuelerId]) || 0;
+    const je = App.rasterFehltage(schuelerId);
+    Object.keys(je).forEach(nr => {
+      const gridEl = document.getElementById(`fehlSumAj${nr}`);
+      if (gridEl) gridEl.textContent = je[nr];
+      const displayEl = document.getElementById(`fehlSumAj${nr}_display`);
+      if (displayEl) displayEl.textContent = je[nr];
+    });
     // Pauschal nacherfasste Fehltage (nicht KW-genau, z.B. vom Papierbogen)
     // kommen obendrauf – sie stehen bewusst in KEINER Kalenderwoche
     const pauschal = App.scalar('SELECT COALESCE(fehltage_pauschal,0) FROM kontrollergebnisse WHERE id=?', [keId]) || 0;

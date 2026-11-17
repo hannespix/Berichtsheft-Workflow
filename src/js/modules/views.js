@@ -2616,7 +2616,8 @@ const Views = {
             <p>Über Checkboxen können mehrere Azubis gleichzeitig ausgewählt und als <em>In Ordnung</em> markiert werden. Einzelne Azubis können per ✕-Button aus dem Termin entfernt werden.</p>
           <div class="help-abschnitt">
             <h4 class="help-untertitel">KW-Raster & Bulk-Editing</h4>
-            <p>Das KW-Raster bildet alle Kalenderwochen eines Ausbildungsjahres ab. Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
+            <p>Das KW-Raster bildet alle Kalenderwochen der Ausbildung ab. <strong>Jede Zeile ist ein Ausbildungsjahr und beginnt mit der Kalenderwoche des Ausbildungsbeginns aus den Stammdaten</strong> (Beginn 1.9. = KW 36, Beginn 1.8. = KW 31; fällt der Beginn auf ein Wochenende, zählt die folgende Woche). Das Raster endet mit dem Ausbildungsende laut Stammdaten bzw. Ausbildungsverlauf; Wochen danach und Unterbrechungen sind grau. Stimmt der Anfang des Rasters nicht, bitte den Ausbildungsbeginn in den Stammdaten prüfen.</p>
+            <p>Je Kalenderwoche können folgende Mängelcodes vergeben werden:</p>
             <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12px;margin:8px 0">
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
               <strong>B</strong><span>Unterschrift des Ausbildenden/Ausbilders fehlt</span>

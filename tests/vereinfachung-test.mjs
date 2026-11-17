@@ -155,7 +155,7 @@ console.log('\n══ Paket 7: Beratungsgespräch § 76, Nachweis-Hinweis, gez.,
   check(/beratungAnlegen\(\$\{s\.id\}\)/.test(read('src/js/modules/azubi-seite.js')) && /beratungAnlegen\(\$\{s\.id\}\)/.test(K_SRC), 'Knopf auf der Azubi-Seite und im ⋯-Menü der Durchsicht');
   check(/nur mit anschließender Vorlage/.test(WV.NACHWEIS_ARTEN.telefon), 'Nachweis „telefonisch“ mit Hinweis');
   check(!/Digitale Signatur/.test(read('src/js/modules/pdf-export.js')) && !/Digitale Signatur/.test(K_SRC) && /Namensvermerk/.test(read('src/js/modules/pdf-export.js')), 'Kein „Digitale Signatur“ mehr – Namensvermerk');
-  check(/Schuljahr ' \+ bnd\.schoolYear/.test(K_SRC) && /\. Lehrjahr/.test(K_SRC) && /\. Vertragsjahr/.test(K_SRC), 'Rasterkopf: Schuljahr · Lehrjahr · Vertragsjahr (bei Verkürzern)');
+  check(/App\.rasterJahrLabel\(s\.id, jahr, ljInfo\)/.test(K_SRC) && /titel: jahr\.sy \? `Schuljahr \$\{jahr\.sy\}/.test(read('src/js/app-core.js')) && /\. Lehrjahr/.test(read('src/js/app-core.js')) && /\. Vertragsjahr/.test(K_SRC), 'Rasterkopf: Schuljahr · Lehrjahr · Vertragsjahr (bei Verkürzern)');
   check(/beratung_betrieb: 14/.test(APP_SRC) && App.WV_FRISTEN_LABELS.beratung_betrieb, 'Frist für Beratungsgespräch einstellbar');
 }
 

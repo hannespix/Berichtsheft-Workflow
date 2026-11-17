@@ -710,7 +710,7 @@ const Workflows = {
           ergebnisDetails += `${a.nachname}, ${a.vorname}: ${a.ke?.ergebnis ? (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis) : 'nicht kontrolliert'}\n`;
           if (a.maengel.length) {
             maengelListe += `${a.nachname}, ${a.vorname}:\n`;
-            a.maengel.forEach(m => { maengelListe += `  AJ ${m.ausbildungsjahr}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
+            a.maengel.forEach(m => { maengelListe += `  AJ ${App.jahrNr(m.schueler_id || a.id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => this._codeLabels[c] || c).join(', ')}\n`; });
           }
         });
         const wvFrist = App.query(`SELECT w.frist_datum FROM wiedervorlagen w WHERE w.schueler_id IN (${g.azubis.map(a => a.id).join(',')}) AND w.status IN ('offen','ueberfaellig') AND w.frist_datum != '' ORDER BY w.frist_datum LIMIT 1`);
@@ -1039,7 +1039,7 @@ const Workflows = {
     const prueferName = w.ke_pruefer2 || w.ke_pruefer || (w.kt_pruefer || '').split(',')[0].trim() || KontrolleHandler?.activePruefer || App.query('SELECT name FROM pruefer WHERE aktiv=1 LIMIT 1')[0]?.name || 'Ausbildungsberater';
     const maengel = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND maengel_codes != "" ORDER BY ausbildungsjahr, kalenderwoche', [w.schueler_id]);
     const maengelText = maengel.length
-      ? maengel.map(m => `  - AJ ${m.ausbildungsjahr}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => KWNav.CODE_LABELS[c] || c).join(', ')}${m.fehltage ? ' (' + m.fehltage + ' Fehltage)' : ''}`).join('\n')
+      ? maengel.map(m => `  - AJ ${App.jahrNr(w.schueler_id, m.ausbildungsjahr, m.kalenderwoche)}, KW ${m.kalenderwoche}: ${m.maengel_codes.split(',').map(c => KWNav.CODE_LABELS[c] || c).join(', ')}${m.fehltage ? ' (' + m.fehltage + ' Fehltage)' : ''}`).join('\n')
       : '  (keine offenen Mängel)';
     const heute = todayStr();
     const ueberfaellig = w.status === 'ueberfaellig' || (w.status === 'offen' && w.frist_datum && w.frist_datum < heute);

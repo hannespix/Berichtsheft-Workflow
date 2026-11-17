@@ -168,42 +168,28 @@ const KWNav = {
     return Array.from(document.querySelectorAll('.kw-cell[tabindex="0"]'));
   },
 
-  // Find neighbor cell for arrow nav
+  // Find neighbor cell for arrow nav. Das Raster besteht aus Zeilen mit je
+  // 13 Wochen (.kw-grid); eine Zeile eines Ausbildungsjahres beginnt mit der KW
+  // des Ausbildungsbeginns, die letzte kann kürzer sein. Links/rechts laufen
+  // in Rasterreihenfolge über Zeilen- und Jahresgrenzen (inaktive Wochen
+  // werden übersprungen), hoch/runter bleiben in der Spalte.
   navigate(cell, direction) {
-    const aj = parseInt(cell.dataset.aj);
-    const row = parseInt(cell.dataset.row);
-    const col = parseInt(cell.dataset.col);
-    let targetAj = aj, targetRow = row, targetCol = col;
-    // Obergrenze aus dem tatsächlich gerenderten Raster (Verlängerer haben AJ 4)
-    const ajsVorhanden = this.getAllCells().map(c => parseInt(c.dataset.aj)).filter(n => !isNaN(n));
-    const maxAj = ajsVorhanden.length ? Math.max(...ajsVorhanden) : 3;
-
-    switch(direction) {
-      case 'right':
-        targetCol = col + 1;
-        if (targetCol > 12) { targetCol = 0; targetRow++; }
-        if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > maxAj) return null;
-        break;
-      case 'left':
-        targetCol = col - 1;
-        if (targetCol < 0) { targetCol = 12; targetRow--; }
-        if (targetRow < 0) { targetRow = 3; targetAj--; }
-        if (targetAj < 1) return null;
-        break;
-      case 'down':
-        targetRow = row + 1;
-        if (targetRow > 3) { targetRow = 0; targetAj++; }
-        if (targetAj > maxAj) return null;
-        break;
-      case 'up':
-        targetRow = row - 1;
-        if (targetRow < 0) { targetRow = 3; targetAj--; }
-        if (targetAj < 1) return null;
-        break;
+    let target = null;
+    if (direction === 'left' || direction === 'right') {
+      const alle = this.getAllCells();
+      const idx = alle.indexOf(cell);
+      if (idx >= 0) target = alle[idx + (direction === 'right' ? 1 : -1)] || null;
+    } else {
+      const zeilen = Array.from(document.querySelectorAll('.kw-grid'));
+      const col = parseInt(cell.dataset.col) || 0;
+      const schritt = direction === 'down' ? 1 : -1;
+      for (let i = zeilen.indexOf(cell.parentElement) + schritt; i >= 0 && i < zeilen.length && !target; i += schritt) {
+        const aktive = Array.from(zeilen[i].querySelectorAll('.kw-cell[tabindex="0"]'));
+        if (!aktive.length) continue;
+        // dieselbe Spalte, sonst die nächstgelegene aktive Woche der Zeile
+        target = aktive.reduce((best, c) => Math.abs((parseInt(c.dataset.col) || 0) - col) < Math.abs((parseInt(best.dataset.col) || 0) - col) ? c : best, aktive[0]);
+      }
     }
-
-    const target = document.querySelector(`.kw-cell[data-aj="${targetAj}"][data-row="${targetRow}"][data-col="${targetCol}"]`);
     if (target) target.focus();
     return target || null;
   },
@@ -451,72 +437,42 @@ const KWNav = {
     try { data = JSON.parse(ke.geprueft_kws || '{}'); } catch(e) {}
     if (!data[aj]) data[aj] = [];
 
-    // School-year KW order: 36-52, then 1-35
+    // School-year KW order: 36-52, then 1-35 (Sortierung je gespeichertem Raster)
     const kwOrder = [];
     for (let i = 36; i <= 52; i++) kwOrder.push(i);
     for (let i = 1; i <= 35; i++) kwOrder.push(i);
-
-    // Find position of the clicked KW
-    const clickedIdx = kwOrder.indexOf(kw);
-    if (clickedIdx < 0) return;
+    if (kwOrder.indexOf(kw) < 0) return;
 
     const sid = sidOpt ?? ke.schueler_id;
     const s = sid ? { id: sid } : null;
     const newlyFilled = [];
 
-    // Inaktive KWs (vor AV-Beginn / nach AV-Ende / Unterbrechung) nicht auto-füllen
-    let currentInactive = new Set();
+    // Auto-fill: ALLE aktiven Wochen vom Ausbildungsbeginn bis einschließlich
+    // der angeklickten Woche als geprüft markieren – in Rasterreihenfolge
+    // (Zeilen = Ausbildungsjahre ab dem Beginn laut Stammdaten). Inaktive
+    // Wochen (nach dem Ende, Unterbrechung) werden nicht gefüllt.
+    let ziele = [{ aj, kw, aktiv: true }];
     if (s) {
       try {
-        const bounds = App.getAJKWBounds(s.id);
-        currentInactive = new Set((bounds[aj] || {}).inactiveKWs || []);
+        const info = App.rasterInfo(s.id);
+        const zelle = info.map.get(aj + '_' + kw);
+        if (zelle) ziele = info.wochen.filter(w => w.pos <= zelle.pos && (w.aktiv || w.pos === zelle.pos));
       } catch(e) {}
     }
-
-    // Auto-fill: mark ALL KWs from start up to and including the clicked KW
-    for (let i = 0; i <= clickedIdx; i++) {
-      const fillKW = kwOrder[i];
-      if (currentInactive.has(fillKW)) continue;
-      if (!data[aj].includes(fillKW)) {
-        data[aj].push(fillKW);
-        newlyFilled.push({aj, kw: fillKW});
-        if (s) {
-          const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
-          if (!exists) {
-            App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
-              [s.id, aj, fillKW, keId]);
-          } else {
-            App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, aj, fillKW]);
-          }
-        }
+    ziele.forEach(z => {
+      if (!data[z.aj]) data[z.aj] = [];
+      if (data[z.aj].includes(z.kw)) return;
+      data[z.aj].push(z.kw);
+      newlyFilled.push({ aj: z.aj, kw: z.kw });
+      if (!s) return;
+      const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, z.aj, z.kw]);
+      if (!exists) {
+        App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
+          [s.id, z.aj, z.kw, keId]);
+      } else {
+        App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, z.aj, z.kw]);
       }
-    }
-
-    // ── CASCADE: fill ALL active KWs in earlier AJs ──
-    if (s) {
-      const schuelerAJs = App.getSchuelerAJs(s.id);
-      const ajBounds = App.getAJKWBounds(s.id);
-      const earlierAJs = schuelerAJs.filter(a => a < aj);
-      earlierAJs.forEach(prevAJ => {
-        if (!data[prevAJ]) data[prevAJ] = [];
-        const bounds = ajBounds[prevAJ] || { inactiveKWs: [] };
-        const inactiveSet = new Set(bounds.inactiveKWs);
-        kwOrder.forEach(fillKW => {
-          if (inactiveSet.has(fillKW)) return;
-          if (!data[prevAJ].includes(fillKW)) {
-            data[prevAJ].push(fillKW);
-            newlyFilled.push({aj: prevAJ, kw: fillKW});
-            const exists = App.scalar('SELECT COUNT(*) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
-            if (!exists) {
-              App.run('INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft,erstellt_bei) VALUES (?,?,?,"",0,1,?) ON CONFLICT(schueler_id,ausbildungsjahr,kalenderwoche) DO UPDATE SET geprueft=1',
-                [s.id, prevAJ, fillKW, keId]);
-            } else {
-              App.run('UPDATE kw_status SET geprueft=1 WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [s.id, prevAJ, fillKW]);
-            }
-          }
-        });
-      });
-    }
+    });
 
     if (newlyFilled.length) {
       // Sort all AJ data
@@ -533,33 +489,40 @@ const KWNav = {
       });
       // Bei größeren Sprüngen kurz sagen, was passiert ist (nur einmal pro Sitzung/Azubi nötig)
       if (newlyFilled.length >= 8 && typeof App !== 'undefined' && App.toast) {
-        const ajs = [...new Set(newlyFilled.map(x => x.aj))].sort();
+        const ajs = [...new Set(newlyFilled.map(x => s ? App.jahrNr(s.id, x.aj, x.kw) : x.aj))].sort();
         App.toast(`${newlyFilled.length} Wochen bis KW ${kw} automatisch als geprüft markiert` + (ajs.length > 1 ? ` (${ajs.length} Ausbildungsjahre)` : ''), 'info');
       }
     }
   },
 
-  // KW-Liste für Beschriftungen: je Ausbildungsjahr, zusammenhängende Wochen
-  // in Rasterreihenfolge (36 … 52, 1 … 35) als Bereich – „AJ2/KW40–45 · AJ3/KW3“
+  // KW-Liste für Beschriftungen: je Ausbildungsjahr (Zeile im Raster, ab dem
+  // Ausbildungsbeginn), zusammenhängende Wochen in Rasterreihenfolge als
+  // Bereich – „AJ2/KW40–45 · AJ3/KW3“
   _kwListe(ziele) {
-    const order = [];
-    for (let k = 36; k <= 52; k++) order.push(k);
-    for (let k = 1; k <= 35; k++) order.push(k);
-    const proAJ = {};
-    ziele.forEach(z => { (proAJ[z.aj] = proAJ[z.aj] || new Set()).add(z.kw); });
-    return Object.keys(proAJ).map(Number).sort((a, b) => a - b).map(aj => {
-      const kws = order.filter(k => proAJ[aj].has(k));
+    const proJahr = new Map();
+    ziele.forEach(z => {
+      let nr = z.aj, pos = z.aj * 52 + (z.kw >= 36 ? z.kw - 36 : z.kw + 16);
+      if (z.sid) {
+        try {
+          const zelle = App.rasterInfo(z.sid).map.get(z.aj + '_' + z.kw);
+          if (zelle) { nr = zelle.jahr; pos = zelle.pos; } else nr = App.jahrNr(z.sid, z.aj, z.kw);
+        } catch(e) {}
+      }
+      if (!proJahr.has(nr)) proJahr.set(nr, new Map());
+      proJahr.get(nr).set(pos, z.kw);
+    });
+    return [...proJahr.keys()].sort((a, b) => a - b).map(nr => {
+      const wochen = [...proJahr.get(nr).entries()].sort((a, b) => a[0] - b[0]);
       const teile = [];
-      let start = null, prev = null;
-      kws.forEach(k => {
-        const idx = order.indexOf(k);
-        if (start === null) { start = k; prev = idx; return; }
-        if (idx === prev + 1) { prev = idx; return; }
-        teile.push(start === order[prev] ? `${start}` : `${start}–${order[prev]}`);
-        start = k; prev = idx;
+      let start = null, ende = null, prev = null;
+      wochen.forEach(([pos, kw]) => {
+        if (start === null) { start = ende = kw; prev = pos; return; }
+        if (pos === prev + 1) { ende = kw; prev = pos; return; }
+        teile.push(start === ende ? `${start}` : `${start}–${ende}`);
+        start = ende = kw; prev = pos;
       });
-      if (start !== null) teile.push(start === order[prev] ? `${start}` : `${start}–${order[prev]}`);
-      return `AJ${aj}/KW${teile.join(', ')}`;
+      if (start !== null) teile.push(start === ende ? `${start}` : `${start}–${ende}`);
+      return `AJ${nr}/KW${teile.join(', ')}`;
     }).join(' · ');
   },
 

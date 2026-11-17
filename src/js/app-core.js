@@ -1445,7 +1445,7 @@ const App = {
     CREATE TABLE IF NOT EXISTS kw_status (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       schueler_id INTEGER NOT NULL REFERENCES schueler(id),
-      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '',
       behobene_codes TEXT DEFAULT '',
@@ -1472,7 +1472,7 @@ const App = {
     CREATE TABLE IF NOT EXISTS kw_maengel (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
-      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '',
       fehltage INTEGER DEFAULT 0,
@@ -7322,9 +7322,43 @@ const App = {
     return true;
   },
 
+  // Prüfregel der Raster-Nummer erweitern (In-Memory UND Disk-DB): Die Wochen
+  // vor dem ersten Schuljahr (Beginn 1.8. → KW 31–35 des Startjahres) liegen im
+  // Raster VOR dem ersten (Nummer erstesAJ − 1, bei Regelverträgen 0); bisher
+  // ließ CHECK (… BETWEEN 1 AND 4) weder 0 noch ein fünftes Raster zu. Die
+  // Regel steht nur im Schema-Text – deshalb ohne Neuaufbau der Tabelle
+  // (kw_status hat bei großem Bestand 33 MB): Schema-Text ersetzen, Schema-
+  // Version hochzählen. Rückfall: Tabelle neu aufbauen.
+  AJ_CHECK_ALT: 'ausbildungsjahr BETWEEN 1 AND 4',
+  AJ_CHECK_NEU: 'ausbildungsjahr BETWEEN 0 AND 6',
+  _migrateAjCheck(db) {
+    const lies = (sql) => { const r = db.exec(sql); return r.length && r[0].values.length ? r[0].values[0][0] : null; };
+    const betroffen = ['kw_status', 'kw_maengel'].filter(t => String(lies(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${t}'`) || '').includes(this.AJ_CHECK_ALT));
+    if (!betroffen.length) return false;
+    try {
+      const v = lies('PRAGMA schema_version') || 0;
+      db.run('PRAGMA writable_schema=ON');
+      db.run(`UPDATE sqlite_master SET sql = replace(sql, '${this.AJ_CHECK_ALT}', '${this.AJ_CHECK_NEU}') WHERE type='table' AND name IN ('kw_status','kw_maengel')`);
+      db.run('PRAGMA schema_version=' + (v + 1));
+      db.run('PRAGMA writable_schema=OFF');
+    } catch(e) { try { db.run('PRAGMA writable_schema=OFF'); } catch(e2) {} }
+    // Rückfall für Tabellen, deren Schema-Text sich nicht ersetzen ließ
+    betroffen.forEach(t => {
+      const sql = String(lies(`SELECT sql FROM sqlite_master WHERE type='table' AND name='${t}'`) || '');
+      if (!sql.includes(this.AJ_CHECK_ALT)) return;
+      db.run(`ALTER TABLE ${t} RENAME TO ${t}_alt`);
+      db.run(sql.split(this.AJ_CHECK_ALT).join(this.AJ_CHECK_NEU));
+      db.run(`INSERT INTO ${t} SELECT * FROM ${t}_alt`);
+      db.run(`DROP TABLE ${t}_alt`);
+      try { db.run(this.INDIZES); } catch(e) {}
+    });
+    return true;
+  },
+
   _migrateDiskDb(diskDb) {
     const run = (sql) => { try { diskDb.run(sql); } catch(e) { if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) console.warn('DiskDB-Migration:', e.message, sql.substring(0,60)); } };
     try { this._migrateZusatzvereinbarung(diskDb); } catch(e) { console.warn('DiskDB-Migration Zusatzvereinbarung:', e.message); }
+    try { this._migrateAjCheck(diskDb); } catch(e) { console.warn('DiskDB-Migration Raster-Nummer:', e.message); }
     // Tables
     run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7396,7 +7430,7 @@ const App = {
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
       id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
-      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
@@ -7517,7 +7551,7 @@ const App = {
     run(`CREATE TABLE IF NOT EXISTS kw_maengel (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
-      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+      ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
       kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
       maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
       UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche)
@@ -7584,7 +7618,7 @@ const App = {
     rebuild('kw_status', 'IN (1,2,3)',
       `CREATE TABLE kw_status (
         id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
-        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
         kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
         maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
         geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
@@ -7594,7 +7628,7 @@ const App = {
     rebuild('kw_maengel', 'IN (1,2,3)',
       `CREATE TABLE kw_maengel (
         id INTEGER PRIMARY KEY AUTOINCREMENT, kontrollergebnis_id INTEGER NOT NULL REFERENCES kontrollergebnisse(id),
-        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
         kalenderwoche INTEGER, maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
         UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche))`,
       `INSERT OR IGNORE INTO kw_maengel SELECT * FROM kw_maengel_new`);
@@ -8655,6 +8689,17 @@ const App = {
     // KW 53 liegt nicht in `order`: indexOf(-1) machte JEDE Woche zur „späteren“
     // und schob das Ausbildungsjahr um eins zurück (Stichtag 28.12.–03.01.)
     const kwStichtag = Math.min(52, this._isoKW(ref));
+    // Wochen VOR dem ersten Schuljahres-Raster (Beginn 1.8.: KW 31–35 des
+    // Startjahres) liegen im Raster davor – ohne Deckelung rechnen und nur
+    // übernehmen, wenn das Raster des Azubis diese Woche wirklich hat
+    try {
+      const d1 = this._parseDate(s.ausbildungsbeginn);
+      if (d1) {
+        let roh = ajs[0] + (this._schuljahrAm(ref) - this._schuljahrBeginn(d1));
+        if (order.indexOf(kw) > order.indexOf(kwStichtag)) roh -= 1;
+        if (roh < ajs[0] && this.rasterInfo(schuelerId).map.has(roh + '_' + kw)) return { aj: roh, kw };
+      }
+    } catch(e) {}
     if (order.indexOf(kw) > order.indexOf(kwStichtag)) aj = aj - 1;
     if (aj < ajs[0]) aj = ajs[0];
     if (aj > ajs[ajs.length - 1]) aj = ajs[ajs.length - 1];
@@ -8666,11 +8711,8 @@ const App = {
   calcArbeitstage(beginn, ende, schuelerId) {
     // If schuelerId given → precise calculation from active KWs
     if (schuelerId) {
-      const bounds = this.getAJKWBounds(schuelerId);
-      let totalActiveKWs = 0;
-      Object.values(bounds).forEach(b => {
-        totalActiveKWs += 52 - (b.inactiveKWs ? b.inactiveKWs.length : 0);
-      });
+      // Wochen vom Ausbildungsbeginn bis zum Ende laut Stammdaten/Phasen, ohne Unterbrechungen
+      let totalActiveKWs = this.rasterInfo(schuelerId).wochen.filter(w => w.aktiv).length;
       if (totalActiveKWs === 0) totalActiveKWs = 156; // fallback 3×52
       const years = totalActiveKWs / 52;
       const feiertage = Math.round(years * 11);
@@ -8701,20 +8743,12 @@ const App = {
     if (!s?.ausbildungsbeginn) return this.calcArbeitstage(null, null, schuelerId);
     const ende = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
     if (ende && ende < heute) return this.calcArbeitstage(s.ausbildungsbeginn, s.ausbildungsende, schuelerId);
-    const bounds = this.getAJKWBounds(schuelerId);
-    const jetzt = this.ajKwFuerStichtag(schuelerId, heute, this._isoKW(heute));
-    if (!jetzt) return 0;
-    const idx = kw => (kw >= 36 ? kw - 36 : kw + 17);
-    let wochen = 0;
-    Object.keys(bounds).forEach(k => {
-      const aj = parseInt(k);
-      const inaktiv = new Set(bounds[k].inactiveKWs || []);
-      if (aj > jetzt.aj) return;
-      for (let kw = 1; kw <= 52; kw++) {
-        if (inaktiv.has(kw)) continue;
-        if (aj < jetzt.aj || idx(kw) < idx(jetzt.kw)) wochen++;
-      }
-    });
+    // Aktive Wochen des Rasters VOR der laufenden Woche
+    const info = this.rasterInfo(schuelerId);
+    let grenze = null;
+    if (info._ident) { const i = info._ident(heute); grenze = info._posVon(i.aj, i.kw); }
+    else { const jetzt = this.ajKwFuerStichtag(schuelerId, heute, this._isoKW(heute)); const zelle = jetzt ? info.map.get(jetzt.aj + '_' + jetzt.kw) : null; grenze = zelle ? zelle.pos : 0; }
+    const wochen = info.wochen.filter(w => w.aktiv && w.pos < grenze).length;
     const feiertage = Math.round(wochen / 52 * 11);
     return Math.max(0, wochen * 5 - feiertage);
   },
@@ -9791,6 +9825,209 @@ const App = {
     };
   },
 
+  // ═══════════════════════════════════════════
+  //  ANZEIGE-RASTER: Zeilen = Ausbildungsjahre AB DEM AUSBILDUNGSBEGINN
+  //  (Vorgabe der Sachbearbeitung, Nov. 2026: „wenn jemand am 1.8. beginnt,
+  //  muss die Ausbildung in der Berichtsheftkontrolle auch zur entsprechenden
+  //  KW beginnen“). Bisher begann jede Zeile fest mit KW 36; wer am 1.8.
+  //  anfing, hatte für die Augustwochen des Startjahres gar keine Zellen.
+  //
+  //  Gespeichert wird unverändert je Woche (ausbildungsjahr, kalenderwoche) =
+  //  (Schuljahres-Raster, KW) – KEINE Datenmigration. Neu ist nur die
+  //  Zusammenstellung: Jahr n beginnt mit der KW des Ausbildungsbeginns
+  //  (Samstag/Sonntag → folgender Montag) und läuft 52 Wochen; jede Zelle
+  //  trägt ihre gespeicherte Kennung. Für einen Beginn in KW 36 (1.9.) sind
+  //  Zeile und Schuljahres-Raster identisch – dort ändert sich nichts. Die
+  //  Wochen vor dem ersten Schuljahr liegen im Raster davor (erstesAJ − 1,
+  //  bei Regelverträgen 0 – s. _migrateAjCheck).
+  // ═══════════════════════════════════════════
+  KW_FOLGE: [36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35],
+  RASTER_REST_MAX: 4,   // so viele Wochen über ein volles Jahr hinaus hängen an der letzten Zeile (statt einer Zeile mit 1–4 Wochen)
+  RASTER_JAHRE_MAX: 6,
+  _kwSI(kw) { return kw >= 36 ? kw - 36 : kw + 16; },   // Stelle in KW_FOLGE: 36 → 0 … 52 → 16, 1 → 17 … 35 → 51
+  // ISO-Woche eines Datums: { kw (53 → 52, wie überall im Raster), jahr (ISO-Jahr) }
+  _isoWoche(d) {
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    t.setDate(t.getDate() - ((t.getDay() + 6) % 7) + 3);   // Donnerstag der Woche
+    return { kw: Math.min(52, this._isoKW(d)), jahr: t.getFullYear() };
+  },
+  // Montag der KW im Schuljahr sy (KW 36–52 → Jahr sy, KW 1–35 → sy + 1)
+  _kwMontag(kw, sy) {
+    const jahr = kw >= 36 ? sy : sy + 1;
+    const jan4 = new Date(jahr, 0, 4);
+    const mo = new Date(jan4);
+    mo.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (kw - 1) * 7);
+    return mo;
+  },
+  // Vertragszeitraum: Beginn laut Stammdaten, Ende aus den Phasen (Tag vor dem
+  // berechneten Ende), sonst aus den Stammdaten, sonst Beginn + Dauer
+  _ausbildungsZeitraum(schuelerId) {
+    const s = this.query('SELECT ausbildungsbeginn, ausbildungsende, regulaer_dauer_monate, verkuerzung_monate FROM schueler WHERE id=?', [schuelerId])[0];
+    const d1 = s && s.ausbildungsbeginn ? this._parseDate(s.ausbildungsbeginn) : null;
+    if (!d1) return { d1: null, d2: null, unterbrechungen: [], sig: 'ohne' };
+    let d2 = s.ausbildungsende ? this._parseDate(s.ausbildungsende) : null;
+    let unterbrechungen = [];
+    if (typeof Phasen !== 'undefined') {
+      try {
+        const phasen = Phasen.getPhasen(schuelerId);
+        if (phasen.length) {
+          const ende = Phasen.vertragsendeAusPhasen(Phasen.phasenMitEnden(phasen, s.regulaer_dauer_monate || 36, s.verkuerzung_monate || 0));
+          if (ende) { d2 = new Date(ende); d2.setDate(d2.getDate() - 1); }
+          unterbrechungen = phasen.filter(p => p.typ === 'unterbrechung' && p.von && p.bis).map(p => [p.von, p.bis]);
+        }
+      } catch(e) {}
+    }
+    if (!d2) {
+      d2 = new Date(d1);
+      d2.setMonth(d2.getMonth() + Math.max(1, (s.regulaer_dauer_monate || 36) - (s.verkuerzung_monate || 0)));
+      d2.setDate(d2.getDate() - 1);
+    }
+    return { d1, d2, unterbrechungen, sig: [s.ausbildungsbeginn, d2.getTime(), JSON.stringify(unterbrechungen)].join('|') };
+  },
+  // Das Raster eines Azubis: { jahre: [{ nr, index, zellen, einfach, sy, von, bis }],
+  // wochen (alle Zellen in zeitlicher Reihenfolge), map ('aj_kw' → Zelle),
+  // start { aj, kw }, endPos, einfach }. Zelle: { aj, kw, sy, pos, jahr, aktiv }.
+  rasterInfo(schuelerId) {
+    const ajs = this.getSchuelerAJs(schuelerId) || [1, 2, 3];
+    const z = this._ausbildungsZeitraum(schuelerId);
+    const sig = z.sig + '|' + ajs.join(',');
+    if (!this._rasterCache) this._rasterCache = new Map();
+    const alt = this._rasterCache.get(schuelerId);
+    if (alt && alt.sig === sig) return alt.info;
+    const F = this.KW_FOLGE;
+    const info = { jahre: [], wochen: [], map: new Map(), start: null, endPos: 0, einfach: true, ajs, erstesAJ: ajs[0], firstSY: null, von: z.d1, bis: z.d2 };
+    const neu = (aj, kw, sy, pos, jahrIdx, aktiv) => {
+      const zelle = { aj, kw, sy, pos, jahr: ajs[0] + jahrIdx, jahrIndex: jahrIdx, aktiv };
+      info.wochen.push(zelle); info.map.set(aj + '_' + kw, zelle);
+      return zelle;
+    };
+    if (!z.d1) {
+      // Ohne Ausbildungsbeginn: drei volle Jahre KW 36–35 wie bisher
+      ajs.forEach((aj, i) => {
+        const jahr = { nr: aj, index: i, zellen: [], einfach: true, sy: null, von: null, bis: null };
+        F.forEach((kw, k) => jahr.zellen.push(neu(aj, kw, null, i * 52 + k, i, true)));
+        info.jahre.push(jahr);
+      });
+      info.endPos = info.wochen.length - 1;
+      this._rasterMerken(schuelerId, sig, info);
+      return info;
+    }
+    // Beginn: Woche des ersten Ausbildungstags (Sa/So → folgender Montag)
+    const eff = new Date(z.d1.getFullYear(), z.d1.getMonth(), z.d1.getDate());
+    if (eff.getDay() === 6) eff.setDate(eff.getDate() + 2); else if (eff.getDay() === 0) eff.setDate(eff.getDate() + 1);
+    const firstSY = this._schuljahrBeginn(z.d1);
+    const ident = (d) => { const w = this._isoWoche(d); const sy = w.kw >= 36 ? w.jahr : w.jahr - 1; return { aj: ajs[0] + (sy - firstSY), kw: w.kw, sy }; };
+    const st = ident(eff);
+    const siS = this._kwSI(st.kw);
+    const posVon = (aj, kw) => (aj - st.aj) * 52 + this._kwSI(kw) - siS;
+    const en = ident(z.d2);
+    let endPos = posVon(en.aj, en.kw);
+    if (endPos < 0) endPos = 51;                             // Ende vor Beginn (Datenfehler): ein Jahr zeigen
+    let n = Math.floor(endPos / 52) + 1;
+    // 1–4 Wochen über ein volles Jahr hinaus: an die letzte Zeile hängen
+    if (n > 1 && endPos % 52 < this.RASTER_REST_MAX) n -= 1;
+    n = Math.max(1, Math.min(this.RASTER_JAHRE_MAX, n));
+    const rest = endPos - (n * 52 - 1);
+    const letztePos = n * 52 - 1 + (rest >= 1 && rest <= this.RASTER_REST_MAX ? rest : 0);
+    // Unterbrechungen (Wochen je 7 Tage ab Beginn der Unterbrechung, wie bisher)
+    const pause = new Set();
+    z.unterbrechungen.forEach(([von, bis]) => {
+      const a = this._parseDate(von), b = this._parseDate(bis);
+      if (!a || !b) return;
+      const cur = new Date(a);
+      while (cur <= b) { const i = ident(cur); pause.add(i.aj + '_' + i.kw); cur.setDate(cur.getDate() + 7); }
+    });
+    for (let pos = 0; pos <= letztePos; pos++) {
+      const g = pos + siS;
+      const aj = st.aj + Math.floor(g / 52);
+      if (aj > this.RASTER_JAHRE_MAX) break;                // Prüfregel der Tabelle: 0…6
+      const kw = F[g % 52];
+      const jahrIdx = Math.min(n - 1, Math.floor(pos / 52));
+      if (!info.jahre[jahrIdx]) info.jahre[jahrIdx] = { nr: ajs[0] + jahrIdx, index: jahrIdx, zellen: [], einfach: false, sy: null, von: null, bis: null };
+      const sy = firstSY + (aj - ajs[0]);
+      info.jahre[jahrIdx].zellen.push(neu(aj, kw, sy, pos, jahrIdx, pos <= endPos && !pause.has(aj + '_' + kw)));
+    }
+    info.einfach = st.kw === 36 && st.aj === ajs[0];
+    info.jahre.forEach((j, i) => {
+      j.einfach = info.einfach && j.zellen.length === 52;
+      j.sy = info.einfach ? firstSY + i : null;
+      const erste = j.zellen[0], letzte = j.zellen[j.zellen.length - 1];
+      j.von = i === 0 ? z.d1 : this._kwMontag(erste.kw, erste.sy);
+      const so = this._kwMontag(letzte.kw, letzte.sy); so.setDate(so.getDate() + 6);
+      j.bis = i === info.jahre.length - 1 && z.d2 < so ? z.d2 : so;
+    });
+    info.start = { aj: st.aj, kw: st.kw };
+    info.endPos = endPos;
+    info.firstSY = firstSY;
+    info._ident = ident; info._posVon = posVon;
+    this._rasterMerken(schuelerId, sig, info);
+    return info;
+  },
+  // Zwischenspeicher je Azubi (Schlüssel: Beginn, Ende, Unterbrechungen, Raster) –
+  // gedeckelt, damit Auswertungen über tausende Azubis keinen Speicher binden
+  _rasterMerken(schuelerId, sig, info) {
+    if (this._rasterCache.size >= 300) this._rasterCache.clear();
+    this._rasterCache.set(schuelerId, { sig, info });
+  },
+  rasterJahre(schuelerId) { return this.rasterInfo(schuelerId).jahre; },
+  // Nummer des Ausbildungsjahres (Zeile), in dem eine gespeicherte Woche steht –
+  // für alle Beschriftungen „AJ n“ (Bemerkung, Anschreiben, Fehltage je Jahr)
+  jahrNr(schuelerId, aj, kw) {
+    aj = parseInt(aj); kw = Math.min(52, parseInt(kw));
+    try {
+      const info = this.rasterInfo(schuelerId);
+      const zelle = info.map.get(aj + '_' + kw);
+      if (zelle) return zelle.jahr;
+      if (!info._posVon) return aj;
+      const idx = Math.floor(info._posVon(aj, kw) / 52);
+      return info.erstesAJ + Math.max(0, Math.min(info.jahre.length - 1, idx));
+    } catch(e) { return aj; }
+  },
+  // Zelle der Woche, in der ein Datum liegt (null außerhalb des Rasters)
+  rasterZelleAm(schuelerId, datum) {
+    const d = datum instanceof Date ? datum : this._parseDate(datum);
+    const info = this.rasterInfo(schuelerId);
+    if (!d || !info._ident) return null;
+    const i = info._ident(d);
+    return info.map.get(i.aj + '_' + i.kw) || null;
+  },
+  // Kopfzeile eines Ausbildungsjahres: bei Beginn in KW 36 wie bisher
+  // „Schuljahr 2025/26 · 2. Lehrjahr“, sonst „Ausbildungsjahr 1 · 01.08.2025 – 31.07.2026 · 1. Lehrjahr“
+  rasterJahrLabel(schuelerId, jahr, ljInfo) {
+    const fmt = d => d ? `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` : '';
+    // Lehrjahr des Schuljahres-Rasters, das die meisten Wochen der Zeile stellt (bei Gleichstand das spätere)
+    const je = {};
+    jahr.zellen.forEach(c => { je[c.aj] = (je[c.aj] || 0) + 1; });
+    const haupt = Object.keys(je).map(Number).sort((a, b) => (je[b] - je[a]) || (b - a))[0];
+    let lj = '';
+    try { lj = this.lehrjahrLabel(schuelerId, haupt, ljInfo || this._lehrjahrInfo(schuelerId)); } catch(e) {}
+    if (jahr.einfach) return { titel: jahr.sy ? `Schuljahr ${jahr.sy}/${String(jahr.sy + 1).slice(-2)}` : `Ausbildungsjahr ${jahr.nr}`, zusatz: lj, zeitraum: '', lehrjahr: lj, schuljahr: jahr.sy ? `${jahr.sy}/${String(jahr.sy + 1).slice(-2)}` : '' };
+    const zeitraum = jahr.von && jahr.bis ? `${fmt(jahr.von)} – ${fmt(jahr.bis)}` : '';
+    return { titel: `Ausbildungsjahr ${jahr.nr}`, zusatz: [zeitraum, lj].filter(Boolean).join(' · '), zeitraum, lehrjahr: lj, schuljahr: '' };
+  },
+  // Wochen MIT Inhalt, die in keiner Zeile stehen (vor dem Beginn oder nach dem
+  // Ende laut Stammdaten – z.B. nach einer Korrektur des Ausbildungsbeginns):
+  // werden gezeigt, nie versteckt
+  rasterWaisen(schuelerId, kwRows) {
+    const info = this.rasterInfo(schuelerId);
+    const rows = kwRows || this.query('SELECT * FROM kw_status WHERE schueler_id=?', [schuelerId]);
+    return rows.filter(r => !info.map.has(r.ausbildungsjahr + '_' + Math.min(52, r.kalenderwoche))
+        && (r.maengel_codes || r.behobene_codes || r.fehltage || r.bemerkung))
+      .sort((a, b) => (a.ausbildungsjahr - b.ausbildungsjahr) || (this._kwSI(a.kalenderwoche) - this._kwSI(b.kalenderwoche)));
+  },
+  // Fehltage je Ausbildungsjahr (Zeile): { nr: summe }, Wochen außerhalb unter 'x'
+  rasterFehltage(schuelerId) {
+    const info = this.rasterInfo(schuelerId);
+    const je = {};
+    info.jahre.forEach(j => { je[j.nr] = 0; });
+    this.query('SELECT ausbildungsjahr, kalenderwoche, fehltage FROM kw_status WHERE schueler_id=? AND fehltage > 0', [schuelerId]).forEach(r => {
+      const zelle = info.map.get(r.ausbildungsjahr + '_' + Math.min(52, r.kalenderwoche));
+      const k = zelle ? zelle.jahr : 'x';
+      je[k] = (je[k] || 0) + (r.fehltage || 0);
+    });
+    return je;
+  },
+
   // ── Änderungs-Logbuch (für IBYKUS-Nachtrag) ──
   IBYKUS_FELDER: ['nachname','vorname','ausbildungsbeginn','ausbildungsende','ausbildungsstaette','fachrichtung_id','klasse_id','jahrgang_id','betrieb_id','status','aktiv','ap_zugelassen','ap_bestanden','zwischenpruefung','zustaendiges_amt','landesfachklasse','inaktiv_datum','inaktiv_grund'],
   logChange(schuelerId, feld, alterWert, neuerWert, aktion) {
@@ -9937,19 +10174,29 @@ const App = {
   autoHinweisCode(schuelerId, code) {
     if (!this.HINWEISE_CODES[code]) return null;
     const rows = this.query("SELECT ausbildungsjahr, kalenderwoche, maengel_codes FROM kw_status WHERE schueler_id=? AND maengel_codes != '' ORDER BY ausbildungsjahr, kalenderwoche", [schuelerId]);
-    return this.hinweisCodeZeile(rows, code);
+    return this.hinweisCodeZeile(rows, code, null, schuelerId);
   },
   // Dieselbe Zeile aus bereits gelesenen kw_status-Zeilen (Anschreiben an
   // Betriebe nutzen sie – ein Wortlaut für Bemerkung, Bogen und Brief)
-  hinweisCodeZeile(kwRows, code, stammOverride) {
+  hinweisCodeZeile(kwRows, code, stammOverride, schuelerId) {
     const stamm = stammOverride || this.HINWEISE_CODES[code];
     if (!stamm) return null;
     const rows = (kwRows || []).filter(r => (r.maengel_codes || '').split(',').map(c => c.trim()).includes(code))
       .sort((a, b) => (a.ausbildungsjahr - b.ausbildungsjahr) || (a.kalenderwoche - b.kalenderwoche));
     if (!rows.length) return null;
-    // „AJ n: KW …“ wie überall in der Kontrolle (Rasterkopf, KW-Modal, Anschreiben)
+    // „AJ n: KW …“ wie überall in der Kontrolle (Rasterkopf, KW-Modal, Anschreiben).
+    // n ist das Ausbildungsjahr der ZEILE im Raster (ab dem Ausbildungsbeginn),
+    // nicht die gespeicherte Schuljahres-Kennung – bei Beginn 1.9. dasselbe.
+    const sid = schuelerId || rows[0].schueler_id;
+    const nrVon = r => sid ? this.jahrNr(sid, r.ausbildungsjahr, r.kalenderwoche) : r.ausbildungsjahr;
+    if (sid) {
+      let karte = null;
+      try { karte = this.rasterInfo(sid).map; } catch(e) {}
+      const pos = r => { const z = karte && karte.get(r.ausbildungsjahr + '_' + Math.min(52, r.kalenderwoche)); return z ? z.pos : r.ausbildungsjahr * 52 + this._kwSI(r.kalenderwoche); };
+      rows.sort((a, b) => pos(a) - pos(b));
+    }
     const je = {};
-    rows.forEach(r => { (je[r.ausbildungsjahr] = je[r.ausbildungsjahr] || []).push(r.kalenderwoche); });
+    rows.forEach(r => { const n = nrVon(r); (je[n] = je[n] || []).push(r.kalenderwoche); });
     const teile = Object.keys(je).sort((a, b) => a - b).map(aj => {
       const kws = je[aj];
       const liste = kws.length > 12 ? kws.slice(0, 12).join(', ') + ` … (+${kws.length - 12})` : kws.join(', ');
@@ -10733,7 +10980,7 @@ Mit freundlichen Grüßen
           this.db.run("DROP TABLE kw_status");
           this.db.run(`CREATE TABLE kw_status (
             id INTEGER PRIMARY KEY AUTOINCREMENT, schueler_id INTEGER NOT NULL REFERENCES schueler(id),
-            ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+            ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
             kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
             maengel_codes TEXT DEFAULT '', behobene_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
             geprueft INTEGER DEFAULT 0, bemerkung TEXT DEFAULT '',
@@ -10751,7 +10998,7 @@ Mit freundlichen Grüßen
           this.db.run("DROP TABLE kw_maengel");
           this.db.run(`CREATE TABLE kw_maengel (
             id INTEGER PRIMARY KEY AUTOINCREMENT, kontrollergebnis_id INTEGER NOT NULL REFERENCES kontrollergebnisse(id),
-            ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+            ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
             kalenderwoche INTEGER, maengel_codes TEXT DEFAULT '', fehltage INTEGER DEFAULT 0,
             UNIQUE(kontrollergebnis_id, ausbildungsjahr, kalenderwoche))`);
           this.db.run("INSERT OR IGNORE INTO kw_maengel SELECT * FROM kw_maengel_new");
@@ -10850,7 +11097,7 @@ Mit freundlichen Grüßen
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_status (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         schueler_id INTEGER NOT NULL REFERENCES schueler(id),
-        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
         kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
         maengel_codes TEXT DEFAULT '',
         behobene_codes TEXT DEFAULT '',
@@ -10884,7 +11131,7 @@ Mit freundlichen Grüßen
       this.db.run(`CREATE TABLE IF NOT EXISTS kw_maengel (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kontrollergebnis_id INTEGER REFERENCES kontrollergebnisse(id),
-        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 1 AND 4),
+        ausbildungsjahr INTEGER CHECK (ausbildungsjahr BETWEEN 0 AND 6),
         kalenderwoche INTEGER CHECK (kalenderwoche BETWEEN 1 AND 53),
         maengel_codes TEXT DEFAULT '',
         fehltage INTEGER DEFAULT 0,
@@ -10990,6 +11237,7 @@ Mit freundlichen Grüßen
     } catch(e) { console.warn('Ausbildungsphasen-Migration:', e); }
 
     // ── Indizes (auch auf Bestands-Datenbanken nachziehen) ──
+    try { this._migrateAjCheck(this.db); } catch(e) { console.warn('Migration Raster-Nummer:', e); }
     try { this.db.run(this.INDIZES); } catch(e) { console.warn('Index-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──

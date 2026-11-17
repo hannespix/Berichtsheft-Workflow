@@ -819,7 +819,7 @@ const BerichteHandler = {
         'Zuständiges Amt': s.zustaendiges_amt ? App.amtLabel(s.zustaendiges_amt) : '',
         'Ergebnis': ke.ergebnis ? (eLbl[ke.ergebnis] || ke.ergebnis) : '(nicht erfasst)',
         'Fehltage': ke.fehltage_gesamt ?? '',
-        'Offene Mängel (AJ/KW: Codes)': maengel.map(m => `${m.ausbildungsjahr}/${m.kalenderwoche}: ${m.offen}`).join('; '),
+        'Offene Mängel (AJ/KW: Codes)': maengel.map(m => `${App.jahrNr(s.id, m.ausbildungsjahr, m.kalenderwoche)}/${m.kalenderwoche}: ${m.offen}`).join('; '),
         'Wiedervorlage Frist': wv ? formatDate(wv.frist_datum) : '', 'WV-Status': wv ? wv.status : '',
         'Bemerkung': ke.bemerkung || '', 'Prüfer': ke.geaendert_von || termin.pruefer || '',
         'Kontrolliert am': formatDate(termin.durchgefuehrt_datum || termin.geplant_datum),
