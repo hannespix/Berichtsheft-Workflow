@@ -300,6 +300,17 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/→ Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\) – Hinweis, ohne Zusatzvereinbarung nicht verbindlich/.test(block), 'Wetter ohne Zusatzvereinbarung als Hinweis gekennzeichnet');
   // Bemerkung des Prüfers im Block, Schlusssatz der Bestätigung „ohne Beanstandung“ nach Bemerkungen
   const autoZeile = App.autoHinweisStamm('B') + ' (1 Woche: AJ 2: KW 41)';
+  // Haupt- und Unterpunkt nie doppelt: fehlt der Plan, steht nur „fehlt“
+  {
+    const U11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_unterschrift, G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan;
+    const mitKe = ke => Workflows._azubiBlock([{ nachname: 'Kopp', vorname: 'Lukas', maengel: [], ke: { id: 1, ergebnis: 'berichte_bis_termin_email', anwesend: 1, ...ke } }], true);
+    const fehltBlock = mitKe({ p_1_1_ausbildungsplan: 'nein', p_1_1_gefuehrt: 'nein', p_1_1_unterschrift: 'nein' });
+    check(fehltBlock.includes('→ ' + F11) && !fehltBlock.includes(G11) && !fehltBlock.includes(U11), 'Plan fehlt: nur der Satz „fehlt“, „nicht geführt“ und „Unterschrift fehlt“ entfallen');
+    const daBlock = mitKe({ p_1_1_ausbildungsplan: 'ja', p_1_1_gefuehrt: 'nein', p_1_1_unterschrift: 'nein' });
+    check(daBlock.includes('→ ' + G11) && daBlock.includes('→ ' + U11) && !daBlock.includes(F11) && daBlock.indexOf(G11) < daBlock.indexOf(U11) && daBlock.split(U11).length === 2, 'Plan vorhanden: „nicht geführt“ und „Unterschrift fehlt“ je einmal, in fester Reihenfolge');
+    const nurU = mitKe({ p_1_1_ausbildungsplan: 'ja', p_1_1_unterschrift: 'nein' });
+    check(nurU.includes('→ ' + U11) && !nurU.includes(G11), 'Nur „Unterschrift fehlt“ steht für sich');
+  }
   const ok = { nachname: 'Roth', vorname: 'Isa', ke: { id: 2, ergebnis: 'in_ordnung', anwesend: 1, bemerkung: 'Heft sehr ordentlich, Wetter bitte künftig täglich\n' + autoZeile + '\n[AJ2/KW40] Skizze fehlt\n[Zulassung trotz Abweichung] intern' }, maengel: [] };
   const okBlock = Workflows._azubiBlock([ok], true);
   check(/^  - Roth, Isa: In Ordnung\n    Bemerkung: Heft sehr ordentlich, Wetter bitte künftig täglich\n {15}\[AJ2\/KW40\] Skizze fehlt$/.test(okBlock), `Bemerkung des Prüfers steht im Block – ohne automatische Code-Zeile und ohne internen Zulassungsvermerk: ${JSON.stringify(okBlock)}`);

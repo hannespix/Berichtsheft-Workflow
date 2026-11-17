@@ -293,11 +293,11 @@ const Workflows = {
       const sonst = App.hinweisCodeZeile(rows, 'I', 'Sonstige Beanstandungen, siehe Bemerkung');
       if (sonst) zeilen.push(sonst);
     }
-    if (a.ke && App.autoHinweisPflicht) {
-      ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb'].forEach(f => {
-        const s = App.autoHinweisPflicht(f, a.ke[f]);
-        if (s) zeilen.push(s);
-      });
+    // Pflichtteile: fehlt ein Hauptpunkt (1.1 / 1.5), steht nur sein Satz –
+    // „nicht geführt“ / „Unterschrift fehlt“ kämen sonst doppelt dazu
+    if (a.ke && App.autoHinweisePflicht) {
+      const pfl = App.autoHinweisePflicht(a.ke);
+      App.HINWEIS_PFLICHT_FELDER.forEach(f => { if (pfl[f]) zeilen.push(pfl[f]); });
     }
     return zeilen;
   },
