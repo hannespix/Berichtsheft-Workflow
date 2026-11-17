@@ -15,7 +15,6 @@ const PDFExport = {
   generateBatch(transform, termin, terminId, schuelerList, opts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    const kwRows = [[36,37,38,39,40,41,42,43,44,45,46,47,48],[49,50,51,52,1,2,3,4,5,6,7,8,9],[10,11,12,13,14,15,16,17,18,19,20,21,22],[23,24,25,26,27,28,29,30,31,32,33,34,35]];
     const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung bis nächste Durchsicht',sachberichte_wetter_email:'Sachberichte (Wetter) per E-Mail',berichte_bis_termin_email:'Berichte per E-Mail bis Termin',persoenliche_vorlage_rp:'Persönliche Vorlage im RP',post_an_rp:'Per Post ans RP'};
     const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'Berufsschulthemen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen komplett',G:'Datum/KW falsch',H:'Fehltage',I:'Sonstiges'};
     const LM = 10; // left margin
@@ -125,12 +124,21 @@ const PDFExport = {
       //    „H1“ und „(H)“ übereinander), inaktive Wochen grau, viele Codes
       //    kompakt, Kopf mit Schuljahr und Lehrjahr
       // ══════════════════════════════════════
-      const schuelerAJs = App.getSchuelerAJs(s.id);
+      // Zeilen = Ausbildungsjahre ab dem Ausbildungsbeginn laut Stammdaten
+      // (App.rasterInfo); jede Zelle trägt ihre gespeicherte Kennung (aj, kw).
+      // Einträge außerhalb der Ausbildungszeit stehen in einem eigenen Block.
+      const rInfo = App.rasterInfo(s.id);
+      const rJahre = rInfo.jahre.slice();
+      try {
+        const waisen = App.rasterWaisen(s.id);
+        if (waisen.length) rJahre.push({ nr: 'x', index: rJahre.length, waisen: true, zellen: waisen.map(r => ({ aj: r.ausbildungsjahr, kw: Math.min(52, r.kalenderwoche), aktiv: true })) });
+      } catch(e) {}
+      const schuelerAJs = rJahre.filter(j => !j.waisen);
       const CH = schuelerAJs.length >= 4 ? 8.5 : CH_STD;
-      let bounds = {}, ljInfo = null;
-      try { bounds = App.getAJKWBounds(s.id) || {}; } catch(e) {}
+      let ljInfo = null, fehlJe = {};
       try { ljInfo = App._lehrjahrInfo ? App._lehrjahrInfo(s.id) : null; } catch(e) {}
-      for (const aj of schuelerAJs) {
+      try { fehlJe = App.rasterFehltage(s.id); } catch(e) {}
+      for (const jahr of rJahre) {
         // Page break if not enough room for AJ header + 4 KW rows (~50mm)
         if (y > 240) {
           doc.addPage();
@@ -143,11 +151,10 @@ const PDFExport = {
           doc.text(`${s.nachname}, ${s.vorname} – Fortsetzung`, LM+3, y+4);
           y += 8;
         }
-        const fehlSum = App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=?', [s.id, aj]) || 0;
-        const b = bounds[aj] || {};
-        const inaktiv = new Set(b.inactiveKWs || []);
-        let ljLabel = '';
-        try { if (ljInfo && App.lehrjahrLabel) ljLabel = App.lehrjahrLabel(s.id, aj, ljInfo); } catch(e) {}
+        const fehlSum = fehlJe[jahr.nr] || 0;
+        let kopf = { titel: 'Außerhalb der Ausbildungszeit', zusatz: 'Einträge vor dem Beginn oder nach dem Ende laut Stammdaten' };
+        if (!jahr.waisen) { try { kopf = App.rasterJahrLabel(s.id, jahr, ljInfo); } catch(e) { kopf = { titel: `Ausbildungsjahr ${jahr.nr}`, zusatz: '' }; } }
+        const zeilen = []; for (let i = 0; i < jahr.zellen.length; i += 13) zeilen.push(jahr.zellen.slice(i, i + 13));
 
         // Rasterkopf: warme Fläche mit gelbem Marker, wie die Jahresköpfe am Bildschirm
         doc.setFillColor(...COL_WARM);
@@ -156,22 +163,27 @@ const PDFExport = {
         doc.rect(LM, y, 2, 5.5, 'F');
         doc.setTextColor(...COL_INK);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text(`Ausbildungsjahr ${aj}`, LM + 4, y + 3.8);
+        // Kopf: „Ausbildungsjahr n“ + bei Beginn in KW 36 „Schuljahr 2025/26 · 2. Lehrjahr“,
+        // sonst der Zeitraum der Zeile „01.08.2025 – 26.07.2026 · 1. Lehrjahr“
+        const kopfTitel = jahr.waisen ? kopf.titel : `Ausbildungsjahr ${jahr.nr}`;
+        doc.text(kopfTitel, LM + 4, y + 3.8);
+        const titelBreite = doc.getTextWidth(kopfTitel);
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...COL_GRAY);
-        const kopfZusatz = [b.schoolYear ? `Schuljahr ${b.schoolYear}` : '', ljLabel].filter(Boolean).join(' · ');
-        if (kopfZusatz) doc.text(kopfZusatz, LM + 4 + doc.getTextWidth('Ausbildungsjahr 0 ') * 8 / 7 + 2, y + 3.8);
+        const kopfZusatz = jahr.waisen ? kopf.zusatz : (jahr.einfach ? [kopf.schuljahr ? `Schuljahr ${kopf.schuljahr}` : '', kopf.lehrjahr] : [kopf.zeitraum, kopf.lehrjahr]).filter(Boolean).join(' · ');
+        if (kopfZusatz) doc.text(kopfZusatz, LM + 4 + titelBreite + 3, y + 3.8);
         doc.text(`Fehltage: ${fehlSum}`, RM - 3, y + 3.8, { align: 'right' });
         y += 6.5;
 
         // KW cells
-        kwRows.forEach(row => {
-          row.forEach((kw, ci) => {
+        zeilen.forEach(row => {
+          row.forEach((z, ci) => {
+            const aj = z.aj, kw = z.kw;
             const x = LM + ci * CW;
             const d = kwData[`${aj}_${kw}`];
             const codes = (d && d.codes ? d.codes : '').split(',').map(c => c.trim()).filter(Boolean);
             const fehl = d?.fehltage || 0;
             // Wochen außerhalb der Ausbildungszeit grau – außer sie tragen Einträge (Stand zeigen, nie verstecken)
-            const istInaktiv = inaktiv.has(kw) && !codes.length && !fehl;
+            const istInaktiv = !z.aktiv && !codes.length && !fehl;
             const real = codes.filter(c => c !== 'H');       // Mängel/Hinweise außer Fehltage
             const zulMangel = real.length && App.istZulassungsMangel(real.join(','), ke);
             // Anzeige: Codes in Rasterreihenfolge, H mit Fehltagezahl, Fehltage ohne H als „H3“

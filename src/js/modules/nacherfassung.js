@@ -150,8 +150,8 @@ const NacherfassungHandler = {
               const lastInfo = lastKE ? formatDate(lastKE.geplant_datum).substring(0,6) + (lastKE.ergebnis === 'in_ordnung' ? ' ✓' : ' !') : '–';
               // Bisher geprüfter Stand in SCHULJAHRES-Reihenfolge (36..52, dann 1..35)
               const bisher = App.query(`SELECT ausbildungsjahr, kalenderwoche FROM kw_status WHERE schueler_id=? AND geprueft=1
-                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END, kalenderwoche DESC LIMIT 1`, [s.id])[0];
-              const bisherTxt = bisher ? `bis KW ${bisher.kalenderwoche} (AJ${bisher.ausbildungsjahr})` : 'nichts geprüft';
+                ORDER BY ausbildungsjahr DESC, CASE WHEN kalenderwoche >= 36 THEN 0 ELSE 1 END DESC, kalenderwoche DESC LIMIT 1`, [s.id])[0];
+              const bisherTxt = bisher ? `bis KW ${bisher.kalenderwoche} (AJ${App.jahrNr(s.id, bisher.ausbildungsjahr, bisher.kalenderwoche)})` : 'nichts geprüft';
               const fehlBisher = lastKE ? (lastKE.fehltage_gesamt || 0) : (App.scalar('SELECT COALESCE(SUM(fehltage),0) FROM kw_status WHERE schueler_id=?', [s.id]) || 0);
               const amp = App.getSchuelerAmpel(s.id);
               const fremd = s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT;

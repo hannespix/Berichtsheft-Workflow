@@ -170,7 +170,7 @@ const WiedervorlagenHandler = {
           ${offeneMaengel.map(m => {
             const codes = m.maengel_codes.split(',').filter(Boolean);
             return `<tr>
-              <td>${m.ausbildungsjahr}</td><td>KW ${m.kalenderwoche}</td>
+              <td>${App.jahrNr(w.schueler_id, m.ausbildungsjahr, m.kalenderwoche)}</td><td>KW ${m.kalenderwoche}</td>
               <td style="color:var(--clr-red)">${codes.map(c => `<span style="cursor:pointer;text-decoration:underline" title="${KWNav.CODE_LABELS[c]||c} – klicken zum Beheben" onclick="WiedervorlagenHandler.markCodeBehoben(${m.id},'${c}',${id})">${c}</span>`).join(' ')}</td>
               <td>${m.fehltage||0}</td>
               <td><button class="btn btn-sm btn-success" onclick="WiedervorlagenHandler.markKWBehoben(${m.id},${id})" title="Alle Mängel dieser KW als behoben">✓ Behoben</button></td>

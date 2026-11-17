@@ -317,7 +317,7 @@ console.log('\n══ Stufe 2 (2): Prüferaufteilung, Ergebnis-Kürzel, heutige 
   KWNav.persistCodes(100, 1, 44, 'A', 0, 1, false);
   KH.saveKWOk(100, 1, 44);
   check(/– Erst$/.test(UndoManager.last().desc), `Undo-Beschreibung nennt den Azubi (${UndoManager.last().desc})`);
-  check(/const zu = this\._ajZustand\.has\(aj\)/.test(K_SRC) && /frueher && !maengelCount && geprueftCount >= activeCount/.test(K_SRC), 'Frühere, vollständig geprüfte Ausbildungsjahre sind eingeklappt');
+  check(/const zu = this\._ajZustand\.has\(nr\)/.test(K_SRC) && /frueher && !maengelCount && geprueftCount >= activeCount/.test(K_SRC), 'Frühere, vollständig geprüfte Ausbildungsjahre sind eingeklappt');
 }
 
 console.log('\n══ Sticky-Kopf der Einzelansicht ══');
@@ -407,13 +407,13 @@ console.log('\n══ UI-Paket 1: Kontrolltag ══');
   check(!/<!-- Prüfer \+ Suche \+ Live-Sync -->/.test(K_SRC) && !/← Topbar<\/span>/.test(K_SRC) && /id="kontrolleSearch"/.test(K_SRC) && /id="livePrueferBar"/.test(K_SRC) && /id="syncPulse"/.test(K_SRC), 'Prüfer-Karte entfällt (Prüfer steht in der Kopfzeile); Suche, Live-Anzeige und Kollegen-Positionen bleiben');
   check(/App\.uGet\('legend_hidden', '0'\) !== '0'/.test(K_SRC) && /legendeUmschalten\(an\) \{/.test(K_SRC) && /onclick="KontrolleHandler\.legendeUmschalten\(\)" title="Mängelcodes und Tastenkürzel ein-\/ausblenden"[^>]*>\?<\/button>/.test(K_SRC) && !/kwLegendShow/.test(K_SRC), 'Kürzel-Leiste standardmäßig aus, „?“ im Azubi-Kopf blendet sie ein');
   check(/aspect-ratio: 2 \/ 1;/.test(CSS) && /\.kw-cell \{\n  aspect-ratio: 2 \/ 1;/.test(CSS), 'Rasterzellen halb so hoch wie breit');
-  check(/const kuenftig = ajJetzt && aj > ajJetzt && !geprueftCount && !maengelCount;/.test(K_SRC) && /\|\| kuenftig\)/.test(K_SRC) && /class="card-header aj-kopf"[^>]*onclick="KontrolleHandler\.toggleAJ\(\$\{aj\}, \$\{zu \? 'true' : 'false'\}\)"/.test(K_SRC) && /Künftiges Ausbildungsjahr – noch keine geprüfte Woche\./.test(K_SRC), 'Künftige Jahre ohne geprüfte Woche eingeklappt, Kopf klickbar');
+  check(/const kuenftig = hatDatum && jahr\.index > jetztIdx && !geprueftCount && !maengelCount;/.test(K_SRC) && /\|\| kuenftig\)/.test(K_SRC) && /class="card-header aj-kopf"[^>]*onclick="KontrolleHandler\.toggleAJ\(\$\{nr\}, \$\{zu \? 'true' : 'false'\}\)"/.test(K_SRC) && /Künftiges Ausbildungsjahr – noch keine geprüfte Woche\./.test(K_SRC), 'Künftige Jahre ohne geprüfte Woche eingeklappt, Kopf klickbar');
   check(/onclick="event\.stopPropagation\(\)"/.test(K_SRC) && /display:\$\{zu \? 'none' : 'flex'\}/.test(K_SRC), 'Bereichsauswahl nur im aufgeklappten Jahr, Klick darauf klappt nicht zu');
   check(/<div class="ke-leiste" id="lockableLeiste"/.test(K_SRC) && /id="keBemerkung"/.test(K_SRC) && /id="wvSection" class="ke-wv"/.test(K_SRC) && /id="wvDatum"/.test(K_SRC) && /name="ergebnis"/.test(K_SRC) && /class="erg-pill/.test(K_SRC), 'Feste Leiste unten: Ergebnis-Pillen, Bemerkung, Wiedervorlage (Kennungen für Kürzel und saveField unverändert)');
   check(/\.ke-leiste \{ position: sticky; bottom: calc\(-1 \* var\(--gutter-unten\)\);/.test(CSS) && /\.erg-pill:has\(input:checked\)/.test(CSS), 'Leiste haftet am unteren Rand, gewählte Pille hebt sich ab');
   check(/‹ Zurück<\/button>/.test(K_SRC) && /'✓ Fertig, nächster offener'/.test(K_SRC) && /onclick="KontrolleHandler\.fertig\(\)"/.test(K_SRC) && /Weiter ›<\/button>/.test(K_SRC) && !/Freigeben<\/button>/.test(K_SRC) && /Freigeben ohne Wechsel/.test(K_SRC) && /PDFExport\.generateSingle\(\$\{this\.currentTerminId\},\$\{s\.id\}\)/.test(K_SRC), 'Fußzeile: drei Knöpfe; PDFs und Freigeben ohne Wechsel im ⋯-Menü');
   check(/\['lockableContent', 'lockableLeiste'\]\.forEach/.test(K_SRC) && (K_SRC.match(/\['lockableContent', 'lockableLeiste'\]/g) || []).length === 2, 'Sperre durch Kollegen deckt auch die feste Leiste ab');
-  check(/id="keGesichert"/.test(K_SRC) && /id="quickNavGrid"/.test(K_SRC) && /data-sync-progress-bar/.test(K_SRC) && /id="fehlGesamt"/.test(K_SRC) && /id="fehlPauschalAnzeige"/.test(K_SRC) && /fehlSumAj\$\{aj\}_display/.test(K_SRC), 'Kennungen für Live-Sync, Verlustschutz und Fehltage bleiben erhalten');
+  check(/id="keGesichert"/.test(K_SRC) && /id="quickNavGrid"/.test(K_SRC) && /data-sync-progress-bar/.test(K_SRC) && /id="fehlGesamt"/.test(K_SRC) && /id="fehlPauschalAnzeige"/.test(K_SRC) && /fehlSumAj\$\{j\.nr\}_display/.test(K_SRC), 'Kennungen für Live-Sync, Verlustschutz und Fehltage bleiben erhalten');
   check(/const sel = document\.getElementById\('selKontrolltermin'\);\n    if \(sel\) \{\n      \/\/ Aktuellen Termin vorwählen/.test(K_SRC), '„Termin wechseln“ wählt den aktuellen Termin vor');
   const toc = [...V_SRC.match(/const helpSections = \[([^\]]*)\]/)[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1]);
   const ids = [...V_SRC.matchAll(/id="help_(\d+)"/g)].map(m => +m[1]);
