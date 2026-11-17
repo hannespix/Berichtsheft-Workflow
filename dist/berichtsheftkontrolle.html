@@ -7954,7 +7954,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-17 12:14 UTC',
+  BUILD: '2026-11-17 12:27 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -22265,7 +22265,7 @@ const Views = {
             <p style="margin-top:8px"><strong>Ablauf je Auszubildendem:</strong></p>
             <p>1. Durchsichtstermin auswählen → Liste der zugeordneten Auszubildenden wird angezeigt</p>
             <p>2. Auszubildenden anklicken → Einzelansicht mit KW-Raster öffnet sich</p>
-            <p style="margin-left:16px"><strong>Gruppieren und Sortieren:</strong> Über der Liste stehen <em>Gruppieren</em> (Klasse, Fachrichtung, Lehrjahr, Jahrgang · Fachrichtung, Betrieb, Stand der Durchsicht) und <em>Sortieren</em>; ein Klick auf einen Spaltenkopf sortiert ebenfalls, ein zweiter kehrt die Richtung um. Die Wahl gilt je Person, auch für die Druckliste und für „Weiter“ in der Einzelansicht. Die Nummer (#) bleibt die feste Reihenfolge der Liste – „Mein Bereich #von–bis“ meint deshalb bei allen Kollegen dieselben Azubis.</p>
+            <p style="margin-left:16px"><strong>Gruppieren und Sortieren:</strong> Über der Liste stehen <em>Gruppieren</em> (Klasse, Fachrichtung, Lehrjahr, Jahrgang · Fachrichtung, Betrieb, zuständiges Amt – das eigene Amt zuerst –, Stand der Durchsicht) und <em>Sortieren</em>; ein Klick auf einen Spaltenkopf sortiert ebenfalls, ein zweiter kehrt die Richtung um. Die Wahl gilt je Person, auch für die Druckliste und für „Weiter“ in der Einzelansicht. Die Nummer (#) bleibt die feste Reihenfolge der Liste – „Mein Bereich #von–bis“ meint deshalb bei allen Kollegen dieselben Azubis.</p>
             <p style="margin-left:16px"><strong>Klasse an der Berufsschule:</strong> In der Spalte <em>Klasse</em> lässt sich je Azubi frei eintragen, in welcher Klasse er an der Schule sitzt (z. B. G2a, G2b, P2) – unabhängig von Fachrichtung und Jahrgang. So lassen sich drei GaLaBau-Klassen ebenso abbilden wie eine gemischte Klasse der Produktionsgärtner. Enter springt in die nächste Zeile, bereits verwendete Klassen der Schule werden vorgeschlagen. Der Eintrag wird beim Azubi gespeichert und steht bei jeder weiteren Durchsicht wieder da (auch unter Azubi bearbeiten änderbar).</p>
             <p style="margin-left:16px"><strong>Sammelaktionen:</strong> Häkchen vorne in der Zeile, am Gruppenkopf (ganze Gruppe) oder im Tabellenkopf (alle) wählen Azubis aus; Umschalt+Klick wählt einen Bereich. Für die Auswahl: Klasse setzen, anwesend/abwesend, „In Ordnung“. Beispiel: nach Fachrichtung gruppieren, die acht Azubis der Klasse anhaken, „G2a“ eintragen, danach nach Klasse gruppieren.</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
@@ -29449,10 +29449,10 @@ const KontrolleHandler = {
   //  Rechner – daran hängt „Mein Bereich #von–bis“. Gruppierung und Sortierung
   //  sind je Person gemerkt und bestimmen Anzeige, Druckliste und „Weiter“.
   // ═══════════════════════════════════════════
-  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['stand', 'Stand der Durchsicht']],
-  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
+  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Stand der Durchsicht']],
+  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
   UEB_STAND: ['Offen', 'Beanstandet', 'In Ordnung', 'Abwesend'],
-  UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb' },
+  UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb', amt: 'Ohne zuständiges Amt' },
   uebOrdnung() {
     // Vorgabe: keine Gruppe, Reihenfolge der Liste (#) – genau wie bisher
     const gruppe = App.uGet('ueb_gruppe', '') || '', sort = App.uGet('ueb_sort', 'nr') || 'nr';
@@ -29485,12 +29485,14 @@ const KontrolleHandler = {
     return { fr, klassen, ke, datum: t.durchgefuehrt_datum || t.geplant_datum || null, einsendung: t.typ === 'einsendung' };
   },
   // Werte eines Azubis: Klasse (frei), Fachrichtung, Lehrjahr, Stammdaten-Klasse,
-  // Betrieb, Stand (0 offen · 1 beanstandet · 2 in Ordnung · 3 abwesend)
+  // Betrieb, zuständiges Amt („93 RP Freiburg“), Stand (0 offen · 1 beanstandet ·
+  // 2 in Ordnung · 3 abwesend)
   _uebWert(s, i, ke, ctx, fehltage) {
     const anwesend = !ke || ke.anwesend !== 0;
     const ergebnis = ke && ke.ergebnis ? ke.ergebnis : '';
     let lehrjahr = null;
     try { lehrjahr = App.getLehrjahr(s.id, ctx.datum || undefined); } catch(e) {}
+    const amtCode = String(s.zustaendiges_amt || '').trim();
     return {
       i, name: `${s.nachname || ''}, ${s.vorname || ''}`,
       klasse: App.schulklasseNormal(s.schulklasse),
@@ -29498,6 +29500,7 @@ const KontrolleHandler = {
       lehrjahr: lehrjahr || null,
       fachklasse: ctx.klassen[s.klasse_id] || '',
       betrieb: String(s.ausbildungsstaette || '').trim(),
+      amt: amtCode ? App.amtLabel(amtCode) : '', eigenesAmt: !!amtCode && amtCode === App.EIGENES_AMT,
       standNr: ergebnis ? (ergebnis === 'in_ordnung' ? 2 : 1) : (anwesend ? 0 : 3),
       fehltage: fehltage == null ? 0 : fehltage,
     };
@@ -29523,12 +29526,14 @@ const KontrolleHandler = {
       const leer = o.gruppe === 'lehrjahr' ? !w.lehrjahr : (o.gruppe !== 'stand' && !k);
       const key = leer ? '' : String(k);
       if (!gruppen.has(key)) {
-        const label = leer ? this.UEB_OHNE[o.gruppe] : o.gruppe === 'stand' ? (k === 3 && ctx && ctx.einsendung ? 'Heft fehlt' : this.UEB_STAND[k]) : o.gruppe === 'lehrjahr' ? `${k}. Lehrjahr` : String(k);
-        gruppen.set(key, { key, label, leer, wert: k, indizes: [] });
+        const eigen = o.gruppe === 'amt' && w.eigenesAmt;
+        const label = leer ? this.UEB_OHNE[o.gruppe] : o.gruppe === 'stand' ? (k === 3 && ctx && ctx.einsendung ? 'Heft fehlt' : this.UEB_STAND[k]) : o.gruppe === 'lehrjahr' ? `${k}. Lehrjahr` : eigen ? `${k} (eigenes Amt)` : String(k);
+        // Zuständiges Amt: das eigene Amt zuerst, dann die fremden nach Nummer
+        gruppen.set(key, { key, label, leer, wert: k, rang: eigen ? 0 : 1, indizes: [] });
       }
       gruppen.get(key).indizes.push(w.i);
     });
-    return [...gruppen.values()].sort((a, b) => (a.leer - b.leer) || (typeof a.wert === 'number' && typeof b.wert === 'number' ? a.wert - b.wert : text(a.label, b.label)));
+    return [...gruppen.values()].sort((a, b) => (a.leer - b.leer) || (a.rang - b.rang) || (typeof a.wert === 'number' && typeof b.wert === 'number' ? a.wert - b.wert : text(a.label, b.label)));
   },
   // Gruppen für eine beliebige Azubi-Liste (Druckliste, Navigation)
   _uebGruppen(liste, terminId) {
