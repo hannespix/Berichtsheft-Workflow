@@ -191,7 +191,7 @@ const PDFExport = {
             if (fehl > 0 && !anzeige.includes('H')) anzeige.push('H');
             anzeige = anzeige.map(c => c === 'H' && fehl > 0 ? `H${fehl}` : c);
 
-            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot · Hinweis (D/I) orange · geprüft grün
+            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot (auch Wetter D) · Hinweis (I) orange · geprüft grün
             if (istInaktiv) { doc.setFillColor(...COL_INACTIVE); doc.rect(x, y, CW, CH, 'F'); }
             else if (zulMangel) { doc.setFillColor(...COL_RED_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
             else if (real.length) { doc.setFillColor(...COL_AMBER_LIGHT); doc.rect(x, y, CW, CH, 'F'); }

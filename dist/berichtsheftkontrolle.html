@@ -6527,10 +6527,9 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .kw-cell.kw-issue { background: var(--clr-red-light); border-color: #f0b8b3; color: var(--clr-red); }
 .kw-cell.kw-issue:focus { border-color: var(--clr-forest-dark, #000000); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
 .kw-cell.kw-behoben { background: repeating-linear-gradient(45deg, #fff5e6, #fff5e6 3px, #ffedcc 3px, #ffedcc 6px); border-color: #f0c878; }
-/* Hinweis-Codes (Wetter ohne Zusatzvereinbarung, Sonstiges): beanstandet, aber keine Zulassungsvoraussetzung */
+/* Hinweis-Code (Sonstiges): beanstandet, aber keine Zulassungsvoraussetzung */
 .kw-cell.kw-hinweis { background: var(--clr-amber-light); border-color: #e0b95a; color: var(--clr-amber); }
 .kw-cell.kw-hinweis:focus { border-color: var(--clr-forest-dark, #000000); box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; }
-.kw-legend .leg-hinweis { font-size: 12px; color: var(--clr-text-light); font-weight: 400; }
 .kw-cell.kw-session { box-shadow: inset 0 0 0 2px var(--clr-leaf); }
 .kw-cell.kw-session:focus { box-shadow: 0 0 0 3px var(--clr-forest), inset 0 0 0 2px white; outline: 2px dashed var(--clr-forest); outline-offset: 3px; }
 .kw-cell.kw-selected { border-color: var(--clr-blue, #2563eb) !important; box-shadow: inset 0 0 0 2px rgba(37,99,235,0.3); z-index: 5; }
@@ -7954,7 +7953,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-17 12:27 UTC',
+  BUILD: '2026-11-17 12:51 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -16465,15 +16464,17 @@ const App = {
   },
 
   // ── Zulassung zur Abschlussprüfung, § 43 Abs. 1 Nr. 2 BBiG ──
-  // Zulassungsrelevant sind nur Mängel an den Tagesberichten und den
+  // Zulassungsrelevant sind Mängel an den Tagesberichten und den
   // Unterschriften: A/B (Unterschriften), C (Berufsschulthemen, BIBB-
-  // Empfehlung 2020 Nr. 4), E/F (Inhalt, Fehlen), G (KW/Datum). Wetter (D)
-  // ist laut Merkblatt zum Gärtner-Berichtsheft ausdrücklich KEINE
-  // Zulassungsvoraussetzung – nur mit Zusatzvereinbarung (Teil 1.2) ist das
-  // vollständige Führen vertraglich verbindlich. I (Sonstiges) ist ein Hinweis.
-  ZULASSUNG_CODES: ['A', 'B', 'C', 'E', 'F', 'G'],
+  // Empfehlung 2020 Nr. 4), D (Wetterbeobachtungen), E/F (Inhalt, Fehlen),
+  // G (KW/Datum). Wetterbeobachtungen sind für ALLE Auszubildenden Pflicht
+  // (Vorgabe der Sachbearbeitung, Nov. 2026) – vorher zählte D nur mit
+  // Zusatzvereinbarung (Teil 1.2). Die Zusatzvereinbarung betrifft nur noch
+  // Sachberichte und Pflanze der Woche. I (Sonstiges) ist ein Hinweis.
+  ZULASSUNG_CODES: ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
   hatZusatzvereinbarung(ke) { return !!ke && ke.f_1_2_vertragliche_regelungen === 'ja'; },
-  zulassungsCodes(ke) { return this.hatZusatzvereinbarung(ke) ? [...this.ZULASSUNG_CODES, 'D'] : this.ZULASSUNG_CODES; },
+  // Für alle gleich; der Parameter bleibt, weil alle Aufrufer das Ergebnis mitgeben
+  zulassungsCodes(ke) { return this.ZULASSUNG_CODES; },
   istZulassungsMangel(codesStr, ke) {
     const rel = this.zulassungsCodes(ke);
     return String(codesStr || '').split(',').some(c => rel.includes(c.trim()));
@@ -16510,7 +16511,7 @@ const App = {
   WEGE: [
     { val: 'naechste_durchsicht', label: 'bis zur nächsten Durchsicht', ergebnis: 'nachholung_naechste_durchsicht' },
     { val: 'email', label: 'per E-Mail nachreichen', ergebnis: 'berichte_bis_termin_email' },
-    { val: 'email_sachberichte', label: 'per E-Mail: Sachberichte/Wetter (nur mit Zusatzvereinbarung)', ergebnis: 'sachberichte_wetter_email' },
+    { val: 'email_sachberichte', label: 'per E-Mail: Wetter/Sachberichte', ergebnis: 'sachberichte_wetter_email' },
     { val: 'post', label: 'per Post ans RP', ergebnis: 'post_an_rp' },
     { val: 'persoenlich', label: 'persönliche Vorlage im RP', ergebnis: 'persoenliche_vorlage_rp' },
   ],
@@ -17998,6 +17999,14 @@ const App = {
   // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
   TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 % der zurückgelegten Ausbildungszeit – ggf. Verlängerung nach § 8 Abs. 2 BBiG (Antrag durch den Azubi) prüfen',
   TB_FEHLTAGE_ALT: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
+  // Alter Wortlaut → neuer Wortlaut, seit Wetterbeobachtungen für alle Pflicht
+  // sind (Textbausteine und Vorlagen; Migration wetter_pflicht_v1)
+  WETTER_TEXT_ALT: {
+    'Wetterbericht fehlt durchgehend (Hinweis – nur bei Zusatzvereinbarung verbindlich)': 'Wetterbericht fehlt durchgehend',
+    'Sachberichte zu Wetter nachzureichen per E-Mail (nur bei Zusatzvereinbarung)': 'Sachberichte zu Wetter nachzureichen per E-Mail',
+    '- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Wetterbeobachtungen, Sachberichte, Pflanze der Woche': '- Wetterbeobachtungen\n- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche',
+    'ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Wetter, Sachberichte und Pflanze der Woche.': 'ÜBA-Bescheinigungen, Wetterbeobachtungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.',
+  },
 
   // ── Bemerkung-Textbausteine (loaded from DB) ──
   getTextbausteine() {
@@ -18075,7 +18084,8 @@ Folgende Unterlagen werden geprüft:
 - Unterschriften des Auszubildenden und des Ausbilders/der Ausbilderin mit Datum
 - Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
 - Bescheinigungen über die überbetriebliche Ausbildung
-- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Wetterbeobachtungen, Sachberichte, Pflanze der Woche
+- Wetterbeobachtungen
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
 
@@ -18094,7 +18104,7 @@ Folgende Ihrer Auszubildenden sind betroffen:
 
 Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
 
-Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Wetter, Sachberichte und Pflanze der Woche.
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -18809,9 +18819,9 @@ Mit freundlichen Grüßen
         } else {
           this.db.run("INSERT OR IGNORE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)",
             [JSON.stringify([
-              'Wetterbericht fehlt durchgehend (Hinweis – nur bei Zusatzvereinbarung verbindlich)',
+              'Wetterbericht fehlt durchgehend',
               'Unterschrift Ausbilder fehlt',
-              'Sachberichte zu Wetter nachzureichen per E-Mail (nur bei Zusatzvereinbarung)',
+              'Sachberichte zu Wetter nachzureichen per E-Mail',
               'Berichte komplett lückenhaft – persönliches Gespräch empfohlen',
               'Berichtsheft ordentlich und vollständig geführt',
               'Fehltage-Nachweise nicht beigelegt',
@@ -18850,6 +18860,24 @@ Mit freundlichen Grüßen
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_v2','1')");
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
+      // Wetterbeobachtungen sind für alle Pflicht (Nov. 2026): die Zusätze
+      // „nur bei Zusatzvereinbarung“ fallen aus den Standard-Textbausteinen und
+      // aus gespeicherten Vorlagen heraus (einmalig, nur der alte Wortlaut)
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='wetter_pflicht_v1'")) {
+          const tb = JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+          if (Array.isArray(tb)) {
+            const neu = tb.map(t => this.WETTER_TEXT_ALT[t] || t).filter((t, i, a) => a.indexOf(t) === i);
+            if (JSON.stringify(neu) !== JSON.stringify(tb)) this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)", [JSON.stringify(neu)]);
+          }
+          this.query("SELECT schluessel, wert FROM einstellungen WHERE schluessel LIKE 'vorlage_%'").forEach(r => {
+            let w = String(r.wert || '');
+            Object.keys(this.WETTER_TEXT_ALT).forEach(alt => { if (w.includes(alt)) w = w.split(alt).join(this.WETTER_TEXT_ALT[alt]); });
+            if (w !== r.wert) this.db.run('UPDATE einstellungen SET wert=? WHERE schluessel=?', [w, r.schluessel]);
+          });
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('wetter_pflicht_v1','1')");
+        }
+      } catch(e) { console.warn('Wetter-Pflicht-Migration:', e); }
       // Bestätigung „ohne Beanstandung“: der feste Schlusssatz „es besteht kein
       // weiterer Handlungsbedarf“ wird zum Platzhalter {hinweis}, damit bei
       // vorhandenen Bemerkungen „bitte beachten Sie die Bemerkungen“ steht –
@@ -18864,7 +18892,7 @@ Mit freundlichen Grüßen
         }
       } catch(e) { console.warn('Vorlagen-Migration:', e); }
       // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
-      // und schaltet, ob Wetter/Sachberichte als Mangel zählen. Bisher setzte
+      // (Sachberichte, Pflanze der Woche; Wetter ist für alle Pflicht). Bisher setzte
       // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –
       // diese Automatik-Werte werden einmalig geleert, der Prüfer setzt den
       // neuen Wert bei der nächsten Durchsicht (Wert wird weitervererbt).
@@ -21254,7 +21282,7 @@ const Views = {
       <div class="card" style="margin-top:16px">
         <div class="card-header">§ Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG)</div>
         <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px;line-height:1.6">
-          Zulassungsrelevant sind Mängel an den <strong>Tagesberichten und Unterschriften</strong> (Codes A, B, C, E, F, G), der <strong>Ausbildungsplan</strong> (1.1) und der <strong>ÜBA-Nachweis</strong> (1.5). Wetter (D) zählt nur mit Zusatzvereinbarung (Teil 1.2), Sonstiges (I) ist ein Hinweis. Zwischenprüfung, Verzeichnis-Eintrag und Vertragsende (§ 43 Abs. 1 Nr. 1 und 3) prüft die Prüfungsverwaltung.
+          Zulassungsrelevant sind Mängel an den <strong>Tagesberichten und Unterschriften</strong> (Codes A, B, C, E, F, G), an den <strong>Wetterbeobachtungen</strong> (D – für alle Auszubildenden Pflicht), der <strong>Ausbildungsplan</strong> (1.1) und der <strong>ÜBA-Nachweis</strong> (1.5). Sonstiges (I) ist ein Hinweis. Zwischenprüfung, Verzeichnis-Eintrag und Vertragsende (§ 43 Abs. 1 Nr. 1 und 3) prüft die Prüfungsverwaltung.
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
           <label for="setFehlzeitenProzent">Fehlzeiten-Schwelle</label>
@@ -22269,10 +22297,10 @@ const Views = {
             <p style="margin-left:16px"><strong>Klasse an der Berufsschule:</strong> In der Spalte <em>Klasse</em> lässt sich je Azubi frei eintragen, in welcher Klasse er an der Schule sitzt (z. B. G2a, G2b, P2) – unabhängig von Fachrichtung und Jahrgang. So lassen sich drei GaLaBau-Klassen ebenso abbilden wie eine gemischte Klasse der Produktionsgärtner. Enter springt in die nächste Zeile, bereits verwendete Klassen der Schule werden vorgeschlagen. Der Eintrag wird beim Azubi gespeichert und steht bei jeder weiteren Durchsicht wieder da (auch unter Azubi bearbeiten änderbar).</p>
             <p style="margin-left:16px"><strong>Sammelaktionen:</strong> Häkchen vorne in der Zeile, am Gruppenkopf (ganze Gruppe) oder im Tabellenkopf (alle) wählen Azubis aus; Umschalt+Klick wählt einen Bereich. Für die Auswahl: Klasse setzen, anwesend/abwesend, „In Ordnung“. Beispiel: nach Fachrichtung gruppieren, die acht Azubis der Klasse anhaken, „G2a“ eintragen, danach nach Klasse gruppieren.</p>
             <p>3. <strong>KW-Raster</strong> ausfüllen – je Kalenderwoche Mängelcodes (A–I) vergeben</p>
-            <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel, sonst als Hinweis (gelb). Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. Unter 1.1 steht außerdem <em>„unterschrieben / Unterschrift fehlt“</em> für einen Ausbildungsplan, der vorliegt, aber von Betrieb oder Azubi nicht unterschrieben ist. „Nicht geführt“ und „Unterschrift fehlt“ setzen automatisch einen passenden Satz in die Bemerkung (und in die Mitteilung an den Betrieb), „geführt“ bzw. „unterschrieben“ nimmt ihn wieder heraus; beides zählt für die Zulassung als nicht erfüllter Pflichtteil. <strong>Keine Doppelungen:</strong> Fehlt der Teil ganz (1.1 oder 1.5 = „Nein“ / „Nicht vorhanden“), steht nur der Satz „… fehlt“ – die Unterpunkte sind dann gesperrt und ihre Sätze entfallen; sobald der Teil wieder vorhanden ist, kommen sie nach ihrem Wert zurück. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“ und „unterschrieben“, ein bewusstes „nicht geführt“ oder „Unterschrift fehlt“ bleibt stehen.</p>
+            <p>4. <strong>Pflichtteile</strong> prüfen – Ausbildungsplan (1.1) und ÜBA-Bescheinigungen (1.5) sind Zulassungsvoraussetzung (§ 43 Abs. 1 Nr. 2 BBiG, Vertragsanlagen); 1.2 <em>Zusatzvereinbarung</em>, 1.4 und 1.6 sind Hinweise. <strong>Wetterbeobachtungen sind für alle Auszubildenden Pflicht</strong> – Code D zählt immer als Mangel (rot), unabhängig von Teil 1.2. Liegt die <strong>Zusatzvereinbarung zur Berichtsheftführung</strong> vor (1.2 = ja), sind zusätzlich Sachberichte und Pflanze der Woche verbindlich. Unter 1.1 und 1.5 gibt es zusätzlich <em>„geführt / nicht geführt“</em>: für den Fall, dass der individuelle Ausbildungsplan zwar vorhanden ist, die Inhalte aber nicht laufend angekreuzt werden, bzw. die Zusammenstellung der Bescheinigungen nicht ergänzt wird. Unter 1.1 steht außerdem <em>„unterschrieben / Unterschrift fehlt“</em> für einen Ausbildungsplan, der vorliegt, aber von Betrieb oder Azubi nicht unterschrieben ist. „Nicht geführt“ und „Unterschrift fehlt“ setzen automatisch einen passenden Satz in die Bemerkung (und in die Mitteilung an den Betrieb), „geführt“ bzw. „unterschrieben“ nimmt ihn wieder heraus; beides zählt für die Zulassung als nicht erfüllter Pflichtteil. <strong>Keine Doppelungen:</strong> Fehlt der Teil ganz (1.1 oder 1.5 = „Nein“ / „Nicht vorhanden“), steht nur der Satz „… fehlt“ – die Unterpunkte sind dann gesperrt und ihre Sätze entfallen; sobald der Teil wieder vorhanden ist, kommen sie nach ihrem Wert zurück. „✓ Alle OK“ und das Ergebnis „In Ordnung“ setzen leere Felder auf „geführt“ und „unterschrieben“, ein bewusstes „nicht geführt“ oder „Unterschrift fehlt“ bleibt stehen.</p>
             <p><strong>Automatische Bemerkung:</strong> Jedes „nein“ oder „nicht vorhanden“ bei 1.1, 1.4, 1.5 und 1.6 schreibt einen fertigen Satz in die Bemerkung („Individueller Ausbildungsplan (1.1) fehlt …“), „ja“ nimmt ihn wieder heraus. Ebenso jeder Mängel-Code im Raster: A → „Unterschriften des/der Auszubildenden nachholen“, B → „Unterschriften des Ausbilders / der Ausbilderin nachholen“, C → Berufsschulthemen, D → Wetterangaben, E → lückenhafte Tagesberichte, F → „Fehlende Tagesberichte nachholen“, G → Datum/KW – jeweils mit den betroffenen Wochen in Klammern, die bei jeder Änderung im Raster nachgeführt werden; verschwindet der letzte Code, verschwindet die Zeile. Beim Ergebnis „Mängel“ werden alle offenen Codes noch einmal in die Bemerkung übernommen. Die automatischen Zeilen stehen hinter Ihrem eigenen Text; was Sie selbst schreiben oder abändern, bleibt unangetastet, eine gelöschte Zeile kommt erst zurück, wenn sich ihr Code wieder ändert.</p>
             <p><strong>Wiedervorlage ohne Datum:</strong> Beim Nachweisweg „nächste Durchsicht“ (geringe Mängel) bekommt die Wiedervorlage kein Datum – die Frist ist die nächste Kontrolle selbst. Sie erscheint in der Liste als „nächste Durchsicht“, wird nie überfällig und schließt sich, wenn das Berichtsheft bei der nächsten Durchsicht in Ordnung ist. Jeder andere Nachweisweg (E-Mail, Post, persönlich) bekommt wie bisher eine Frist aus den Einstellungen.</p>
-            <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; „Sachberichte/Wetter per E-Mail“ nur mit Zusatzvereinbarung). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
+            <p>5. <strong>Ergebnis</strong> festlegen – zwei Fragen: <strong>Befund</strong> (✓ In Ordnung / ✗ Mängel, ⇧1/⇧2) und bei Mängeln der <strong>Nachweisweg</strong> (bis zur nächsten Durchsicht ⇧3 · per E-Mail ⇧4 · per Post ⇧5 · persönliche Vorlage im RP ⇧6; außerdem „Wetter/Sachberichte per E-Mail“). Aus beidem folgen Wiedervorlage-Frist (Einstellungen → Regeln → Fristen), Betriebsanschreiben und Ampel. Gespeichert wird weiterhin der bisherige Ergebniswert, Berichte und Bögen bleiben unverändert.</p>
             <p>6. <strong>✓ Fertig</strong> schreibt sofort auf das Netzlaufwerk, gibt den Azubi frei und führt <strong>zurück zur Übersicht</strong> – dort das nächste vorliegende Heft wählen (die Hefte liegen am Kontrolltag selten in Listenreihenfolge). Im ⋯-Menü der Leiste lässt sich das umstellen: zum nächsten offenen Azubi springen (frühere Vorgabe) oder in der Ansicht bleiben; dieselbe Einstellung gilt für das automatische Weitergehen nach „In Ordnung“. Blättern ohne Ergebnis: ‹ Zurück / Weiter › oder Strg+←/→.</p>
             <p><strong>Höhe der Ergebnisleiste:</strong> Das Bemerkungsfeld zeigt immer den ganzen Text, bis etwa sechs Zeilen. Braucht es mehr Platz, den <strong>Griff an der Oberkante der Leiste</strong> nach oben ziehen (oder den Griff mit Tab anwählen und ↑/↓ drücken) – die gewählte Höhe bleibt für Sie bei jedem Azubi erhalten. Doppelklick auf den Griff (oder Esc darauf) setzt zurück auf automatisch. Höchstens die halbe Fensterhöhe, damit das Raster sichtbar bleibt; bei kleinen Fenstern scrollt die Leiste ohnehin mit und hat keinen Griff.</p>
             <p style="margin-top:8px"><strong>Übersichtsliste:</strong></p>
@@ -22290,7 +22318,7 @@ const Views = {
               <strong>A</strong><span>Unterschrift des Auszubildenden fehlt</span>
               <strong>B</strong><span>Unterschrift des Ausbildenden/Ausbilders fehlt</span>
               <strong>C</strong><span>Berufsschulthemen fehlen oder sind unvollständig</span>
-              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig – <em>Hinweis</em>, keine Zulassungsvoraussetzung (nur mit Zusatzvereinbarung 1.2 ein Mangel)</span>
+              <strong>D</strong><span>Witterungsangaben fehlen oder sind unvollständig – für alle Auszubildenden Pflicht (Zulassungsmangel)</span>
               <strong>E</strong><span>Inhaltlich lückenhaft (Tätigkeitsbeschreibungen unzureichend)</span>
               <strong>F</strong><span>Ausbildungsnachweise fehlen vollständig</span>
               <strong>G</strong><span>Datum- oder KW-Angabe fehlt</span>
@@ -28627,7 +28655,7 @@ const PDFExport = {
             if (fehl > 0 && !anzeige.includes('H')) anzeige.push('H');
             anzeige = anzeige.map(c => c === 'H' && fehl > 0 ? `H${fehl}` : c);
 
-            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot · Hinweis (D/I) orange · geprüft grün
+            // Zellhintergrund: inaktiv grau · Zulassungsmangel rot (auch Wetter D) · Hinweis (I) orange · geprüft grün
             if (istInaktiv) { doc.setFillColor(...COL_INACTIVE); doc.rect(x, y, CW, CH, 'F'); }
             else if (zulMangel) { doc.setFillColor(...COL_RED_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
             else if (real.length) { doc.setFillColor(...COL_AMBER_LIGHT); doc.rect(x, y, CW, CH, 'F'); }
@@ -30746,12 +30774,12 @@ const KontrolleHandler = {
       const hasBem = d && d.bemerkung;
       const isSessionKW = ajSessionKWs.includes(kw);
       const isPastPruef = d && d.geprueft && !isSessionKW;
-      // H (Fehltage) allein = kein Mangel → kein rot; D/I ohne
-      // Zusatzvereinbarung = Hinweis (gelb), kein Zulassungsmangel
+      // H (Fehltage) allein = kein Mangel → kein rot; I (Sonstiges) =
+      // Hinweis (gelb), kein Zulassungsmangel. Wetter (D) zählt für alle.
       const hasRealMaengel = hasCodes && codeStr.split(',').some(c => c.trim() && c.trim() !== 'H');
       const hasZulMangel = hasCodes && App.istZulassungsMangel(codeStr, ke);
       const isHOnly = hasCodes && !hasRealMaengel;
-      // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for D/I, kw-behoben (orange), kw-ok (green)
+      // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for I, kw-behoben (orange), kw-ok (green)
       let cls = '';
       if (hasZulMangel) cls = 'kw-issue';
       else if (hasRealMaengel) cls = 'kw-hinweis';
@@ -30787,7 +30815,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
-      <span class="leg-item" title="${App.hatZusatzvereinbarung(ke) ? 'Wetter – mit Zusatzvereinbarung verbindlich (Zulassungsmangel)' : 'Wetter – ohne Zusatzvereinbarung (1.2) nur Hinweis, keine Zulassungsvoraussetzung'}"><kbd>D</kbd>Wetter${App.hatZusatzvereinbarung(ke) ? '' : ' <span class="leg-hinweis">(Hinweis)</span>'}</span>
+      <span class="leg-item" title="Wetterbeobachtungen – für alle Auszubildenden Pflicht (Zulassungsmangel)"><kbd>D</kbd>Wetter</span>
       <span class="leg-item"><kbd>E</kbd>Lückenhaft</span>
       <span class="leg-item"><kbd>F</kbd>Berichte fehlen</span>
       <span class="leg-item"><kbd>G</kbd>Datum/KW</span>
@@ -31065,7 +31093,7 @@ const KontrolleHandler = {
           <div style="font-size:12px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px" title="Keine Zulassungsvoraussetzung – wird beanstandet, sperrt aber nicht">Hinweis (keine Zulassungsvoraussetzung)</div>
           <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
             <span style="font-weight:600;color:var(--clr-sage)">1.2</span>
-            <span title="Liegt die Zusatzvereinbarung zum Ausbildungsvertrag über die Berichtsheftführung vor, sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel.">Zusatzvereinbarung Berichtsheftführung ${App.hatZusatzvereinbarung(ke) ? '<span style="font-size:12px;color:var(--clr-forest);font-weight:600">· Wetter/Sachberichte verbindlich</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">· ohne: Wetter (D) nur Hinweis</span>'}</span>
+            <span title="Liegt die Zusatzvereinbarung zum Ausbildungsvertrag über die Berichtsheftführung vor, sind auch Sachberichte und Pflanze der Woche verbindlich. Wetterbeobachtungen (Code D) sind für alle Auszubildenden Pflicht – unabhängig von der Zusatzvereinbarung.">Zusatzvereinbarung Berichtsheftführung ${App.hatZusatzvereinbarung(ke) ? '<span style="font-size:12px;color:var(--clr-forest);font-weight:600">· Sachberichte/Pflanze der Woche verbindlich</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">· ohne: Sachberichte nur Hinweis</span>'}</span>
             <div>${pflichtOptHtml('f_1_2_vertragliche_regelungen', ke.f_1_2_vertragliche_regelungen)}</div>
 
             <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
@@ -31208,13 +31236,13 @@ const KontrolleHandler = {
         <div class="ke-griff" id="keGriff" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="Höhe der Ergebnisleiste – ziehen oder Pfeiltasten, Doppelklick setzt zurück" title="Ziehen: Bemerkungsfeld höher oder niedriger · Doppelklick: automatisch"></div>
         <div class="ke-ergebnis">
           <span class="ke-titel">Ergebnis</span>
-          ${(() => { const bf = App.befundAus(ke.ergebnis); const zv = App.hatZusatzvereinbarung(ke); return `
+          ${(() => { const bf = App.befundAus(ke.ergebnis); return `
           <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" data-befund="" ${!bf.befund ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('')">offen</label>
           <label class="erg-pill erg-ok" title="Berichtsheft war in Ordnung (⇧1)"><input type="radio" name="ergebnis" value="in_ordnung" data-befund="ok" ${bf.befund === 'ok' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('ok')">✓ In Ordnung<kbd>⇧1</kbd></label>
           <label class="erg-pill erg-mangel" title="Mängel festgestellt – Nachweisweg daneben wählen (⇧2, Weg ⇧3–6)"><input type="radio" name="ergebnis" value="maengel" data-befund="maengel" ${bf.befund === 'maengel' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('maengel')">✗ Mängel<kbd>⇧2</kbd></label>
           <label id="keWegLabel" class="ke-weg-label" for="keWeg" style="${bf.befund === 'maengel' ? '' : 'display:none'}">Nachweis</label>
           <select id="keWeg" class="form-control ke-weg" aria-label="Nachweisweg" title="Wie kommt der Nachweis? (⇧3 nächste Durchsicht · ⇧4 E-Mail · ⇧5 Post · ⇧6 persönlich)" style="${bf.befund === 'maengel' ? '' : 'display:none'}" onchange="KontrolleHandler.setzeWeg(this.value)">
-            ${App.WEGE.filter(w => w.val !== 'email_sachberichte' || zv || bf.weg === 'email_sachberichte').map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
+            ${App.WEGE.map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
           </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
@@ -31406,14 +31434,9 @@ const KontrolleHandler = {
       });
     }
 
-    // Zusatzvereinbarung (1.2) schaltet, ob Wetter (D) als Zulassungsmangel
-    // zählt → Raster und Kürzel-Leiste neu einfärben
+    // Zusatzvereinbarung (1.2): Beschriftung „Sachberichte verbindlich / nur
+    // Hinweis“ nachführen (Wetter zählt unabhängig davon für alle)
     if (field === 'f_1_2_vertragliche_regelungen') { this._aktuellesKE = { ...ke, [field]: value }; this.renderSchueler(); }
-    // „Sachberichte wegen Wetter“ ist ohne Zusatzvereinbarung (1.2) kein
-    // Zulassungsmangel – Ergebnis bleibt möglich, aber mit Hinweis
-    if (field === 'ergebnis' && value === 'sachberichte_wetter_email' && !App.hatZusatzvereinbarung(ke)) {
-      App.toast('Hinweis: Ohne Zusatzvereinbarung (Teil 1.2) sind Wetter und Sachberichte keine Zulassungsvoraussetzung – Nachreichung ist eine Bitte, keine Auflage.', 'warning');
-    }
     // Show/hide WV section
     if (field === 'ergebnis') {
       this._wvFeldAnzeigen(value);
@@ -33432,7 +33455,7 @@ const KWNav = {
     const hasCodes = !!codesStr;
     const fehl = parseInt(fehltage) || 0;
     const hasBehoben = cell.dataset.behoben && !hasCodes;
-    // Zulassungsmangel rot, Hinweis-Codes (D ohne Zusatzvereinbarung, I) gelb,
+    // Zulassungsmangel rot (auch Wetter D – für alle Pflicht), Hinweis-Code I gelb,
     // H allein kein Mangel – dieselbe Einteilung wie beim Zeichnen des Rasters
     const ke = typeof KontrolleHandler !== 'undefined' && KontrolleHandler._aktuellesKE ? KontrolleHandler._aktuellesKE : null;
     const hasRealMaengel = hasCodes && codesStr.split(',').some(c => c.trim() && c.trim() !== 'H');
@@ -34421,7 +34444,7 @@ const Workflows = {
   },
   _anrede(ap) { return ap ? `\nsehr geehrte/r ${ap},` : ''; },
   _eLbl: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bei nächster Durchsicht', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail nachreichen', berichte_bis_termin_email: 'Berichte per E-Mail nachreichen', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Vorlage per Post im RP' },
-  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen (Hinweis, nur mit Zusatzvereinbarung verbindlich)', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage', I: 'Sonstiges (Hinweis)' },
+  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage', I: 'Sonstiges (Hinweis)' },
 
   // Gruppen (Fachrichtung + AJ) und Namensliste je Klasse für die Schul-Mails
   _gruppenUndListe(t) {
@@ -34649,16 +34672,15 @@ const Workflows = {
     return mit ? 'bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden.' : 'es besteht kein weiterer Handlungsbedarf.';
   },
   // Zeilen „was ist nachzuholen“ für einen Azubi: Mängel-Codes (A–G und
-  // Sonstiges, Wetter ohne Zusatzvereinbarung nur als Hinweis; Fehltage sind
-  // kein Mangel) und fehlende Pflichtteile aus dem Kontrollergebnis
+  // Sonstiges; Wetter ist für alle Pflicht; Fehltage sind kein Mangel) und
+  // fehlende Pflichtteile aus dem Kontrollergebnis
   _nachzuholen(a) {
     const zeilen = [];
     const rows = a.maengel || [];
     if (rows.length && typeof App.hinweisCodeZeile === 'function') {
-      const zv = App.hatZusatzvereinbarung ? App.hatZusatzvereinbarung(a.ke) : false;
       (App.HINWEISE_REIHENFOLGE || []).filter(k => App.HINWEISE_CODES && App.HINWEISE_CODES[k]).forEach(c => {
         const z = App.hinweisCodeZeile(rows, c);
-        if (z) zeilen.push(c === 'D' && !zv ? z + ' – Hinweis, ohne Zusatzvereinbarung nicht verbindlich' : z);
+        if (z) zeilen.push(z);
       });
       const sonst = App.hinweisCodeZeile(rows, 'I', 'Sonstige Beanstandungen, siehe Bemerkung');
       if (sonst) zeilen.push(sonst);

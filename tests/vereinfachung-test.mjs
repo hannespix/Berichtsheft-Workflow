@@ -86,7 +86,7 @@ console.log('══ Paket 4: Befund + Nachweisweg ══');
   KH.setzeErgebnisKurz(0);
   check(erg(100) === '', '⇧0 = zurückgesetzt');
   check(/data-befund="ok"/.test(K_SRC) && /data-befund="maengel"/.test(K_SRC) && /id="keWeg"/.test(K_SRC) && /name="ergebnis"/.test(K_SRC) && /class="erg-pill/.test(K_SRC), 'Leiste: drei Pillen (offen / In Ordnung / Mängel) + Weg-Auswahl, Kennungen für Kürzel bleiben');
-  check(/email_sachberichte' \|\| zv \|\| bf\.weg === 'email_sachberichte'/.test(K_SRC), 'Weg „Sachberichte/Wetter“ nur mit Zusatzvereinbarung (oder wenn bereits gewählt)');
+  check(/\$\{App\.WEGE\.map\(\(w, wi\) =>/.test(K_SRC) && !/email_sachberichte' \|\| zv/.test(K_SRC) && App.WEGE.find(w => w.val === 'email_sachberichte').label === 'per E-Mail: Wetter/Sachberichte', 'Weg „Wetter/Sachberichte per E-Mail“ steht allen offen (Wetter ist für alle Pflicht)');
   check(/erg-mangel:has\(input:checked\)/.test(read('src/css/styles.css')), 'Mängel-Pille rot');
   check(/Befund<\/strong> \(✓ In Ordnung \/ ✗ Mängel/.test(read('src/js/modules/views.js')), 'Hilfe erklärt Befund und Nachweisweg');
 }

@@ -8759,15 +8759,17 @@ const App = {
   },
 
   // ── Zulassung zur Abschlussprüfung, § 43 Abs. 1 Nr. 2 BBiG ──
-  // Zulassungsrelevant sind nur Mängel an den Tagesberichten und den
+  // Zulassungsrelevant sind Mängel an den Tagesberichten und den
   // Unterschriften: A/B (Unterschriften), C (Berufsschulthemen, BIBB-
-  // Empfehlung 2020 Nr. 4), E/F (Inhalt, Fehlen), G (KW/Datum). Wetter (D)
-  // ist laut Merkblatt zum Gärtner-Berichtsheft ausdrücklich KEINE
-  // Zulassungsvoraussetzung – nur mit Zusatzvereinbarung (Teil 1.2) ist das
-  // vollständige Führen vertraglich verbindlich. I (Sonstiges) ist ein Hinweis.
-  ZULASSUNG_CODES: ['A', 'B', 'C', 'E', 'F', 'G'],
+  // Empfehlung 2020 Nr. 4), D (Wetterbeobachtungen), E/F (Inhalt, Fehlen),
+  // G (KW/Datum). Wetterbeobachtungen sind für ALLE Auszubildenden Pflicht
+  // (Vorgabe der Sachbearbeitung, Nov. 2026) – vorher zählte D nur mit
+  // Zusatzvereinbarung (Teil 1.2). Die Zusatzvereinbarung betrifft nur noch
+  // Sachberichte und Pflanze der Woche. I (Sonstiges) ist ein Hinweis.
+  ZULASSUNG_CODES: ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
   hatZusatzvereinbarung(ke) { return !!ke && ke.f_1_2_vertragliche_regelungen === 'ja'; },
-  zulassungsCodes(ke) { return this.hatZusatzvereinbarung(ke) ? [...this.ZULASSUNG_CODES, 'D'] : this.ZULASSUNG_CODES; },
+  // Für alle gleich; der Parameter bleibt, weil alle Aufrufer das Ergebnis mitgeben
+  zulassungsCodes(ke) { return this.ZULASSUNG_CODES; },
   istZulassungsMangel(codesStr, ke) {
     const rel = this.zulassungsCodes(ke);
     return String(codesStr || '').split(',').some(c => rel.includes(c.trim()));
@@ -8804,7 +8806,7 @@ const App = {
   WEGE: [
     { val: 'naechste_durchsicht', label: 'bis zur nächsten Durchsicht', ergebnis: 'nachholung_naechste_durchsicht' },
     { val: 'email', label: 'per E-Mail nachreichen', ergebnis: 'berichte_bis_termin_email' },
-    { val: 'email_sachberichte', label: 'per E-Mail: Sachberichte/Wetter (nur mit Zusatzvereinbarung)', ergebnis: 'sachberichte_wetter_email' },
+    { val: 'email_sachberichte', label: 'per E-Mail: Wetter/Sachberichte', ergebnis: 'sachberichte_wetter_email' },
     { val: 'post', label: 'per Post ans RP', ergebnis: 'post_an_rp' },
     { val: 'persoenlich', label: 'persönliche Vorlage im RP', ergebnis: 'persoenliche_vorlage_rp' },
   ],
@@ -10292,6 +10294,14 @@ const App = {
   // der Standardliste als auch in der Nachtrags-Migration gebraucht wird
   TB_FEHLTAGE: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 % der zurückgelegten Ausbildungszeit – ggf. Verlängerung nach § 8 Abs. 2 BBiG (Antrag durch den Azubi) prüfen',
   TB_FEHLTAGE_ALT: 'Achtung Fehltage! Reguläre Zulassung gefährdet bei mehr als 10 %',
+  // Alter Wortlaut → neuer Wortlaut, seit Wetterbeobachtungen für alle Pflicht
+  // sind (Textbausteine und Vorlagen; Migration wetter_pflicht_v1)
+  WETTER_TEXT_ALT: {
+    'Wetterbericht fehlt durchgehend (Hinweis – nur bei Zusatzvereinbarung verbindlich)': 'Wetterbericht fehlt durchgehend',
+    'Sachberichte zu Wetter nachzureichen per E-Mail (nur bei Zusatzvereinbarung)': 'Sachberichte zu Wetter nachzureichen per E-Mail',
+    '- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Wetterbeobachtungen, Sachberichte, Pflanze der Woche': '- Wetterbeobachtungen\n- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche',
+    'ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Wetter, Sachberichte und Pflanze der Woche.': 'ÜBA-Bescheinigungen, Wetterbeobachtungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.',
+  },
 
   // ── Bemerkung-Textbausteine (loaded from DB) ──
   getTextbausteine() {
@@ -10369,7 +10379,8 @@ Folgende Unterlagen werden geprüft:
 - Unterschriften des Auszubildenden und des Ausbilders/der Ausbilderin mit Datum
 - Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
 - Bescheinigungen über die überbetriebliche Ausbildung
-- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Wetterbeobachtungen, Sachberichte, Pflanze der Woche
+- Wetterbeobachtungen
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
 
@@ -10388,7 +10399,7 @@ Folgende Ihrer Auszubildenden sind betroffen:
 
 Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
 
-Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Wetter, Sachberichte und Pflanze der Woche.
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -11103,9 +11114,9 @@ Mit freundlichen Grüßen
         } else {
           this.db.run("INSERT OR IGNORE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)",
             [JSON.stringify([
-              'Wetterbericht fehlt durchgehend (Hinweis – nur bei Zusatzvereinbarung verbindlich)',
+              'Wetterbericht fehlt durchgehend',
               'Unterschrift Ausbilder fehlt',
-              'Sachberichte zu Wetter nachzureichen per E-Mail (nur bei Zusatzvereinbarung)',
+              'Sachberichte zu Wetter nachzureichen per E-Mail',
               'Berichte komplett lückenhaft – persönliches Gespräch empfohlen',
               'Berichtsheft ordentlich und vollständig geführt',
               'Fehltage-Nachweise nicht beigelegt',
@@ -11144,6 +11155,24 @@ Mit freundlichen Grüßen
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('tb_fehltage_v2','1')");
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
+      // Wetterbeobachtungen sind für alle Pflicht (Nov. 2026): die Zusätze
+      // „nur bei Zusatzvereinbarung“ fallen aus den Standard-Textbausteinen und
+      // aus gespeicherten Vorlagen heraus (einmalig, nur der alte Wortlaut)
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='wetter_pflicht_v1'")) {
+          const tb = JSON.parse(this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'") || '[]');
+          if (Array.isArray(tb)) {
+            const neu = tb.map(t => this.WETTER_TEXT_ALT[t] || t).filter((t, i, a) => a.indexOf(t) === i);
+            if (JSON.stringify(neu) !== JSON.stringify(tb)) this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)", [JSON.stringify(neu)]);
+          }
+          this.query("SELECT schluessel, wert FROM einstellungen WHERE schluessel LIKE 'vorlage_%'").forEach(r => {
+            let w = String(r.wert || '');
+            Object.keys(this.WETTER_TEXT_ALT).forEach(alt => { if (w.includes(alt)) w = w.split(alt).join(this.WETTER_TEXT_ALT[alt]); });
+            if (w !== r.wert) this.db.run('UPDATE einstellungen SET wert=? WHERE schluessel=?', [w, r.schluessel]);
+          });
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('wetter_pflicht_v1','1')");
+        }
+      } catch(e) { console.warn('Wetter-Pflicht-Migration:', e); }
       // Bestätigung „ohne Beanstandung“: der feste Schlusssatz „es besteht kein
       // weiterer Handlungsbedarf“ wird zum Platzhalter {hinweis}, damit bei
       // vorhandenen Bemerkungen „bitte beachten Sie die Bemerkungen“ steht –
@@ -11158,7 +11187,7 @@ Mit freundlichen Grüßen
         }
       } catch(e) { console.warn('Vorlagen-Migration:', e); }
       // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
-      // und schaltet, ob Wetter/Sachberichte als Mangel zählen. Bisher setzte
+      // (Sachberichte, Pflanze der Woche; Wetter ist für alle Pflicht). Bisher setzte
       // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –
       // diese Automatik-Werte werden einmalig geleert, der Prüfer setzt den
       // neuen Wert bei der nächsten Durchsicht (Wert wird weitervererbt).

@@ -297,7 +297,7 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/^  - Kopp, Lukas: Berichte per E-Mail nachreichen/.test(block), 'Azubi-Zeile mit Ergebnis');
   check(/→ Fehlende Tagesberichte nachholen \(2 Wochen: AJ 2: KW 40, 41\)/.test(block) && /→ Unterschriften des Ausbilders \/ der Ausbilderin nachholen \(1 Woche: AJ 2: KW 41\)/.test(block), 'Je Code eine Zeile mit den Wochen statt je Woche eine Zeile');
   check(block.indexOf('Ausbilders') < block.indexOf('Fehlende Tagesberichte'), 'Reihenfolge wie in der Bemerkung (B vor F)');
-  check(/→ Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\) – Hinweis, ohne Zusatzvereinbarung nicht verbindlich/.test(block), 'Wetter ohne Zusatzvereinbarung als Hinweis gekennzeichnet');
+  check(/→ Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\)\n/.test(block + '\n') && !/ohne Zusatzvereinbarung/.test(block), 'Wetter steht als Mangel ohne Hinweis-Zusatz – für alle Pflicht, auch ohne Zusatzvereinbarung');
   // Bemerkung des Prüfers im Block, Schlusssatz der Bestätigung „ohne Beanstandung“ nach Bemerkungen
   const autoZeile = App.autoHinweisStamm('B') + ' (1 Woche: AJ 2: KW 41)';
   // Haupt- und Unterpunkt nie doppelt: fehlt der Plan, steht nur „fehlt“
@@ -331,7 +331,7 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   check(/→ Sonstige Beanstandungen, siehe Bemerkung \(1 Woche: AJ 1: KW 50\)/.test(block) && !/Fehltage/.test(block), 'Sonstiges mit Wochen, Fehltage ohne Zeile');
   check(/→ Individueller Ausbildungsplan \(1\.1\) fehlt\./.test(block), 'Fehlender Pflichtteil steht im Block');
   check(!/AJ 2, KW 40:/.test(block), 'Alte Wochen-Zeilen sind weg');
-  check(/mit Zusatzvereinbarung/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true)) === false && /Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\)\n/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true) + '\n'), 'Mit Zusatzvereinbarung ist Wetter ein Mangel ohne Hinweis-Zusatz');
+  check(/mit Zusatzvereinbarung/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true)) === false && /Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\)\n/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true) + '\n'), 'Mit Zusatzvereinbarung derselbe Wortlaut');
   // mailto-Grenze
   check(Workflows.mailtoPasst('a@b.de', 'Test', 'kurz') === true && Workflows.mailtoPasst('a@b.de', 'Test', 'ä'.repeat(400)) === false, 'mailtoPasst: kurz ja, 400 Umlaute (kodiert 2400 Zeichen) nein');
   sandbox.location = { href: '' };

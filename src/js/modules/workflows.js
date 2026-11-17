@@ -51,7 +51,7 @@ const Workflows = {
   },
   _anrede(ap) { return ap ? `\nsehr geehrte/r ${ap},` : ''; },
   _eLbl: { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bei nächster Durchsicht', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail nachreichen', berichte_bis_termin_email: 'Berichte per E-Mail nachreichen', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Vorlage per Post im RP' },
-  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen (Hinweis, nur mit Zusatzvereinbarung verbindlich)', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage', I: 'Sonstiges (Hinweis)' },
+  _codeLabels: { A: 'Unterschrift Azubi fehlt', B: 'Unterschrift Ausbilder fehlt', C: 'Berufsschulthemen fehlen', D: 'Wetteraufzeichnungen fehlen', E: 'Inhaltlich lückenhaft', F: 'Berichte fehlen komplett', G: 'Datum/KW falsch', H: 'Fehltage', I: 'Sonstiges (Hinweis)' },
 
   // Gruppen (Fachrichtung + AJ) und Namensliste je Klasse für die Schul-Mails
   _gruppenUndListe(t) {
@@ -279,16 +279,15 @@ const Workflows = {
     return mit ? 'bitte beachten Sie die Bemerkungen zu den einzelnen Auszubildenden.' : 'es besteht kein weiterer Handlungsbedarf.';
   },
   // Zeilen „was ist nachzuholen“ für einen Azubi: Mängel-Codes (A–G und
-  // Sonstiges, Wetter ohne Zusatzvereinbarung nur als Hinweis; Fehltage sind
-  // kein Mangel) und fehlende Pflichtteile aus dem Kontrollergebnis
+  // Sonstiges; Wetter ist für alle Pflicht; Fehltage sind kein Mangel) und
+  // fehlende Pflichtteile aus dem Kontrollergebnis
   _nachzuholen(a) {
     const zeilen = [];
     const rows = a.maengel || [];
     if (rows.length && typeof App.hinweisCodeZeile === 'function') {
-      const zv = App.hatZusatzvereinbarung ? App.hatZusatzvereinbarung(a.ke) : false;
       (App.HINWEISE_REIHENFOLGE || []).filter(k => App.HINWEISE_CODES && App.HINWEISE_CODES[k]).forEach(c => {
         const z = App.hinweisCodeZeile(rows, c);
-        if (z) zeilen.push(c === 'D' && !zv ? z + ' – Hinweis, ohne Zusatzvereinbarung nicht verbindlich' : z);
+        if (z) zeilen.push(z);
       });
       const sonst = App.hinweisCodeZeile(rows, 'I', 'Sonstige Beanstandungen, siehe Bemerkung');
       if (sonst) zeilen.push(sonst);
