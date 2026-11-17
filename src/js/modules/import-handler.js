@@ -1121,6 +1121,7 @@ const ImportHandler = {
         <div class="form-group"><label>Telefon</label><input class="form-control" id="mSTelefon" value="${esc(s.telefon||'')}" placeholder="Mobil/Festnetz"></div>
         <div class="form-group"><label>E-Mail</label><input class="form-control" id="mSEmail" value="${esc(s.email||'')}" placeholder="azubi@email.de"></div>
         <div class="form-group"><label>Geburtsdatum</label><input type="date" class="form-control" id="mSGeburt" value="${s.geburtsdatum||''}"></div>
+        <div class="form-group"><label title="Frei eintragbar, unabhängig von Fachrichtung und Jahrgang – auch direkt in der Übersicht der Durchsicht änderbar">Klasse an der Berufsschule</label><input class="form-control" id="mSSchulklasse" maxlength="${App.SCHULKLASSE_MAX}" value="${esc(s.schulklasse||'')}" placeholder="z. B. G2a"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Geschlecht</label><select class="form-control" id="mSGeschlecht">
@@ -1255,6 +1256,9 @@ const ImportHandler = {
        parseInt(document.getElementById('mSVerk')?.value) || 0,
        document.getElementById('mSVorzeitig')?.checked ? 1 : 0,
        id]);
+    // Klasse an der Berufsschule (freies Feld, kein IBYKUS-Feld)
+    const klEl = document.getElementById('mSSchulklasse');
+    if (klEl) App.setSchulklasse([id], klEl.value);
     // Statuswechsel sauber nachziehen (Datum/Grund, Wiedervorlagen, Log)
     if (status !== oldS.status || aktiv !== oldS.aktiv) App.setSchuelerStatus(id, status, { aktion: 'stammdaten_bearbeitet', datum: document.getElementById('mSInaktivDatum')?.value || '', grund: document.getElementById('mSInaktivGrund')?.value || null });
     // Änderungen loggen

@@ -816,6 +816,7 @@ const BerichteHandler = {
         ...(mitTermin ? { 'Termin': `${formatDate(termin.geplant_datum)} ${bs ? bs.name : (termin.typ === 'einsendung' ? 'Einsendung' : '')}`.trim() } : {}),
         'Nachname': s.nachname, 'Vorname': s.vorname, 'Betrieb': betrieb,
         'Schule': kl.schule || (bs ? bs.name : ''), 'Klasse': kl.klassenbezeichnung || '',
+        'Klasse (Berufsschule)': App.schulklasseNormal(s.schulklasse),
         'Zuständiges Amt': s.zustaendiges_amt ? App.amtLabel(s.zustaendiges_amt) : '',
         'Ergebnis': ke.ergebnis ? (eLbl[ke.ergebnis] || ke.ergebnis) : '(nicht erfasst)',
         'Fehltage': ke.fehltage_gesamt ?? '',

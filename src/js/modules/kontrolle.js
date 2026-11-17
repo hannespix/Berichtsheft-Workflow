@@ -67,6 +67,8 @@ const KontrolleHandler = {
       const auft = App.terminAufteilung(this.currentTerminId)[this.activePruefer];
       this._bereich = Array.isArray(auft) ? { von: auft[0], bis: auft[1] } : null;
       this._ajZustand = new Map();
+      this._uebAuswahl = new Set();
+      this._uebLetzte = null;
       this._geladenerTermin = this.currentTerminId;
     }
 
@@ -152,7 +154,6 @@ const KontrolleHandler = {
       istEinsendung && fehlendeHefte.length ? { label: `✉︎ Erinnerung: ${fehlendeHefte.length} Heft(e) fehlen`, onclick: `Workflows.emailNachholung(${terminId}, [${fehlendeHefte.join(',')}], App.wvFrist('erinnerung'))`, title: 'Betriebe der noch nicht eingegangenen Berichtshefte erinnern (Vorlage „Nachhol-Aufforderung")' } : null,
       offen ? { label: `✓ ${offen} offene → In Ordnung`, onclick: zurUebersicht + 'KontrolleHandler.markOffeneOK()', title: 'Alle anwesenden Azubis ohne Ergebnis auf „In Ordnung" setzen' } : null,
       { label: '+ Azubi hinzufügen', onclick: 'KontrolleHandler.showAddSchueler()', title: 'Azubi aus anderer Klasse/Schule hinzufügen (z.B. LFK-Gast)' },
-      { label: this._groupByFR ? '▤ Gruppierung nach Fachrichtung aufheben' : '▤ Nach Fachrichtung gruppieren', onclick: 'KontrolleHandler._groupByFR=!KontrolleHandler._groupByFR;' + zurUebersicht + 'KontrolleHandler.renderUebersicht()' },
       { label: '⇈ Stand dieses Rechners für alle übernehmen (ganzer Termin)', onclick: `Konsole.ausschreibenDialog(${terminId})`, title: 'Zeigen die Rechner verschiedene Stände: den Stand DIESES Rechners für alle Durchsichten dieses Termins als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
       { trenner: true },
       ...this._terminAktionen(termin, fremdeCount),
@@ -375,6 +376,259 @@ const KontrolleHandler = {
     return 'Nicht alle Zulassungsvoraussetzungen nach § 43 Abs. 1 Nr. 2 BBiG sind erfüllt:\n' + befund.gruende.map(g => '• ' + g).join('\n');
   },
 
+  // ═══════════════════════════════════════════
+  //  ÜBERSICHT: Gruppieren, Sortieren, Klasse, Sammelaktionen
+  //  (Wunsch der Sachbearbeitung, Nov. 2026: je nach Berufsschule gibt es bis
+  //  zu drei GaLaBau-Klassen, oder Produktionsgärtner mehrerer Fachrichtungen
+  //  sitzen in einer Klasse – die Liste soll sich unkompliziert verschieden
+  //  gruppieren und in Mengen bearbeiten lassen.)
+  //  Die Nummer (#) ist die feste Grundreihenfolge (Name) und gilt für alle
+  //  Rechner – daran hängt „Mein Bereich #von–bis“. Gruppierung und Sortierung
+  //  sind je Person gemerkt und bestimmen Anzeige, Druckliste und „Weiter“.
+  // ═══════════════════════════════════════════
+  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['stand', 'Stand der Durchsicht']],
+  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
+  UEB_STAND: ['Offen', 'Beanstandet', 'In Ordnung', 'Abwesend'],
+  UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb' },
+  uebOrdnung() {
+    // Vorgabe: keine Gruppe, Reihenfolge der Liste (#) – genau wie bisher
+    const gruppe = App.uGet('ueb_gruppe', '') || '', sort = App.uGet('ueb_sort', 'nr') || 'nr';
+    return {
+      gruppe: this.UEB_GRUPPEN.some(g => g[0] === gruppe) ? gruppe : '',
+      sort: this.UEB_SORT.some(x => x[0] === sort) ? sort : 'nr',
+      ab: App.uGet('ueb_sort_ab', '0') === '1',
+    };
+  },
+  uebGruppeSetzen(gruppe) { App.uSet('ueb_gruppe', gruppe || ''); this.renderUebersicht(); },
+  // Sortierung wählen; derselbe Schlüssel noch einmal (Klick auf den Spaltenkopf) kehrt die Richtung um
+  uebSortSetzen(sort, umschalten) {
+    const o = this.uebOrdnung();
+    if (umschalten && o.sort === sort) App.uSet('ueb_sort_ab', o.ab ? '0' : '1');
+    else { App.uSet('ueb_sort', sort); App.uSet('ueb_sort_ab', '0'); }
+    this.renderUebersicht();
+  },
+  uebSortRichtung() { App.uSet('ueb_sort_ab', this.uebOrdnung().ab ? '0' : '1'); this.renderUebersicht(); },
+  _uebSortKopf(key, text, o) {
+    const aktiv = o.sort === key;
+    return `<button type="button" class="ueb-sort${aktiv ? ' aktiv' : ''}" onclick="KontrolleHandler.uebSortSetzen('${key}', true)" title="Nach ${text} sortieren${aktiv ? ' – noch einmal: Richtung umkehren' : ''}" aria-label="Nach ${text} sortieren${aktiv ? (o.ab ? ', absteigend' : ', aufsteigend') : ''}">${text}${aktiv ? (o.ab ? ' ▼' : ' ▲') : ''}</button>`;
+  },
+  // Nachschlagewerte für Gruppen/Sortierung (einmal je Aufbau)
+  _uebKontext(terminId) {
+    const fr = {}, klassen = {}, ke = {};
+    App.query('SELECT id, bezeichnung, typ FROM fachrichtungen').forEach(f => { fr[f.id] = (f.typ === 'Fachwerker' ? 'FW: ' : '') + f.bezeichnung; });
+    App.query('SELECT id, klassenbezeichnung FROM klassen').forEach(k => { klassen[k.id] = k.klassenbezeichnung || ''; });
+    App.query('SELECT schueler_id, ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(k => { ke[k.schueler_id] = k; });
+    const t = App.query('SELECT geplant_datum, durchgefuehrt_datum, typ FROM kontrolltermine WHERE id=?', [terminId])[0] || {};
+    return { fr, klassen, ke, datum: t.durchgefuehrt_datum || t.geplant_datum || null, einsendung: t.typ === 'einsendung' };
+  },
+  // Werte eines Azubis: Klasse (frei), Fachrichtung, Lehrjahr, Stammdaten-Klasse,
+  // Betrieb, Stand (0 offen · 1 beanstandet · 2 in Ordnung · 3 abwesend)
+  _uebWert(s, i, ke, ctx, fehltage) {
+    const anwesend = !ke || ke.anwesend !== 0;
+    const ergebnis = ke && ke.ergebnis ? ke.ergebnis : '';
+    let lehrjahr = null;
+    try { lehrjahr = App.getLehrjahr(s.id, ctx.datum || undefined); } catch(e) {}
+    return {
+      i, name: `${s.nachname || ''}, ${s.vorname || ''}`,
+      klasse: App.schulklasseNormal(s.schulklasse),
+      fachrichtung: ctx.fr[s.fachrichtung_id] || '',
+      lehrjahr: lehrjahr || null,
+      fachklasse: ctx.klassen[s.klasse_id] || '',
+      betrieb: String(s.ausbildungsstaette || '').trim(),
+      standNr: ergebnis ? (ergebnis === 'in_ordnung' ? 2 : 1) : (anwesend ? 0 : 3),
+      fehltage: fehltage == null ? 0 : fehltage,
+    };
+  },
+  // Gruppen in Anzeige-Reihenfolge: [{ key, label, indizes }] – ohne Gruppierung eine Gruppe
+  _uebGruppenAus(werte, o, ctx) {
+    const text = (a, b) => String(a).localeCompare(String(b), 'de', { numeric: true, sensitivity: 'base' });
+    const schluessel = (w, k) => k === 'stand' ? w.standNr : k === 'lehrjahr' ? (w.lehrjahr || 99) : k === 'fehltage' ? w.fehltage : k === 'nr' ? w.i : k === 'name' ? w.name : (w[k] || '');
+    const vergleich = (k) => (a, b) => {
+      const x = schluessel(a, k), y = schluessel(b, k);
+      if (typeof x === 'number' && typeof y === 'number') return x - y;
+      // leere Werte immer ans Ende
+      if (!x && y) return 1; if (x && !y) return -1;
+      return text(x, y);
+    };
+    const prim = vergleich(o.sort);
+    // Gleichstand: Reihenfolge der Liste (#)
+    const sortiert = werte.slice().sort((a, b) => (o.ab ? -1 : 1) * prim(a, b) || a.i - b.i);
+    if (!o.gruppe) return [{ key: '', label: '', indizes: sortiert.map(w => w.i) }];
+    const gruppen = new Map();
+    sortiert.forEach(w => {
+      const k = schluessel(w, o.gruppe);
+      const leer = o.gruppe === 'lehrjahr' ? !w.lehrjahr : (o.gruppe !== 'stand' && !k);
+      const key = leer ? '' : String(k);
+      if (!gruppen.has(key)) {
+        const label = leer ? this.UEB_OHNE[o.gruppe] : o.gruppe === 'stand' ? (k === 3 && ctx && ctx.einsendung ? 'Heft fehlt' : this.UEB_STAND[k]) : o.gruppe === 'lehrjahr' ? `${k}. Lehrjahr` : String(k);
+        gruppen.set(key, { key, label, leer, wert: k, indizes: [] });
+      }
+      gruppen.get(key).indizes.push(w.i);
+    });
+    return [...gruppen.values()].sort((a, b) => (a.leer - b.leer) || (typeof a.wert === 'number' && typeof b.wert === 'number' ? a.wert - b.wert : text(a.label, b.label)));
+  },
+  // Gruppen für eine beliebige Azubi-Liste (Druckliste, Navigation)
+  _uebGruppen(liste, terminId) {
+    liste = liste || this.currentSchuelerList;
+    terminId = terminId || this.currentTerminId;
+    const o = this.uebOrdnung();
+    const ctx = this._uebKontext(terminId);
+    const werte = liste.map((s, i) => {
+      let fehl = 0;
+      if (o.sort === 'fehltage') { try { fehl = App.fehlzeitenStand(s).gesamt; } catch(e) {} }
+      return this._uebWert(s, i, ctx.ke[s.id], ctx, fehl);
+    });
+    return this._uebGruppenAus(werte, o, ctx);
+  },
+  // Positionen der Azubis (Index in currentSchuelerList) in Anzeige-Reihenfolge
+  _reihenfolge() {
+    const n = this.currentSchuelerList.length;
+    try {
+      const folge = this._uebGruppen().flatMap(g => g.indizes);
+      if (folge.length === n) return folge;
+    } catch(e) {}
+    return Array.from({ length: n }, (_, i) => i);
+  },
+  _nachbarIndex(delta) {
+    const folge = this._reihenfolge();
+    const p = folge.indexOf(this.currentIndex);
+    const q = p + delta;
+    return p >= 0 && q >= 0 && q < folge.length ? folge[q] : -1;
+  },
+
+  // ── Klasse an der Berufsschule: direkt in der Zeile eintragen ──
+  klasseSetzen(sid, wert, el) {
+    const w = App.schulklasseNormal(wert);
+    App.setSchulklasse([sid], w);
+    const s = this.currentSchuelerList.find(x => x.id === sid);
+    if (s) s.schulklasse = w;
+    if (el) { el.value = w; const td = el.closest('td'); if (td) td.dataset.sort = w; }
+    this._uebKlassenListeErgaenzen(w);
+    this._uebKlasseGeaendert = true;
+  },
+  _uebKlassenListeErgaenzen(w) {
+    const dl = document.getElementById('uebKlassenListe');
+    if (!dl || !w || !dl.querySelectorAll) return;
+    if ([...dl.querySelectorAll('option')].some(o => o.value === w)) return;
+    const opt = document.createElement('option'); opt.value = w; dl.appendChild(opt);
+  },
+  // Enter/↓ = nächste Zeile, ↑ = vorige Zeile (zügiges Durchtragen)
+  uebKlasseTaste(ev, el) {
+    if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(ev.key)) return;
+    // Pfeiltasten gehören bei offener Vorschlagsliste dem Browser – nur ohne Vorschläge springen
+    ev.preventDefault();
+    if (el.value !== el.defaultValue) { this.klasseSetzen(parseInt(el.dataset.sid), el.value, el); el.defaultValue = el.value; }
+    const alle = [...document.querySelectorAll('.ueb-klasse')];
+    const ziel = alle[alle.indexOf(el) + (ev.key === 'ArrowUp' ? -1 : 1)];
+    if (ziel) { ziel.focus(); ziel.select && ziel.select(); }
+  },
+  // Hängt die Reihenfolge an der Klasse, wird neu geordnet, sobald das Eintragen endet
+  _uebKlasseBlur() {
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && a.classList && a.classList.contains('ueb-klasse')) return;
+      if (!this._uebKlasseGeaendert) return;
+      this._uebKlasseGeaendert = false;
+      const o = this.uebOrdnung();
+      if ((o.gruppe === 'klasse' || o.sort === 'klasse') && this._viewMode === 'uebersicht') this.renderUebersicht();
+    }, 150);
+  },
+
+  // ── Auswahl und Sammelaktionen ──
+  _uebAuswahl: new Set(),
+  _uebLetzte: null,
+  _uebAuswahlIds() {
+    const vorhanden = new Set(this.currentSchuelerList.map(s => s.id));
+    [...this._uebAuswahl].forEach(id => { if (!vorhanden.has(id)) this._uebAuswahl.delete(id); });
+    return this.currentSchuelerList.filter(s => this._uebAuswahl.has(s.id)).map(s => s.id);
+  },
+  // Einzelne Zeile; Umschalt+Klick wählt den Bereich seit dem letzten Klick (in Anzeige-Reihenfolge)
+  uebWaehlen(sid, an, ev) {
+    const folge = (this._uebFolge || this._reihenfolge()).map(i => this.currentSchuelerList[i].id);
+    if (ev && ev.shiftKey && this._uebLetzte != null && folge.includes(this._uebLetzte)) {
+      const a = folge.indexOf(this._uebLetzte), b = folge.indexOf(sid);
+      folge.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(id => { if (an) this._uebAuswahl.add(id); else this._uebAuswahl.delete(id); });
+    } else if (an) this._uebAuswahl.add(sid); else this._uebAuswahl.delete(sid);
+    this._uebLetzte = sid;
+    this._uebSammelZeigen();
+  },
+  uebGruppeWaehlen(key, an) {
+    const g = this._uebGruppen().find(x => x.key === key);
+    if (!g) return;
+    g.indizes.forEach(i => { const id = this.currentSchuelerList[i].id; if (an) this._uebAuswahl.add(id); else this._uebAuswahl.delete(id); });
+    this._uebSammelZeigen();
+  },
+  uebAlleWaehlen(an) {
+    this._uebAuswahl = new Set(an ? this.currentSchuelerList.map(s => s.id) : []);
+    this._uebSammelZeigen();
+  },
+  uebAuswahlLeeren() { this._uebAuswahl = new Set(); this._uebLetzte = null; this._uebSammelZeigen(); },
+  // Häkchen, Zeilenmarkierung und Leiste ohne Neuzeichnen der Tabelle nachführen
+  _uebSammelZeigen() {
+    const ids = this._uebAuswahlIds();
+    const n = ids.length;
+    if (document.querySelectorAll) {
+      document.querySelectorAll('.ueb-chk').forEach(c => {
+        const an = this._uebAuswahl.has(parseInt(c.dataset.sid));
+        c.checked = an;
+        const tr = c.closest && c.closest('tr'); if (tr && tr.classList) tr.classList.toggle('ueb-gewaehlt', an);
+      });
+      const gruppen = n || document.querySelector('.ueb-gruppe-chk') ? this._uebGruppen() : [];
+      document.querySelectorAll('.ueb-gruppe-chk').forEach(c => {
+        const g = gruppen.find(x => x.key === c.dataset.gruppe);
+        c.checked = !!g && g.indizes.length > 0 && g.indizes.every(i => this._uebAuswahl.has(this.currentSchuelerList[i].id));
+      });
+    }
+    const alle = document.getElementById('uebAlle');
+    if (alle) { alle.checked = n > 0 && n === this.currentSchuelerList.length; alle.indeterminate = n > 0 && n < this.currentSchuelerList.length; }
+    const leiste = document.getElementById('uebSammel');
+    if (!leiste) return;
+    if (!n) { leiste.style.display = 'none'; leiste.innerHTML = ''; return; }
+    const feld = document.getElementById('uebKlasseSammel');
+    const getippt = feld ? feld.value : '';
+    const einsendung = !!App.scalar("SELECT 1 FROM kontrolltermine WHERE id=? AND typ='einsendung'", [this.currentTerminId]);
+    leiste.style.display = '';
+    leiste.innerHTML = `<span class="sl-text"><strong>${n}</strong> Azubi${n === 1 ? '' : 's'} ausgewählt</span>
+      <label class="ueb-sl-klasse">Klasse <input type="text" id="uebKlasseSammel" class="form-control" list="uebKlassenListe" maxlength="${App.SCHULKLASSE_MAX}" placeholder="z. B. G2a" autocomplete="off" value="${esc(getippt)}" onkeydown="if(event.key==='Enter'){event.preventDefault();KontrolleHandler.uebKlasseSetzenAuswahl()}" aria-label="Klasse für die ausgewählten Azubis"></label>
+      <button class="btn btn-sm btn-primary" onclick="KontrolleHandler.uebKlasseSetzenAuswahl()" title="Klasse für alle ausgewählten Azubis eintragen (leer = Klasse entfernen)">Klasse setzen</button>
+      <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(true)">✓ ${einsendung ? 'Heft da' : 'anwesend'}</button>
+      <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(false)">✗ ${einsendung ? 'Heft fehlt' : 'abwesend'}</button>
+      <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebOkAuswahl()" title="Ausgewählte anwesende Azubis ohne Ergebnis auf „In Ordnung“ setzen">✓ In Ordnung</button>
+      <button class="btn btn-sm btn-secondary sl-x" onclick="KontrolleHandler.uebAuswahlLeeren()">Auswahl aufheben</button>`;
+  },
+  uebKlasseSetzenAuswahl() {
+    const ids = this._uebAuswahlIds();
+    if (!ids.length) return;
+    const feld = document.getElementById('uebKlasseSammel');
+    const w = App.schulklasseNormal(feld ? feld.value : '');
+    const n = App.setSchulklasse(ids, w);
+    this.currentSchuelerList.forEach(s => { if (this._uebAuswahl.has(s.id)) s.schulklasse = w; });
+    if (feld) feld.value = '';
+    App.toast(w ? `Klasse „${w}“ für ${ids.length} Azubi${ids.length === 1 ? '' : 's'} eingetragen${n < ids.length ? ` (${ids.length - n} hatten sie schon)` : ''}` : `Klasse bei ${n} Azubi${n === 1 ? '' : 's'} entfernt`, 'success');
+    this.renderUebersicht();
+  },
+  uebAnwesendAuswahl(anwesend) {
+    const ids = this._uebAuswahlIds();
+    if (!ids.length) return;
+    ids.forEach(sid => App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`,
+      [anwesend ? 1 : 0, this.activePruefer || '', this.currentTerminId, sid]));
+    App.toast(`${ids.length} Azubi${ids.length === 1 ? '' : 's'} als ${anwesend ? 'anwesend' : 'abwesend'} markiert`, 'success');
+    this.renderUebersicht();
+  },
+  async uebOkAuswahl() {
+    if (!this._pruefeAbgeschlossen(() => this.uebOkAuswahl())) return;
+    const tid = this.currentTerminId;
+    const ids = this._uebAuswahlIds().filter(sid => {
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, sid])[0];
+      return ke && (!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0;
+    });
+    if (!ids.length) return App.toast('In der Auswahl ist kein anwesender Azubi ohne Ergebnis', 'info');
+    if (!(await App.confirm(`${ids.length} ausgewählte Azubi${ids.length === 1 ? '' : 's'} ohne Ergebnis als „In Ordnung" markieren?\n\nDabei werden je Azubi die Pflichtteile auf „ja" gesetzt, alle Kalenderwochen bis zur Vorwoche des Kontrolltags als geprüft markiert und offene Wiedervorlagen erledigt. Mängel bitte in der Einzelansicht erfassen.`, { titel: 'Auswahl: In Ordnung', ok: 'Als In Ordnung markieren' }))) return;
+    const r = this._markOK(ids);
+    App.toast(`${r.count} Azubi${r.count === 1 ? '' : 's'} als „In Ordnung" markiert${r.wv ? ` · ${r.wv} Wiedervorlage(n) erledigt` : ''}`, 'success');
+    this.renderUebersicht();
+  },
+
   renderUebersicht() {
     App._filterbalkenAnpassen('kontrolle', false);
     // Clean up our position when leaving Einzelansicht
@@ -412,6 +666,10 @@ const KontrolleHandler = {
     // Hersendung (Einsendung): „Anwesend" = Berichtsheft eingegangen; fehlende Hefte → Erinnerung an die Betriebe
     const istEinsendung = termin && termin.typ === 'einsendung';
     const fehlendeHefte = schueler.filter(s => { const ke = alleKE[s.id]; return ke && ke.anwesend === 0 && !ke.ergebnis && !App.istFremdesAmt(s); }).map(s => s.id);
+    const ordnung = this.uebOrdnung();
+    const uebCtx = this._uebKontext(terminId);
+    const werte = [];
+    const gewaehlt = this._uebAuswahl || (this._uebAuswahl = new Set());
     const rows = schueler.map((s, i) => {
       const frName = frLookup[s.fachrichtung_id] || '–';
       const isExtraSchueler = !linkedKlassenIds.has(s.klasse_id);
@@ -481,15 +739,23 @@ const KontrolleHandler = {
       // Zulassung (Pflichtteile, Voraussetzung, Prüfungsausschuss) nur dort
       // voll, wo sie zählt: letztes Lehrjahr, gesetzt, oder auf Wunsch (…)
       const zulZeigen = this._zulAlle || imLetztenAJ || isZulassung || isPA || !!(this._zulZeigen && this._zulZeigen[s.id]);
-      return `<tr style="${isPA ? 'background:var(--clr-red-light) !important;border-left:4px solid var(--clr-red)' : !isAnw ? 'opacity:0.5;background:var(--clr-warm)' : isDone && !isOK ? 'background:var(--clr-red-light)' : isDone && isOK ? 'background:var(--clr-green-light)' : ''}">
-        <td style="text-align:center">${i+1}</td>
+      const w = this._uebWert(s, i, ke, uebCtx, fehlGesamt);
+      werte.push(w);
+      const nameLang = `${esc(s.nachname)}, ${esc(s.vorname)}`;
+      return `<tr data-sid="${s.id}" class="${gewaehlt.has(s.id) ? 'ueb-gewaehlt' : ''}" style="${isPA ? 'background:var(--clr-red-light) !important;border-left:4px solid var(--clr-red)' : !isAnw ? 'opacity:0.5;background:var(--clr-warm)' : isDone && !isOK ? 'background:var(--clr-red-light)' : isDone && isOK ? 'background:var(--clr-green-light)' : ''}">
+        <td class="ueb-nr"><label title="Für Sammelaktionen auswählen (Umschalt+Klick: Bereich)"><input type="checkbox" class="ueb-chk" data-sid="${s.id}" ${gewaehlt.has(s.id) ? 'checked' : ''} onclick="KontrolleHandler.uebWaehlen(${s.id}, this.checked, event)" aria-label="Auswählen: ${nameLang}"> ${i+1}</label></td>
         <td data-sort="${esc(s.nachname)}, ${esc(s.vorname)}">
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
           ${isExtraSchueler ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px;margin-left:4px" title="Manuell hinzugefügt (andere Klasse)">Extra</span>' : ''}
           ${s.zustaendiges_amt && s.zustaendiges_amt !== App.EIGENES_AMT ? `<span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);border-radius:8px;margin-left:4px;font-weight:600" title="Fremdes zuständiges Amt: ${esc(App.amtLabel(s.zustaendiges_amt))} – Ergebnis nach der Kontrolle über &quot;§ Ämter&quot; weitergeben">§ ${esc(s.zustaendiges_amt)}</span>` : ''}
           ${App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id) ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px;margin-left:4px" title="Verkürzte Ausbildung">Verk.</span>' : ''}
           ${isPA ? '<span style="font-size:12px;padding:1px 5px;background:var(--clr-red);color:white;border-radius:8px;margin-left:4px;font-weight:700" title="An Prüfungsausschuss übergeben">PA</span>' : ''}
-          <div style="font-size:12px;color:var(--clr-text-light)"><span title="${esc(ampel.label)}" aria-label="${esc(ampel.label)}">${ampel.icon}</span> ${esc(s.ausbildungsstaette||'')}${frName !== '–' ? ` · ${esc(frName)}` : ''} ${typeof AzubiSeite!=='undefined'?`<a href="#" onclick="event.preventDefault();AzubiSeite.oeffnen(${s.id}, 'uebersicht', { zurueck: { terminId: ${terminId}, schuelerId: ${s.id} } })" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Seite (Kontakt, Betrieb, Schule, Ausbildungsstand) – mit Rückweg in diese Durchsicht">${svgIcon('dashboard', 12)}</a>`:''}</div>
+          <div style="font-size:12px;color:var(--clr-text-light)"><span title="${esc(ampel.label)}" aria-label="${esc(ampel.label)}">${ampel.icon}</span> ${esc(s.ausbildungsstaette||'')}${frName !== '–' ? ` · ${esc(frName)}` : ''}${w.lehrjahr ? ` · ${w.lehrjahr}. Lj.` : ''} ${typeof AzubiSeite!=='undefined'?`<a href="#" onclick="event.preventDefault();AzubiSeite.oeffnen(${s.id}, 'uebersicht', { zurueck: { terminId: ${terminId}, schuelerId: ${s.id} } })" style="color:var(--clr-forest);text-decoration:none" title="Azubi-Seite (Kontakt, Betrieb, Schule, Ausbildungsstand) – mit Rückweg in diese Durchsicht">${svgIcon('dashboard', 12)}</a>`:''}</div>
+        </td>
+        <td class="ueb-klasse-zelle" data-sort="${esc(w.klasse)}">
+          <input type="text" class="form-control ueb-klasse" list="uebKlassenListe" maxlength="${App.SCHULKLASSE_MAX}" value="${esc(w.klasse)}" data-sid="${s.id}" placeholder="–" autocomplete="off"
+            onchange="KontrolleHandler.klasseSetzen(${s.id}, this.value, this)" onkeydown="KontrolleHandler.uebKlasseTaste(event, this)" onblur="KontrolleHandler._uebKlasseBlur()"
+            aria-label="Klasse an der Berufsschule: ${nameLang}">
         </td>
         <td style="text-align:center">
           <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)" aria-label="${istEinsendung ? 'Heft eingegangen' : 'Anwesend'}: ${esc(s.nachname)}, ${esc(s.vorname)}">
@@ -514,21 +780,21 @@ const KontrolleHandler = {
       </tr>`;
     });
 
-    // Gruppierung nach Fachrichtung (optional)
-    let tableRows;
-    if (this._groupByFR) {
-      const groups = {};
-      schueler.forEach((s, i) => {
-        const fr = frLookup[s.fachrichtung_id] || 'Ohne Fachrichtung';
-        if (!groups[fr]) groups[fr] = [];
-        groups[fr].push(rows[i]);
-      });
-      tableRows = Object.keys(groups).sort().map(fr =>
-        `<tr><td colspan="7" style="background:var(--clr-sand);font-weight:700;font-size:13px;padding:8px 12px;font-family:var(--font-display);color:var(--clr-forest-dark)">${esc(fr)} (${groups[fr].length})</td></tr>` + groups[fr].join('')
-      ).join('');
-    } else {
-      tableRows = rows.join('');
-    }
+    // Gruppierung und Sortierung (je Person gemerkt). Die Nummer (#) bleibt die
+    // feste Grundreihenfolge – „Mein Bereich #von–bis“ gilt für alle Rechner gleich.
+    const gruppen = this._uebGruppenAus(werte, ordnung, uebCtx);
+    this._uebFolge = gruppen.flatMap(g => g.indizes);
+    const SPALTEN = 8;
+    const tableRows = gruppen.map(g => {
+      const kopf = ordnung.gruppe ? (() => {
+        const ids = g.indizes.map(i => schueler[i].id);
+        const bewertet = g.indizes.filter(i => werte[i].standNr === 1 || werte[i].standNr === 2).length;
+        const offenG = g.indizes.filter(i => werte[i].standNr === 0).length;
+        const alle = ids.length && ids.every(id => gewaehlt.has(id));
+        return `<tr class="ueb-gruppe"><td colspan="${SPALTEN}"><label title="Alle Azubis dieser Gruppe auswählen"><input type="checkbox" class="ueb-gruppe-chk" data-gruppe="${esc(g.key)}" ${alle ? 'checked' : ''} onclick="KontrolleHandler.uebGruppeWaehlen(this.dataset.gruppe, this.checked)" aria-label="Gruppe auswählen: ${esc(g.label)}"> <strong>${esc(g.label)}</strong></label> <span class="ueb-gruppe-zahl">${g.indizes.length} Azubi${g.indizes.length === 1 ? '' : 's'} · ${bewertet} bewertet${offenG ? ` · ${offenG} offen` : ''}</span></td></tr>`;
+      })() : '';
+      return kopf + g.indizes.map(i => rows[i]).join('');
+    }).join('');
 
     // Toast bei automatischer AP-Zulassung
     if (autoZulCount > 0) {
@@ -571,21 +837,34 @@ const KontrolleHandler = {
           </div>
         </div>
 
-        <!-- Tabelle: 7 Spalten -->
+        <!-- Gruppieren · Sortieren (je Person gemerkt) -->
+        <div class="ueb-leiste" role="group" aria-label="Liste ordnen">
+          <label>Gruppieren <select id="uebGruppe" class="form-control" onchange="KontrolleHandler.uebGruppeSetzen(this.value)">${this.UEB_GRUPPEN.map(([k, l]) => `<option value="${k}" ${ordnung.gruppe === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>Sortieren <select id="uebSort" class="form-control" onchange="KontrolleHandler.uebSortSetzen(this.value)">${this.UEB_SORT.map(([k, l]) => `<option value="${k}" ${ordnung.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebSortRichtung()" title="Sortierrichtung umkehren" aria-label="Sortierrichtung umkehren (${ordnung.ab ? 'absteigend' : 'aufsteigend'})">${ordnung.ab ? '↓ absteigend' : '↑ aufsteigend'}</button>
+          <span class="ueb-leiste-hinweis">Klasse frei eintragen (Enter = nächste Zeile) · Häkchen vorne für Sammelaktionen · „Weiter“ in der Einzelansicht folgt dieser Reihenfolge</span>
+        </div>
+        <datalist id="uebKlassenListe">${App.schulklassenVorschlaege(schueler).map(k => `<option value="${esc(k)}"></option>`).join('')}</datalist>
+
+        <!-- Tabelle: 8 Spalten -->
         <div style="overflow-x:auto">
-          <table class="data-table">
+          <table class="data-table ueb-tabelle" data-sort-eigen="1">
             <thead><tr>
-              <th style="width:35px">#</th>
-              <th>Azubi</th>
+              <th class="ueb-nr"><label title="Alle auswählen"><input type="checkbox" id="uebAlle" onclick="KontrolleHandler.uebAlleWaehlen(this.checked)" aria-label="Alle Azubis auswählen"></label> ${this._uebSortKopf('nr', '#', ordnung)}</th>
+              <th>${this._uebSortKopf('name', 'Azubi', ordnung)}</th>
+              <th style="width:104px" title="Klasse an der Berufsschule – frei eintragbar (z. B. G2a), wird beim Azubi gespeichert. Unabhängig von Fachrichtung und Jahrgang: drei GaLaBau-Klassen oder eine gemischte Produktionsgärtner-Klasse lassen sich so abbilden.">${this._uebSortKopf('klasse', 'Klasse', ordnung)}</th>
               <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei der Durchsicht'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
-              <th>Ergebnis</th>
-              <th style="width:60px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th>
+              <th>${this._uebSortKopf('stand', 'Ergebnis', ordnung)}</th>
+              <th style="width:60px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">${this._uebSortKopf('fehltage', 'Fehl.', ordnung)}</th>
               <th style="min-width:150px" title="Pflichtteile 1.1 und 1.5 · Berichtsheft-Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG) · dem Prüfungsausschuss vorgelegt (§ 46 Abs. 1 Satz 2 BBiG). Automatisch im letzten Lehrjahr, sonst über „…“ je Azubi">Zulassung ${zulAlleZeigbar ? `<button class="bz-mini bz-mini-text" onclick="KontrolleHandler._zulAlle=!KontrolleHandler._zulAlle;KontrolleHandler.renderUebersicht()" title="${this._zulAlle ? 'Zulassung nur im letzten Lehrjahr zeigen' : 'Zulassung bei allen Azubis einblenden'}">${this._zulAlle ? 'nur letztes Jahr' : 'alle'}</button>` : ''}</th>
               <th style="width:70px"></th>
             </tr></thead>
             <tbody>${tableRows}</tbody>
           </table>
         </div>
+
+        <!-- Sammelaktionen für die Auswahl -->
+        <div id="uebSammel" class="sammel-leiste ueb-sammel" style="display:none" role="region" aria-label="Sammelaktionen für ausgewählte Azubis"></div>
 
         <!-- Einzelansicht starten, Prüferaufteilung -->
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
@@ -608,6 +887,7 @@ const KontrolleHandler = {
     `;
     // Terminzeile (Menü „Termin ▾“ mit den aktuellen Zahlen) nachziehen
     this._terminZeile();
+    this._uebSammelZeigen();
   },
 
   // Einen Azubi direkt aus der Übersicht als "In Ordnung" markieren
@@ -686,10 +966,13 @@ const KontrolleHandler = {
   // wenn alle offenen belegt sind, wird der erste offene zurückgegeben.
   // (Zwei Prüfer landeten sonst beide auf Nr. 1 und sperrten sich gegenseitig.)
   _ersterOffenerIndex(start = -1) {
-    const n = this.currentSchuelerList.length;
+    // in der Reihenfolge der Übersicht (Gruppierung/Sortierung der Person)
+    const folge = this._reihenfolge();
+    const n = folge.length;
+    const p0 = start >= 0 ? folge.indexOf(start) : -1;
     let ersterOffen = -1, ersterFrei = -1;
     for (let k = 1; k <= n; k++) {
-      const i = (start + k) % n;
+      const i = folge[(p0 + k) % n];
       const s = this.currentSchuelerList[i];
       const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [this.currentTerminId, s.id])[0];
       const offen = !ke || ((!ke.ergebnis || ke.ergebnis === '') && ke.anwesend !== 0);
@@ -963,6 +1246,7 @@ const KontrolleHandler = {
       return `<tr style="background:${bg}${isPA ? ';border-left:3px solid #c0392b' : ''}">
         <td style="text-align:center">${i+1}</td>
         <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}${isPA ? ' <b style="color:#c0392b">PA</b>' : ''}</td>
+        <td style="font-size:12px">${esc(App.schulklasseNormal(s.schulklasse))}</td>
         <td style="font-size:12px">${esc(s.ausbildungsstaette || '–')}</td>
         <td style="text-align:center">${isAnw ? '✓' : '–'}</td>
         <td>${isDone ? (eLbl[ke.ergebnis] || ke.ergebnis || '–') : ''}</td>
@@ -972,7 +1256,11 @@ const KontrolleHandler = {
         <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠︎ PA' : '–'}</td>
         <td style="font-size:12px">${esc(ke.bemerkung || '')}</td>
       </tr>`;
-    }).join('');
+    });
+    // Dieselbe Gruppierung und Sortierung wie in der Übersicht (je Person gemerkt)
+    const ordnung = this.uebOrdnung();
+    const gruppen = this._uebGruppen(schueler, terminId);
+    const tabelle = gruppen.map(g => (ordnung.gruppe ? `<tr><td colspan="11" style="background:#eee;font-weight:bold;padding:5px 6px">${esc(g.label)} (${g.indizes.length})</td></tr>` : '') + g.indizes.map(i => rows[i]).join('')).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Übersicht ${isEinsendung ? 'Einsendung' : klassenStr} – ${formatDate(termin.geplant_datum)}</title>
     <style>
@@ -996,8 +1284,8 @@ const KontrolleHandler = {
       ${pa ? `<span style="background:#fde8e6;color:#c0392b;font-weight:bold">⚠︎ ${pa} Prüfungsausschuss</span>` : ''}
     </div>
     <table>
-      <thead><tr><th>#</th><th>Name</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt (ohne Urlaub) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th><th title="Pflichtteile 1.1 und 1.5 vollständig">Pfl.</th><th title="Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">Zul.</th><th title="Prüfungsausschuss (§ 46 BBiG)">PA</th><th>Bemerkung</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <thead><tr><th>#</th><th>Name</th><th title="Klasse an der Berufsschule">Klasse</th><th>Betrieb</th><th title="Anwesend bei Durchsicht">Anw.</th><th>Ergebnis</th><th title="Fehltage gesamt (ohne Urlaub) und Anteil an der bisherigen Ausbildungszeit">Fehl.</th><th title="Pflichtteile 1.1 und 1.5 vollständig">Pfl.</th><th title="Berichtsheft-Voraussetzung für die Zulassung erfüllt (§ 43 Abs. 1 Nr. 2 BBiG)">Zul.</th><th title="Prüfungsausschuss (§ 46 BBiG)">PA</th><th>Bemerkung</th></tr></thead>
+      <tbody>${tabelle}</tbody>
     </table>
     <div style="margin-top:16px;font-size:12px;color:#999;border-top:1px solid #ddd;padding-top:4px">
       Regierungspräsidium Freiburg · Abt. 3 · Ref. 31 · Erstellt: ${new Date().toLocaleDateString('de-DE')}
@@ -1449,8 +1737,8 @@ const KontrolleHandler = {
       <span class="as-meta">${[s.ausbildungsstaette, klasseStk.klassenbezeichnung, klasseStk.schule].filter(Boolean).map(esc).join(' · ')}</span>
       <span id="keGesichert" class="as-gesichert${App.azubiGesichert(s.id) ? '' : ' offen'}" onclick="App.wartendeAenderungenDialog()" title="${App.azubiGesichert(s.id) ? 'Alle Änderungen an diesem Azubi sind auf dem Netzlaufwerk (Klick: Details)' : 'Änderungen an diesem Azubi werden gerade geschrieben (Klick: Details)'}" role="status"><i class="punkt"></i><span class="sr-only">${App.azubiGesichert(s.id) ? '✓ auf dem Netzlaufwerk' : '⏳ wird geschrieben…'}</span></span>
       <span class="as-nav">
-        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" aria-label="Vorheriger Azubi" ${this.currentIndex === 0 ? 'disabled' : ''}>‹</button>
-        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" aria-label="Nächster Azubi" ${this.currentIndex >= total - 1 ? 'disabled' : ''}>›</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" title="Vorheriger Azubi (Strg+←)" aria-label="Vorheriger Azubi" ${this._nachbarIndex(-1) < 0 ? 'disabled' : ''}>‹</button>
+        <button class="btn btn-secondary" onclick="KontrolleHandler.next()" title="Nächster Azubi (Strg+→)" aria-label="Nächster Azubi" ${this._nachbarIndex(1) < 0 ? 'disabled' : ''}>›</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler.nextOffen()" title="Nächster offener Azubi" aria-label="Nächster offener Azubi">offen ›</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()" title="Zurück zur Übersicht" aria-label="Zurück zur Übersicht">▤</button>
         <button class="btn btn-secondary" onclick="KontrolleHandler.legendeUmschalten()" title="Mängelcodes und Tastenkürzel ein-/ausblenden" aria-label="Mängelcodes und Tastenkürzel ein- oder ausblenden" aria-controls="kwLegendBar">?</button>
@@ -1849,9 +2137,9 @@ const KontrolleHandler = {
         <div class="ke-zeile2">
           <textarea class="form-control" rows="1" id="keBemerkung" placeholder="Bemerkung zum Berichtsheft…" onchange="KontrolleHandler.saveField('bemerkung',this.value)" oninput="KontrolleHandler.bemerkungWachsen(this)" aria-label="Bemerkung zum Berichtsheft">${esc(ke.bemerkung)}</textarea>
           ${App.getTextbausteine().length ? this._menue('✎', App.getTextbausteine().map((b, i) => ({ label: esc(b), onclick: `KontrolleHandler.textbausteinEinfuegen(${i})` })), 'Textbaustein an die Bemerkung anhängen', 'klein oben') : ''}
-          <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this.currentIndex === 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.prev()" ${this._nachbarIndex(-1) < 0 ? 'disabled' : ''} title="Vorheriger Azubi (Strg+←)">‹ Zurück</button>
           ${(() => { const m = this.weiterModus(); const lbl = m === 'naechster' ? '✓ Fertig, nächster offener' : m === 'bleiben' ? '✓ Fertig (speichern)' : '✓ Fertig → Übersicht'; const t = m === 'naechster' ? 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben und der nächste ohne Ergebnis geöffnet' : 'Berichtsheft fertig: Änderungen werden sofort auf das Netzlaufwerk geschrieben, der Azubi freigegeben' + (m === 'bleiben' ? '' : ' und die Übersicht geöffnet – das nächste Heft wählen Sie dort'); return `<button class="btn btn-success" style="font-weight:600" onclick="KontrolleHandler.fertig()" title="${t}">${lbl}</button>`; })()}
-          <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this.currentIndex === total - 1 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
+          <button class="btn btn-secondary" onclick="KontrolleHandler.next()" ${this._nachbarIndex(1) < 0 ? 'disabled' : ''} title="Nächster Azubi (Strg+→)">Weiter ›</button>
           ${this._menue('⋯', [
             { label: 'Nach „Fertig“ / Auto-Weiter nach „In Ordnung“:', onclick: '', title: 'Was nach dem Ergebnis passiert – die Berichtshefte liegen am Kontrolltag nicht in Listenreihenfolge vor' },
             ...this.WEITER_MODI.map(([k, l]) => ({ label: `${this.weiterModus() === k ? '◉' : '○'} ${l}`, onclick: `KontrolleHandler.weiterModusSetzen('${k}');KontrolleHandler.renderSchueler()` })),
@@ -2314,13 +2602,16 @@ const KontrolleHandler = {
     }, 50);
   },
 
+  // Vor/zurück folgen der Reihenfolge der Übersicht (Gruppierung/Sortierung)
   prev() {
     this.saveAndRelease(); // save + release old lock
-    if (this.currentIndex > 0) { this.currentIndex--; this.enterSchüler(); }
+    const i = this._nachbarIndex(-1);
+    if (i >= 0) { this.currentIndex = i; this.enterSchüler(); }
   },
   next() {
     this.saveAndRelease();
-    if (this.currentIndex < this.currentSchuelerList.length - 1) { this.currentIndex++; this.enterSchüler(); }
+    const i = this._nachbarIndex(1);
+    if (i >= 0) { this.currentIndex = i; this.enterSchüler(); }
   },
   goTo(i) {
     if (i === this.currentIndex) return;

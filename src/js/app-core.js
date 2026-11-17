@@ -1372,6 +1372,7 @@ const App = {
       regulaer_dauer_monate INTEGER DEFAULT 36,
       verkuerzung_monate INTEGER DEFAULT 0,
       vorzeitige_zulassung INTEGER DEFAULT 0,
+      schulklasse TEXT DEFAULT '',
       vollzeit_wochenstunden REAL DEFAULT 39,
       beruf_id TEXT DEFAULT '',
       geburtsdatum TEXT DEFAULT '',
@@ -7534,6 +7535,8 @@ const App = {
     run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36");
     run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0");
     run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0");
+    // Klasse an der Berufsschule, frei eingetragen (z.B. „G2a“) – unabhängig von klasse_id
+    run("ALTER TABLE schueler ADD COLUMN schulklasse TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39");
     run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''");
@@ -10028,6 +10031,40 @@ const App = {
     return je;
   },
 
+  // ── Klasse an der Berufsschule (frei eingetragen, je Azubi) ──
+  // Die Klassen der Stammdaten (klasse_id) sind je Schule, Jahrgang und
+  // Fachrichtung eindeutig. An der Schule selbst gibt es aber z.B. drei
+  // GaLaBau-Klassen, oder Produktionsgärtner mehrerer Fachrichtungen sitzen
+  // in einer Klasse. Dafür trägt jeder Azubi ein freies Feld (schulklasse),
+  // das in der Übersicht der Durchsicht eingetragen, gruppiert und sortiert wird.
+  SCHULKLASSE_MAX: 24,
+  schulklasseNormal(wert) { return String(wert == null ? '' : wert).replace(/\s+/g, ' ').trim().slice(0, this.SCHULKLASSE_MAX); },
+  // Setzt die Klasse für einen oder mehrere Azubis; liefert die Zahl der geänderten
+  setSchulklasse(ids, wert) {
+    const w = this.schulklasseNormal(wert);
+    let n = 0;
+    (Array.isArray(ids) ? ids : [ids]).forEach(id => {
+      const alt = this.scalar('SELECT COALESCE(schulklasse,\'\') FROM schueler WHERE id=?', [id]);
+      if (alt == null || alt === w) return;
+      this.run('UPDATE schueler SET schulklasse=? WHERE id=?', [w, id]);
+      n++;
+    });
+    return n;
+  },
+  // Vorschläge: Klassen, die an denselben Berufsschulen schon eingetragen sind
+  schulklassenVorschlaege(schuelerListe) {
+    const eigene = (schuelerListe || []).map(s => this.schulklasseNormal(s.schulklasse)).filter(Boolean);
+    let weitere = [];
+    try {
+      const klassenIds = [...new Set((schuelerListe || []).map(s => s.klasse_id).filter(Boolean))];
+      if (klassenIds.length) {
+        weitere = this.query(`SELECT DISTINCT s.schulklasse AS k FROM schueler s JOIN klassen kl ON s.klasse_id=kl.id
+          WHERE COALESCE(s.schulklasse,'') != '' AND kl.berufsschule_id IN (SELECT berufsschule_id FROM klassen WHERE id IN (${klassenIds.map(() => '?').join(',')}))`, klassenIds).map(r => r.k);
+      }
+    } catch(e) {}
+    return [...new Set([...eigene, ...weitere])].sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
+  },
+
   // ── Änderungs-Logbuch (für IBYKUS-Nachtrag) ──
   IBYKUS_FELDER: ['nachname','vorname','ausbildungsbeginn','ausbildungsende','ausbildungsstaette','fachrichtung_id','klasse_id','jahrgang_id','betrieb_id','status','aktiv','ap_zugelassen','ap_bestanden','zwischenpruefung','zustaendiges_amt','landesfachklasse','inaktiv_datum','inaktiv_grund'],
   logChange(schuelerId, feld, alterWert, neuerWert, aktion) {
@@ -11216,6 +11253,8 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE schueler ADD COLUMN regulaer_dauer_monate INTEGER DEFAULT 36"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN verkuerzung_monate INTEGER DEFAULT 0"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN vorzeitige_zulassung INTEGER DEFAULT 0"); } catch(e) {}
+      // Klasse an der Berufsschule, frei eingetragen (z.B. „G2a“) – unabhängig von klasse_id
+      try { this.db.run("ALTER TABLE schueler ADD COLUMN schulklasse TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN vollzeit_wochenstunden REAL DEFAULT 39"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN beruf_id TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geburtsdatum TEXT DEFAULT ''"); } catch(e) {}
