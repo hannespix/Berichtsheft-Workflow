@@ -306,14 +306,23 @@ const PDFExport = {
         let valText = valLabel(displayVal);
         if (nr === '1.5' && reqUBA) valText += ` (${count||0}/${reqUBA})`;
         doc.text(valText, px + 5, y + 7.5);
-        // Zusatz „geführt / nicht geführt“ (1.1 Inhalte angekreuzt, 1.5 Zusammenstellung)
-        const gef = nr === '1.1' ? ke?.p_1_1_gefuehrt : nr === '1.5' ? ke?.p_1_5_gefuehrt : '';
-        if (gef === 'ja' || gef === 'nein') {
-          const breite = doc.getTextWidth(valText);
-          doc.setFont('helvetica', gef === 'nein' ? 'bold' : 'normal'); doc.setFontSize(6);
-          doc.setTextColor(...(gef === 'nein' ? [180, 40, 30] : [60, 120, 60]));
-          doc.text(gef === 'nein' ? '· nicht geführt' : '· geführt', px + 6 + breite, y + 7.5);
-        }
+        // Zusätze der Unterpunkte: „geführt / nicht geführt“ (1.1 Inhalte
+        // angekreuzt, 1.5 Zusammenstellung) und bei 1.1 „unterschrieben /
+        // Unterschrift fehlt“ – nur wenn der Teil selbst da ist (fehlt er,
+        // sagt „Nein“ / „Nicht vorhanden“ schon alles)
+        const teilFehlt = displayVal === 'nein' || displayVal === 'nicht_vorhanden';
+        const zusaetze = teilFehlt ? [] : (nr === '1.1'
+          ? [[ke?.p_1_1_gefuehrt, 'geführt', 'nicht geführt'], [ke?.p_1_1_unterschrift, 'unterschrieben', 'Unterschrift fehlt']]
+          : nr === '1.5' ? [[ke?.p_1_5_gefuehrt, 'geführt', 'nicht geführt']] : []);
+        let zx = px + 6 + doc.getTextWidth(valText);
+        zusaetze.forEach(([wert, jaText, neinText]) => {
+          if (wert !== 'ja' && wert !== 'nein') return;
+          const text = '· ' + (wert === 'nein' ? neinText : jaText);
+          doc.setFont('helvetica', wert === 'nein' ? 'bold' : 'normal'); doc.setFontSize(6);
+          doc.setTextColor(...(wert === 'nein' ? [180, 40, 30] : [60, 120, 60]));
+          doc.text(text, zx, y + 7.5);
+          zx += doc.getTextWidth(text) + 1.2;
+        });
         px += 58;
       });
 

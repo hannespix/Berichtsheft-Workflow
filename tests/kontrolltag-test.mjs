@@ -485,6 +485,92 @@ console.log('\n══ Automatische Bemerkung: fehlende Pflichtteile und Mängel-
   KH.currentIndex = 0;
 }
 
+console.log('\n══ 1.1 „Unterschrift fehlt“ und keine Doppelungen bei Haupt- und Unterpunkten ══');
+{
+  const F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan, F15 = App.HINWEISE_PFLICHT_FEHLT.p_1_5_bescheinigungen;
+  const G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, U11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_unterschrift, G15 = App.HINWEISE_NICHT_GEFUEHRT.p_1_5_gefuehrt;
+  check(/^Individueller Ausbildungsplan \(1\.1\): Unterschrift fehlt\./.test(U11) && /zu unterschreiben/.test(U11), 'Satz „Unterschrift fehlt“ nennt Teil 1.1 und was zu tun ist');
+  check(App.autoHinweisPflicht('p_1_1_unterschrift', 'nein') === U11 && App.autoHinweisPflicht('p_1_1_unterschrift', 'ja') === null && App.autoHinweisPflicht('p_1_1_unterschrift', '') === null, 'Nur „Unterschrift fehlt“ ergibt den Satz');
+  check(App._autoZeileKey(U11) === 'p_1_1_unterschrift' && App._autoZeileKey(G11) === 'p_1_1_gefuehrt' && App._autoZeileKey(F11) === 'p_1_1_ausbildungsplan', 'Die drei Sätze zu 1.1 werden auseinandergehalten');
+  const reihe = App.HINWEISE_REIHENFOLGE;
+  check(reihe.indexOf('p_1_1_ausbildungsplan') < reihe.indexOf('p_1_1_gefuehrt') && reihe.indexOf('p_1_1_gefuehrt') < reihe.indexOf('p_1_1_unterschrift') && reihe.indexOf('p_1_1_unterschrift') < reihe.indexOf('p_1_4_auszubildende'), 'Reihenfolge: 1.1 fehlt · nicht geführt · Unterschrift fehlt · 1.4');
+  check(App.HINWEISE_HAUPTPUNKT.p_1_1_unterschrift === 'p_1_1_ausbildungsplan' && App.HINWEISE_HAUPTPUNKT.p_1_1_gefuehrt === 'p_1_1_ausbildungsplan' && App.HINWEISE_HAUPTPUNKT.p_1_5_gefuehrt === 'p_1_5_bescheinigungen', 'Unterpunkte kennen ihren Hauptpunkt');
+  check(JSON.stringify(App.hinweisFamilie('p_1_1_ausbildungsplan')) === JSON.stringify(['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_1_unterschrift']) && JSON.stringify(App.hinweisFamilie('p_1_1_unterschrift')) === JSON.stringify(['p_1_1_unterschrift']) && JSON.stringify(App.hinweisFamilie('p_1_4_auszubildende')) === JSON.stringify(['p_1_4_auszubildende']), 'Ein Hauptpunkt nimmt seine Unterpunkte mit, ein Unterpunkt nur sich');
+  // Zentrale Regel
+  let pfl = App.autoHinweisePflicht({ p_1_1_ausbildungsplan: 'ja', p_1_1_gefuehrt: 'nein', p_1_1_unterschrift: 'nein' });
+  check(pfl.p_1_1_ausbildungsplan === null && pfl.p_1_1_gefuehrt === G11 && pfl.p_1_1_unterschrift === U11, 'Plan vorhanden: „nicht geführt“ und „Unterschrift fehlt“ stehen je einmal');
+  pfl = App.autoHinweisePflicht({ p_1_1_ausbildungsplan: 'nein', p_1_1_gefuehrt: 'nein', p_1_1_unterschrift: 'nein', p_1_5_bescheinigungen: 'nicht_vorhanden', p_1_5_gefuehrt: 'nein' });
+  check(pfl.p_1_1_ausbildungsplan === F11 && pfl.p_1_1_gefuehrt === null && pfl.p_1_1_unterschrift === null, 'Plan fehlt: nur der Satz „fehlt“, keine Sätze der Unterpunkte');
+  check(pfl.p_1_5_bescheinigungen === F15 && pfl.p_1_5_gefuehrt === null, '1.5 fehlt: „nicht geführt“ entfällt ebenso');
+  check(Object.values(App.autoHinweisePflicht({})).every(v => v === null) && Object.keys(App.autoHinweisePflicht({})).length === App.HINWEIS_PFLICHT_FELDER.length, 'Leeres Ergebnis: keine Sätze, alle Felder abgedeckt');
+  // Über die echte Eingabe
+  KH.currentIndex = 1; KH.currentTerminId = 10;
+  KH._pruefeAbgeschlossen = () => true;
+  const ke = () => App.query('SELECT * FROM kontrollergebnisse WHERE id=200')[0];
+  const zeilen = () => ke().bemerkung.split('\n');
+  App.run("UPDATE kontrollergebnisse SET bemerkung='Eigener Text', ergebnis='', p_1_1_ausbildungsplan='ja', p_1_1_gefuehrt='', p_1_1_unterschrift='', p_1_5_bescheinigungen='ja', p_1_5_gefuehrt='', p_1_4_auszubildende='', f_1_6_ausbildungsbetrieb='' WHERE id=200");
+  elems.keBemerkung = { value: 'Eigener Text' };
+  KH.saveField('p_1_1_unterschrift', 'nein');
+  check(ke().p_1_1_unterschrift === 'nein' && ke().bemerkung === 'Eigener Text\n' + U11 && elems.keBemerkung.value === ke().bemerkung, '„Unterschrift fehlt“ wird gespeichert, Satz steht in Bemerkung und Feld');
+  KH.saveField('p_1_1_gefuehrt', 'nein');
+  check(ke().bemerkung === 'Eigener Text\n' + G11 + '\n' + U11, '„nicht geführt“ dazu: beide Sätze, feste Reihenfolge');
+  KH.saveField('p_1_1_ausbildungsplan', 'nein');
+  check(ke().bemerkung === 'Eigener Text\n' + F11, 'Hauptpunkt „nein“: nur noch der Satz „fehlt“ – Unterpunkt-Sätze verschwinden');
+  check(ke().p_1_1_unterschrift === 'nein' && ke().p_1_1_gefuehrt === 'nein', 'Die Werte der Unterpunkte bleiben gespeichert');
+  KH.saveField('p_1_1_unterschrift', 'ja');
+  KH.saveField('p_1_1_unterschrift', 'nein');
+  check(ke().bemerkung === 'Eigener Text\n' + F11, 'Unterpunkt ändern, solange der Plan fehlt: kein zusätzlicher Satz');
+  UndoManager.undo(); UndoManager.undo();
+  check(ke().bemerkung === 'Eigener Text\n' + F11 && ke().p_1_1_unterschrift === 'nein', 'Rückgängig der Unterpunkt-Änderungen lässt die Bemerkung unverändert');
+  KH.saveField('p_1_1_ausbildungsplan', 'nicht_vorhanden');
+  check(ke().bemerkung === 'Eigener Text\n' + F11 && zeilen().filter(z => z === F11).length === 1, '„nicht vorhanden“ statt „nein“: Satz bleibt genau einmal');
+  KH.saveField('p_1_1_ausbildungsplan', 'ja');
+  check(ke().bemerkung === 'Eigener Text\n' + G11 + '\n' + U11, 'Plan wieder vorhanden: Sätze der Unterpunkte kommen nach ihrem Wert zurück');
+  UndoManager.undo();
+  check(ke().p_1_1_ausbildungsplan === 'nicht_vorhanden' && ke().bemerkung === 'Eigener Text\n' + F11, 'Rückgängig stellt Wert und Bemerkung wieder her');
+  UndoManager.redo();
+  KH.saveField('p_1_1_unterschrift', 'ja');
+  check(ke().bemerkung === 'Eigener Text\n' + G11, '„unterschrieben“ entfernt nur seinen Satz');
+  // 1.5 mit Unterpunkt
+  KH.saveField('p_1_5_gefuehrt', 'nein');
+  KH.saveField('p_1_5_bescheinigungen', 'nein');
+  check(ke().bemerkung === 'Eigener Text\n' + G11 + '\n' + F15 && !ke().bemerkung.includes(G15), '1.5 „nein“ mit „nicht geführt“: nur der Satz „fehlt“');
+  KH.saveField('p_1_5_bescheinigungen', 'ja');
+  check(ke().bemerkung === 'Eigener Text\n' + G11 + '\n' + G15, '1.5 wieder vorhanden: „nicht geführt“ steht wieder da');
+  // Zulassung
+  const voll = { p_1_1_ausbildungsplan: 'ja', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_1_gefuehrt: '', p_1_5_gefuehrt: '', p_1_1_unterschrift: '' };
+  check(KH.pflichtteileOK(voll, 2) === true && KH.pflichtteileOK({ ...voll, p_1_1_unterschrift: 'ja' }, 2) === true && KH.pflichtteileOK({ ...voll, p_1_1_unterschrift: 'nein' }, 2) === false, '„Unterschrift fehlt“ → Pflichtteile nicht erfüllt, „unterschrieben“ ändert nichts');
+  // „Alle OK“ und „In Ordnung“
+  KH.saveField('p_1_1_unterschrift', 'nein');
+  KH.setAllPflichtOK();
+  check(ke().p_1_1_unterschrift === 'ja' && ke().bemerkung === 'Eigener Text', '„Alle OK“ setzt „unterschrieben“ und räumt alle Sätze aus');
+  App.run("UPDATE kontrollergebnisse SET ergebnis='', p_1_1_unterschrift='' WHERE id=200");
+  KH.weiterModus = () => 'bleiben';
+  KH.saveField('ergebnis', 'in_ordnung');
+  check(ke().p_1_1_unterschrift === 'ja', '„In Ordnung“ setzt ein leeres Feld auf „unterschrieben“');
+  App.run("UPDATE kontrollergebnisse SET ergebnis='', p_1_1_unterschrift='nein' WHERE id=200");
+  KH.saveField('ergebnis', 'in_ordnung');
+  check(ke().p_1_1_unterschrift === 'nein', '„In Ordnung“ überschreibt ein bewusstes „Unterschrift fehlt“ NICHT');
+  // Altbestand mit Doppelung heilen
+  const doppelt = 'Eigener Text\n' + F11 + '\n' + G11 + '\n' + U11 + '\n' + G15;
+  check(App.bemerkungOhneDoppelungen(doppelt, { p_1_1_ausbildungsplan: 'nein', p_1_5_bescheinigungen: 'ja' }) === 'Eigener Text\n' + F11 + '\n' + G15, 'Altbestand: Unterpunkt-Sätze neben „fehlt“ fallen heraus, 1.5 bleibt');
+  check(App.bemerkungOhneDoppelungen(doppelt, { p_1_1_ausbildungsplan: 'ja', p_1_5_bescheinigungen: 'ja' }) === doppelt && App.bemerkungOhneDoppelungen('  frei  \n\n\nText', { p_1_1_ausbildungsplan: 'nein' }) === '  frei  \n\n\nText', 'Ohne Doppelung bleibt die Bemerkung zeichengenau');
+  const handU = U11 + ' Bitte bis Freitag.';
+  check(App.bemerkungOhneDoppelungen(F11 + '\n' + handU, { p_1_1_ausbildungsplan: 'nein' }) === F11 + '\n' + handU, 'Von Hand ergänzter Satz gilt als eigener Text und bleibt');
+  // Schema, Archiv, Bogen, Oberfläche
+  const schema = APP_SRC.slice(APP_SRC.indexOf('CREATE TABLE IF NOT EXISTS kontrollergebnisse'));
+  const disk = APP_SRC.slice(APP_SRC.indexOf('_migrateDiskDb(diskDb)'));
+  check(/p_1_1_unterschrift TEXT/.test(schema) && /keCols\.includes\('p_1_1_unterschrift'\)/.test(APP_SRC) && /ADD COLUMN p_1_1_unterschrift/.test(disk), 'Spalte in SCHEMA, migrateDB() und _migrateDiskDb()');
+  check(/'p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende'/.test(APP_SRC), 'Zusammenführung nach Offline-Phase kennt das Feld (mergeColumns)');
+  check(/u_1_1: ke\.p_1_1_unterschrift/.test(K_SRC) && /u_1_1: ke\.p_1_1_unterschrift/.test(NE_SRC) && /pflicht\.u_1_1 === 'nein'/.test(K_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest und zeigt ihn');
+  const PE = read('src/js/modules/pdf-export.js');
+  check(/Unterschrift fehlt/.test(PE) && /p_1_1_unterschrift/.test(PE) && /teilFehlt \? \[\]/.test(PE), 'Durchsichtsbogen (PDF): „Unterschrift fehlt“ – Zusätze nur, wenn der Teil da ist');
+  check(/unterschriftOptHtml\('p_1_1_unterschrift'/.test(K_SRC) && /data-haupt="\$\{haupt\}"/.test(K_SRC) && /\$\{gesperrt \? 'disabled' : ''\}/.test(K_SRC) && /\[data-haupt="\$\{field\}"\]/.test(K_SRC), 'Auswahl in der Eingabemaske; Unterpunkte gesperrt, solange der Hauptpunkt fehlt');
+  check(/App\.autoHinweisePflicht\(a\.ke\)/.test(read('src/js/modules/workflows.js')) && /App\.bemerkungOhneDoppelungen\(ke\.bemerkung, ke\)/.test(K_SRC), 'Anschreiben und Öffnen der Durchsicht nutzen dieselbe Regel');
+  App.run("UPDATE kontrollergebnisse SET bemerkung='', ergebnis='', p_1_1_ausbildungsplan='', p_1_1_gefuehrt='', p_1_1_unterschrift='', p_1_5_bescheinigungen='', p_1_5_gefuehrt='' WHERE id=200"); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=200');
+  KH.currentIndex = 0;
+}
+
 console.log('\n══ Höhe der Ergebnisleiste: Bemerkung wächst, Griff, gemerkte Höhe ══');
 {
   check(/<div class="ke-griff" id="keGriff" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="/.test(K_SRC), 'Griff an der Oberkante der Leiste, per Tastatur erreichbar und beschriftet');

@@ -1416,6 +1416,7 @@ const App = {
       ergebnis TEXT DEFAULT '' CHECK (ergebnis IN ('','in_ordnung','nachholung_naechste_durchsicht','sachberichte_wetter_email','berichte_bis_termin_email','persoenliche_vorlage_rp','post_an_rp')),
       p_1_1_ausbildungsplan TEXT DEFAULT '' CHECK (p_1_1_ausbildungsplan IN ('','ja','nein','nicht_vorhanden')),
       p_1_1_gefuehrt TEXT DEFAULT '',
+      p_1_1_unterschrift TEXT DEFAULT '',
       p_1_4_auszubildende TEXT DEFAULT '' CHECK (p_1_4_auszubildende IN ('','ja','nein','nicht_vorhanden')),
       p_1_5_bescheinigungen TEXT DEFAULT '' CHECK (p_1_5_bescheinigungen IN ('','ja','nein','nicht_vorhanden')),
       bescheinigungen_anzahl INTEGER DEFAULT 0,
@@ -7387,6 +7388,7 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN fehltage_pauschal INTEGER DEFAULT 0");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_unterschrift TEXT DEFAULT ''");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -7767,7 +7769,7 @@ const App = {
       while (stmtKe.step()) diskKE.push(stmtKe.getAsObject());
       stmtKe.free();
 
-      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
+      const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
@@ -10137,12 +10139,13 @@ const App = {
     return prev.length ? prev[0] : null;
   },
 
-  // ── 1.1 / 1.5 „nicht geführt“: fester Hinweis in der Bemerkung ──
-  //  Steht auf einer EIGENEN Zeile, damit er sich beim Zurücksetzen sauber und
-  //  ohne Rätselraten wieder entfernen lässt. Von Hand geänderte Fassungen
-  //  bleiben unangetastet.
+  // ── Unterpunkte zu 1.1 / 1.5 („nicht geführt“, „Unterschrift fehlt“): fester
+  //  Hinweis in der Bemerkung bei Wert 'nein'. Steht auf einer EIGENEN Zeile,
+  //  damit er sich beim Zurücksetzen sauber und ohne Rätselraten wieder
+  //  entfernen lässt. Von Hand geänderte Fassungen bleiben unangetastet.
   HINWEISE_NICHT_GEFUEHRT: {
     p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
+    p_1_1_unterschrift: 'Individueller Ausbildungsplan (1.1): Unterschrift fehlt. Der Ausbildungsplan ist von Ausbildungsbetrieb und Auszubildender/Auszubildendem zu unterschreiben.',
     p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
   },
   // ── Fehlende Pflicht- und Hinweisteile („nein“ / „nicht vorhanden“) ──
@@ -10164,15 +10167,58 @@ const App = {
     G: 'Datum / Kalenderwoche berichtigen',
   },
   // Feste Reihenfolge der automatischen Zeilen am Ende der Bemerkung
-  HINWEISE_REIHENFOLGE: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb', 'A', 'B', 'C', 'D', 'E', 'F', 'G'],
+  HINWEISE_REIHENFOLGE: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_1_unterschrift', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb', 'A', 'B', 'C', 'D', 'E', 'F', 'G'],
   autoHinweisStamm(key) {
     return this.HINWEISE_NICHT_GEFUEHRT[key] || this.HINWEISE_PFLICHT_FEHLT[key] || this.HINWEISE_CODES[key] || null;
   },
-  // Automatische Zeile zu einem Pflichtteil-Wert (null = keine)
+  // Unterpunkt → Hauptpunkt. Fehlt der Hauptpunkt („nein“ / „nicht vorhanden“),
+  // sagt sein Satz schon alles: die Sätze der Unterpunkte entfallen dann, damit
+  // nichts doppelt (oder widersprüchlich: „fehlt“ + „vorhanden, aber …“) steht.
+  HINWEISE_HAUPTPUNKT: {
+    p_1_1_gefuehrt: 'p_1_1_ausbildungsplan',
+    p_1_1_unterschrift: 'p_1_1_ausbildungsplan',
+    p_1_5_gefuehrt: 'p_1_5_bescheinigungen',
+  },
+  // Alle Pflichtteil-Felder mit automatischem Satz, in Anzeige-Reihenfolge
+  HINWEIS_PFLICHT_FELDER: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_1_unterschrift', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb'],
+  pflichtFehlt(wert) { return wert === 'nein' || wert === 'nicht_vorhanden'; },
+  // Unterpunkte eines Hauptpunkts (leer, wenn das Feld kein Hauptpunkt ist)
+  hinweisUnterpunkte(feld) {
+    return Object.keys(this.HINWEISE_HAUPTPUNKT).filter(k => this.HINWEISE_HAUPTPUNKT[k] === feld);
+  },
+  // Automatische Zeile zu einem Pflichtteil-Wert (null = keine) – EIN Feld für
+  // sich, ohne Blick auf den Hauptpunkt (dafür: autoHinweisePflicht)
   autoHinweisPflicht(feld, wert) {
     if (this.HINWEISE_NICHT_GEFUEHRT[feld]) return wert === 'nein' ? this.HINWEISE_NICHT_GEFUEHRT[feld] : null;
-    if (this.HINWEISE_PFLICHT_FEHLT[feld]) return (wert === 'nein' || wert === 'nicht_vorhanden') ? this.HINWEISE_PFLICHT_FEHLT[feld] : null;
+    if (this.HINWEISE_PFLICHT_FEHLT[feld]) return this.pflichtFehlt(wert) ? this.HINWEISE_PFLICHT_FEHLT[feld] : null;
     return null;
+  },
+  // Automatische Zeilen zu den Pflichtteilen EINES Kontrollergebnisses:
+  // { feld: zeile | null } für `felder` (Vorgabe: alle). Ein Unterpunkt liefert
+  // null, solange sein Hauptpunkt fehlt – so entsteht nie eine Doppelung.
+  autoHinweisePflicht(ke, felder) {
+    const neu = {};
+    (felder || this.HINWEIS_PFLICHT_FELDER).forEach(f => {
+      const haupt = this.HINWEISE_HAUPTPUNKT[f];
+      neu[f] = haupt && this.pflichtFehlt((ke || {})[haupt]) ? null : this.autoHinweisPflicht(f, (ke || {})[f]);
+    });
+    return neu;
+  },
+  // Felder, deren Zeilen beim Speichern von `feld` neu zu setzen sind: ein
+  // Hauptpunkt nimmt seine Unterpunkte mit (fehlt er, verschwinden ihre Sätze;
+  // ist er wieder da, kommen sie nach ihrem Wert zurück), ein Unterpunkt nur sich
+  hinweisFamilie(feld) {
+    return [feld, ...this.hinweisUnterpunkte(feld)];
+  },
+  // Bemerkung ohne Doppelungen: Sätze von Unterpunkten, deren Hauptpunkt fehlt,
+  // fallen heraus (Altbestand aus der Zeit vor der Regel). Entfernt nur.
+  bemerkungOhneDoppelungen(bemerkung, ke) {
+    const weg = {};
+    Object.keys(this.HINWEISE_HAUPTPUNKT).forEach(k => { if (this.pflichtFehlt((ke || {})[this.HINWEISE_HAUPTPUNKT[k]])) weg[k] = null; });
+    if (!Object.keys(weg).length) return String(bemerkung || '');
+    const vorher = String(bemerkung || '');
+    if (!vorher.split('\n').some(z => { const k = this._autoZeileKey(z); return k && k in weg; })) return vorher;
+    return this.bemerkungMitAutoZeilen(vorher, weg);
   },
   // Erkennt eine automatische Zeile: genau der Stamm oder Stamm + „ (…)“.
   // Von Hand veränderte Sätze gelten als eigener Text und bleiben stehen.
@@ -10856,6 +10902,10 @@ Mit freundlichen Grüßen
       }
       if (!keCols.includes('p_1_5_gefuehrt')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
+      }
+      // 1.1 vorhanden, aber nicht unterschrieben: '' | 'ja' | 'nein' (= Unterschrift fehlt)
+      if (!keCols.includes('p_1_1_unterschrift')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_unterschrift TEXT DEFAULT ''");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
