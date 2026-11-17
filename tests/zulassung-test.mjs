@@ -4,7 +4,8 @@
 //  Übersteuerung mit Meldung und Begründung, PA + Zulassung kombinierbar,
 //  vorzeitige Zulassung), Fehlzeiten (ohne Urlaub, bisher vs. gesamt,
 //  Schwelle als Einstellung, Teilzeit-Deckel § 7a), Zusatzvereinbarung
-//  (1.2) als Schalter für Wetter/Sachberichte, Migration, Vorlagen, Hilfe
+//  (1.2) nur noch für Sachberichte/Pflanze der Woche – Wetter (D) ist für
+//  alle Pflicht –, Migration, Vorlagen, Hilfe
 //  Ausführen:  node tests/zulassung-test.mjs
 // ═══════════════════════════════════════════════════════════════════
 import vm from 'node:vm';
@@ -66,21 +67,27 @@ KH.currentIndex = 0;
 const s1 = KH.currentSchuelerList[0], s2 = KH.currentSchuelerList[1], s3 = KH.currentSchuelerList[2];
 const ke = (id) => App.query('SELECT * FROM kontrollergebnisse WHERE id=?', [id])[0];
 
-console.log('══ Zulassungsrelevante Codes (A B C E F G), D nur mit Zusatzvereinbarung, I Hinweis ══');
+console.log('══ Zulassungsrelevante Codes (A B C D E F G) – Wetter für alle Pflicht, I Hinweis ══');
 {
-  check(App.ZULASSUNG_CODES.join('') === 'ABCEFG', `ZULASSUNG_CODES = ${App.ZULASSUNG_CODES.join(' ')}`);
-  check(!App.zulassungsCodes({ f_1_2_vertragliche_regelungen: '' }).includes('D'), 'Ohne Zusatzvereinbarung zählt D (Wetter) nicht');
-  check(App.zulassungsCodes({ f_1_2_vertragliche_regelungen: 'ja' }).includes('D'), 'Mit Zusatzvereinbarung (1.2 = ja) zählt D');
-  check(App.istZulassungsMangel('D,H', {}) === false && App.istZulassungsMangel('I', {}) === false && App.istZulassungsMangel('H', {}) === false, 'D, I und H sind ohne Zusatzvereinbarung kein Zulassungsmangel');
-  check(App.istZulassungsMangel('A,H', {}) === true && App.istZulassungsMangel('C', {}) === true && App.istZulassungsMangel('D', { f_1_2_vertragliche_regelungen: 'ja' }) === true, 'A, C – und D mit Zusatzvereinbarung – sind Zulassungsmängel');
+  check(App.ZULASSUNG_CODES.join('') === 'ABCDEFG', `ZULASSUNG_CODES = ${App.ZULASSUNG_CODES.join(' ')}`);
+  check(App.zulassungsCodes({ f_1_2_vertragliche_regelungen: '' }).includes('D') && App.zulassungsCodes(null).includes('D'), 'Wetter (D) zählt auch ohne Zusatzvereinbarung – für alle Pflicht');
+  check(App.zulassungsCodes({ f_1_2_vertragliche_regelungen: 'ja' }).join('') === App.zulassungsCodes({ f_1_2_vertragliche_regelungen: 'nein' }).join(''), 'Die Zusatzvereinbarung (1.2) ändert die zulassungsrelevanten Codes nicht mehr');
+  check(App.istZulassungsMangel('D,H', {}) === true && App.istZulassungsMangel('D', null) === true, 'D ist ein Zulassungsmangel, auch ohne Zusatzvereinbarung');
+  check(App.istZulassungsMangel('I', {}) === false && App.istZulassungsMangel('H', {}) === false && App.istZulassungsMangel('H,I', { f_1_2_vertragliche_regelungen: 'ja' }) === false, 'I und H sind kein Zulassungsmangel');
+  check(App.istZulassungsMangel('A,H', {}) === true && App.istZulassungsMangel('C', {}) === true, 'A und C sind Zulassungsmängel');
+  check(App.hatZusatzvereinbarung({ f_1_2_vertragliche_regelungen: 'ja' }) === true && App.hatZusatzvereinbarung({ f_1_2_vertragliche_regelungen: '' }) === false, 'Teil 1.2 bleibt als Angabe (Sachberichte, Pflanze der Woche)');
   db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (1,1,40,'D',0,1),(1,1,41,'H',2,1),(1,1,42,'I',0,1)`);
-  check(App.offeneZulassungsMaengel(1, ke(100)) === 0, 'Wochen mit D, H, I zählen nicht als offene Zulassungsmängel');
+  check(App.offeneZulassungsMaengel(1, ke(100)) === 1, 'Die Wetter-Woche (D) zählt als offener Zulassungsmangel, H und I nicht');
   db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (1,1,43,'B,D',0,1)`);
-  check(App.offeneZulassungsMaengel(1, ke(100)) === 1, 'Eine Woche mit B zählt (auch wenn D dabeisteht)');
+  check(App.offeneZulassungsMaengel(1, ke(100)) === 2, 'Eine Woche mit B und D zählt einmal (2 Wochen)');
   App.run("UPDATE kontrollergebnisse SET f_1_2_vertragliche_regelungen='ja' WHERE id=100");
-  check(App.offeneZulassungsMaengel(1, ke(100)) === 2, 'Mit Zusatzvereinbarung zählt auch die D-Woche (2)');
+  check(App.offeneZulassungsMaengel(1, ke(100)) === 2, 'Mit Zusatzvereinbarung dieselbe Zahl (2)');
   App.run("UPDATE kontrollergebnisse SET f_1_2_vertragliche_regelungen='' WHERE id=100");
   db.run("DELETE FROM kw_status WHERE schueler_id=1 AND kalenderwoche=43");
+  // Eine offene Wetter-Woche steht der Berichtsheft-Voraussetzung entgegen
+  const bD = KH.zulassungsBefund(s1, ke(100));
+  check(bD.ok === false && bD.offeneMaengel === 1 && bD.gruende.some(g => /Woche\(n\) mit Mängeln/.test(g) && /A B C D E F G/.test(g)), `Offene Wetter-Woche: Voraussetzung nicht erfüllt (${bD.gruende.join('; ')})`);
+  db.run("DELETE FROM kw_status WHERE schueler_id=1 AND kalenderwoche=40");
 }
 
 console.log('\n══ Pflichtteile: 1.1 und 1.5 sind Voraussetzung, 1.4 ist Hinweis ══');
@@ -100,7 +107,7 @@ console.log('\n══ Pflichtteile: 1.1 und 1.5 sind Voraussetzung, 1.4 ist Hinw
 console.log('\n══ Befund: Gründe in Klartext, letztes Jahr, vorzeitige Zulassung ══');
 {
   const b1 = KH.zulassungsBefund(s1, ke(100));
-  check(b1.ok === true && b1.gruende.length === 0, `Azubi 1 (i.O., Pflichtteile, D-Woche): Voraussetzung erfüllt (${b1.gruende.join('; ')})`);
+  check(b1.ok === true && b1.gruende.length === 0, `Azubi 1 (i.O., Pflichtteile, nur H- und I-Woche): Voraussetzung erfüllt (${b1.gruende.join('; ')})`);
   check(b1.imLetztenAJ === true, 'Azubi 1 ist im letzten Ausbildungsjahr');
   const b2 = KH.zulassungsBefund(s2, ke(200));
   check(b2.ok === true && b2.imLetztenAJ === false, 'Azubi 2 (2. Jahr): erfüllt, aber nicht im letzten Jahr → kein automatischer Vorschlag');
@@ -181,18 +188,25 @@ console.log('\n══ Zusatzvereinbarung: Migration, Ergebnis-Hinweis, Vorlagen 
   const st2 = d2.prepare("SELECT f_1_2_vertragliche_regelungen AS v FROM kontrollergebnisse WHERE id=3"); st2.step(); const v3 = st2.getAsObject().v; st2.free();
   check(v3 === 'ja', 'Bewusst gesetztes „ja“ nach der Migration bleibt');
   check(/_migrateZusatzvereinbarung\(diskDb\)/.test(APP_SRC) && /_migrateZusatzvereinbarung\(this\.db\)/.test(APP_SRC), 'Migration läuft auf In-Memory- UND Disk-DB (Parität)');
-  // Ergebnis „Sachberichte wegen Wetter“ bleibt möglich, Hinweis ohne Zusatzvereinbarung
+  // Ergebnis „Sachberichte wegen Wetter“ für alle, ohne Hinweis-Meldung (Wetter ist Pflicht)
   const toasts = []; App.toast = (m) => toasts.push(m);
   KH.currentIndex = 0;
   KH.saveField('ergebnis', 'sachberichte_wetter_email');
-  check(ke(100).ergebnis === 'sachberichte_wetter_email' && toasts.some(t => /Zusatzvereinbarung/.test(t)), 'Ergebnis gespeichert, Hinweis auf fehlende Zusatzvereinbarung');
+  check(ke(100).ergebnis === 'sachberichte_wetter_email' && !toasts.some(t => /Zusatzvereinbarung/.test(t)), 'Ergebnis gespeichert, keine Meldung „ohne Zusatzvereinbarung nur Bitte“ mehr');
   App.toast = () => {};
   KH.saveField('ergebnis', 'in_ordnung');
   check(ke(100).f_1_2_vertragliche_regelungen === '' && ke(100).p_1_4_auszubildende === 'ja', '„In Ordnung“ lässt 1.2 leer, setzt 1.4 (Hinweis) auf ja');
   const V = App.VORLAGEN;
   check(/Tagesberichte \(Teil 2\.1/.test(V.betrieb_bcc.body) && /Zusatzvereinbarung/.test(V.betrieb_bcc.body) && !/Sachberichte \/ Wochenberichte/.test(V.betrieb_bcc.body), 'Serien-Mail nennt Tagesberichte, Zusatzvereinbarung statt „Sachberichte/Wochenberichte“');
   check(/Tagesberichte/.test(V.betrieb_ankuendigung.body) && /§ 14 Abs\. 2 BBiG/.test(V.betrieb_maengel.body), 'Ankündigung nennt Tagesberichte, Mängelmitteilung § 14 Abs. 2');
-  check(/kw-hinweis/.test(read('src/css/styles.css')) && /kw-hinweis/.test(K_SRC) && /kw-hinweis/.test(read('src/js/modules/kw-nav.js')), 'Hinweis-Codes (D ohne Zusatzvereinbarung, I) werden gelb statt rot gezeichnet');
+  check(/kw-hinweis/.test(read('src/css/styles.css')) && /kw-hinweis/.test(K_SRC) && /kw-hinweis/.test(read('src/js/modules/kw-nav.js')), 'Hinweis-Code (I) wird gelb statt rot gezeichnet');
+  // Wetter für alle Pflicht: Vorlagen, Textbausteine, einmalige Bereinigung alter Wortlaute
+  check(/\n- Wetterbeobachtungen\n- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche/.test(V.betrieb_bcc.body) && !/zusätzlich: Wetterbeobachtungen/.test(V.betrieb_bcc.body), 'Serien-Mail: Wetterbeobachtungen stehen als eigener Pflichtpunkt, nicht mehr unter der Zusatzvereinbarung');
+  check(Object.values(V).every(v => !/bei Zusatzvereinbarung auch Wetter/.test(v.body || '')) && Object.values(V).some(v => /Wetterbeobachtungen, Unterschriften mit Datum/.test(v.body || '')), 'Kein Standard-Anschreiben nennt Wetter mehr nur „bei Zusatzvereinbarung“');
+  const alt = Object.keys(App.WETTER_TEXT_ALT);
+  check(alt.length === 4 && alt.every(k => /Zusatzvereinbarung/.test(k)) && Object.values(App.WETTER_TEXT_ALT).every(v => !/nur bei Zusatzvereinbarung/.test(v)), 'Alte Wortlaute (Textbausteine, Vorlagen) haben je eine neue Fassung');
+  check(/wetter_pflicht_v1/.test(APP_SRC) && /schluessel LIKE 'vorlage_%'/.test(APP_SRC) && !/'Wetterbericht fehlt durchgehend \(Hinweis/.test(APP_SRC.slice(APP_SRC.indexOf("'textbausteine_bemerkung',?)\",\n            [JSON.stringify(["))), 'Einmalige Bereinigung (wetter_pflicht_v1) für Textbausteine und gespeicherte Vorlagen; Standard-Bausteine ohne den Zusatz');
+  check(/Wetterbeobachtungen sind für alle Auszubildenden Pflicht/.test(read('src/js/modules/views.js')) && /für alle Auszubildenden Pflicht \(Zulassungsmangel\)/.test(K_SRC) && !/Wetter \(D\) nur Hinweis/.test(K_SRC), 'Hilfe, Kürzel-Leiste und Karte 1.2 sagen: Wetter ist für alle Pflicht');
   const H = read('src/js/modules/views.js');
   check(/§ 46 Abs\. 1 BBiG/.test(H) && /§ 14 Abs\. 2 BBiG/.test(H) && /§ 8 Abs\. 2 BBiG/.test(H) && /Trotzdem zulassen/.test(H), 'Hilfe: § 14, § 46, § 8 Abs. 2 und die Übersteuerung sind erklärt');
 }

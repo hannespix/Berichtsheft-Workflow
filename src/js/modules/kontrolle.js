@@ -1688,12 +1688,12 @@ const KontrolleHandler = {
       const hasBem = d && d.bemerkung;
       const isSessionKW = ajSessionKWs.includes(kw);
       const isPastPruef = d && d.geprueft && !isSessionKW;
-      // H (Fehltage) allein = kein Mangel → kein rot; D/I ohne
-      // Zusatzvereinbarung = Hinweis (gelb), kein Zulassungsmangel
+      // H (Fehltage) allein = kein Mangel → kein rot; I (Sonstiges) =
+      // Hinweis (gelb), kein Zulassungsmangel. Wetter (D) zählt für alle.
       const hasRealMaengel = hasCodes && codeStr.split(',').some(c => c.trim() && c.trim() !== 'H');
       const hasZulMangel = hasCodes && App.istZulassungsMangel(codeStr, ke);
       const isHOnly = hasCodes && !hasRealMaengel;
-      // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for D/I, kw-behoben (orange), kw-ok (green)
+      // States: kw-issue (red) only for Zulassungsmängel, kw-hinweis (amber) for I, kw-behoben (orange), kw-ok (green)
       let cls = '';
       if (hasZulMangel) cls = 'kw-issue';
       else if (hasRealMaengel) cls = 'kw-hinweis';
@@ -1729,7 +1729,7 @@ const KontrolleHandler = {
       <span class="leg-item"><kbd>A</kbd>Unterschr. Azubi</span>
       <span class="leg-item"><kbd>B</kbd>Unterschr. Ausbilder</span>
       <span class="leg-item"><kbd>C</kbd>BS-Themen</span>
-      <span class="leg-item" title="${App.hatZusatzvereinbarung(ke) ? 'Wetter – mit Zusatzvereinbarung verbindlich (Zulassungsmangel)' : 'Wetter – ohne Zusatzvereinbarung (1.2) nur Hinweis, keine Zulassungsvoraussetzung'}"><kbd>D</kbd>Wetter${App.hatZusatzvereinbarung(ke) ? '' : ' <span class="leg-hinweis">(Hinweis)</span>'}</span>
+      <span class="leg-item" title="Wetterbeobachtungen – für alle Auszubildenden Pflicht (Zulassungsmangel)"><kbd>D</kbd>Wetter</span>
       <span class="leg-item"><kbd>E</kbd>Lückenhaft</span>
       <span class="leg-item"><kbd>F</kbd>Berichte fehlen</span>
       <span class="leg-item"><kbd>G</kbd>Datum/KW</span>
@@ -2007,7 +2007,7 @@ const KontrolleHandler = {
           <div style="font-size:12px;font-weight:600;color:var(--clr-text-light);margin-bottom:4px" title="Keine Zulassungsvoraussetzung – wird beanstandet, sperrt aber nicht">Hinweis (keine Zulassungsvoraussetzung)</div>
           <div style="display:grid;grid-template-columns:28px 1fr auto;gap:4px 8px;align-items:center;font-size:13px">
             <span style="font-weight:600;color:var(--clr-sage)">1.2</span>
-            <span title="Liegt die Zusatzvereinbarung zum Ausbildungsvertrag über die Berichtsheftführung vor, sind auch Wetterbeobachtungen, Sachberichte und Pflanze der Woche verbindlich – dann zählt Code D als Mangel.">Zusatzvereinbarung Berichtsheftführung ${App.hatZusatzvereinbarung(ke) ? '<span style="font-size:12px;color:var(--clr-forest);font-weight:600">· Wetter/Sachberichte verbindlich</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">· ohne: Wetter (D) nur Hinweis</span>'}</span>
+            <span title="Liegt die Zusatzvereinbarung zum Ausbildungsvertrag über die Berichtsheftführung vor, sind auch Sachberichte und Pflanze der Woche verbindlich. Wetterbeobachtungen (Code D) sind für alle Auszubildenden Pflicht – unabhängig von der Zusatzvereinbarung.">Zusatzvereinbarung Berichtsheftführung ${App.hatZusatzvereinbarung(ke) ? '<span style="font-size:12px;color:var(--clr-forest);font-weight:600">· Sachberichte/Pflanze der Woche verbindlich</span>' : '<span style="font-size:12px;color:var(--clr-text-light)">· ohne: Sachberichte nur Hinweis</span>'}</span>
             <div>${pflichtOptHtml('f_1_2_vertragliche_regelungen', ke.f_1_2_vertragliche_regelungen)}</div>
 
             <span style="font-weight:600;color:var(--clr-sage)">1.4</span>
@@ -2150,13 +2150,13 @@ const KontrolleHandler = {
         <div class="ke-griff" id="keGriff" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="Höhe der Ergebnisleiste – ziehen oder Pfeiltasten, Doppelklick setzt zurück" title="Ziehen: Bemerkungsfeld höher oder niedriger · Doppelklick: automatisch"></div>
         <div class="ke-ergebnis">
           <span class="ke-titel">Ergebnis</span>
-          ${(() => { const bf = App.befundAus(ke.ergebnis); const zv = App.hatZusatzvereinbarung(ke); return `
+          ${(() => { const bf = App.befundAus(ke.ergebnis); return `
           <label class="erg-pill erg-offen" title="Noch nicht bewertet (⇧0)"><input type="radio" name="ergebnis" value="" data-befund="" ${!bf.befund ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('')">offen</label>
           <label class="erg-pill erg-ok" title="Berichtsheft war in Ordnung (⇧1)"><input type="radio" name="ergebnis" value="in_ordnung" data-befund="ok" ${bf.befund === 'ok' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('ok')">✓ In Ordnung<kbd>⇧1</kbd></label>
           <label class="erg-pill erg-mangel" title="Mängel festgestellt – Nachweisweg daneben wählen (⇧2, Weg ⇧3–6)"><input type="radio" name="ergebnis" value="maengel" data-befund="maengel" ${bf.befund === 'maengel' ? 'checked' : ''} onchange="KontrolleHandler.setzeBefund('maengel')">✗ Mängel<kbd>⇧2</kbd></label>
           <label id="keWegLabel" class="ke-weg-label" for="keWeg" style="${bf.befund === 'maengel' ? '' : 'display:none'}">Nachweis</label>
           <select id="keWeg" class="form-control ke-weg" aria-label="Nachweisweg" title="Wie kommt der Nachweis? (⇧3 nächste Durchsicht · ⇧4 E-Mail · ⇧5 Post · ⇧6 persönlich)" style="${bf.befund === 'maengel' ? '' : 'display:none'}" onchange="KontrolleHandler.setzeWeg(this.value)">
-            ${App.WEGE.filter(w => w.val !== 'email_sachberichte' || zv || bf.weg === 'email_sachberichte').map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
+            ${App.WEGE.map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
           </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
             <label for="wvDatum">Wiedervorlage</label>
@@ -2348,14 +2348,9 @@ const KontrolleHandler = {
       });
     }
 
-    // Zusatzvereinbarung (1.2) schaltet, ob Wetter (D) als Zulassungsmangel
-    // zählt → Raster und Kürzel-Leiste neu einfärben
+    // Zusatzvereinbarung (1.2): Beschriftung „Sachberichte verbindlich / nur
+    // Hinweis“ nachführen (Wetter zählt unabhängig davon für alle)
     if (field === 'f_1_2_vertragliche_regelungen') { this._aktuellesKE = { ...ke, [field]: value }; this.renderSchueler(); }
-    // „Sachberichte wegen Wetter“ ist ohne Zusatzvereinbarung (1.2) kein
-    // Zulassungsmangel – Ergebnis bleibt möglich, aber mit Hinweis
-    if (field === 'ergebnis' && value === 'sachberichte_wetter_email' && !App.hatZusatzvereinbarung(ke)) {
-      App.toast('Hinweis: Ohne Zusatzvereinbarung (Teil 1.2) sind Wetter und Sachberichte keine Zulassungsvoraussetzung – Nachreichung ist eine Bitte, keine Auflage.', 'warning');
-    }
     // Show/hide WV section
     if (field === 'ergebnis') {
       this._wvFeldAnzeigen(value);

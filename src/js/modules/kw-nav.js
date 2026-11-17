@@ -648,7 +648,7 @@ const KWNav = {
     const hasCodes = !!codesStr;
     const fehl = parseInt(fehltage) || 0;
     const hasBehoben = cell.dataset.behoben && !hasCodes;
-    // Zulassungsmangel rot, Hinweis-Codes (D ohne Zusatzvereinbarung, I) gelb,
+    // Zulassungsmangel rot (auch Wetter D – für alle Pflicht), Hinweis-Code I gelb,
     // H allein kein Mangel – dieselbe Einteilung wie beim Zeichnen des Rasters
     const ke = typeof KontrolleHandler !== 'undefined' && KontrolleHandler._aktuellesKE ? KontrolleHandler._aktuellesKE : null;
     const hasRealMaengel = hasCodes && codesStr.split(',').some(c => c.trim() && c.trim() !== 'H');
