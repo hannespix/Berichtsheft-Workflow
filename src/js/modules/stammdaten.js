@@ -328,9 +328,10 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzeltermin für die Auswahl</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('azubis','xlsx')" title="Die angehakten Azubis als Excel-Datei">⬇ Excel</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
-    <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
+    <div class="card" style="overflow-x:auto"><table class="data-table table-sticky-name" data-export="azubis" data-export-alle data-export-anzahl="${azubis.length}"><thead><tr><th style="width:30px"><input type="checkbox" id="chkAllAzubi" onchange="StammdatenTab._bulkToggleAll(this.checked)"></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>JG</th><th>FR</th><th>Kontakt</th><th>Kontrollen</th><th></th></tr></thead><tbody>
       ${azubis.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--clr-text-light);padding:24px">Keine Azubis gefunden</td></tr>':''}
       ${sichtbar.map(s => {
         const ktrls = App.query('SELECT ke.*, kt.geplant_datum FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.schueler_id=? AND ke.ergebnis != "" ORDER BY kt.geplant_datum DESC', [s.id]);
@@ -339,7 +340,7 @@ const StammdatenTab = {
         const wvO = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [s.id])||0;
         const amp = App.getSchuelerAmpel(s.id);
         const vk = App.isVerkuerzer(s.ausbildungsbeginn, s.ausbildungsende, s.id);
-        return `<tr style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
+        return `<tr data-id="${s.id}" style="${oMgl>0?'background:var(--clr-red-light)':wvO?'background:var(--clr-amber-light)':''}">
           <td><input type="checkbox" class="chk-azubi" value="${s.id}" onchange="StammdatenTab._bulkUpdateBar()"></td>
           <td><strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span title="${esc(amp.label)}">${amp.icon}</span>
             ${vk?'<span style="font-size:12px;padding:1px 4px;background:var(--clr-purple-light);color:var(--clr-purple);border-radius:8px" title="Verkürzte Ausbildung (weniger als 3 Jahre)">V</span>':''}
@@ -468,12 +469,14 @@ const StammdatenTab = {
       LEFT JOIN fachrichtungen fr ON s.fachrichtung_id=fr.id WHERE ${where} ORDER BY s.nachname, s.vorname`, params);
   },
 
-  _exportAzubiExcel() {
-    const azubis = this._getFilteredAzubis();
-    if (!azubis.length) return App.toast('Keine Daten zum Exportieren', 'warning');
+  // Kopf und Zeilen der Azubi-Liste für den Export: die ganze gefilterte Liste
+  // (nicht nur die Seite); mit ids nur diese Azubis
+  _azubiExportDaten(ids) {
+    let azubis = this._getFilteredAzubis();
+    if (ids && ids.length) { const wahl = new Set(ids.map(Number)); azubis = azubis.filter(a => wahl.has(Number(a.id))); }
     const headers = ['Nachname','Vorname','Betrieb','Ort','PLZ','Schule','Klasse','Jahrgang','Fachrichtung',
       'Ausb.beginn','Ausb.ende','Amt','Geschlecht','Schulabschluss','Telefon (Azubi)','E-Mail (Azubi)',
-      'Tel (Betrieb)','E-Mail (Betrieb)','BAV-Status','Zwischenprüfung','Landesfachklasse','iBykus-ID','Status'];
+      'Tel (Betrieb)','E-Mail (Betrieb)','BAV-Status','Zwischenprüfung','Landesfachklasse','iBykus-ID','Status','Klasse (Berufsschule)'];
     const rows = azubis.map(s => [
       s.nachname, s.vorname, s.b_name || s.ausbildungsstaette || '', s.b_ort || '', s.b_plz || '',
       s.schule || '', s.klassenbezeichnung || '', s.jahrgang || '',
@@ -482,21 +485,29 @@ const StammdatenTab = {
       s.zustaendiges_amt ? (s.zustaendiges_amt + ' ' + (App.AEMTER[s.zustaendiges_amt]||'')) : '',
       s.geschlecht || '', s.schulabschluss || '', s.telefon || '', s.email || '',
       s.b_tel || '', s.b_email || '', s.bav_status || '', s.zwischenpruefung || '',
-      s.landesfachklasse || '', s.ibykus_id || '', s.aktiv ? 'Aktiv' : 'Inaktiv'
+      s.landesfachklasse || '', s.ibykus_id || '', s.aktiv ? 'Aktiv' : 'Inaktiv', s.schulklasse || ''
     ]);
+    let filter = []; try { filter = this._getActiveFilterLabels() || []; } catch(e) { filter = []; }
+    return { kopf: headers, zeilen: rows, filter };
+  },
+
+  _exportAzubiExcel(ids) {
+    const d = this._azubiExportDaten(ids);
+    const headers = d.kopf, rows = d.zeilen;
+    if (!rows.length) return App.toast('Keine Daten zum Exportieren', 'warning');
     // Build Excel
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     // Column widths
     ws['!cols'] = headers.map((h, i) => ({ wch: Math.max(h.length, ...rows.slice(0, 20).map(r => String(r[i] || '').length), 8) }));
     XLSX.utils.book_append_sheet(wb, ws, 'Azubis');
-    const filterLabels = this._getActiveFilterLabels();
+    const filterLabels = d.filter;
     if (filterLabels.length) {
-      const infoWs = XLSX.utils.aoa_to_sheet([['Aktive Filter'], ...filterLabels.map(l => [l]), [], ['Anzahl Ergebnisse', azubis.length], ['Exportiert am', new Date().toLocaleString('de-DE')]]);
+      const infoWs = XLSX.utils.aoa_to_sheet([['Aktive Filter'], ...filterLabels.map(l => [l]), [], ['Anzahl Ergebnisse', rows.length], ['Exportiert am', new Date().toLocaleString('de-DE')]]);
       XLSX.utils.book_append_sheet(wb, infoWs, 'Filter-Info');
     }
     XLSX.writeFile(wb, `Azubi-Liste_${todayStr()}.xlsx`);
-    App.toast(`${azubis.length} Azubis als Excel exportiert`, 'success');
+    App.toast(`${rows.length} Azubis als Excel exportiert`, 'success');
   },
 
   _copyAzubiTable() {
@@ -598,12 +609,12 @@ const StammdatenTab = {
         <button class="btn btn-secondary" onclick="StammdatenTab.dubletten('jahrgang')" title="Ähnliche Jahrgangsbezeichnungen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addJahrgang()">+ Neuer Abschlussjahrgang</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Azubi</th><th>Aktionen</th></tr></thead><tbody>
+      <div class="card"><table class="data-table" data-export="jahrgaenge"><thead><tr><th>Bezeichnung</th><th>Typ</th><th>Jahr</th><th>Prüfungstermin</th><th>Azubi</th><th>Aktionen</th></tr></thead><tbody>
         ${rows.map(r => {
           const bgFR = App.filterFachrichtungen.length ? ` AND fachrichtung_id IN (${App.filterFachrichtungen.join(',')})` : '';
           const cnt = App.scalar(`SELECT COUNT(*) FROM schueler WHERE jahrgang_id=?${bgFR}`, [r.id]) || 0;
           const cntAktiv = App.scalar(`SELECT COUNT(*) FROM schueler WHERE jahrgang_id=? AND aktiv=1${bgFR}`, [r.id]) || 0;
-          return `<tr>
+          return `<tr data-id="${r.id}">
           <td><strong>${esc(r.bezeichnung)}</strong></td>
           <td>${esc(r.typ)}</td>
           <td>${r.jahr}</td>
@@ -682,14 +693,15 @@ const StammdatenTab = {
         <span style="opacity:0.4">│</span>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteSchulen()">Löschen</button>
         <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMergeSchulen()">Zusammenführen</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('schulen','xlsx')" title="Die angehakten Berufsschulen mit Ansprechpartnern und Klassen als Excel-Datei">⬇ Excel</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=false);StammdatenTab.updateBulkSchulen()">✕</span>
       </div>
-      <div class="card"><table class="data-table"><thead><tr>
-        <th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkSchulen()"></th>
+      <div class="card"><table class="data-table" data-export="schulen"><thead><tr>
+        <th style="width:30px"><input type="checkbox" aria-label="Alle Berufsschulen wählen" onchange="document.querySelectorAll('.chk-sch').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkSchulen()"></th>
         <th>Name</th><th>Ort</th><th>Ansprechpartner</th><th>Kontakt</th><th>Klassen</th><th>Azubis</th><th title="Abdeckung im laufenden Schuljahr (kontrolliert / aktive Azubis) und Mängelquote">Abdeckung</th><th>Aktionen</th>
       </tr></thead><tbody>
-        ${rows.map(r => `<tr>
-          <td><input type="checkbox" class="chk-sch" value="${r.id}" onchange="StammdatenTab.updateBulkSchulen()"></td>
+        ${rows.map(r => `<tr data-id="${r.id}">
+          <td><input type="checkbox" class="chk-sch" value="${r.id}" aria-label="${esc(r.name)} wählen" onchange="StammdatenTab.updateBulkSchulen()"></td>
           <td><strong>${esc(r.name)}</strong></td>
           <td>${esc(r.ort)}</td>
           <td>${esc(r.ansprechpartner)}</td>
@@ -922,17 +934,18 @@ const StammdatenTab = {
         <span style="opacity:0.4">│</span>
         <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkMoveKlassen()">Schule ändern</button>
         <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="StammdatenTab.bulkSetJahrgangKlassen()">Jahrgang ändern</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('klassen','xlsx')" title="Die angehakten Klassen als Excel-Datei">⬇ Excel</button>
         <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="StammdatenTab.bulkDeleteKlassen()">Löschen</button>
         <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=false);StammdatenTab.updateBulkKlassen()">✕</span>
       </div>
-      <div class="card"><table class="data-table"><thead><tr>
-        <th style="width:30px"><input type="checkbox" onchange="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkKlassen()"></th>
+      <div class="card"><table class="data-table" data-export="klassen"><thead><tr>
+        <th style="width:30px"><input type="checkbox" aria-label="Alle Klassen wählen" onchange="document.querySelectorAll('.chk-kl').forEach(c=>c.checked=this.checked);StammdatenTab.updateBulkKlassen()"></th>
         <th>Berufsschule</th><th>Jahrgang</th><th>LJ</th><th>Fachrichtung</th><th>Bezeichnung</th><th>Azubi</th><th>Aktionen</th>
       </tr></thead><tbody>
         ${rows.map(r => {
           const cnt = App.scalar('SELECT COUNT(*) FROM schueler WHERE klasse_id=?', [r.id]) || 0;
-          return `<tr>
-            <td><input type="checkbox" class="chk-kl" value="${r.id}" onchange="StammdatenTab.updateBulkKlassen()"></td>
+          return `<tr data-id="${r.id}">
+            <td><input type="checkbox" class="chk-kl" value="${r.id}" aria-label="Klasse ${esc(r.klassenbezeichnung)} wählen" onchange="StammdatenTab.updateBulkKlassen()"></td>
             <td><a href="#" onclick="StammdatenTab.showSchuleKlassen(${r.berufsschule_id});return false" style="color:var(--clr-forest);font-weight:700;text-decoration:underline" title="Klassen dieser Schule">${esc(r.schule)}</a></td>
             <td>${esc(r.jahrgang || '–')}</td>
             <td>${r.lehrjahr || '–'}</td>
@@ -1129,8 +1142,8 @@ const StammdatenTab = {
       <div class="toolbar"><div class="toolbar-left"></div><div class="toolbar-right">
         <button class="btn btn-primary" onclick="StammdatenTab.addPruefer()">+ Neuer Prüfer</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr><th>Name</th><th>E-Mail</th><th>Telefon</th><th>Status</th><th>Aktionen</th></tr></thead><tbody>
-        ${rows.map(r => `<tr>
+      <div class="card"><table class="data-table" data-export="pruefer"><thead><tr><th>Name</th><th>E-Mail</th><th>Telefon</th><th>Status</th><th>Aktionen</th></tr></thead><tbody>
+        ${rows.map(r => `<tr data-id="${r.id}">
           <td><strong>${esc(r.name)}</strong></td>
           <td>${esc(r.email)}</td>
           <td>${esc(r.telefon || '')}</td>
@@ -1393,10 +1406,20 @@ const StammdatenTab = {
         <button class="btn btn-sm btn-secondary" onclick="StammdatenTab.dubletten('betrieb')" title="Ähnliche Betriebsnamen finden und zusammenführen">Dubletten prüfen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.addBetrieb()">+ Neuer Betrieb</button>
       </div></div>
-      <div class="card"><table class="data-table"><thead><tr>
+      <div id="bulkBarBetriebe" style="display:none;padding:8px 12px;background:var(--clr-forest);color:var(--clr-white);border-radius:var(--radius);margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px">
+        <strong><span id="bulkCntBetr">0</span> ausgewählt</strong>
+        <span style="opacity:0.4">│</span>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('betriebe','xlsx')" title="Die angehakten Betriebe als Adressliste: Ansprechpartner, Straße, PLZ, Ort, Telefon, E-Mail – dazu Ausbilder und Azubis je Betrieb">⬇ Excel-Adressliste</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('betriebe','kopie')" title="Adressliste in die Zwischenablage">▤ Kopieren</button>
+        <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('betriebe','mail')" title="E-Mail-Adressen der angehakten Betriebe kopieren – für das Bcc-Feld einer Rundmail">✉︎ E-Mail-Adressen</button>
+        <span style="margin-left:auto;opacity:0.6;cursor:pointer" role="button" tabindex="0" onclick="StammdatenTab._betriebeAlle(false)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();StammdatenTab._betriebeAlle(false)}">✕ Abwählen</span>
+      </div>
+      <div class="card"><table class="data-table" data-export="betriebe"><thead><tr>
+        <th style="width:30px"><input type="checkbox" id="chkAllBetr" aria-label="Alle angezeigten Betriebe wählen" title="Alle angezeigten Betriebe wählen" onchange="StammdatenTab._betriebeAlle(this.checked)"></th>
         <th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th><th>Azubis</th><th>Ausbilder</th><th>Mängel</th><th title="Betriebs-Ampel: rot = Wiederholungsbetrieb oder überfällige WV, gelb = offene WV/Mängel, grün = unauffällig · Ø Tage bis zum Nachweis">Ampel</th><th>Aktionen</th>
       </tr></thead><tbody id="betriebeTableBody">
-        ${rows.map(b => `<tr data-search="${esc((b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase())}">
+        ${rows.map(b => `<tr data-id="${b.id}" data-search="${esc((b.name+' '+(b.vorname||'')+' '+(b.zusatzbezeichnung||'')+' '+b.ort+' '+b.email).toLowerCase())}">
+          <td><input type="checkbox" class="chk-betr" value="${b.id}" aria-label="${esc((b.vorname ? b.vorname + ' ' : '') + b.name)} wählen" onchange="StammdatenTab._betriebeBulk()"></td>
           <td>
             ${b.zusatzbezeichnung ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(b.zusatzbezeichnung)}</div>` : ''}
             <strong>${esc((b.vorname ? b.vorname + ' ' : '') + b.name)}</strong>
@@ -1426,6 +1449,23 @@ const StammdatenTab = {
     document.querySelectorAll('#betriebeTableBody tr').forEach(r => {
       r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none';
     });
+  },
+  // Auswahl in der Betriebsliste (für den Export): „alle“ meint die angezeigten Zeilen
+  _betriebeAlle(an) {
+    document.querySelectorAll('#betriebeTableBody tr').forEach(r => {
+      const c = r.querySelector('.chk-betr');
+      if (c && (!an || r.style.display !== 'none')) c.checked = !!an;
+    });
+    const kopf = document.getElementById('chkAllBetr');
+    if (kopf) kopf.checked = !!an;
+    this._betriebeBulk();
+  },
+  _betriebeBulk() {
+    const n = document.querySelectorAll('.chk-betr:checked').length;
+    const bar = document.getElementById('bulkBarBetriebe');
+    const cnt = document.getElementById('bulkCntBetr');
+    if (cnt) cnt.textContent = n;
+    if (bar) bar.style.display = n > 0 ? 'flex' : 'none';
   },
 
   // Auto-link: match schueler.ausbildungsstaette → betriebe by name

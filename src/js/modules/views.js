@@ -1090,7 +1090,7 @@ const Views = {
 
       <div id="planJahreskalender" style="display:none;margin-bottom:16px"></div>
       <div id="planTable" class="card">
-        ${termine.length ? `<table class="data-table"><thead><tr><th class="sl-th"><input type="checkbox" id="planAlle" aria-label="Alle sichtbaren Termine für eine gemeinsame Auswertung wählen" title="Alle sichtbaren Termine wählen" onchange="Sammel.alle(this.checked)"></th><th>Datum</th><th>Ort</th><th>Klasse(n)</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
+        ${termine.length ? `<table class="data-table" data-export="termine"><thead><tr><th class="sl-th"><input type="checkbox" id="planAlle" aria-label="Alle sichtbaren Termine für eine gemeinsame Auswertung wählen" title="Alle sichtbaren Termine wählen" onchange="Sammel.alle(this.checked)"></th><th>Datum</th><th>Ort</th><th>Klasse(n)</th><th>Jahrgang</th><th>Azubis</th><th>Prüfer</th><th>Status</th><th>Aktionen</th></tr></thead><tbody id="planTableBody">
           ${termine.map(t => {
             const klassen = App.getTerminKlassen(t.id);
             const ortBs = App.getTerminSchule(t.id);
@@ -1353,10 +1353,11 @@ const Views = {
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="BulkWV.erledigtSelected()">✓ Als erledigt markieren</button>
           <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.wiederOeffnenSelected()" title="Erledigte Wiedervorlagen der Auswahl wieder auf offen stellen">↺ Wieder öffnen</button>
           <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('wiedervorlagen','xlsx')" title="Die angehakten Wiedervorlagen als Excel-Datei">⬇ Excel</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkWV.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkWV.deselectAll()">✕ Abwählen</span>
         </div>
-        ${wvs.length ? `<table class="data-table"><thead><tr>
+        ${wvs.length ? `<table class="data-table" data-export="wiedervorlagen"><thead><tr>
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
           <th>Azubi</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
@@ -2487,6 +2488,15 @@ const Views = {
             <p><strong>Fachrichtungen</strong> – Fachrichtungen im Gartenbau (z.B. GaLaBau, Baumschule, Zierpflanzenbau) sowie Fachwerkerberufe.</p>
             <p><strong>Klassen</strong> – Automatisch generierte Berufsschulklassen (Schule + Jahrgang + Fachrichtung + Ausbildungsjahr).</p>
             <p><strong>Ausbildungsberater</strong> – Liste der Sachbearbeiter/Ausbildungsberater, die Durchsichten durchführen.</p>
+          <div class="help-abschnitt">
+            <h4 class="help-untertitel">Listen exportieren (Excel, Kopieren)</h4>
+            <p>Unter jeder Liste steht rechts eine schmale Leiste: <strong>⬇ Excel</strong> speichert die Liste als Excel-Datei, <strong>▤ Kopieren</strong> legt sie in die Zwischenablage (in Excel, Word oder einer E-Mail mit Strg+V einfügen). Exportiert wird immer die <strong>aktuelle Auswahl</strong>: die angehakten Zeilen – und ohne Häkchen alles, was gerade angezeigt wird (Filter, Suche und Sortierung gelten).</p>
+            <p>• <strong>Betriebe</strong> – „Excel-Adressliste“ mit Ansprechpartner, Straße, PLZ und Ort in eigenen Spalten (so taugt die Datei als Datenquelle für einen Serienbrief), dazu Telefon, E-Mail und die Zahl der aktiven Azubis; weitere Blätter nennen die Ausbilder und die Azubis je Betrieb. <strong>✉︎ E-Mail-Adressen</strong> kopiert die Adressen der Auswahl für das Bcc-Feld einer Rundmail.</p>
+            <p>• <strong>Berufsschulen</strong> mit Ansprechpartnern und Klassen, <strong>Klassen</strong>, <strong>Jahrgänge</strong>, <strong>Prüfer</strong> – jeweils als eigene Liste.</p>
+            <p>• <strong>Azubis</strong> – ohne Häkchen die ganze gefilterte Liste (nicht nur die angezeigte Seite), mit Häkchen nur die Auswahl.</p>
+            <p>• <strong>Termine</strong> und <strong>Wiedervorlagen</strong> – die Liste mit allen Angaben (Ort, Klassen, Stand, Fristen, Versandnachweis …). In der Übersicht einer Durchsicht exportiert „⬇ Excel“ in der Auswahl-Leiste die Ergebnisliste nur der angehakten Azubis.</p>
+            <p>• Alle anderen Listen ab drei Zeilen (auch in Dialogen, etwa „Azubis einer Schule“) werden so exportiert, wie sie am Bildschirm stehen. Die Startseite zeigt nur Auszüge und hat deshalb keine Export-Leiste.</p>
+          </div>
           <div class="help-abschnitt">
             <h4 class="help-untertitel">${svgIcon('dashboard', 15)} Ausbildungsverlauf (Phasen)</h4>
             <p>Pro Azubi lassen sich Phasen der Ausbildung hinterlegen: Vollzeit, Teilzeit, Betriebswechsel, Unterbrechungen (Elternzeit, lange Krankheit). Erreichbar über das ${svgIcon('dashboard', 12)}-Symbol in Stammdaten, Azubi-Ansicht und Kontrolle sowie aus dem Bearbeiten-Fenster.</p>

@@ -775,7 +775,7 @@ const BerichteHandler = {
         </select>
       </div>
       ${azubis.length ? `<div style="overflow-x:auto;max-height:400px;overflow-y:auto">
-        <table class="data-table" style="font-size:12px" id="zlTable">
+        <table class="data-table" style="font-size:12px" id="zlTable" data-kein-export>
           <thead><tr><th></th><th>Name</th><th>Betrieb</th><th>Schule/Klasse</th><th>FR</th><th>JG</th><th>Ergebnis</th><th>WV</th><th>PA</th></tr></thead>
           <tbody>${azubis.map(s => `<tr>
             <td style="text-align:center">${ampelIcon(s.letztes_ergebnis)}</td>
@@ -799,10 +799,11 @@ const BerichteHandler = {
   // Ergebnisliste eines Termins (alle Azubis) als Excel – für Ablage,
   // Weitergabe an die Schule oder als Grundlage für eigene Auswertungen
   // Ergebniszeilen eines Termins (für den Excel-Export je Termin und über mehrere Termine)
-  _terminZeilen(termin, mitTermin) {
+  _terminZeilen(termin, mitTermin, nurIds) {
     const terminId = termin.id;
     const bs = App.getTerminSchule(terminId);
-    const liste = App.getTerminSchueler(terminId);
+    const wahl = nurIds && nurIds.length ? new Set(nurIds.map(Number)) : null;
+    const liste = App.getTerminSchueler(terminId).filter(s => !wahl || wahl.has(Number(s.id)));
     const eLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht', sachberichte_wetter_email: 'Sachberichte (Wetter) per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail bis Termin', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP', abwesend: 'Abwesend' };
     return liste.map(s => {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0] || {};
@@ -831,19 +832,21 @@ const BerichteHandler = {
     const cols = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:30},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
     return mitTermin ? [{wch:28}, ...cols] : cols;
   },
-  exportTerminExcel(terminId) {
+  // nurIds: nur diese Azubis (Auswahl in der Übersicht der Durchsicht)
+  exportTerminExcel(terminId, nurIds) {
     if (typeof XLSX === 'undefined') return App.toast('Excel-Bibliothek nicht geladen', 'error');
     const termin = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
     if (!termin) return App.toast('Termin nicht gefunden', 'error');
     const bs = App.getTerminSchule(terminId);
-    const rows = this._terminZeilen(termin, false);
+    const auswahl = !!(nurIds && nurIds.length);
+    const rows = this._terminZeilen(termin, false, nurIds);
     if (!rows.length) return App.toast('Keine Azubis in diesem Termin', 'warning');
     const ws = XLSX.utils.json_to_sheet(rows);
     ws['!cols'] = this._ergebnisSpalten(false);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ergebnisse');
-    XLSX.writeFile(wb, App.safeFilename(['Ergebnisse', bs ? bs.name : 'Termin', (termin.durchgefuehrt_datum || termin.geplant_datum || '').substring(0, 10)], 'xlsx'));
-    App.toast(`Ergebnisliste mit ${rows.length} Azubis exportiert`, 'success');
+    XLSX.writeFile(wb, App.safeFilename(['Ergebnisse', bs ? bs.name : 'Termin', (termin.durchgefuehrt_datum || termin.geplant_datum || '').substring(0, 10), auswahl ? 'Auswahl' : ''], 'xlsx'));
+    App.toast(`Ergebnisliste mit ${rows.length} Azubi${rows.length === 1 ? '' : 's'}${auswahl ? ' (Auswahl)' : ''} exportiert`, 'success');
   },
   // Ergebnisliste über mehrere Termine (Sammelauswertung): eine Datei, Spalte „Termin“
   exportTermineExcel(terminIds) {
@@ -1204,7 +1207,7 @@ const BerichteHandler = {
     }
     const sevBadge = { fehler: '<span class="badge-status badge-overdue">Fehler</span>', warnung: '<span class="badge-status badge-open">Warnung</span>', hinweis: '<span class="badge-status" style="background:var(--clr-warm);color:var(--clr-text-light)">Hinweis</span>' };
     const sevRank = { fehler: 0, warnung: 1, hinweis: 2 };
-    wrap.innerHTML = `<table class="data-table" style="font-size:12px"><thead><tr>
+    wrap.innerHTML = `<table class="data-table" style="font-size:12px" data-kein-export><thead><tr>
         <th>Schweregrad</th><th>Kategorie</th><th>Datensatz</th><th>IBYKUS-ID</th><th>Problem</th><th>Feld</th>
       </tr></thead><tbody>
       ${list.map((i, idx) => `<tr style="cursor:pointer" onclick="BerichteHandler._dqOpen(${idx})">
