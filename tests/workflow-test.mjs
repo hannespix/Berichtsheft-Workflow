@@ -563,6 +563,49 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
     check(['azubi_ankuendigung', 'azubi_ok', 'azubi_maengel', 'azubi_nachholung'].every(k => App.VORLAGEN[k] && /\{azubi_anrede\}/.test(App.VORLAGEN[k].body) && /\{betrieb_hinweis\}/.test(App.VORLAGEN[k].body) && !/\{azubi_block\}/.test(App.VORLAGEN[k].body)), 'Vier Azubi-Vorlagen: Anrede, Betriebs-Hinweis, kein Sammelblock');
     check(!/_betriebMailCc/.test(read('src/js/modules/workflows.js')) && !/cc: m\.cc/.test(read('src/js/modules/workflows.js')) && !/cc: m\.cc/.test(read('src/js/modules/brief-editor.js')), 'Kein Weg setzt mehr Azubis in Kopie (Arbeitsliste, mailto, Brief-Editor)');
   }
+  // ── Vorlage von Hand wählen: für alle, je Betrieb, je Azubi ──
+  {
+    console.log('\n  ── Vorlage von Hand wählen ──');
+    const ia = d.betriebe[0].azubis.findIndex(x => x.id === 901);
+    const io = d.betriebe[0].azubis.findIndex(x => x.id !== 901);
+    check(Workflows._betriebVorlageFuer(0) === 'betrieb_maengel' && Workflows._azubiVorlageFuer(0, ia) === 'azubi_maengel' && d.vorlageAlle === '' && Object.keys(d.vorlage).length === 0, 'Ohne Wahl: Vorlage automatisch nach dem Ergebnis');
+    let z = Workflows._betriebMailZeile(d.betriebe[0], 0);
+    check(/<select class="mail-vorlage" aria-label="Vorlage der E-Mail an Gärtnerei Mail"[^>]*onchange="Workflows\.betriebVorlageSetzen\(0,this\.value\)">\s*<option value="" selected>Standard: Mängelmitteilung<\/option>/.test(z) && ['betrieb_ankuendigung', 'betrieb_maengel', 'betrieb_ok', 'nachholung'].every(t => z.includes(`<option value="${t}">`)), 'Betriebszeile: Auswahl mit „Standard: Mängelmitteilung“ und den vier Betriebs-Vorlagen');
+    check(new RegExp(`aria-label="Vorlage der E-Mail an Erik Eins"[^>]*onchange="Workflows\\.azubiVorlageSetzen\\(0,${ia},this\\.value\\)">\\s*<option value="" selected>Standard: Ergebnis mit Nacharbeit</option>`).test(z) && ['azubi_ankuendigung', 'azubi_maengel', 'azubi_ok', 'azubi_nachholung'].every(t => z.includes(`<option value="${t}">`)), 'Azubi-Zeile: eigene Auswahl mit den vier Azubi-Vorlagen');
+    const opt = Workflows._betriebMailOptionenHtml();
+    check(/id="betriebMailVorlageAlle"[^>]*onchange="Workflows\.betriebVorlageAlle\(this\.value\)">\s*<option value="" selected>automatisch nach Ergebnis<\/option>/.test(opt) && /<option value="nachholung">für alle: Nachhol-Aufforderung \(abwesend\)<\/option>/.test(opt), 'Optionen: „Vorlage“ für alle E-Mails des Termins');
+    // je Betrieb
+    const stAlt = d.status[0], saAlt = d.statusAzubi['0_' + ia];
+    d.status[0] = { zeit: '10:00', entwurf: true };
+    Workflows.betriebVorlageSetzen(0, 'betrieb_ok');
+    const mb = Workflows._betriebMailInhalt(0);
+    check(mb.typ === 'betrieb_ok' && /ohne Beanstandung/i.test(mb.betreff + mb.body) && Workflows._azubiVorlageFuer(0, ia) === 'azubi_maengel', `Betrieb von Hand auf „ohne Beanstandung“ – Text folgt, die Azubi-Mails bleiben bei ihrer Vorlage (${mb.typ})`);
+    z = Workflows._betriebMailZeile(d.betriebe[0], 0);
+    check(/<select class="mail-vorlage von-hand" aria-label="Vorlage der E-Mail an Gärtnerei Mail"/.test(z) && /<option value="betrieb_ok" selected>ohne Beanstandung<\/option>/.test(z) && /Vorlage seither geändert – Entwürfe neu erzeugen/.test(z), 'Zeile zeigt die Wahl und meldet den schon erzeugten Entwurf als überholt');
+    Workflows.betriebVorlageSetzen(0, 'gibt_es_nicht');
+    check(Workflows._betriebVorlageFuer(0) === 'betrieb_maengel' && d.vorlage[0] === undefined, 'Unbekannter Wert oder „Standard“ → wieder automatisch');
+    // je Azubi
+    d.statusAzubi['0_' + ia] = { zeit: '10:00', entwurf: true };
+    Workflows.azubiVorlageSetzen(0, ia, 'azubi_ok');
+    const ma = Workflows._azubiMailInhalt(0, ia);
+    check(ma.typ === 'azubi_ok' && /ohne Beanstandung/.test(ma.body) && d.statusAzubi['0_' + ia].veraltet === true && Workflows._betriebMailInhalt(0).typ === 'betrieb_maengel', 'Azubi von Hand auf „ohne Beanstandung“ – nur diese E-Mail ändert sich');
+    // für alle; die Wahl in der Zeile hat Vorrang
+    Workflows.betriebVorlageAlle('nachholung');
+    check(Workflows._betriebMailInhalt(0).typ === 'nachholung' && Workflows._azubiMailInhalt(0, ia).typ === 'azubi_ok' && Workflows._azubiVorlageFuer(0, io) === 'azubi_nachholung' && /Standard: Nachhol-Aufforderung \(abwesend\)/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)) && /<option value="nachholung" selected>/.test(Workflows._betriebMailOptionenHtml()), 'Für alle „Nachhol-Aufforderung“: Betriebe und Azubis folgen, die Wahl in der Zeile bleibt');
+    Workflows.betriebVorlageSetzen(0, 'betrieb_ankuendigung');
+    check(Workflows._betriebMailInhalt(0).typ === 'betrieb_ankuendigung', 'Wahl je Betrieb schlägt die Wahl für alle');
+    // Erneutes Öffnen desselben Termins behält die Wahl, ein anderer Termin nicht
+    const merkD = Workflows._individualData;
+    Workflows.emailBetriebIndividuell(900);
+    const d2 = Workflows._individualData;
+    check(d2 !== merkD && d2.vorlageAlle === 'nachholung' && d2.vorlage[0] === 'betrieb_ankuendigung' && d2.vorlageAzubi['0_' + ia] === 'azubi_ok', 'Erneut geöffnet: gewählte Vorlagen bleiben');
+    Workflows.betriebVorlageAlle(''); Workflows.betriebVorlageSetzen(0, ''); Workflows.azubiVorlageSetzen(0, ia, '');
+    check(Workflows._betriebMailInhalt(0).typ === 'betrieb_maengel' && Workflows._azubiMailInhalt(0, ia).typ === 'azubi_maengel' && Object.keys(d2.vorlage).length === 0 && Object.keys(d2.vorlageAzubi).length === 0, 'Alles zurück auf Standard → wieder automatisch');
+    Workflows._individualData = merkD; merkD.vorlageAlle = ''; merkD.vorlage = {}; merkD.vorlageAzubi = {};
+    if (stAlt) d.status[0] = stAlt; else delete d.status[0];
+    if (saAlt) d.statusAzubi['0_' + ia] = saAlt; else delete d.statusAzubi['0_' + ia];
+    check(/\.mail-vorlage \{[^}]*font-size: 12px/.test(read('src/css/styles.css')) && /Vorlage von Hand/.test(read('src/js/modules/views.js')), 'Auswahl mit 12 px Schrift, Hilfe beschreibt die Wahl');
+  }
   const textTeil = emlB.split('--' + emlB.match(/boundary="([^"]+)"/)[1])[1];
   check(/Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(b64dec(textTeil.split('\r\n\r\n')[1])), 'Text des Entwurfs = Mängelmitteilung mit kompaktem Mängel-Block');
   check(/Doppelklick|doppelklicken/.test(zip.file('LIESMICH.txt').asText()) && /\d+ Durchsichtsbögen/.test(zip.file('LIESMICH.txt').asText()) && /1 Entwürfe? an Betriebe/.test(zip.file('LIESMICH.txt').asText()) && /\d+ Entwürfe? an Auszubildende/.test(zip.file('LIESMICH.txt').asText()), 'LIESMICH erklärt den Weg, zählt Betriebe, Azubis und Bögen');
