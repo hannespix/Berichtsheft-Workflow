@@ -1,7 +1,13 @@
 const WiedervorlagenHandler = {
   // Filter der WV-Liste: „unerledigt" (offen + überfällig) ist der Standard –
   // „nur offene" versteckte die überfälligen, also die dringendsten
-  filter(status) {
+  // Eben geänderte Zeilen (erledigt / wieder geöffnet) bleiben trotz Filter
+  // sichtbar, bis der Filter von Hand gewechselt oder die Ansicht verlassen
+  // wird – sonst verschwände eine versehentlich erledigte Wiedervorlage sofort
+  // aus „Unerledigt“ und ließe sich nicht an Ort und Stelle zurückstellen.
+  _soeben: new Set(),
+  filter(status, vonHand) {
+    if (vonHand) this._soeben.clear();
     const rows = document.querySelectorAll('#wvTableBody tr');
     rows.forEach(r => {
       const st = r.dataset.status;
@@ -10,8 +16,144 @@ const WiedervorlagenHandler = {
       else if (status === 'unerledigt') show = st !== 'erledigt';
       else if (status === 'ohne_versand') show = st !== 'erledigt' && r.dataset.versand !== '1';
       else show = st === status;
+      const eben = this._soeben.has(Number(r.dataset.id));
+      if (eben) show = true;
+      const hinweis = r.querySelector('.wv-soeben');
+      if (hinweis) hinweis.hidden = !eben;
       r.style.display = show ? '' : 'none';
     });
+  },
+  // Liste und offene Seiten nach einer Statusänderung neu zeichnen; die
+  // geänderte Zeile bleibt sichtbar und wird in den Blick geholt
+  _auffrischen(ids, schuelerId) {
+    (ids || []).forEach(id => this._soeben.add(Number(id)));
+    try { if (App.currentView === 'wiedervorlagen') {
+      Views.wiedervorlagen();
+      const zeile = ids && ids.length === 1 && document.querySelector(`#wvTableBody tr[data-id="${Number(ids[0])}"]`);
+      if (zeile && zeile.scrollIntoView) zeile.scrollIntoView({ block: 'nearest' });
+    } } catch(e) {}
+    try { if (schuelerId && typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen && AzubiSeite.istOffen(schuelerId)) AzubiSeite.render(); } catch(e) {}
+    try { if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') TerminSeite.render(); } catch(e) {}
+    try { App.updateBadges && App.updateBadges(); } catch(e) {}
+  },
+
+  // ── Status ändern (Spalte „Status“ der Liste) ──────────────────────────
+  // Offen/Überfällig ↔ Erledigt. „Überfällig“ ist kein wählbarer Status,
+  // sondern folgt aus der Frist.
+  _statusNachFrist(frist) { return frist && frist < todayStr() ? 'ueberfaellig' : 'offen'; },
+  statusWahlHtml(w) {
+    const erledigt = w.status === 'erledigt';
+    const wer = [w.nachname, w.vorname].filter(Boolean).join(', ');
+    return `<select class="wv-status wv-status--${esc(w.status)}" aria-label="Status der Wiedervorlage${wer ? ' von ' + esc(wer) : ''} ändern" title="${erledigt ? 'Erledigt – „Wieder öffnen“ wählen, um die Wiedervorlage zurückzustellen' : 'Status ändern'}" onchange="WiedervorlagenHandler.statusSetzen(${w.id}, this.value, this)">
+      <option value="offen"${erledigt ? '' : ' selected'}>${erledigt ? 'Wieder öffnen' : (w.status === 'ueberfaellig' ? 'Überfällig' : 'Offen')}</option>
+      <option value="erledigt"${erledigt ? ' selected' : ''}>Erledigt</option>
+    </select><div class="wv-soeben" hidden>eben geändert</div>`;
+  },
+  statusSetzen(id, wert, el) {
+    const w = App.query('SELECT id, status FROM wiedervorlagen WHERE id=?', [id])[0];
+    if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
+    // Die Auswahl zeigt weiter den gespeicherten Stand, bis der Dialog bestätigt ist
+    if (el) el.value = w.status === 'erledigt' ? 'erledigt' : 'offen';
+    if (wert === 'erledigt' && w.status !== 'erledigt') return this.erledigenDirekt(id);
+    if (wert === 'offen' && w.status === 'erledigt') return this.wiederOeffnen(id);
+  },
+
+  // Wochen, die ÜBER eine Wiedervorlage als behoben markiert wurden, stehen in
+  // wiedervorlagen.erledigt_behoben als [[aj, kw, 'A,B'], …] – nur so lässt
+  // sich ein versehentliches Erledigen vollständig zurücknehmen.
+  _behobenLesen(w) {
+    try { const l = JSON.parse((w && w.erledigt_behoben) || '[]'); return Array.isArray(l) ? l.filter(z => Array.isArray(z) && z.length >= 3) : []; } catch(e) { return []; }
+  },
+  _behobenMerken(wvId, eintraege) {
+    if (!wvId || !eintraege || !eintraege.length) return;
+    try {
+      const w = App.query('SELECT erledigt_behoben FROM wiedervorlagen WHERE id=?', [wvId])[0];
+      if (!w) return;
+      const map = new Map(this._behobenLesen(w).map(z => [z[0] + '_' + z[1], z]));
+      eintraege.forEach(([aj, kw, codes]) => {
+        const k = aj + '_' + kw, alt = map.get(k);
+        const set = new Set([...(alt ? String(alt[2]).split(',') : []), ...String(codes || '').split(',')].filter(Boolean));
+        if (set.size) map.set(k, [aj, kw, [...set].join(',')]);
+      });
+      // Eigene Anweisung: ein Rechner mit älterem Programmstand ohne diese
+      // Spalte übernimmt die Statusänderung trotzdem
+      App.run('UPDATE wiedervorlagen SET erledigt_behoben=? WHERE id=?', [JSON.stringify([...map.values()]), wvId]);
+    } catch(e) { console.warn('erledigt_behoben:', e.message); }
+  },
+  // Was sich davon noch zurückholen lässt: Codes, die weiter als behoben
+  // geführt werden und inzwischen nicht wieder als Mangel eingetragen sind
+  _wochenZurueck(w) {
+    const out = [];
+    this._behobenLesen(w).forEach(([aj, kw, codes]) => {
+      const row = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND ausbildungsjahr=? AND kalenderwoche=?', [w.schueler_id, aj, kw])[0];
+      if (!row) return;
+      const m = String(row.maengel_codes || '').split(',').filter(Boolean);
+      const b = String(row.behobene_codes || '').split(',').filter(Boolean);
+      const zur = String(codes || '').split(',').filter(c => c && b.includes(c) && !m.includes(c));
+      if (zur.length) out.push({ row, aj, kw, m, b, zur });
+    });
+    return out;
+  },
+  _wochenZurueckholen(w) {
+    const liste = this._wochenZurueck(w);
+    liste.forEach(z => App.run('UPDATE kw_status SET maengel_codes=?, behobene_codes=? WHERE id=?',
+      [[...new Set([...z.m, ...z.zur])].sort().join(','), z.b.filter(c => !z.zur.includes(c)).join(','), z.row.id]));
+    return liste.length;
+  },
+
+  // Erledigte Wiedervorlage wieder öffnen (versehentlich erledigt)
+  wiederOeffnen(id) {
+    const w = App.query(`SELECT w.*, s.nachname, s.vorname, ke.ergebnis AS ke_ergebnis
+      FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id
+      LEFT JOIN kontrollergebnisse ke ON w.kontrollergebnis_id=ke.id WHERE w.id=?`, [id])[0];
+    if (!w) return App.toast('Wiedervorlage nicht gefunden', 'error');
+    if (w.status !== 'erledigt') return App.toast('Diese Wiedervorlage ist nicht erledigt', 'info');
+    const wochen = this._wochenZurueck(w);
+    const ohneDatum = !w.frist_datum;
+    App.openModal('Wiedervorlage wieder öffnen – ' + esc(w.nachname) + ', ' + esc(w.vorname), `
+      <p style="font-size:13px;margin-bottom:10px">Erledigt${w.erledigt_datum ? ' am <strong>' + formatDate(w.erledigt_datum) + '</strong>' : ''}${w.erledigt_bemerkung ? ' – ' + esc(w.erledigt_bemerkung) : ''}. Die Wiedervorlage (${wvArtLabel(w.art)}) wird wieder geöffnet; Erledigungsdatum und -bemerkung wandern als Notiz in den Verlauf.</p>
+      <div class="form-row">
+        <div class="form-group"><label for="mWvFristNeu">Frist</label><input type="date" class="form-control" id="mWvFristNeu" value="${esc(w.frist_datum || '')}">
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">${ohneDatum ? 'Leer = bei der nächsten Durchsicht (wie bisher).' : (w.frist_datum < todayStr() ? 'Die Frist ist abgelaufen – ohne neue Frist steht die Wiedervorlage sofort auf „Überfällig“.' : 'Die Frist läuft noch.')}</div>
+        </div>
+        <div class="form-group"><label for="mWvGrund">Grund (optional)</label><input type="text" class="form-control" id="mWvGrund" placeholder="z.B. versehentlich erledigt"></div>
+      </div>
+      ${wochen.length ? `<label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" id="mWvWochen" checked style="accent-color:var(--clr-forest);margin-top:2px"> <span>Die <strong>${wochen.length}</strong> über diese Wiedervorlage als behoben markierte${wochen.length === 1 ? ' Woche' : 'n Wochen'} wieder als offenen Mangel führen</span>
+      </label>` : ''}
+      ${w.ke_ergebnis === 'in_ordnung' ? '<p style="font-size:12px;color:var(--clr-amber);margin:0">Das Ergebnis der zugehörigen Durchsicht steht auf „In Ordnung“. Stimmt das nicht, bitte dort ebenfalls ändern (⋯ → Durchsicht öffnen).</p>' : ''}
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-primary" onclick="WiedervorlagenHandler.doWiederOeffnen(' + id + ')">↺ Wieder öffnen</button>');
+    setTimeout(() => document.getElementById('mWvGrund')?.focus(), 50);
+  },
+  // params (optional, für Tests und Sammelaktion): { frist, grund, wochen, still }
+  doWiederOeffnen(id, params) {
+    const w = App.query('SELECT * FROM wiedervorlagen WHERE id=?', [id])[0];
+    if (!w) { App.toast('Wiedervorlage nicht gefunden', 'error'); return null; }
+    if (w.status !== 'erledigt') return null;
+    const feld = document.getElementById('mWvFristNeu');
+    const p = params || {
+      frist: feld ? feld.value : undefined,
+      grund: (document.getElementById('mWvGrund')?.value || '').trim(),
+      wochen: !!document.getElementById('mWvWochen')?.checked,
+    };
+    const frist = p.frist === undefined || p.frist === null ? (w.frist_datum || '') : String(p.frist).trim();
+    if (frist && !/^\d{4}-\d{2}-\d{2}$/.test(frist)) { App.toast('Bitte ein gültiges Datum als Frist angeben', 'warning'); return null; }
+    const status = this._statusNachFrist(frist);
+    const wochen = p.wochen ? this._wochenZurueckholen(w) : 0;
+    App.run(`UPDATE wiedervorlagen SET status=?, frist_datum=?, erledigt_datum='', erledigt_bemerkung='', geaendert_am=datetime('now','localtime') WHERE id=?`, [status, frist, id]);
+    if (wochen) { try { App.run("UPDATE wiedervorlagen SET erledigt_behoben='' WHERE id=?", [id]); } catch(e) {} }
+    const wer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '';
+    const teile = ['Wieder geöffnet – war' + (w.erledigt_datum ? ' am ' + formatDate(w.erledigt_datum) : '') + ' als erledigt markiert' + (w.erledigt_bemerkung ? ' (' + w.erledigt_bemerkung + ')' : '')];
+    if ((w.frist_datum || '') !== frist) teile.push('Frist ' + (w.frist_datum ? formatDate(w.frist_datum) : 'nächste Durchsicht') + ' → ' + (frist ? formatDate(frist) : 'nächste Durchsicht'));
+    if (wochen) teile.push(wochen + ' Woche' + (wochen === 1 ? '' : 'n') + ' wieder als offener Mangel');
+    if (p.grund) teile.push('Grund: ' + p.grund);
+    App.run('INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)', [id, teile.join(' · '), wer]);
+    if (!p.still) {
+      App.closeModal();
+      this._auffrischen([id], w.schueler_id);
+      App.toast(`Wiedervorlage wieder geöffnet (${status === 'ueberfaellig' ? 'überfällig' : 'offen'})${wochen ? ` · ${wochen} Woche${wochen === 1 ? '' : 'n'} wieder als offener Mangel` : ''}`, 'success');
+    }
+    return { status, frist, wochen };
   },
 
   erledigen(id) {
@@ -87,21 +229,26 @@ const WiedervorlagenHandler = {
     const artLabel = this.NACHWEIS_ARTEN[p.nachweis] || '';
     const bem = (artLabel ? `Nachweis (${artLabel})` : '') + (p.bem ? (artLabel ? ': ' : '') + p.bem : '');
     let behoben = 0;
-    if (p.behoben) behoben = this._maengelBehoben(w.schueler_id);
+    const gemerkt = [];
+    if (p.behoben) behoben = this._maengelBehoben(w.schueler_id, gemerkt);
     const dateien = 0; // Datei-Anhänge an Wiedervorlagen gibt es nicht mehr (Akte ohne Datei-Upload)
     App.run(`UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?`, [datum, bem, id]);
+    this._behobenMerken(id, gemerkt);
     App.closeModal();
+    this._soeben.add(Number(id));
     try { Views.wiedervorlagen(); } catch(e) {}
-    App.toast(`Wiedervorlage erledigt${behoben ? ` · ${behoben} Woche(n) als behoben markiert` : ''}${dateien ? ` · ${dateien} Datei(en) in der Akte` : ''}`, 'success');
+    try { const zeile = document.querySelector(`#wvTableBody tr[data-id="${Number(id)}"]`); if (zeile && zeile.scrollIntoView) zeile.scrollIntoView({ block: 'nearest' }); } catch(e) {}
+    App.toast(`Wiedervorlage erledigt${behoben ? ` · ${behoben} Woche(n) als behoben markiert` : ''}${dateien ? ` · ${dateien} Datei(en) in der Akte` : ''} – versehentlich? In der Spalte „Status“ auf „Wieder öffnen“ stellen`, 'success', 7000);
     return { behoben, dateien, bem };
   },
   // Alle offenen Mängel eines Azubis als behoben protokollieren (Nachweis ohne
   // erneute Durchsicht) – Historie bleibt in behobene_codes erhalten
-  _maengelBehoben(schuelerId) {
+  _maengelBehoben(schuelerId, gemerkt) {
     const rows = App.query('SELECT * FROM kw_status WHERE schueler_id=? AND maengel_codes != ""', [schuelerId]);
     rows.forEach(row => {
       const codes = row.maengel_codes.split(',').filter(Boolean);
       const behoben = row.behobene_codes ? row.behobene_codes.split(',').filter(Boolean) : [];
+      if (gemerkt) gemerkt.push([row.ausbildungsjahr, row.kalenderwoche, codes.join(',')]);
       App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [[...new Set([...behoben, ...codes])].join(','), row.id]);
     });
     return rows.length;
@@ -224,6 +371,7 @@ const WiedervorlagenHandler = {
         </select>
       </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
+        ${w.status === 'erledigt' ? `<button class="btn btn-secondary" onclick="WiedervorlagenHandler.wiederOeffnen(${id})" title="Versehentlich erledigt? Wiedervorlage wieder auf offen stellen">↺ Wieder öffnen</button>` : ''}
         <button class="btn btn-primary" onclick="WiedervorlagenHandler.addNotiz(${id})">Notiz speichern</button>`);
   },
 
@@ -236,6 +384,7 @@ const WiedervorlagenHandler = {
     behoben.push(code);
     App.run('UPDATE kw_status SET maengel_codes=?, behobene_codes=? WHERE id=?',
       [newCodes.join(','), [...new Set(behoben)].join(','), kwStatusId]);
+    this._behobenMerken(wvId, [[row.ausbildungsjahr, row.kalenderwoche, code]]);
     App.toast(`Code ${code} als behoben markiert`, 'success');
     this.details(wvId); // Refresh
     this.checkAutoErledigt(wvId);
@@ -248,6 +397,7 @@ const WiedervorlagenHandler = {
     const behoben = row.behobene_codes ? row.behobene_codes.split(',').filter(Boolean) : [];
     const merged = [...new Set([...behoben, ...codes])].join(',');
     App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [merged, kwStatusId]);
+    this._behobenMerken(wvId, [[row.ausbildungsjahr, row.kalenderwoche, codes.join(',')]]);
     App.toast(`KW ${row.kalenderwoche} komplett behoben`, 'success');
     this.details(wvId);
     this.checkAutoErledigt(wvId);
@@ -261,6 +411,7 @@ const WiedervorlagenHandler = {
       const merged = [...new Set([...behoben, ...codes])].join(',');
       App.run('UPDATE kw_status SET maengel_codes="", behobene_codes=? WHERE id=?', [merged, row.id]);
     });
+    this._behobenMerken(wvId, rows.map(row => [row.ausbildungsjahr, row.kalenderwoche, row.maengel_codes]));
     App.toast(`Alle ${rows.length} Mängel als behoben markiert`, 'success');
     this.details(wvId);
     this.checkAutoErledigt(wvId);

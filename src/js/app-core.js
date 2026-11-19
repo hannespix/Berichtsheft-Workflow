@@ -1560,6 +1560,7 @@ const App = {
       versand_datum TEXT DEFAULT '',
       versand_art TEXT DEFAULT '',
       mahnstufe INTEGER DEFAULT 0,
+      erledigt_behoben TEXT DEFAULT '',
       erstellt_am TEXT DEFAULT (datetime('now','localtime')),
       geaendert_am TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -7401,6 +7402,8 @@ const App = {
     run("ALTER TABLE wiedervorlagen ADD COLUMN versand_datum TEXT DEFAULT ''");
     run("ALTER TABLE wiedervorlagen ADD COLUMN versand_art TEXT DEFAULT ''");
     run("ALTER TABLE wiedervorlagen ADD COLUMN mahnstufe INTEGER DEFAULT 0");
+    // Über die Wiedervorlage als behoben markierte Wochen – für „Wieder öffnen“
+    run("ALTER TABLE wiedervorlagen ADD COLUMN erledigt_behoben TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN telefon TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''");
     run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''");
@@ -11086,6 +11089,7 @@ Mit freundlichen Grüßen
         if (!wvCols.includes('versand_datum')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN versand_datum TEXT DEFAULT ''");
         if (!wvCols.includes('versand_art')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN versand_art TEXT DEFAULT ''");
         if (!wvCols.includes('mahnstufe')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN mahnstufe INTEGER DEFAULT 0");
+        if (!wvCols.includes('erledigt_behoben')) this.db.run("ALTER TABLE wiedervorlagen ADD COLUMN erledigt_behoben TEXT DEFAULT ''");
       } catch(e) { console.warn('WV-Spalten:', e.message); }
       // Clean stale sessions (silent – don't track as dirty op)
       try { this.db.run("DELETE FROM aktive_sitzung WHERE seit < datetime('now','localtime','-30 minutes')"); } catch(e) {}
