@@ -762,6 +762,10 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   justify-content: flex-end;
   gap: 8px;
 }
+/* Fußzeile der E-Mail-Arbeitsliste: Knöpfe und Stand brechen um statt überzulaufen */
+.modal-footer:has(.mail-fuss) { align-items: flex-start; }
+.mail-fuss { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; min-width: 0; }
+.mail-fuss-fertig { color: var(--clr-green); font-weight: 600; font-size: 13px; white-space: nowrap; }
 
 /* ── KW Grid ── */
 .kw-grid {

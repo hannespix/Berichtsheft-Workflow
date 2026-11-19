@@ -53,7 +53,7 @@ const BriefEditor = {
           ${ms.map((x, i) => `<option value="${i}" ${i === s.aktiv ? 'selected' : ''}>${i + 1}. ${esc(x.betriebName)} – ${x.email ? 'E-Mail' : 'Post'}${x._geaendert ? ' ✎' : ''}</option>`).join('')}
         </select>
         <button class="btn btn-sm btn-secondary" onclick="BriefEditor.blaettern(1)" ${s.aktiv >= ms.length - 1 ? 'disabled' : ''} aria-label="Nächster Brief">›</button>
-        <span class="bz-an">${m.email ? `✉︎ ${esc(m.email)}${m.cc ? ` · CC ${esc(m.cc)}` : ''}` : '<span class="bz-warn">keine E-Mail – Versand per Post</span>'}</span>
+        <span class="bz-an">${m.email ? `✉︎ ${esc(m.email)}` : '<span class="bz-warn">keine E-Mail – Versand per Post</span>'}</span>
         <span class="bz-abstand"></span>
         <label class="bz-opt">E-Mail-Anhang
           <select class="form-control" onchange="BriefEditor.option('anhang', this.value)">${this.ANHANG_WAHL.map(([k, l]) => `<option value="${k}" ${o.anhang === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -266,7 +266,9 @@ const BriefEditor = {
         try { const b = PDFExport.bogenBytes(m.terminId, sid); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
       });
     }
-    return App.emlErzeugen({ to: m.email, cc: m.cc, subject: m.betreff, body: this.mailText(m), anhaenge });
+    // Nur an den Betrieb, niemand in Kopie: die Azubis sähen sonst Ergebnisse
+    // und Bögen der anderen (eigene E-Mail je Azubi: Arbeitsliste „E-Mails an die Betriebe“)
+    return App.emlErzeugen({ to: m.email, subject: m.betreff, body: this.mailText(m), anhaenge });
   },
 
   // ── Word (.docx): eigener OOXML-Schreiber, je Brief ein Abschnitt mit
