@@ -222,6 +222,59 @@ const Workflows = {
     return 'betrieb_ok';
   },
   _betriebVorlageLabel: { betrieb_ankuendigung: 'Ankündigung', betrieb_maengel: 'Mängelmitteilung', betrieb_ok: 'ohne Beanstandung', nachholung: 'Nachhol-Aufforderung (abwesend)' },
+  _azubiVorlageLabel: { azubi_ankuendigung: 'Ankündigung', azubi_maengel: 'Ergebnis mit Nacharbeit', azubi_ok: 'ohne Beanstandung', azubi_nachholung: 'Nachhol-Aufforderung (abwesend)' },
+  // ── Vorlage von Hand wählen (E-Mail-Arbeitsliste) ──────────────────────
+  // Vorrang: Wahl in der Zeile → Wahl „für alle“ → automatisch nach Ergebnis.
+  // Wählbar sind die Vorlagen, die mit den Angaben der Arbeitsliste gefüllt
+  // werden können (BETRIEB_VORLAGEN bzw. deren Azubi-Fassungen).
+  BETRIEB_VORLAGEN: ['betrieb_ankuendigung', 'betrieb_maengel', 'betrieb_ok', 'nachholung'],
+  _betriebVorlageFuer(idx) {
+    const d = this._individualData; const g = d && d.betriebe[idx]; if (!g) return '';
+    const hand = (d.vorlage && d.vorlage[idx]) || d.vorlageAlle || '';
+    return this.BETRIEB_VORLAGEN.includes(hand) ? hand : this._betriebVorlageTyp(g, d.isDone);
+  },
+  _azubiVorlageFuer(idx, ai) {
+    const d = this._individualData; const g = d && d.betriebe[idx]; const a = g && g.azubis[ai]; if (!a) return '';
+    const hand = d.vorlageAzubi && d.vorlageAzubi[idx + '_' + ai];
+    if (hand && this._azubiVorlageLabel[hand]) return hand;
+    if (this.BETRIEB_VORLAGEN.includes(d.vorlageAlle)) return this.AZUBI_VORLAGE[d.vorlageAlle];
+    return this.AZUBI_VORLAGE[this._betriebVorlageTyp({ azubis: [a] }, d.isDone)];
+  },
+  // Auswahl einer Zeile: leerer Wert = Standard (für alle gewählt oder automatisch)
+  _vorlageWahlHtml(labels, typen, gewaehlt, standard, onchange, aria) {
+    return `<select class="mail-vorlage${gewaehlt ? ' von-hand' : ''}" aria-label="${esc(aria)}" title="Vorlage dieser E-Mail – „Standard“ folgt der Wahl für alle bzw. dem Ergebnis" onchange="${onchange}">
+      <option value=""${gewaehlt ? '' : ' selected'}>Standard: ${esc(labels[standard] || standard)}</option>
+      ${typen.map(t => `<option value="${t}"${gewaehlt === t ? ' selected' : ''}>${esc(labels[t])}</option>`).join('')}
+    </select>`;
+  },
+  // Ein schon erzeugter Entwurf passt nach dem Wechsel nicht mehr zum Text
+  _vorlageVeraltet(st) { if (st) st.veraltet = true; },
+  betriebVorlageSetzen(idx, typ) {
+    const d = this._individualData; if (!d || !d.betriebe[idx]) return;
+    const vorher = this._betriebVorlageFuer(idx);
+    if (this.BETRIEB_VORLAGEN.includes(typ)) d.vorlage[idx] = typ; else delete d.vorlage[idx];
+    if (this._betriebVorlageFuer(idx) !== vorher) this._vorlageVeraltet(d.status[idx]);
+    this._betriebMailZeileAuffrischen(idx);
+  },
+  azubiVorlageSetzen(idx, ai, typ) {
+    const d = this._individualData; if (!d || !d.betriebe[idx] || !d.betriebe[idx].azubis[ai]) return;
+    const key = idx + '_' + ai, vorher = this._azubiVorlageFuer(idx, ai);
+    if (this._azubiVorlageLabel[typ]) d.vorlageAzubi[key] = typ; else delete d.vorlageAzubi[key];
+    if (this._azubiVorlageFuer(idx, ai) !== vorher) this._vorlageVeraltet(d.statusAzubi[key]);
+    this._betriebMailZeileAuffrischen(idx);
+  },
+  betriebVorlageAlle(typ) {
+    const d = this._individualData; if (!d) return;
+    const vorB = d.betriebe.map((g, idx) => this._betriebVorlageFuer(idx));
+    const vorA = {}; d.betriebe.forEach((g, idx) => g.azubis.forEach((a, ai) => { vorA[idx + '_' + ai] = this._azubiVorlageFuer(idx, ai); }));
+    d.vorlageAlle = this.BETRIEB_VORLAGEN.includes(typ) ? typ : '';
+    d.betriebe.forEach((g, idx) => {
+      if (this._betriebVorlageFuer(idx) !== vorB[idx]) this._vorlageVeraltet(d.status[idx]);
+      g.azubis.forEach((a, ai) => { const k = idx + '_' + ai; if (this._azubiVorlageFuer(idx, ai) !== vorA[k]) this._vorlageVeraltet(d.statusAzubi[k]); });
+    });
+    const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
+    const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
+  },
   // Vorlage zu einer Wiedervorlage: überfällig → Erinnerung; Nachholung
   // (am Kontrolltag abwesend) → Nachhol-Aufforderung, sonst Mängelmitteilung
   _wvVorlageTyp(w, ueberfaellig) {
@@ -389,13 +442,16 @@ const Workflows = {
     App.closeModal();
     const alt = this._individualData && this._individualData.terminId === terminId ? this._individualData.status : null;
     const altAzubi = this._individualData && this._individualData.terminId === terminId ? this._individualData.statusAzubi : null;
-    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, statusAzubi: altAzubi || {}, opts: this._betriebMailOptsLaden() };
+    // Von Hand gewählte Vorlagen bleiben beim erneuten Öffnen desselben Termins
+    const altV = this._individualData && this._individualData.terminId === terminId ? this._individualData : null;
+    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, statusAzubi: altAzubi || {}, opts: this._betriebMailOptsLaden(),
+      vorlageAlle: (altV && altV.vorlageAlle) || '', vorlage: (altV && altV.vorlage) || {}, vorlageAzubi: (altV && altV.vorlageAzubi) || {} };
     const withEmail = betriebe.filter(g => g.email).length;
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
       ${this._betriebMailOptionenHtml()}
-      <div id="betriebMailListe" style="max-height:min(420px,36vh);overflow-y:auto">${this._betriebMailListeHtml()}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''} <strong>Datenschutz:</strong> Niemand steht in Kopie – der Betrieb und jeder Azubi mit E-Mail-Adresse bekommen je einen <strong>eigenen Entwurf</strong> (Azubi: nur das eigene Ergebnis, der eigene Bogen und der Hinweis, dass der Betrieb ebenfalls informiert wurde).</div>`,
+      <div id="betriebMailListe" style="max-height:min(460px,44vh);overflow-y:auto">${this._betriebMailListeHtml()}</div>
+      <details class="mail-hinweise"><summary>So funktioniert die Liste</summary><div>Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“ – bei Bedarf lässt sie sich oben für alle oder in der Zeile je Betrieb und je Azubi von Hand wählen. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''} <strong>Datenschutz:</strong> Niemand steht in Kopie – der Betrieb und jeder Azubi mit E-Mail-Adresse bekommen je einen <strong>eigenen Entwurf</strong> (Azubi: nur das eigene Ergebnis, der eigene Bogen und der Hinweis, dass der Betrieb ebenfalls informiert wurde).</div></details>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
        <span id="betriebMailFuss" class="mail-fuss">${this._betriebMailFussHtml()}</span>`);
   },
@@ -455,6 +511,12 @@ const Workflows = {
     const aktuell = wahl.some(w => w.wert === o.signatur) ? o.signatur : (wahl[0] ? wahl[0].wert : 'keine');
     return `<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:8px 10px;margin-bottom:8px;background:var(--clr-warm);border-radius:var(--radius);font-size:12px">
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Aus: „Sehr geehrte Damen und Herren“. An: zusätzlich „sehr geehrte/r ‹Ansprechpartner›,“ wenn ein Ansprechpartner hinterlegt ist"><input type="checkbox" ${o.anrede ? 'checked' : ''} onchange="Workflows.betriebMailOption('anrede', this.checked)"> Ansprechpartner namentlich ansprechen</label>
+      <label style="display:flex;align-items:center;gap:5px" title="Automatisch: je Betrieb und Azubi die Vorlage nach dem Ergebnis. Oder eine Vorlage für alle E-Mails dieses Termins festlegen – in der Zeile lässt sie sich je Betrieb und je Azubi noch einmal ändern.">Vorlage
+        <select class="form-control" id="betriebMailVorlageAlle" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebVorlageAlle(this.value)">
+          <option value=""${d.vorlageAlle ? '' : ' selected'}>automatisch nach Ergebnis</option>
+          ${this.BETRIEB_VORLAGEN.map(t => `<option value="${t}"${d.vorlageAlle === t ? ' selected' : ''}>für alle: ${esc(this._betriebVorlageLabel[t])}</option>`).join('')}
+        </select>
+      </label>
       <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand – dann hängt Outlook beim Senden die eigene Signatur an">Signatur
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
@@ -579,7 +641,7 @@ const Workflows = {
     const d = this._individualData; if (!d) return null;
     const g = d.betriebe[idx]; const a = g && g.azubis[ai]; if (!a) return null;
     const to = this._azubiMailAdresse(a); if (!to) return null;
-    const typ = this.AZUBI_VORLAGE[this._betriebVorlageTyp({ azubis: [a] }, d.isDone)];
+    const typ = this._azubiVorlageFuer(idx, ai);   // von Hand gewählt, sonst nach dem eigenen Ergebnis
     const o = d.opts || this._betriebMailOptsLaden();
     const name = this._signaturName(o);
     const nz = d.isDone ? this._nachzuholen(a) : [];
@@ -654,22 +716,26 @@ const Workflows = {
         const sa = d.statusAzubi[idx + '_' + ai];
         x += `<div style="font-size:12px;padding-left:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <span title="Eigener Entwurf nur mit den Angaben dieses Azubis${isDone ? ' und dem eigenen Bogen (ZIP)' : ''}">✉︎ eigene E-Mail an ${esc(this._azubiMailAdresse(a))}</span>
-          ${sa ? `<span style="color:var(--clr-green);font-weight:600">✓ ${sa.entwurf ? 'Entwurf (.eml) erzeugt' : 'geöffnet'} ${esc(sa.zeit)}</span>` : ''}
+          ${this._vorlageWahlHtml(this._azubiVorlageLabel, Object.keys(this._azubiVorlageLabel), (d.vorlageAzubi && d.vorlageAzubi[idx + '_' + ai]) || '', this.BETRIEB_VORLAGEN.includes(d.vorlageAlle) ? this.AZUBI_VORLAGE[d.vorlageAlle] : this.AZUBI_VORLAGE[this._betriebVorlageTyp({ azubis: [a] }, isDone)], `Workflows.azubiVorlageSetzen(${idx},${ai},this.value)`, `Vorlage der E-Mail an ${a.vorname} ${a.nachname}`)}
+          ${sa ? `<span style="color:var(--clr-green);font-weight:600">✓ ${sa.entwurf ? 'Entwurf (.eml) erzeugt' : 'geöffnet'} ${esc(sa.zeit)}</span>${sa.veraltet ? ' <span style="color:var(--clr-amber)">Vorlage seither geändert</span>' : ''}` : ''}
           <button class="btn btn-sm btn-secondary" style="padding:1px 7px;font-size:12px" onclick="Workflows._openAzubiEmail(${idx},${ai})" title="Einzeln in Outlook öffnen (ohne Anhang – der Bogen hängt am ZIP-Entwurf)" aria-label="E-Mail an ${esc(a.vorname)} ${esc(a.nachname)} öffnen">Öffnen</button>
           <button class="btn btn-sm btn-secondary" style="padding:1px 7px;font-size:12px" onclick="Workflows._azubiMailVorschau(${idx},${ai})" aria-label="Vorschau der E-Mail an ${esc(a.vorname)} ${esc(a.nachname)}">Vorschau</button>
         </div>`;
       }
       return x;
     }).join('<br>');
-    const art = this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)];
+    const art = g.email
+      ? this._vorlageWahlHtml(this._betriebVorlageLabel, this.BETRIEB_VORLAGEN, (d.vorlage && d.vorlage[idx]) || '', this.BETRIEB_VORLAGEN.includes(d.vorlageAlle) ? d.vorlageAlle : this._betriebVorlageTyp(g, isDone), `Workflows.betriebVorlageSetzen(${idx},this.value)`, `Vorlage der E-Mail an ${g.name}`)
+      : `<span style="font-size:12px;color:var(--clr-text-light)">${esc(this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)])}</span>`;
     const passt = g.email ? this._betriebMailPasst(idx) : true;
     let status = '';
-    if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
+    if (st && st.veraltet) status = `<span style="color:var(--clr-green);font-weight:600">✓ ${st.entwurf ? 'Entwurf (.eml) erzeugt' : 'geöffnet'} ${esc(st.zeit)}</span> · <span style="color:var(--clr-amber)">Vorlage seither geändert – ${st.entwurf ? 'Entwürfe neu erzeugen' : 'erneut öffnen'}</span>`;
+    else if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
     else if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
     else if (g.email && !passt) status = '<span style="color:var(--clr-amber)" title="Der Text ist zu lang für den E-Mail-Link. Beim Öffnen startet Outlook mit Empfänger und Betreff, der Text wird in die Zwischenablage kopiert.">Text zu lang für den Link → wird beim Öffnen kopiert (Strg+V in Outlook)</span>';
     return `<div id="betriebMail_${idx}" style="padding:8px 10px;margin-bottom:6px;background:${st ? 'var(--clr-green-light)' : g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-        <span><strong>${esc(g.name)}</strong> <span style="font-size:12px;color:var(--clr-text-light)">${art}</span></span>
+        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong>${esc(g.name)}</strong> ${art}</span>
         <span style="display:flex;gap:4px;flex-wrap:wrap">
           ${g.email
             ? `<button class="btn btn-sm ${st ? 'btn-secondary' : ''}" style="padding:2px 8px;font-size:12px${st ? '' : ';background:var(--clr-forest);color:var(--clr-white);border:none'}" onclick="Workflows._openIndividualEmail(${terminId},${idx})" title="${st ? 'Erneut in Outlook öffnen' : 'In Outlook öffnen'}">✉︎ ${st ? 'Erneut öffnen' : 'Öffnen'}</button>
@@ -691,7 +757,7 @@ const Workflows = {
     // Nach der Kontrolle: Mängelmitteilung, Nachhol-Aufforderung (abwesend)
     // oder Bestätigung ohne Beanstandung – früher bekam ein Betrieb ohne
     // Beanstandung eine Terminankündigung im Futur für einen vergangenen Termin.
-    const typ = this._betriebVorlageTyp(g, d.isDone);
+    const typ = this._betriebVorlageFuer(idx);   // von Hand gewählt, sonst nach Lage
     const o = d.opts || this._betriebMailOptsLaden();
     const name = this._signaturName(o);
     const ctx = this._antwortCtx({ ...d.t.ctx,

@@ -769,6 +769,13 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 /* Fußzeile der E-Mail-Arbeitsliste: Knöpfe und Stand brechen um statt überzulaufen */
 .modal-footer:has(.mail-fuss) { align-items: flex-start; }
+.mail-hinweise { margin-top: 8px; font-size: 12px; color: var(--clr-text-light); }
+.mail-hinweise summary { cursor: pointer; font-weight: 600; }
+.mail-hinweise > div { margin-top: 4px; }
+/* Vorlagenwahl je E-Mail in der Arbeitsliste: leise, solange „Standard“ gilt */
+.mail-vorlage { font-family: inherit; font-size: 12px; padding: 1px 4px; min-height: 24px; max-width: 100%; color: var(--clr-text-light); background: transparent; border: 1px solid var(--clr-sand); border-radius: 3px; cursor: pointer; }
+.mail-vorlage.von-hand { color: var(--clr-text); background: var(--clr-white); border-color: var(--clr-text); font-weight: 600; }
+.mail-vorlage option { color: var(--clr-text); background: var(--clr-white); font-weight: 400; }
 .mail-fuss { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; min-width: 0; }
 .mail-fuss-fertig { color: var(--clr-green); font-weight: 600; font-size: 13px; white-space: nowrap; }
 
