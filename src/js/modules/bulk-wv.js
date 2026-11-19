@@ -25,7 +25,22 @@ const BulkWV = {
     ids.forEach(id => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung=?, geaendert_am=datetime('now','localtime') WHERE id=?", [datum, bem, id]));
     App.closeModal();
     App.toast(`${ids.length} Wiedervorlagen erledigt`, 'success');
+    ids.forEach(id => WiedervorlagenHandler._soeben.add(Number(id)));
     Views.wiedervorlagen();
+  },
+  // Erledigte der Auswahl wieder öffnen (versehentlich erledigt) – Frist
+  // bleibt, als behoben markierte Wochen werden wieder offene Mängel
+  async wiederOeffnenSelected() {
+    const ids = this.getSelected();
+    if (!ids.length) return;
+    const ph = ids.map(() => '?').join(',');
+    const erledigt = App.query(`SELECT id FROM wiedervorlagen WHERE id IN (${ph}) AND status='erledigt'`, ids).map(r => r.id);
+    if (!erledigt.length) return App.toast('In der Auswahl ist keine erledigte Wiedervorlage', 'info');
+    if (!(await App.confirm(`${erledigt.length} erledigte Wiedervorlage${erledigt.length === 1 ? '' : 'n'} wieder öffnen?${ids.length > erledigt.length ? `\n• ${ids.length - erledigt.length} der Auswahl sind bereits offen und bleiben unverändert` : ''}\n\nDie Frist bleibt – abgelaufene stehen sofort auf „Überfällig“. Wochen, die beim Erledigen als behoben markiert wurden, werden wieder als offener Mangel geführt.`, { titel: 'Wiedervorlagen wieder öffnen', ok: 'Wieder öffnen' }))) return;
+    let n = 0;
+    erledigt.forEach(id => { if (WiedervorlagenHandler.doWiederOeffnen(id, { wochen: true, grund: 'Sammelaktion', still: true })) n++; });
+    WiedervorlagenHandler._auffrischen(erledigt);
+    App.toast(`${n} Wiedervorlage${n === 1 ? '' : 'n'} wieder geöffnet`, 'success');
   },
   extendFrist() {
     const ids = this.getSelected();

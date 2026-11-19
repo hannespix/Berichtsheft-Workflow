@@ -113,9 +113,9 @@ body.dark-mode .btn-danger:hover { background: #F5A09C; }
 body.dark-mode .btn-success { color: #1B1917; }
 body.dark-mode .btn-success:hover { background: #BFE58A; }
 /* Status-Badges: dunkle Tönung + helle Schrift (im Hellen umgekehrt) */
-body.dark-mode .badge-ok, body.dark-mode .badge-done { background: var(--clr-green-light); color: #BFE58A; }
-body.dark-mode .badge-open { background: var(--clr-amber-light); color: #F5C88A; }
-body.dark-mode .badge-overdue { background: var(--clr-red-light); color: #F5A8A3; }
+body.dark-mode .badge-ok, body.dark-mode .badge-done, body.dark-mode .wv-status--erledigt { background: var(--clr-green-light); color: #BFE58A; }
+body.dark-mode .badge-open, body.dark-mode .wv-status--offen { background: var(--clr-amber-light); color: #F5C88A; }
+body.dark-mode .badge-overdue, body.dark-mode .wv-status--ueberfaellig { background: var(--clr-red-light); color: #F5A8A3; }
 body.dark-mode .badge-planned { background: var(--clr-blue-light); color: #B4CBF5; }
 body.dark-mode .fp-btn.active, body.dark-mode .topbar-filter-toggle.active { background: var(--clr-forest); color: #1B1917; border-color: var(--clr-forest); }
 body.dark-mode .topbar-logo--pos { display: none; }
@@ -687,9 +687,14 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   letter-spacing: 0.02em;
 }
 .badge-ok { background: var(--clr-green-light); color: #2B4904; }      /* BW Grün Dunkel */
-.badge-open { background: var(--clr-amber-light); color: #6A3201; }    /* BW Orange Dunkel */
-.badge-overdue { background: var(--clr-red-light); color: #85100C; }   /* BW Rot Dunkel */
-.badge-done { background: var(--clr-green-light); color: #2B4904; }
+.badge-open, .wv-status--offen { background: var(--clr-amber-light); color: #6A3201; }    /* BW Orange Dunkel */
+.badge-overdue, .wv-status--ueberfaellig { background: var(--clr-red-light); color: #85100C; }   /* BW Rot Dunkel */
+.badge-done, .wv-status--erledigt { background: var(--clr-green-light); color: #2B4904; }
+/* Status der Wiedervorlage als Auswahl im Aussehen der Status-Marke */
+.wv-status { font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; padding: 3px 4px 3px 7px; min-height: 28px; border: 1px solid transparent; border-radius: 3px; cursor: pointer; max-width: 100%; }
+.wv-status:hover { border-color: currentColor; }
+.wv-status option { background: var(--clr-white); color: var(--clr-text); font-weight: 400; }
+.wv-soeben { font-size: 12px; color: var(--clr-text-light); margin-top: 2px; }
 .badge-planned { background: var(--clr-blue-light); color: #0A3C90; }  /* BW Blau Dunkel */
 
 /* ── Modal ── */

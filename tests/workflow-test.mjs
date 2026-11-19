@@ -257,6 +257,97 @@ console.log('\n══ Stufe 2 (3): Wiedervorlage-Nachweis, Akte-Dateien beim end
   check(amp.color === 'green' && amp.nachgewiesen === true, `Ampel erkennt „nachgewiesen" (${amp.label})`);
   check(!/speichereDateien|mWvDatei/.test(read('src/js/modules/wiedervorlagen.js')) && !/schueler_dateien/.test(read('src/js/modules/schueler-akte.js')), 'Wiedervorlage ohne Datei-Anhang, Akte ohne Datei-Upload');
   check((APP_SRC.match(/_loescheAkteDateien\(/g) || []).length >= 5, 'Endgültiges Löschen (Papierkorb-Eintrag, Leeren, 90-Tage-Bereinigung, Kaskade ohne Papierkorb) entfernt die Akten-Dateien');
+
+  // ── Versehentlich erledigt → wieder öffnen (Statusänderung) ──
+  console.log('\n  ── Wiedervorlage wieder öffnen ──');
+  const heute = '2026-09-15';   // todayStr() der Sandbox
+  const notizenAlt = App.query('SELECT id FROM wiedervorlage_notizen WHERE wiedervorlage_id=851').map(n => n.id);
+  db.run("UPDATE wiedervorlagen SET frist_datum='2026-09-01' WHERE id=851");   // abgelaufen
+  check(JSON.parse(w.erledigt_behoben).length === 2 && JSON.parse(w.erledigt_behoben).some(z => z[0] === 2 && z[1] === 40 && z[2] === 'A,C'), `Beim Erledigen gemerkt, welche Wochen als behoben markiert wurden (${w.erledigt_behoben})`);
+  check(WV._statusNachFrist('2020-01-01') === 'ueberfaellig' && WV._statusNachFrist('2999-01-01') === 'offen' && WV._statusNachFrist('') === 'offen', 'Status folgt der Frist: abgelaufen → überfällig, ohne Datum → offen');
+  // Statusauswahl der Liste
+  const wahlErl = WV.statusWahlHtml({ id: 851, status: 'erledigt', nachname: 'Muster', vorname: 'Mia' });
+  const wahlUeb = WV.statusWahlHtml({ id: 9, status: 'ueberfaellig', nachname: 'A', vorname: 'B' });
+  check(/<select class="wv-status wv-status--erledigt" aria-label="Status der Wiedervorlage von Muster, Mia ändern"/.test(wahlErl) && /onchange="WiedervorlagenHandler\.statusSetzen\(851, this\.value, this\)"/.test(wahlErl) && /<option value="offen">Wieder öffnen<\/option>/.test(wahlErl) && /<option value="erledigt" selected>Erledigt<\/option>/.test(wahlErl), 'Statusauswahl einer erledigten Wiedervorlage: „Wieder öffnen“ wählbar');
+  check(/wv-status--ueberfaellig/.test(wahlUeb) && /<option value="offen" selected>Überfällig<\/option>/.test(wahlUeb) && /<option value="erledigt">Erledigt<\/option>/.test(wahlUeb), 'Offene/überfällige: aktueller Stand gewählt, „Erledigt“ wählbar');
+  const gerufen = [];
+  const merkE = WV.erledigenDirekt, merkW = WV.wiederOeffnen;
+  WV.erledigenDirekt = (id) => gerufen.push('erledigen:' + id); WV.wiederOeffnen = (id) => gerufen.push('oeffnen:' + id);
+  const el = { value: 'offen' };
+  WV.statusSetzen(851, 'offen', el);
+  check(gerufen.join() === 'oeffnen:851' && el.value === 'erledigt', 'Auswahl „Offen“ bei erledigter → Dialog „Wieder öffnen“, Auswahl zeigt bis zur Bestätigung den gespeicherten Stand');
+  WV.statusSetzen(851, 'erledigt', el);
+  check(gerufen.length === 1, 'Gleicher Status → nichts passiert');
+  WV.erledigenDirekt = merkE; WV.wiederOeffnen = merkW;
+  // Dialog
+  let dlg = null; App.openModal = (t, b, f) => { dlg = { t, b, f }; };
+  if (typeof sandbox.wvArtLabel !== 'function') sandbox.wvArtLabel = (art) => String(art || '');
+  WV.wiederOeffnen(851);
+  check(dlg && /wieder öffnen/.test(dlg.t) && /id="mWvFristNeu" value="2026-09-01"/.test(dlg.b) && /Die Frist ist abgelaufen/.test(dlg.b) && /id="mWvWochen" checked/.test(dlg.b) && /<strong>2<\/strong> über diese Wiedervorlage als behoben markierten Wochen/.test(dlg.b) && /WiedervorlagenHandler\.doWiederOeffnen\(851\)/.test(dlg.f), 'Dialog: Frist (abgelaufen), Wochen zurückholen vorbelegt, Knopf „Wieder öffnen“');
+  App.openModal = () => {};
+  // Durchführung
+  const notizenVor = App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=851') || 0;
+  check(WV.doWiederOeffnen(851, { frist: '20.10.2026', wochen: true, still: true }) === null && App.scalar('SELECT status FROM wiedervorlagen WHERE id=851') === 'erledigt', 'Ungültige Frist → nichts geändert');
+  const ro = WV.doWiederOeffnen(851, { grund: 'versehentlich erledigt', wochen: true, still: true });
+  const w2 = App.query('SELECT * FROM wiedervorlagen WHERE id=851')[0];
+  check(ro && ro.status === 'ueberfaellig' && ro.wochen === 2 && w2.status === 'ueberfaellig' && w2.erledigt_datum === '' && w2.erledigt_bemerkung === '' && w2.frist_datum === '2026-09-01' && (w2.erledigt_behoben || '') === '', `Wieder offen: Frist abgelaufen → überfällig, Erledigungsdaten geleert (${w2.status})`);
+  check(App.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40") === 'A,C' && (App.scalar("SELECT behobene_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40") || '') === '' && App.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=41") === 'D', 'Als behoben markierte Wochen sind wieder offene Mängel');
+  const notiz = App.query('SELECT * FROM wiedervorlage_notizen WHERE wiedervorlage_id=851 ORDER BY id DESC LIMIT 1')[0];
+  check((App.scalar('SELECT COUNT(*) FROM wiedervorlage_notizen WHERE wiedervorlage_id=851') || 0) === notizenVor + 1 && /^Wieder geöffnet – war am 05\.10\.2026 als erledigt markiert \(Nachweis \(Post\): Heft per Post eingegangen\)/.test(notiz.notiz) && /2 Wochen wieder als offener Mangel/.test(notiz.notiz) && /Grund: versehentlich erledigt/.test(notiz.notiz), `Verlauf: Notiz mit früherem Erledigungsdatum, Bemerkung und Grund (${notiz.notiz})`);
+  check(App.getSchuelerAmpel(801).color === 'red', 'Ampel wieder rot');
+  check(WV.doWiederOeffnen(851, { still: true }) === null, 'Offene Wiedervorlage: „Wieder öffnen“ ohne Wirkung');
+  // Neue Frist beim Öffnen; inzwischen wieder eingetragene Mängel bleiben unberührt
+  await WV.doErledigen(851, { datum: heute, bem: '', nachweis: 'email', behoben: true });
+  App.run("UPDATE kw_status SET maengel_codes='B', behobene_codes='A,C' WHERE schueler_id=801 AND kalenderwoche=40");   // nach dem Erledigen neu beanstandet
+  const ro2 = WV.doWiederOeffnen(851, { frist: '2999-01-31', wochen: true, still: true });
+  check(ro2.status === 'offen' && ro2.frist === '2999-01-31' && App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=851') === '2999-01-31' && App.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40") === 'A,B,C', `Neue Frist → offen; zurückgeholte Codes kommen zu inzwischen eingetragenen dazu (${App.scalar("SELECT maengel_codes FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40")})`);
+  check(/Frist 01\.09\.2026 → 31\.01\.2999/.test(App.query('SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=851 ORDER BY id DESC LIMIT 1')[0].notiz), 'Notiz nennt die Friständerung');
+  // Ohne Häkchen bleiben die Wochen behoben, die Merkliste bleibt für später
+  await WV.doErledigen(851, { datum: heute, bem: '', nachweis: 'post', behoben: true });
+  const ro3 = WV.doWiederOeffnen(851, { wochen: false, still: true });
+  check(ro3.wochen === 0 && App.scalar("SELECT COUNT(*) FROM kw_status WHERE schueler_id=801 AND maengel_codes != ''") === 0 && JSON.parse(App.scalar('SELECT erledigt_behoben FROM wiedervorlagen WHERE id=851')).length === 2, 'Ohne „Wochen zurückholen“ bleiben die Mängel behoben');
+  // Einzel-Markierung im Details-Dialog wird ebenfalls gemerkt
+  db.run("UPDATE wiedervorlagen SET erledigt_behoben='' WHERE id=851");
+  db.run("UPDATE kw_status SET maengel_codes='A,C', behobene_codes='' WHERE schueler_id=801 AND kalenderwoche=40");
+  const merkD = WV.details, merkC = WV.checkAutoErledigt; WV.details = () => {}; WV.checkAutoErledigt = () => {};
+  WV.markCodeBehoben(App.scalar('SELECT id FROM kw_status WHERE schueler_id=801 AND kalenderwoche=40'), 'A', 851);
+  WV.details = merkD; WV.checkAutoErledigt = merkC;
+  check(App.scalar('SELECT erledigt_behoben FROM wiedervorlagen WHERE id=851') === '[[2,40,"A"]]', `Einzeln als behoben markierter Code steht in der Merkliste (${App.scalar('SELECT erledigt_behoben FROM wiedervorlagen WHERE id=851')})`);
+  // „nächste Durchsicht“ (ohne Datum) bleibt ohne Datum und wird offen
+  db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status,erledigt_datum,erledigt_bemerkung) VALUES (852,NULL,801,'nachholung_naechste_durchsicht','','erledigt','2026-10-01','x')`);
+  const ro4 = WV.doWiederOeffnen(852, { still: true });
+  check(ro4.status === 'offen' && App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=852') === '', 'Ohne Frist („nächste Durchsicht“): wieder offen, weiter ohne Datum');
+  db.run('DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=852'); db.run('DELETE FROM wiedervorlagen WHERE id=852');
+  // Filter: eben geänderte Zeilen bleiben sichtbar, bis der Filter gewechselt wird
+  {
+    const zeile = (id, st) => ({ dataset: { id: String(id), status: st, versand: '0' }, style: {}, _h: { hidden: true }, querySelector() { return this._h; } });
+    const rows = [zeile(1, 'offen'), zeile(2, 'erledigt'), zeile(3, 'erledigt')];
+    const dAlt = sandbox.document.querySelectorAll;
+    sandbox.document.querySelectorAll = (sel) => sel === '#wvTableBody tr' ? rows : [];
+    WV._soeben.clear(); WV._soeben.add(2);
+    WV.filter('unerledigt');
+    check(rows[0].style.display === '' && rows[1].style.display === '' && rows[2].style.display === 'none' && rows[1]._h.hidden === false && rows[2]._h.hidden === true, 'Filter „Unerledigt“: eben erledigte Zeile bleibt mit „eben geändert“ sichtbar');
+    WV.filter('unerledigt', true);
+    check(rows[1].style.display === 'none' && WV._soeben.size === 0, 'Filter von Hand gewechselt → „eben geändert“ vergessen');
+    sandbox.document.querySelectorAll = dAlt;
+  }
+  // Verdrahtung: Liste, Menü, Details, Sammelleiste, Schema in drei Stellen, Hilfe
+  {
+    const V = read('src/js/modules/views.js'), W = read('src/js/modules/wiedervorlagen.js'), B = read('src/js/modules/bulk-wv.js'), CSS = read('src/css/styles.css');
+    check(/<td data-sort="\$\{w\.status\}">\$\{WiedervorlagenHandler\.statusWahlHtml\(w\)\}<\/td>/.test(V) && /<tr data-id="\$\{w\.id\}" data-status=/.test(V), 'Liste: Status-Spalte ist die Auswahl, Zeile trägt die Kennung');
+    check(/label: '↺ Wieder öffnen', onclick: `WiedervorlagenHandler\.wiederOeffnen\(\$\{w\.id\}\)`/.test(V) && /onclick="BulkWV\.wiederOeffnenSelected\(\)"/.test(V) && /wiederOeffnenSelected\(\)/.test(B) && /doWiederOeffnen\(id, \{ wochen: true, grund: 'Sammelaktion', still: true \}\)/.test(B), 'Zeilenmenü der erledigten und Sammelleiste: „↺ Wieder öffnen“');
+    check(/w\.status === 'erledigt' \? `<button class="btn btn-secondary" onclick="WiedervorlagenHandler\.wiederOeffnen\(\$\{id\}\)"/.test(W), 'Details-Dialog: Knopf „↺ Wieder öffnen“ bei erledigten');
+    check(/filterVorher/.test(V) && /WiedervorlagenHandler\.filter\(this\.value, true\)/.test(V), 'Liste behält den gewählten Filter über das Neuzeichnen');
+    check((APP_SRC.match(/erledigt_behoben TEXT DEFAULT ''/g) || []).length === 3, 'Spalte erledigt_behoben: SCHEMA, migrateDB und _migrateDiskDb');
+    check(/\.badge-done, \.wv-status--erledigt/.test(CSS) && /\.wv-status \{[^}]*font-size: 12px/.test(CSS), 'Statusauswahl im Aussehen der Status-Marke, Schrift 12 px');
+    check(/Status ändern \/ versehentlich erledigt/.test(V), 'Hilfe erklärt die Statusänderung');
+  }
+  // Ausgangslage für die folgenden Blöcke wiederherstellen (WV 851 erledigt per Nachweis)
+  db.run("UPDATE kw_status SET maengel_codes='', behobene_codes='A,C' WHERE schueler_id=801 AND kalenderwoche=40");
+  db.run("UPDATE kw_status SET maengel_codes='', behobene_codes='D' WHERE schueler_id=801 AND kalenderwoche=41");
+  db.run("UPDATE wiedervorlagen SET status='erledigt', frist_datum='2026-10-20', erledigt_datum='2026-10-05', erledigt_bemerkung='Nachweis (Post): Heft per Post eingegangen', erledigt_behoben='' WHERE id=851");
+  db.run(`DELETE FROM wiedervorlage_notizen WHERE wiedervorlage_id=851${notizenAlt.length ? ' AND id NOT IN (' + notizenAlt.join(',') + ')' : ''}`);
+  WV._soeben.clear();
 }
 
 console.log('\n══ Stufe 3 (2): Ampeln, Sammel-Erinnerung, Hersendung, Kontexthilfe, Rollen ══');

@@ -1290,6 +1290,11 @@ const Views = {
   // ════════════════════════════════════════════
   wiedervorlagen() {
     const today = todayStr();
+    // Gewählten Filter über ein Neuzeichnen behalten; beim Betreten der Ansicht
+    // gilt der Standard, und „eben geändert“ ist vergessen
+    const filterAlt = document.getElementById('wvFilter');
+    const filterVorher = filterAlt ? filterAlt.value : '';
+    if (!filterAlt) { try { WiedervorlagenHandler._soeben.clear(); } catch(e) {} }
 
     // Update overdue status – must use App.run() so the change is persisted via dirty-tracking
     // Nur schreiben, wenn es etwas zu ändern gibt – sonst hängt jedes Anzeigen der Liste eine Op ans Protokoll
@@ -1315,7 +1320,7 @@ const Views = {
       ${App.filterBadgeHtml()}
       <div class="toolbar">
         <div class="toolbar-left">
-          <select class="form-control" style="width:auto" onchange="WiedervorlagenHandler.filter(this.value)" id="wvFilter">
+          <select class="form-control" style="width:auto" onchange="WiedervorlagenHandler.filter(this.value, true)" id="wvFilter">
             <option value="unerledigt" selected>Unerledigt (offen + überfällig)</option>
             <option value="ueberfaellig">Nur überfällige</option>
             <option value="offen">Nur offene (Frist läuft)</option>
@@ -1338,6 +1343,7 @@ const Views = {
           <strong><span id="bulkCountWV">0</span> ausgewählt</strong>
           <span style="opacity:0.4">│</span>
           <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="BulkWV.erledigtSelected()">✓ Als erledigt markieren</button>
+          <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.wiederOeffnenSelected()" title="Erledigte Wiedervorlagen der Auswahl wieder auf offen stellen">↺ Wieder öffnen</button>
           <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkWV.extendFrist()">Frist verlängern</button>
           <button class="btn btn-sm" style="background:var(--clr-red);color:white;border:none" onclick="BulkWV.deleteSelected()">Löschen</button>
           <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="BulkWV.deselectAll()">✕ Abwählen</span>
@@ -1346,13 +1352,13 @@ const Views = {
           <th style="width:30px"><input type="checkbox" id="chkAllWV" onchange="BulkWV.toggleAll(this.checked)"></th>
           <th>Azubi</th><th>Betrieb</th><th>Art</th><th>Frist</th><th>Status</th><th>Aktionen</th>
         </tr></thead><tbody id="wvTableBody">
-          ${wvs.map(w => `<tr data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
+          ${wvs.map(w => `<tr data-id="${w.id}" data-status="${w.status}" data-versand="${w.versand_datum ? 1 : 0}">
             <td><input type="checkbox" class="chk-wv" value="${w.id}" onchange="BulkWV.updateBar()"></td>
             <td><strong>${esc(w.nachname)}</strong>, ${esc(w.vorname)}</td>
             <td>${esc(w.ausbildungsstaette)}</td>
             <td data-sort="${w.art}"><small>${wvArtLabel(w.art)}</small></td>
             <td data-sort="${w.frist_datum || '9999'}">${w.frist_datum ? formatDate(w.frist_datum) : '<span title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">nächste Durchsicht</span>'}${w.versand_datum ? `<div style="font-size:12px;color:var(--clr-text-light)" title="Versandnachweis">✉︎ ${formatDate(w.versand_datum)}${(w.mahnstufe || 0) > 1 ? ` · ${w.mahnstufe}. Anschreiben` : ''}</div>` : (w.status !== 'erledigt' ? '<div style="font-size:12px;color:var(--clr-amber)" title="Noch kein Anschreiben vermerkt">ohne Versand</div>' : '')}</td>
-            <td data-sort="${w.status}">${wvStatusBadge(w.status)}</td>
+            <td data-sort="${w.status}">${WiedervorlagenHandler.statusWahlHtml(w)}</td>
             <td style="white-space:nowrap">
               ${(() => {
                 const offen = w.status !== 'erledigt';
@@ -1364,6 +1370,7 @@ const Views = {
                   offen ? { label: '✉︎ E-Mail an den Betrieb', onclick: `Workflows.emailBetriebWV(${w.id})` } : null,
                   w.kontrolltermin_id ? { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${w.kontrolltermin_id},${w.schueler_id})` } : null,
                   offen ? { label: 'ⓘ Details und Verlauf', onclick: `WiedervorlagenHandler.details(${w.id})` } : null,
+                  offen ? null : { label: '↺ Wieder öffnen', onclick: `WiedervorlagenHandler.wiederOeffnen(${w.id})`, title: 'Versehentlich erledigt? Wiedervorlage wieder auf offen stellen' },
                 ].filter(Boolean), 'Weitere Aktionen', 'klein');
               })()}
             </td>
@@ -1372,7 +1379,9 @@ const Views = {
       </div>
     </div>`;
     // Apply initial filter
-    WiedervorlagenHandler.filter(document.getElementById('wvFilter')?.value || 'unerledigt');
+    const filterNeu = document.getElementById('wvFilter');
+    if (filterNeu && filterVorher) filterNeu.value = filterVorher;
+    WiedervorlagenHandler.filter(filterNeu?.value || 'unerledigt');
   },
 
   // ════════════════════════════════════════════
@@ -2710,6 +2719,7 @@ const Views = {
             <p>• <strong>Automatische Anlage</strong> – Bei einem Durchsichtsergebnis mit Beanstandung (Ergebnis ≠ „In Ordnung") wird automatisch eine Wiedervorlage mit Fristdatum erzeugt</p>
             <p>• <strong>Manuelle Anlage</strong> – Zusätzliche Wiedervorlagen können je Auszubildendem manuell erstellt werden</p>
             <p>• <strong>Statusverlauf:</strong> Offen → Überfällig (nach Ablauf der Frist) → Erledigt</p>
+            <p>• <strong>Status ändern / versehentlich erledigt:</strong> Die Spalte „Status“ der Liste ist eine Auswahl. „Erledigt“ öffnet den Nachweis-Dialog; bei einer erledigten Wiedervorlage stellt „Wieder öffnen“ sie zurück (ebenso ⋯ → „↺ Wieder öffnen“, der Knopf im Details-Dialog oder für mehrere die Sammelleiste). Dabei lässt sich die Frist neu setzen – ist sie abgelaufen, steht die Wiedervorlage sonst sofort auf „Überfällig“ – und die beim Erledigen als behoben markierten Wochen werden auf Wunsch wieder als offener Mangel geführt. Erledigungsdatum und -bemerkung bleiben als Notiz im Verlauf. Eine eben geänderte Zeile bleibt in der Liste stehen („eben geändert“), bis Sie den Filter wechseln oder die Ansicht verlassen.</p>
             <p>• <strong>Bearbeitungsnotizen</strong> können je Wiedervorlage hinterlegt werden (z.B. Rückmeldungen des Betriebs)</p>
             <p>• <strong>Filteroptionen:</strong> Alle / Offen / Überfällig / Erledigt</p>
             <div class="help-abschnitt">
