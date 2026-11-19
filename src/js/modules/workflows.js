@@ -106,7 +106,7 @@ const Workflows = {
     const { gruppen, gruppenKurz, azubiListe } = this._gruppenUndListe(t);
     const ctx = { ...t.ctx, gruppen, gruppen_kurz: gruppenKurz, azubi_liste: azubiListe };
     if (isDone) ctx.ergebnisse = this._ergebnisseFuerSchule(terminId, t.schuelerList, App.schuleErgebnisMitNamen());
-    const { betreff, body } = App.renderVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
+    const { betreff, body } = this._mailVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
     const emailType = isDone ? 'Ergebnis-Mitteilung' : 'Terminanfrage';
@@ -220,6 +220,13 @@ const Workflows = {
     if (bewertet.some(a => a.ke.ergebnis !== 'in_ordnung')) return 'betrieb_maengel';
     if (!bewertet.length) return 'nachholung';
     return 'betrieb_ok';
+  },
+  // Vorlage für eine E-MAIL: wie App.renderVorlage, der Schlussblock weicht der
+  // E-Mail-Signatur des Prüfers, wenn eine hinterlegt ist (App.mitSignatur).
+  // Briefe (_briefInhalt) nehmen weiter App.renderVorlage.
+  _mailVorlage(typ, ctx) {
+    const r = App.renderVorlage(typ, ctx);
+    return { betreff: r.betreff, body: App.mitSignatur(r.body, ctx && ctx.pruefer) };
   },
   _betriebVorlageLabel: { betrieb_ankuendigung: 'Ankündigung', betrieb_maengel: 'Mängelmitteilung', betrieb_ok: 'ohne Beanstandung', nachholung: 'Nachhol-Aufforderung (abwesend)' },
   _azubiVorlageLabel: { azubi_ankuendigung: 'Ankündigung', azubi_maengel: 'Ergebnis mit Nacharbeit', azubi_ok: 'ohne Beanstandung', azubi_nachholung: 'Nachhol-Aufforderung (abwesend)' },
@@ -391,7 +398,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const emails = [...new Set(betriebe.map(g => g.email).filter(Boolean))];
     const ohne = betriebe.filter(g => !g.email);
-    const { betreff, body } = App.renderVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
+    const { betreff, body } = this._mailVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
     App.closeModal();
     App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
       <div style="margin-bottom:8px;font-size:12px">
@@ -488,9 +495,11 @@ const Workflows = {
     const d = this._individualData; if (!d) return [];
     const ich = App.currentUser || '';
     const wahl = [];
-    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)` });
+    // „· eigene Signatur“: für diese Person ist unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt
+    const eigen = (n) => App.signaturVon && App.signaturVon(n) ? ' · eigene Signatur' : '';
+    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)${eigen(ich)}` });
     App.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name').map(r => r.name).filter(n => n && n !== ich)
-      .forEach(n => wahl.push({ wert: 'p:' + n, label: n }));
+      .forEach(n => wahl.push({ wert: 'p:' + n, label: n + eigen(n) }));
     if (d.t.ctx.pruefer && d.t.ctx.pruefer !== ich && !wahl.some(w => w.wert === 'p:' + d.t.ctx.pruefer)) wahl.push({ wert: 'termin', label: `Prüfer des Termins (${d.t.ctx.pruefer})` });
     wahl.push({ wert: 'keine', label: 'Keine Signatur – eigene in Outlook anfügen' });
     return wahl;
@@ -517,7 +526,7 @@ const Workflows = {
           ${this.BETRIEB_VORLAGEN.map(t => `<option value="${t}"${d.vorlageAlle === t ? ' selected' : ''}>für alle: ${esc(this._betriebVorlageLabel[t])}</option>`).join('')}
         </select>
       </label>
-      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand – dann hängt Outlook beim Senden die eigene Signatur an">Signatur
+      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand. Ist für die Person unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt, steht sie unter der E-Mail; sonst Grußformel, Name und Adresse aus der Vorlage. „Keine“: dann hängt Outlook beim Senden die eigene Signatur an">Signatur
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
       ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
@@ -656,7 +665,7 @@ const Workflows = {
       bogen_hinweis: hatBogen ? 'Den Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang.' : '',
       betrieb_hinweis: this._azubiBetriebHinweis(g, d.isDone),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) });
-    let { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = this._mailVorlage(typ, ctx);
     // Leere Bausteine (keine Bemerkung, kein Bogen) hinterlassen keine Lücken
     body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
@@ -767,7 +776,7 @@ const Workflows = {
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) });
-    let { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = this._mailVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
     // Ohne Kopie an die Azubis: sie bekommen je eine eigene E-Mail (_azubiMailInhalt)
@@ -1225,7 +1234,7 @@ const Workflows = {
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
     // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
-    const { betreff, body } = App.renderVorlage(typ, ctx);
+    const { betreff, body } = this._mailVorlage(typ, ctx);
     const to = w.b_email || '';
     const istBeratung = typ === 'beratung_betrieb';
     window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig && !istBeratung ? fristNeu : null };
@@ -1253,7 +1262,7 @@ const Workflows = {
   _wvFristNeuGeaendert(datum) {
     const m = this._wvMailCtx; if (!m || !datum) return;
     m.ctx.frist_neu = formatDate(datum);
-    const { betreff, body } = App.renderVorlage(m.typ, m.ctx);
+    const { betreff, body } = this._mailVorlage(m.typ, m.ctx);
     window._pendingEmail.subject = betreff; window._pendingEmail.body = body; window._pendingEmail.fristNeu = datum;
     const b = document.getElementById('wvMailBody'); if (b) b.textContent = body;
     const s = document.getElementById('wvMailBetreff'); if (s) s.textContent = betreff;
@@ -1311,7 +1320,7 @@ const Workflows = {
     const g = n.betroffen[idx];
     const ctx = this._antwortCtx({ ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt });
-    const { betreff, body } = App.renderVorlage('nachholung', ctx);
+    const { betreff, body } = this._mailVorlage('nachholung', ctx);
     this.openMailto(g.email, betreff, body);
   },
 
@@ -1355,7 +1364,7 @@ const Workflows = {
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || 'Ausbildungsberater';
     const ctx = this._antwortCtx({ ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
       azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') });
-    const { betreff, body } = App.renderVorlage('wv_sammel', ctx);
+    const { betreff, body } = this._mailVorlage('wv_sammel', ctx);
     this.openMailto(g.email, betreff, body);
     g.wvs.forEach(w => this.versandVermerken(w.id, 'email', w.mahnstufe ? 'wv_erinnerung' : 'wv_mahnung', 'Sammel-Erinnerung'));
     App.toast(`Sammel-Erinnerung an ${g.name} geöffnet – ${g.wvs.length} Wiedervorlage(n) vermerkt`, 'success');
@@ -1372,7 +1381,7 @@ const Workflows = {
     const ctx = { ...t.ctx, amt, amt_name: App.AEMTER[amt] || amt, anzahl: String(liste.length),
       azubi_liste: '  - ' + liste.map(s => `${s.nachname}, ${s.vorname}`).join('\n  - '),
       anlagen: `Durchsichtsbögen (${liste.length}), Übergabeliste (Excel)` };
-    const { betreff, body } = App.renderVorlage('amt_uebergabe', ctx);
+    const { betreff, body } = this._mailVorlage('amt_uebergabe', ctx);
     window._pendingEmail = { to, subject: betreff, body };
     App.openModal(`✉︎ Übergabeschreiben an ${esc(App.amtLabel(amt))}`, `
       <div style="font-size:13px">

@@ -1386,6 +1386,7 @@ const App = {
       name TEXT NOT NULL UNIQUE,
       email TEXT DEFAULT '',
       telefon TEXT DEFAULT '',
+      signatur TEXT DEFAULT '',
       aktiv INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS kontrolltermine (
@@ -7528,6 +7529,8 @@ const App = {
     )`);
     // Prüfer: Telefon für den Briefkopf der PDF-Briefe (Name · Telefon · E-Mail)
     run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''");
+    // Prüfer: eigene E-Mail-Signatur (ersetzt Grußformel + Absenderblock der E-Mail-Entwürfe)
+    run("ALTER TABLE pruefer ADD COLUMN signatur TEXT DEFAULT ''");
     try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
     run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
     // Ausbildungsphasen + erweiterte Azubi-Felder
@@ -10732,6 +10735,58 @@ Mit freundlichen Grüßen
   fuellePlatzhalter(text, ctx) {
     return String(text || '').replace(/\{([a-z_]+)\}/g, (m, k) => (ctx && ctx[k] != null) ? String(ctx[k]) : m);
   },
+  // ── E-Mail-Signatur je Prüfer ──
+  // pruefer.signatur (Stammdaten → Prüfer → Bearbeiten) ersetzt in E-Mail-
+  // Entwürfen den Schlussblock der Vorlage (Grußformel, Name, Adresse). Nur
+  // E-Mails – Briefe tragen Absender und Unterschrift im Briefbogen.
+  SIGNATUR_VORGABEN: {
+    'Hannes Pix': `Mit freundlichen Grüßen
+Hannes Pix
+
+Hannes Pix Ausbildungsberatung Gartenbau 🌻
+Referat 31 - Recht und Verwaltung, Bildung
+Bertoldstraße 43
+79098 Freiburg
+
+Telefon: (+49) 761 208-1356
+E-Mail: hannes.pix@rpf.bwl.de oder Abteilung3@rpf.bwl.de
+Internet: www.rp-freiburg.de
+
+Das Regierungspräsidium in den sozialen Netzwerken:
+Facebook | Instagram | X
+
+Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internetseite oder postalisch auf Anfrage.`,
+  },
+  // Signatur zu einem Namen oder einer Prüferliste („Zilz, Pix“): die
+  // angemeldete Person zuerst, wenn sie dazugehört – sie versendet die E-Mail
+  signaturVon(name) {
+    const kand = [String(name || '').trim(), ...String(name || '').split(',').map(x => x.trim())].filter(Boolean);
+    if (!kand.length) return '';
+    const reihe = this.currentUser && kand.includes(this.currentUser) ? [this.currentUser, ...kand] : kand;
+    try {
+      for (const k of reihe) { const s = this.scalar('SELECT signatur FROM pruefer WHERE name=?', [k]); if (s && String(s).trim()) return String(s).replace(/\r\n/g, '\n').replace(/\s+$/, ''); }
+    } catch(e) {}
+    return '';
+  },
+  // Schlussblock der Vorlage (letzte Grußformel + die direkt folgenden Zeilen)
+  // durch die Signatur ersetzen; was danach noch kommt („Anlage: …“), rückt
+  // vor die Signatur. Ohne hinterlegte Signatur bleibt der Text unverändert.
+  mitSignatur(body, name) {
+    const sig = this.signaturVon(name);
+    if (!sig) return body;
+    const zeilen = String(body || '').replace(/\r\n/g, '\n').split('\n');
+    let g = -1;
+    for (let i = zeilen.length - 1; i >= 0; i--) if (/^\s*mit freundlichen gr(ü|ue)(ß|ss)en\b/i.test(zeilen[i])) { g = i; break; }
+    let kopf = zeilen, rest = [];
+    if (g >= 0) {
+      let e = g + 1;
+      while (e < zeilen.length && zeilen[e].trim() !== '') e++;
+      kopf = zeilen.slice(0, g); rest = zeilen.slice(e);
+    }
+    const k = kopf.join('\n').replace(/\s+$/, ''), r = rest.join('\n').trim();
+    const hatGruss = /^\s*(mit\s+)?(freundliche[nm]?|beste[nm]?|herzliche[nm]?|viele[nm]?|liebe[nm]?)\s+gr[üu]/i.test(sig);
+    return k + (r ? '\n\n' + r : '') + '\n\n' + (hatGruss ? '' : 'Mit freundlichen Grüßen\n') + sig + '\n';
+  },
   renderVorlage(typ, ctx) {
     const v = this.getVorlage(typ);
     if (!v) return { betreff: '', body: '' };
@@ -11124,6 +11179,7 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''"); } catch(e) {}
       // pruefer: telefon (Briefkopf der PDF-Briefe)
       try { this.db.run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE pruefer ADD COLUMN signatur TEXT DEFAULT ''"); } catch(e) {}
       // schueler: geschlecht (m/w/d)
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''"); } catch(e) {}
       // schueler: schulabschluss + pruefungserfolg
@@ -11304,6 +11360,14 @@ Mit freundlichen Grüßen
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
       // Wetterbeobachtungen sind für alle Pflicht (Nov. 2026): die Zusätze
+      // E-Mail-Signaturen aus SIGNATUR_VORGABEN einmalig eintragen (nur wo noch
+      // keine steht) – danach gilt, was im Prüfer-Dialog steht, auch „leer“
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='signatur_vorgabe_v1'")) {
+          Object.entries(this.SIGNATUR_VORGABEN).forEach(([name, sig]) => this.db.run("UPDATE pruefer SET signatur=? WHERE name=? AND COALESCE(signatur,'')=''", [sig, name]));
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('signatur_vorgabe_v1','1')");
+        }
+      } catch(e) { console.warn('Signatur-Vorgabe:', e); }
       // „nur bei Zusatzvereinbarung“ fallen aus den Standard-Textbausteinen und
       // aus gespeicherten Vorlagen heraus (einmalig, nur der alte Wortlaut)
       try {
