@@ -605,7 +605,14 @@ const KontrolleHandler = {
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(false)">✗ ${einsendung ? 'Heft fehlt' : 'abwesend'}</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebOkAuswahl()" title="Ausgewählte anwesende Azubis ohne Ergebnis auf „In Ordnung“ setzen">✓ In Ordnung</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebTerminZuweisenDialog()" title="Ausgewählte Azubis einem anderen Termin zuweisen – einem bestehenden oder einem neuen (z. B. Nachholtermin, Einzeltermin)">→ Termin zuweisen</button>
+      <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebExcelAuswahl()" title="Ergebnisliste nur der ausgewählten Azubis als Excel-Datei">⬇ Excel</button>
       <button class="btn btn-sm btn-secondary sl-x" onclick="KontrolleHandler.uebAuswahlLeeren()">Auswahl aufheben</button>`;
+  },
+  // Ergebnisliste (Excel) nur für die ausgewählten Azubis – der ganze Termin steht im Menü „Termin“
+  uebExcelAuswahl() {
+    const ids = this._uebAuswahlIds();
+    if (!ids.length || !this.currentTerminId) return;
+    BerichteHandler.exportTerminExcel(this.currentTerminId, ids);
   },
   uebKlasseSetzenAuswahl() {
     const ids = this._uebAuswahlIds();
@@ -990,7 +997,7 @@ const KontrolleHandler = {
 
         <!-- Tabelle: 8 Spalten -->
         <div style="overflow-x:auto">
-          <table class="data-table ueb-tabelle" data-sort-eigen="1">
+          <table class="data-table ueb-tabelle" data-sort-eigen="1" data-kein-export>
             <thead><tr>
               <th class="ueb-nr"><label title="Alle auswählen"><input type="checkbox" id="uebAlle" onclick="KontrolleHandler.uebAlleWaehlen(this.checked)" aria-label="Alle Azubis auswählen"></label> ${this._uebSortKopf('nr', '#', ordnung)}</th>
               <th>${this._uebSortKopf('name', 'Azubi', ordnung)}</th>

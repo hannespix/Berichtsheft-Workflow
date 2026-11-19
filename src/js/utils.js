@@ -133,7 +133,7 @@ function ergebnisLabel(e) {
 // ── Auto-init ──
 // Restore dark mode preference
 try { if (App.uGet('dark') === '1') document.body.classList.add('dark-mode'); } catch(e) {}
-window.addEventListener('DOMContentLoaded', () => { TableSort.init(); App.init(); });
+window.addEventListener('DOMContentLoaded', () => { TableSort.init(); if (typeof TabellenExport !== 'undefined') TabellenExport.init(); App.init(); });
 
 // ── Warn before closing with unsaved changes ──
 window.addEventListener('beforeunload', (e) => {

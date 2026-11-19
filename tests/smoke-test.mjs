@@ -207,6 +207,68 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before, 'Sprung aus einem Dialog ohne Konsolenfehler');
 }
 
+// Export an jeder Tabelle: Leiste unter den Listen, Auswahl = angehakte
+// Zeilen, sonst alle angezeigten; Betriebe als Adressliste.
+{
+  const before = errors.length;
+  await page.evaluate(() => {
+    window.__wb = []; window.__clip = [];
+    window.__xlsxAlt = XLSX.writeFile; window.__kopAlt = App.kopieren;
+    XLSX.writeFile = (wb, name) => { window.__wb.push({ name, blaetter: wb.SheetNames.map(n => ({ n, aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }) })) }); };
+    App.kopieren = async (t, m) => { window.__clip.push({ t, m }); return true; };
+    App.navigate('stammdaten'); StammdatenTab.show('betriebe');
+  });
+  await page.waitForTimeout(400);
+  const leiste = await page.evaluate(() => { const b = document.querySelector('#mainContent .tab-export'); return b ? { text: b.querySelector('.te-zahl').textContent, knoepfe: [...b.querySelectorAll('button')].map(x => x.dataset.te).join(','), unterTabelle: b.previousElementSibling && b.previousElementSibling.dataset.export, zeilen: document.querySelectorAll('#betriebeTableBody tr').length } : null; });
+  check(!!leiste && leiste.unterTabelle === 'betriebe' && leiste.knoepfe === 'xlsx,kopie,mail' && leiste.text === `${leiste.zeilen} Betriebe`, `Export-Leiste unter der Betriebsliste (${leiste && leiste.text})`);
+  await page.locator('#mainContent .tab-export [data-te="xlsx"]').click();
+  let wb = await page.evaluate(() => window.__wb.pop());
+  check(!!wb && /^Betriebe_Adressliste_\d{4}-\d{2}-\d{2}\.xlsx$/.test(wb.name) && wb.blaetter[0].n === 'Betriebe' && wb.blaetter[0].aoa.length === leiste.zeilen + 1 && wb.blaetter[0].aoa[0].slice(4, 8).join('|') === 'Ansprechpartner|Straße|PLZ|Ort', 'Alle Betriebe als Excel-Adressliste');
+  await page.evaluate(() => { const c = document.querySelectorAll('.chk-betr'); c[0].click(); c[2].click(); });
+  await page.waitForTimeout(300);
+  const wahl = await page.evaluate(() => ({ text: document.querySelector('#mainContent .tab-export .te-zahl').textContent, oben: getComputedStyle(document.getElementById('bulkBarBetriebe')).display, namen: [...document.querySelectorAll('.chk-betr:checked')].map(c => c.closest('tr').querySelector('strong').textContent.trim()) }));
+  check(wahl.text === '2 Betriebe ausgewählt' && wahl.oben === 'flex', 'Auswahl: Leiste zählt die angehakten Betriebe, Auswahl-Leiste oben erscheint');
+  await page.locator('#mainContent .tab-export [data-te="xlsx"]').click();
+  wb = await page.evaluate(() => window.__wb.pop());
+  check(!!wb && /_Auswahl_/.test(wb.name) && wb.blaetter[0].aoa.length === 3 && wb.blaetter[0].aoa.slice(1).map(r => r[1]).join('|') === wahl.namen.join('|'), 'Excel enthält nur die ausgewählten Betriebe');
+  await page.locator('#mainContent .tab-export [data-te="kopie"]').click();
+  await page.locator('#bulkBarBetriebe button:has-text("E-Mail-Adressen")').click();
+  await page.waitForTimeout(150);
+  const clip = await page.evaluate(() => window.__clip.splice(0));
+  check(clip.length === 2 && clip[0].t.split('\n').length === 3 && /\t/.test(clip[0].t) && /@/.test(clip[1].t) && /Bcc/.test(clip[1].m), 'Kopieren (Tabelle) und E-Mail-Adressen der Auswahl');
+  // Suche blendet Zeilen aus → der Export folgt der Anzeige
+  await page.evaluate(() => StammdatenTab._betriebeAlle(false));
+  const wort = await page.evaluate(() => document.querySelector('#betriebeTableBody tr').dataset.search.split(' ')[0]);
+  await page.locator('input[placeholder="Betrieb suchen…"]').fill(wort);
+  await page.waitForTimeout(350);
+  const gefiltert = await page.evaluate(() => ({ text: document.querySelector('#mainContent .tab-export .te-zahl').textContent, sichtbar: [...document.querySelectorAll('#betriebeTableBody tr')].filter(r => r.style.display !== 'none').length }));
+  check(gefiltert.sichtbar >= 1 && gefiltert.sichtbar < leiste.zeilen && gefiltert.text === `${gefiltert.sichtbar} Betrieb${gefiltert.sichtbar === 1 ? '' : 'e'}`, `Suche: Leiste zählt nur die angezeigten Betriebe (${gefiltert.text})`);
+  // Azubi-Liste: eine Seite am Bildschirm, der Export nimmt die ganze gefilterte Liste
+  await page.evaluate(() => StammdatenTab.show('azubis'));
+  await page.waitForTimeout(500);
+  const az = await page.evaluate(() => ({ text: document.querySelector('#mainContent .tab-export .te-zahl').textContent, seite: document.querySelectorAll('.chk-azubi').length, gesamt: StammdatenTab._getFilteredAzubis().length }));
+  await page.locator('#mainContent .tab-export [data-te="xlsx"]').click();
+  wb = await page.evaluate(() => window.__wb.pop());
+  check(az.text === `${az.gesamt} Azubis` && !!wb && wb.blaetter[0].aoa.length === az.gesamt + 1 && az.gesamt >= az.seite, `Azubi-Liste: Export der ganzen gefilterten Liste (${az.gesamt}), nicht nur der Seite (${az.seite})`);
+  // Tabelle ohne eigene Datenquelle (Dialog): Export so, wie sie dasteht
+  await page.evaluate(() => { const id = App.scalar('SELECT k.berufsschule_id FROM schueler s JOIN klassen k ON s.klasse_id=k.id WHERE s.aktiv=1 GROUP BY k.berufsschule_id ORDER BY COUNT(*) DESC LIMIT 1'); StammdatenTab.showSchuleAzubis(id); });
+  await page.waitForTimeout(500);
+  const dlg = await page.locator('#modalContent .tab-export [data-te="xlsx"]').count();
+  if (dlg) {
+    await page.locator('#modalContent .tab-export [data-te="xlsx"]').first().click();
+    wb = await page.evaluate(() => window.__wb.pop());
+    const zeilen = await page.evaluate(() => document.querySelector('#modalContent table.data-table').tBodies[0].rows.length);
+    check(!!wb && wb.blaetter[0].aoa.length === zeilen + 1 && wb.blaetter[0].aoa[0].includes('Name') && !wb.blaetter[0].aoa[0].some(h => /^Spalte|Aktion/.test(h)), 'Liste in einem Dialog: Export der angezeigten Spalten ohne Symbol- und Aktionsspalten');
+  } else check(true, 'Liste in einem Dialog (zu wenige Zeilen in den Demodaten – übersprungen)');
+  await page.evaluate(() => { App.closeModal(); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => App.navigate('dashboard'));
+  await page.waitForTimeout(500);
+  check(await page.evaluate(() => document.querySelectorAll('#mainContent .tab-export').length) === 0, 'Startseite bleibt ohne Export-Leisten');
+  await page.evaluate(() => { XLSX.writeFile = window.__xlsxAlt; App.kopieren = window.__kopAlt; });
+  check(errors.length === before, 'Export ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
