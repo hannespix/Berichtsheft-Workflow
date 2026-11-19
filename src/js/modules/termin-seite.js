@@ -118,7 +118,7 @@ const TerminSeite = {
         <div class="card ts-kopf">
           <div class="ts-titel">
             <h1>${wt} ${formatDate(t.geplant_datum)} <span class="ts-kw">(KW ${getKW(t.geplant_datum)})</span>${ortName ? ` <span class="ts-punkt">·</span> ${esc(ortName)}` : ''}${ortOrt ? ` <span class="ts-ort">${esc(ortOrt)}</span>` : ''}</h1>
-            ${statusBadge(t.status)}
+            ${statusBadge(t.status)}${t.archiviert_am ? ` <span class="badge-status badge-archiv" title="Archiviert am ${formatDate(t.archiviert_am)}">Archiviert</span>` : ''}
             ${st.kette.label ? `<span class="ts-kette" style="color:${st.kette.farbe}">${esc(st.kette.label)}</span>` : ''}
             <span class="ts-kopf-aktionen">
               ${st.abg ? '' : `<button class="btn btn-sm btn-success" onclick="TerminSeite.durchsichtOeffnen()" title="Übersicht der Durchsicht öffnen">▸ Durchsicht öffnen</button>`}
@@ -128,6 +128,9 @@ const TerminSeite = {
                 st.abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
                 { label: '⇥ Anderen Termin hierher zusammenführen …', onclick: `Sammel.zusammenfuehrenDialog([${t.id}], ${t.id})`, title: 'Nur für echte Doppelanlagen – dieser Termin bleibt' },
                 { trenner: true },
+                t.archiviert_am
+                  ? { label: '↺ Aus dem Archiv holen', onclick: `PlanungHandler.terminArchivieren(${t.id}, false)` }
+                  : { label: '▣ Archivieren', onclick: `PlanungHandler.terminArchivieren(${t.id}, true)`, title: 'Termin ablegen: verschwindet aus den laufenden Listen, bleibt mit allen Ergebnissen erhalten' },
                 { label: '✕ Termin löschen', onclick: 'TerminSeite.loeschen()' },
               ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein')}
             </span>

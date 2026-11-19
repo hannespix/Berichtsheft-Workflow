@@ -6416,6 +6416,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .wv-status option { background: var(--clr-white); color: var(--clr-text); font-weight: 400; }
 .wv-soeben { font-size: 12px; color: var(--clr-text-light); margin-top: 2px; }
 .badge-planned { background: var(--clr-blue-light); color: #0A3C90; }  /* BW Blau Dunkel */
+.badge-archiv { background: var(--clr-sand-light); color: var(--clr-text); border: 1px solid var(--clr-sand); }
 
 /* ── Modal ── */
 .modal-overlay {
@@ -7969,7 +7970,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-19 14:36 UTC',
+  BUILD: '2026-11-19 14:42 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -9126,7 +9127,8 @@ const App = {
       bestaetigt_am TEXT DEFAULT '',
       nachbereitet_am TEXT DEFAULT '',
       aufteilung TEXT DEFAULT '',
-      ort TEXT DEFAULT ''
+      ort TEXT DEFAULT '',
+      archiviert_am TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15153,6 +15155,8 @@ const App = {
     // Prüferaufteilung am Termin (JSON {Prüfer: [von, bis]}) – für Offline-Betrieb in der DB, nicht nur in Positionsdateien
     run("ALTER TABLE kontrolltermine ADD COLUMN aufteilung TEXT DEFAULT ''");
     run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''");
+    // Termin von Hand ins Archiv gelegt (nur Anzeige – Daten bleiben unverändert)
+    run("ALTER TABLE kontrolltermine ADD COLUMN archiviert_am TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -17067,10 +17071,10 @@ const App = {
     } catch(e) {}
     const in21 = new Date(); in21.setDate(in21.getDate() + 21);
     const in21Iso = in21.toISOString().slice(0, 10);
-    st.termineOffen = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND geplant_datum >= ?", [heute]) || 0;
-    st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
-    st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
-    st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
+    st.termineOffen = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')='' AND geplant_datum >= ?", [heute]) || 0;
+    st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')='' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
+    st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
+    st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(archiviert_am,'')='' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
     st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum != '' AND frist_datum < ?)", [heute]) || 0;
     st.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
     return st;
@@ -17351,11 +17355,32 @@ const App = {
   TERMIN_KUERZLICH_TAGE: 90,
   terminAktuell(t, heute) {
     if (!t) return 'alt';
+    if (t.archiviert_am) return 'alt';   // von Hand ins Archiv gelegt
     heute = heute || this._heuteIso();
     if (t.status === 'geplant') return 'anstehend';
     const grenze = new Date(heute + 'T00:00:00'); grenze.setDate(grenze.getDate() - this.TERMIN_KUERZLICH_TAGE);
     const g = `${grenze.getFullYear()}-${String(grenze.getMonth() + 1).padStart(2, '0')}-${String(grenze.getDate()).padStart(2, '0')}`;
     return (t.geplant_datum || '') >= g ? 'kuerzlich' : 'alt';
+  },
+
+  // ── Termine archivieren ──
+  // Reine Ablage: der Termin verschwindet aus den laufenden Listen (Termine,
+  // Startseite, Terminwahl der Durchsicht, Zieltermine) und steht unter
+  // „Archiv“. Status, Ergebnisse, Wiedervorlagen und Bögen bleiben unberührt;
+  // zurückholen jederzeit. SQL-Baustein für Abfragen: TERMIN_NICHT_ARCHIVIERT.
+  TERMIN_NICHT_ARCHIVIERT: "COALESCE(archiviert_am,'')=''",
+  terminArchivieren(ids, an = true) {
+    const liste = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean);
+    const wert = an ? this._heuteIso() : '';
+    let n = 0;
+    liste.forEach(id => {
+      const t = this.query('SELECT archiviert_am FROM kontrolltermine WHERE id=?', [id])[0];
+      if (!t || !!t.archiviert_am === !!an) return;
+      this.run('UPDATE kontrolltermine SET archiviert_am=? WHERE id=?', [wert, id]);
+      n++;
+    });
+    if (n) { try { this.invalidateTerminCache(); } catch(e) {} try { this.updateBadges && this.updateBadges(); } catch(e) {} }
+    return n;
   },
 
   // ── Termin-Statuskette (Stufe 2) ──
@@ -18844,6 +18869,7 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN archiviert_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
@@ -19935,7 +19961,7 @@ const Views = {
 
     const naechsteTermine = App.query(`SELECT kt.*, kt.id as termin_id
       FROM kontrolltermine kt
-      WHERE kt.status='geplant' AND kt.geplant_datum >= ?${jfkt.where}
+      WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum >= ?${jfkt.where}
       ORDER BY kt.geplant_datum LIMIT 5`, [today, ...jfkt.params]);
     App.preloadTerminKlassen(naechsteTermine.map(t => t.id));
 
@@ -19971,10 +19997,10 @@ const Views = {
     const in7 = addDaysStr(7), in21 = addDaysStr(21);
     const wvHeute = App.query(`SELECT w.id, w.frist_datum, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum BETWEEN ? AND ?${jf.where} ORDER BY w.frist_datum`, [today, in7, ...jf.params]);
     const wvOhneVersand = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND COALESCE(w.versand_datum,'')='' AND w.art != 'nachholung_naechste_durchsicht'${jf.where}`, jf.params) || 0;
-    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
-    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
-    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
-    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
+    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
+    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.archiviert_am,'')='' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
     const arbeitsliste = [
       ueberfaellig ? { n: ueberfaellig, text: `Wiedervorlage${ueberfaellig > 1 ? 'n' : ''} überfällig`, farbe: 'var(--clr-red)', view: 'wiedervorlagen', filter: 'ueberfaellig' } : null,
       wvHeute.length ? { n: wvHeute.length, text: `Wiedervorlage${wvHeute.length > 1 ? 'n' : ''} fällig bis ${formatDate(in7)}`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'unerledigt' } : null,
@@ -20819,6 +20845,9 @@ const Views = {
   //  KONTROLLPLANUNG
   // ════════════════════════════════════════════
   planung() {
+    // Gewählten Filter über ein Neuzeichnen behalten (z. B. nach „Aus dem Archiv holen“)
+    const planFilterAlt = document.getElementById('planFilter');
+    const planFilterVorher = planFilterAlt ? planFilterAlt.value : '';
     const jfkt = App.jgWhere('kt.jahrgang_id');
     let termine = App.query(`SELECT kt.*
       FROM kontrolltermine kt
@@ -20840,7 +20869,7 @@ const Views = {
             <option value="geplant" selected>Geplante Termine</option>
             <option value="nachbereitung">Durchgeführt, Nachbereitung offen</option>
             <option value="durchgefuehrt">Durchgeführt (letzte 90 Tage)</option>
-            <option value="alt">Ältere Termine (Archiv)</option>
+            <option value="alt">Archiv (archiviert oder älter als 90 Tage)</option>
             <option value="all">Alle anzeigen</option>
           </select>
           <span class="split">
@@ -20942,7 +20971,7 @@ const Views = {
             const frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ') || '–';
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
-            return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
+            return `<tr data-id="${t.id}" data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-archiv="${t.archiviert_am ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
             <td class="sl-td"><input type="checkbox" class="chk-termin" value="${t.id}" aria-label="Termin ${formatDate(t.geplant_datum)} für eine gemeinsame Auswertung wählen" ${Sammel.hat(t.id) ? 'checked' : ''} onchange="Sammel.toggle(${t.id}, this.checked)"></td>
             <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}${t.bemerkung ? `<div style="font-size:12px;color:var(--clr-text-light);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung)}">${esc(t.bemerkung)}</div>` : ''}</td>
             <td>${esc(schule)}${ort ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(ort)}</div>` : ''}</td>
@@ -20950,7 +20979,7 @@ const Views = {
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
-            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
+            <td data-sort="${t.status}">${statusBadge(t.status)}${t.archiviert_am ? ` <span class="badge-status badge-archiv" title="Archiviert am ${formatDate(t.archiviert_am)} – steht nur noch unter „Archiv“">Archiviert</span>` : ''}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td style="white-space:nowrap">
               ${(() => {
                 // Ein Hauptknopf je Termin: „Öffnen“ führt auf die Termin-Seite
@@ -20970,6 +20999,9 @@ const Views = {
                   { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
                   abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
                   { trenner: true },
+                  t.archiviert_am
+                    ? { label: '↺ Aus dem Archiv holen', onclick: `PlanungHandler.terminArchivieren(${t.id}, false)`, title: 'Termin wieder in den laufenden Listen zeigen' }
+                    : { label: '▣ Archivieren', onclick: `PlanungHandler.terminArchivieren(${t.id}, true)`, title: 'Termin ablegen: verschwindet aus den laufenden Listen, bleibt mit allen Ergebnissen erhalten (Filter „Archiv“)' },
                   { label: '✕ Termin löschen', onclick: `PlanungHandler.deleteTermin(${t.id})` },
                 ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
               })()}
@@ -20980,7 +21012,9 @@ const Views = {
       </div>
     </div>`;
     // Apply default filter
-    PlanungHandler.filterStatus(document.getElementById('planFilter')?.value || 'geplant');
+    const planFilterNeu = document.getElementById('planFilter');
+    if (planFilterNeu && planFilterVorher) planFilterNeu.value = planFilterVorher;
+    PlanungHandler.filterStatus(planFilterNeu?.value || 'geplant');
     if (typeof Sammel !== 'undefined') Sammel._leiste();
   },
 
@@ -22434,6 +22468,7 @@ const Views = {
             <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
             <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
+            <p>• <strong>Termine archivieren</strong> – ⋯ → „▣ Archivieren“ in der Termine-Liste (oder für mehrere: Häkchen setzen, in der Leiste unten ⋯ → „Archivieren“; ebenso auf der Termin-Seite) legt einen Termin ab. Er verschwindet aus „Geplante Termine“, „Nachbereitung offen“, der Startseite und der Terminwahl der Durchsicht und steht nur noch unter dem Filter <em>Archiv</em> (dort stehen auch durchgeführte Termine, die älter als 90 Tage sind) und unter „Alle anzeigen“. Es wird nichts gelöscht: Status, Ergebnisse, Wiedervorlagen und Bögen bleiben, beim Azubi sind die Durchsichten weiter zu sehen. „↺ Aus dem Archiv holen“ macht es rückgängig.</p>
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
             <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
             <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>
@@ -26796,15 +26831,27 @@ const PlanungHandler = {
     if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') { TerminSeite.render(); return; }
     Views.planung();
   },
+  // Termin(e) ins Archiv legen oder zurückholen – reine Ablage, nichts wird gelöscht
+  terminArchivieren(ids, an = true) {
+    const liste = Array.isArray(ids) ? ids : [ids];
+    const n = App.terminArchivieren(liste, an);
+    if (!n) { App.toast(an ? 'Schon archiviert' : 'Nicht im Archiv', 'info'); return 0; }
+    App.toast(an
+      ? `${n === 1 ? 'Termin' : n + ' Termine'} archiviert – zu finden unter „Archiv“, dort lässt ${n === 1 ? 'er' : 'sie'} sich zurückholen`
+      : `${n === 1 ? 'Termin' : n + ' Termine'} aus dem Archiv geholt`, 'success', 6000);
+    this._auffrischen();
+    return n;
+  },
   filterStatus(status) {
     const rows = document.querySelectorAll('#planTableBody tr');
     let visible = 0;
     rows.forEach(r => {
       const st = r.dataset.status, alt = r.dataset.alt === '1', nachbereitet = r.dataset.nachbereitet === '1';
+      const archiv = r.dataset.archiv === '1';   // von Hand archiviert: nur unter „Archiv“ und „Alle“
       let show;
       if (status === 'all') show = true;
-      else if (status === 'geplant') show = st === 'geplant';
-      else if (status === 'nachbereitung') show = st === 'durchgefuehrt' && !nachbereitet;
+      else if (status === 'geplant') show = st === 'geplant' && !archiv;
+      else if (status === 'nachbereitung') show = st === 'durchgefuehrt' && !nachbereitet && !archiv;
       else if (status === 'durchgefuehrt') show = st === 'durchgefuehrt' && !alt;   // Archiv (älter als 90 Tage) nicht dauerhaft
       else if (status === 'alt') show = alt;
       else show = st === status;
@@ -27800,7 +27847,7 @@ const PlanungHandler = {
   exportICS() {
     const termine = App.query(`SELECT kt.*
       FROM kontrolltermine kt
-      WHERE kt.status='geplant' ORDER BY kt.geplant_datum`);
+      WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' ORDER BY kt.geplant_datum`);
     if (!termine.length) return App.toast('Keine Termine zum Exportieren', 'warning');
     App.exportICS(termine.map(t => {
       const klassen = App.getTerminKlassen(t.id);
@@ -29883,7 +29930,7 @@ const KontrolleHandler = {
   // Zieltermin; in DIESEM Termin bleiben sie mit ihren Ergebnissen stehen.
   _uebZielTermine() {
     const heute = todayStr();
-    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' ORDER BY geplant_datum", [this.currentTerminId]);
+    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' AND COALESCE(archiviert_am,'')='' ORDER BY geplant_datum", [this.currentTerminId]);
     return [...alle.filter(t => t.geplant_datum >= heute), ...alle.filter(t => t.geplant_datum < heute).reverse()].slice(0, 80);
   },
   uebTerminZuweisenDialog() {
@@ -39529,7 +39576,7 @@ const TerminSeite = {
         <div class="card ts-kopf">
           <div class="ts-titel">
             <h1>${wt} ${formatDate(t.geplant_datum)} <span class="ts-kw">(KW ${getKW(t.geplant_datum)})</span>${ortName ? ` <span class="ts-punkt">·</span> ${esc(ortName)}` : ''}${ortOrt ? ` <span class="ts-ort">${esc(ortOrt)}</span>` : ''}</h1>
-            ${statusBadge(t.status)}
+            ${statusBadge(t.status)}${t.archiviert_am ? ` <span class="badge-status badge-archiv" title="Archiviert am ${formatDate(t.archiviert_am)}">Archiviert</span>` : ''}
             ${st.kette.label ? `<span class="ts-kette" style="color:${st.kette.farbe}">${esc(st.kette.label)}</span>` : ''}
             <span class="ts-kopf-aktionen">
               ${st.abg ? '' : `<button class="btn btn-sm btn-success" onclick="TerminSeite.durchsichtOeffnen()" title="Übersicht der Durchsicht öffnen">▸ Durchsicht öffnen</button>`}
@@ -39539,6 +39586,9 @@ const TerminSeite = {
                 st.abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
                 { label: '⇥ Anderen Termin hierher zusammenführen …', onclick: `Sammel.zusammenfuehrenDialog([${t.id}], ${t.id})`, title: 'Nur für echte Doppelanlagen – dieser Termin bleibt' },
                 { trenner: true },
+                t.archiviert_am
+                  ? { label: '↺ Aus dem Archiv holen', onclick: `PlanungHandler.terminArchivieren(${t.id}, false)` }
+                  : { label: '▣ Archivieren', onclick: `PlanungHandler.terminArchivieren(${t.id}, true)`, title: 'Termin ablegen: verschwindet aus den laufenden Listen, bleibt mit allen Ergebnissen erhalten' },
                 { label: '✕ Termin löschen', onclick: 'TerminSeite.loeschen()' },
               ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein')}
             </span>
@@ -39685,6 +39735,18 @@ const Sammel = {
     if (alle) alle.checked = false;
     this._leiste();
   },
+  // Gewählte Termine archivieren bzw. zurückholen
+  _alleArchiviert() {
+    const ids = [...this._ids];
+    if (!ids.length) return false;
+    return (App.scalar(`SELECT COUNT(*) FROM kontrolltermine WHERE id IN (${ids.map(() => '?').join(',')}) AND COALESCE(archiviert_am,'')=''`, ids) || 0) === 0;
+  },
+  archivieren(an = true) {
+    const ids = [...this._ids];
+    if (!ids.length) return 0;
+    this._ids.clear();
+    return PlanungHandler.terminArchivieren(ids, an);
+  },
   _leiste() {
     const el = document.getElementById('sammelLeiste');
     if (!el) return;
@@ -39700,6 +39762,9 @@ const Sammel = {
       ${App.menue('⋯', [
         { label: '☑ Alle sichtbaren wählen', onclick: 'Sammel.alle(true)' },
         { trenner: true },
+        this._alleArchiviert()
+          ? { label: '↺ Aus dem Archiv holen', onclick: 'Sammel.archivieren(false)', title: 'Gewählte Termine wieder in den laufenden Listen zeigen' }
+          : { label: '▣ Archivieren', onclick: 'Sammel.archivieren(true)', title: 'Gewählte Termine ablegen – sie bleiben mit allen Ergebnissen erhalten (Filter „Archiv“)' },
         { label: '⇥ Zu einem Termin zusammenführen …', onclick: 'Sammel.zusammenfuehrenDialog()', title: 'Nur für echte Doppelanlagen – für Listen über mehrere Termine die Auswertungen links nutzen' },
       ], 'Weitere Aktionen zur Auswahl', 'klein')}
       <button class="btn btn-sm btn-secondary sl-x" onclick="Sammel.leer()" aria-label="Auswahl aufheben" title="Auswahl aufheben">✕</button>`;

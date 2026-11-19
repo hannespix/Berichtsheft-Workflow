@@ -117,7 +117,7 @@ console.log('\n══ getTerminSchule: Ort des Termins ══');
   check(App.getTerminSchule(10)?.name === 'BS Freiburg', 'Nur Leerzeichen zählen nicht als freier Ort');
   db.run(`UPDATE kontrolltermine SET ort='' WHERE id=10`);
   const A = read('src/js/app-core.js'), P = read('src/js/modules/planung.js');
-  check(/ort TEXT DEFAULT ''\n    \);\n    CREATE TABLE IF NOT EXISTS kontrollergebnisse/.test(A) && /run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A) && /this\.db\.run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A), 'kontrolltermine.ort in Schema, migrateDB und _migrateDiskDb');
+  check(/ort TEXT DEFAULT '',\n      archiviert_am TEXT DEFAULT ''\n    \);\n    CREATE TABLE IF NOT EXISTS kontrollergebnisse/.test(A) && /run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A) && /this\.db\.run\("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"\)/.test(A), 'kontrolltermine.ort in Schema, migrateDB und _migrateDiskDb');
   check(/this\._ortFelderHtml\(t\)/.test(P) && /addTermin\(\) \{ this\._terminDialog\(null\); \}/.test(P) && /editTermin\(id\) \{ this\._terminDialog\(id\); \}/.test(P) && /<option value="frei"/.test(P) && /id="mKtOrtFrei"/.test(P) && /berufsschule_id=\?,ort=\? WHERE id=\?/.test(P) && /typ,berufsschule_id,ort\) VALUES/.test(P), 'Beide Termin-Dialoge bieten „Anderer Ort (eintragen)“; Speichern schreibt ihn (neu und bearbeiten)');
   check(/const koll = ortFrei \? \[\] : App\.terminKollisionen/.test(P) && /if \(!selectedKlassen\.length && !ortId && !ortFrei\)/.test(P), 'Freier Ort: keine Doppeltermin-Prüfung je Schule, zählt als Ort');
 
@@ -378,6 +378,59 @@ console.log('\n══ Alte Termine ausblenden (Regel statt Archiv-Status) ══
   check(/<option value="nachbereitung">/.test(VIEWS_SRC) && /<option value="alt">/.test(VIEWS_SRC) && /data-alt=/.test(VIEWS_SRC), 'Planung: Filter „Nachbereitung offen" und „Archiv"');
   check(/st === 'durchgefuehrt' && !alt/.test(PLANUNG_SRC) && /status === 'nachbereitung'/.test(PLANUNG_SRC), 'Planungsfilter blendet alte durchgeführte Termine standardmäßig aus');
   check(/kt\.geplant_datum BETWEEN '\$\{berVon\}' AND '\$\{berBis\}'/.test(VIEWS_SRC) && /Schuljahr \$\{o\}/.test(VIEWS_SRC), 'Berichte: Export-Liste nach Schuljahr (Standard laufendes)');
+}
+
+console.log('\n══ Termine archivieren ══');
+{
+  const PH = sandbox.PlanungHandler;
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/js/modules/sammel.js'), 'utf8') + '\n;globalThis.Sammel = Sammel;', sandbox, { filename: 'sammel.js' });
+  const Sammel = sandbox.Sammel;
+  const heute = App._heuteIso();
+  const zukunft = `${new Date().getFullYear() + 1}-05-10`;
+  db.run(`INSERT INTO kontrolltermine (id,geplant_datum,status,pruefer,typ) VALUES (9601,'${zukunft}','geplant','Pix','schulkontrolle'),(9602,'${heute}','durchgefuehrt','Pix','schulkontrolle'),(9603,'${zukunft}','geplant','','schulkontrolle')`);
+  const offenVor = App.scalar(`SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND ${App.TERMIN_NICHT_ARCHIVIERT} AND geplant_datum >= ?`, [heute]);
+  check(App.terminAktuell(App.query('SELECT * FROM kontrolltermine WHERE id=9601')[0]) === 'anstehend' && App.terminAktuell(App.query('SELECT * FROM kontrolltermine WHERE id=9602')[0]) === 'kuerzlich', 'Vorher: geplanter Termin „anstehend“, eben durchgeführter „kürzlich“');
+  // Archivieren
+  check(App.terminArchivieren([9601, 9602]) === 2 && App.scalar('SELECT archiviert_am FROM kontrolltermine WHERE id=9601') === heute, 'terminArchivieren setzt das Datum, zählt die geänderten Termine');
+  check(App.terminArchivieren(9601) === 0 && App.terminArchivieren([0, 424242]) === 0, 'Schon archiviert bzw. unbekannt → keine Änderung');
+  const t1 = App.query('SELECT * FROM kontrolltermine WHERE id=9601')[0], t2 = App.query('SELECT * FROM kontrolltermine WHERE id=9602')[0];
+  check(App.terminAktuell(t1) === 'alt' && App.terminAktuell(t2) === 'alt' && t1.status === 'geplant' && t2.status === 'durchgefuehrt', 'Archivierte zählen als „alt“ (Terminwahl der Durchsicht) – der Status bleibt');
+  check(App.scalar(`SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND ${App.TERMIN_NICHT_ARCHIVIERT} AND geplant_datum >= ?`, [heute]) === offenVor - 1, 'Archivierter geplanter Termin zählt nicht mehr zu den offenen Terminen');
+  // Filter der Termine-Liste
+  const zeile = (id, st, alt, archiv, nb) => ({ dataset: { id: String(id), status: st, alt: alt ? '1' : '0', archiv: archiv ? '1' : '0', nachbereitet: nb ? '1' : '0' }, style: {} });
+  const rows = [zeile(9601, 'geplant', true, true), zeile(9603, 'geplant', false, false), zeile(9602, 'durchgefuehrt', true, true), zeile(1, 'durchgefuehrt', false, false)];
+  const qAlt = sandbox.document.querySelectorAll, gAlt = sandbox.document.getElementById;
+  sandbox.document.querySelectorAll = (sel) => sel === '#planTableBody tr' ? rows : [];
+  sandbox.document.getElementById = () => null;
+  const sichtbar = (f) => { PH.filterStatus(f); return rows.filter(r => r.style.display !== 'none').map(r => r.dataset.id).join(); };
+  check(sichtbar('geplant') === '9603' && sichtbar('nachbereitung') === '1' && sichtbar('durchgefuehrt') === '1', 'Filter „Geplante“, „Nachbereitung offen“ und „Durchgeführt“ zeigen archivierte Termine nicht');
+  check(sichtbar('alt') === '9601,9602' && sichtbar('all') === '9601,9603,9602,1', 'Filter „Archiv“ zeigt sie, „Alle“ zeigt alles');
+  sandbox.document.querySelectorAll = qAlt; sandbox.document.getElementById = gAlt;
+  // Zurückholen und Sammelauswahl
+  let neu = 0; PH._auffrischen = () => { neu++; };
+  check(PH.terminArchivieren(9601, false) === 1 && (App.scalar('SELECT archiviert_am FROM kontrolltermine WHERE id=9601') || '') === '' && neu === 1 && App.terminAktuell(App.query('SELECT * FROM kontrolltermine WHERE id=9601')[0]) === 'anstehend', 'Aus dem Archiv holen: Termin steht wieder in den laufenden Listen, Liste neu gezeichnet');
+  Sammel._ids = new Set([9601, 9603]);
+  check(Sammel._alleArchiviert() === false && Sammel.archivieren(true) === 2 && Sammel._ids.size === 0 && App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE id IN (9601,9603) AND archiviert_am != ''") === 2, 'Auswahlleiste: mehrere Termine auf einmal archiviert, Auswahl aufgehoben');
+  Sammel._ids = new Set([9601, 9603]);
+  check(Sammel._alleArchiviert() === true && Sammel.archivieren(false) === 2 && App.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE id IN (9601,9603) AND archiviert_am != ''") === 0, 'Auswahl nur aus archivierten → „Aus dem Archiv holen“');
+  // Schema an drei Stellen, Verdrahtung
+  const V = fs.readFileSync(path.join(ROOT, 'src/js/modules/views.js'), 'utf8'), P = fs.readFileSync(path.join(ROOT, 'src/js/modules/planung.js'), 'utf8'),
+    S = fs.readFileSync(path.join(ROOT, 'src/js/modules/sammel.js'), 'utf8'), T = fs.readFileSync(path.join(ROOT, 'src/js/modules/termin-seite.js'), 'utf8'), K = fs.readFileSync(path.join(ROOT, 'src/js/modules/kontrolle.js'), 'utf8');
+  check((APP_SRC.match(/archiviert_am TEXT DEFAULT ''/g) || []).length === 3, 'Spalte archiviert_am: SCHEMA, migrateDB und _migrateDiskDb');
+  {
+    const diskDb = new SQL.Database();
+    diskDb.run(`CREATE TABLE kontrolltermine (id INTEGER PRIMARY KEY AUTOINCREMENT, geplant_datum TEXT, status TEXT)`);
+    for (const tb of ['schueler','kontrollergebnisse','berufsschulen','klassen','abschlussjahrgaenge','fachrichtungen','wiedervorlagen']) diskDb.run(`CREATE TABLE ${tb} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);
+    App._migrateDiskDb(diskDb);
+    const cols = []; const st = diskDb.prepare('PRAGMA table_info(kontrolltermine)'); while (st.step()) cols.push(st.getAsObject().name); st.free();
+    check(cols.includes('archiviert_am'), 'archiviert_am auch auf der Disk-Datenbank');
+    diskDb.close();
+  }
+  check(/data-archiv="\$\{t\.archiviert_am \? 1 : 0\}"/.test(V) && /label: '▣ Archivieren', onclick: `PlanungHandler\.terminArchivieren\(\$\{t\.id\}, true\)`/.test(V) && /label: '↺ Aus dem Archiv holen', onclick: `PlanungHandler\.terminArchivieren\(\$\{t\.id\}, false\)`/.test(V) && /badge-archiv/.test(V), 'Termine-Liste: Zeilenmenü „Archivieren“ / „Aus dem Archiv holen“, Marke „Archiviert“');
+  check(/<option value="alt">Archiv \(archiviert oder älter als 90 Tage\)<\/option>/.test(V) && /planFilterVorher/.test(V), 'Filter „Archiv“ benannt, gewählter Filter bleibt über das Neuzeichnen');
+  check(/onclick: 'Sammel\.archivieren\(true\)'/.test(S) && /PlanungHandler\.terminArchivieren\(\$\{t\.id\}, true\)/.test(T), 'Auswahlleiste und Termin-Seite bieten das Archivieren an');
+  check((V.match(/COALESCE\(kt\.archiviert_am,''\)=''/g) || []).length >= 5 && /status='geplant' AND COALESCE\(kt\.archiviert_am,''\)='' ORDER BY/.test(P) && /status='geplant' AND COALESCE\(archiviert_am,''\)='' ORDER BY geplant_datum/.test(K), 'Startseite, ICS-Export und Zieltermine lassen archivierte Termine aus');
+  check(/Termine archivieren/.test(V), 'Hilfe beschreibt das Archivieren');
 }
 
 console.log(`\n═══ Ergebnis: ${passed} OK, ${failed} Fehler ═══`);

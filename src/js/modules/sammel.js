@@ -36,6 +36,18 @@ const Sammel = {
     if (alle) alle.checked = false;
     this._leiste();
   },
+  // Gewählte Termine archivieren bzw. zurückholen
+  _alleArchiviert() {
+    const ids = [...this._ids];
+    if (!ids.length) return false;
+    return (App.scalar(`SELECT COUNT(*) FROM kontrolltermine WHERE id IN (${ids.map(() => '?').join(',')}) AND COALESCE(archiviert_am,'')=''`, ids) || 0) === 0;
+  },
+  archivieren(an = true) {
+    const ids = [...this._ids];
+    if (!ids.length) return 0;
+    this._ids.clear();
+    return PlanungHandler.terminArchivieren(ids, an);
+  },
   _leiste() {
     const el = document.getElementById('sammelLeiste');
     if (!el) return;
@@ -51,6 +63,9 @@ const Sammel = {
       ${App.menue('⋯', [
         { label: '☑ Alle sichtbaren wählen', onclick: 'Sammel.alle(true)' },
         { trenner: true },
+        this._alleArchiviert()
+          ? { label: '↺ Aus dem Archiv holen', onclick: 'Sammel.archivieren(false)', title: 'Gewählte Termine wieder in den laufenden Listen zeigen' }
+          : { label: '▣ Archivieren', onclick: 'Sammel.archivieren(true)', title: 'Gewählte Termine ablegen – sie bleiben mit allen Ergebnissen erhalten (Filter „Archiv“)' },
         { label: '⇥ Zu einem Termin zusammenführen …', onclick: 'Sammel.zusammenfuehrenDialog()', title: 'Nur für echte Doppelanlagen – für Listen über mehrere Termine die Auswertungen links nutzen' },
       ], 'Weitere Aktionen zur Auswahl', 'klein')}
       <button class="btn btn-sm btn-secondary sl-x" onclick="Sammel.leer()" aria-label="Auswahl aufheben" title="Auswahl aufheben">✕</button>`;

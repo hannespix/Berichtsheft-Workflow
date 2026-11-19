@@ -696,6 +696,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .wv-status option { background: var(--clr-white); color: var(--clr-text); font-weight: 400; }
 .wv-soeben { font-size: 12px; color: var(--clr-text-light); margin-top: 2px; }
 .badge-planned { background: var(--clr-blue-light); color: #0A3C90; }  /* BW Blau Dunkel */
+.badge-archiv { background: var(--clr-sand-light); color: var(--clr-text); border: 1px solid var(--clr-sand); }
 
 /* ── Modal ── */
 .modal-overlay {

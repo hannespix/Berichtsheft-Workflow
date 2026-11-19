@@ -631,7 +631,7 @@ const KontrolleHandler = {
   // Zieltermin; in DIESEM Termin bleiben sie mit ihren Ergebnissen stehen.
   _uebZielTermine() {
     const heute = todayStr();
-    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' ORDER BY geplant_datum", [this.currentTerminId]);
+    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' AND COALESCE(archiviert_am,'')='' ORDER BY geplant_datum", [this.currentTerminId]);
     return [...alle.filter(t => t.geplant_datum >= heute), ...alle.filter(t => t.geplant_datum < heute).reverse()].slice(0, 80);
   },
   uebTerminZuweisenDialog() {
