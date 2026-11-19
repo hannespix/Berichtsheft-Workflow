@@ -563,6 +563,59 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
     check(['azubi_ankuendigung', 'azubi_ok', 'azubi_maengel', 'azubi_nachholung'].every(k => App.VORLAGEN[k] && /\{azubi_anrede\}/.test(App.VORLAGEN[k].body) && /\{betrieb_hinweis\}/.test(App.VORLAGEN[k].body) && !/\{azubi_block\}/.test(App.VORLAGEN[k].body)), 'Vier Azubi-Vorlagen: Anrede, Betriebs-Hinweis, kein Sammelblock');
     check(!/_betriebMailCc/.test(read('src/js/modules/workflows.js')) && !/cc: m\.cc/.test(read('src/js/modules/workflows.js')) && !/cc: m\.cc/.test(read('src/js/modules/brief-editor.js')), 'Kein Weg setzt mehr Azubis in Kopie (Arbeitsliste, mailto, Brief-Editor)');
   }
+  // ── E-Mail-Signatur je Prüfer ──
+  {
+    console.log('\n  ── E-Mail-Signatur je Prüfer ──');
+    const text = 'Sehr geehrte Damen und Herren,\n\nText.\n\nMit freundlichen Grüßen\nMax Muster\nmax@example.org\nRP Freiburg, Adresse\n\nAnlage: Durchsichtsbogen X';
+    check(App.mitSignatur(text, 'Niemand Bekannt') === text && App.mitSignatur(text, '') === text && App.signaturVon('') === '', 'Ohne hinterlegte Signatur bleibt der Text unverändert');
+    db.run("INSERT OR IGNORE INTO pruefer (name, email) VALUES ('Sig Tester','sig@example.org'),('Ohne Sig','ohne@example.org')");
+    db.run("UPDATE pruefer SET signatur=? WHERE name='Sig Tester'", ['Mit freundlichen Grüßen\nSig Tester\n\nSig Tester Ausbildungsberatung 🌻\nTelefon: 0761 208-0000\n\n']);
+    const m1 = App.mitSignatur(text, 'Sig Tester');
+    check(m1 === 'Sehr geehrte Damen und Herren,\n\nText.\n\nAnlage: Durchsichtsbogen X\n\nMit freundlichen Grüßen\nSig Tester\n\nSig Tester Ausbildungsberatung 🌻\nTelefon: 0761 208-0000\n', `Schlussblock (Grußformel, Name, E-Mail, Adresse) weicht der Signatur, „Anlage“ rückt davor (${JSON.stringify(m1.slice(-90))})`);
+    check((m1.match(/Mit freundlichen Grüßen/g) || []).length === 1 && !/Max Muster|RP Freiburg, Adresse|max@example\.org/.test(m1), 'Grußformel steht genau einmal, der alte Absenderblock ist weg');
+    db.run("UPDATE pruefer SET signatur='Ohne Gruß\nReferat 31' WHERE name='Ohne Sig'");
+    check(/Text\.\n\nAnlage: Durchsichtsbogen X\n\nMit freundlichen Grüßen\nOhne Gruß\nReferat 31\n$/.test(App.mitSignatur(text, 'Ohne Sig')), 'Signatur ohne Grußformel bekommt „Mit freundlichen Grüßen“ davor');
+    check(App.mitSignatur('Nur Text ohne Gruß', 'Sig Tester').startsWith('Nur Text ohne Gruß\n\nMit freundlichen Grüßen\nSig Tester'), 'Vorlage ohne Grußformel: Signatur wird angehängt');
+    // Prüferliste: die angemeldete Person zuerst, sonst die erste mit Signatur
+    const ichAlt = App.currentUser;
+    App.currentUser = 'Ohne Sig';
+    check(/^Ohne Gruß/.test(App.signaturVon('Sig Tester, Ohne Sig')), 'Prüferliste: die angemeldete Person unterschreibt, wenn sie dazugehört');
+    App.currentUser = 'Jemand Anderes';
+    check(/Sig Tester Ausbildungsberatung/.test(App.signaturVon('Unbekannt, Sig Tester')), 'Prüferliste sonst: die erste Person mit Signatur');
+    // Arbeitsliste: Signatur der gewählten Person in Betriebs- und Azubi-Mail, im Entwurf (UTF-8) und nicht bei „keine“
+    const sigAlt = d.opts.signatur;
+    d.opts.signatur = 'p:Sig Tester';
+    const mb = Workflows._betriebMailInhalt(0), ia = d.betriebe[0].azubis.findIndex(x => x.id === 901), ma = Workflows._azubiMailInhalt(0, ia);
+    check(/Mit freundlichen Grüßen\nSig Tester\n\nSig Tester Ausbildungsberatung 🌻\nTelefon: 0761 208-0000\n$/.test(mb.body) && (mb.body.match(/Mit freundlichen Grüßen/g) || []).length === 1, 'Arbeitsliste: Betriebs-Mail endet mit der Signatur der gewählten Person');
+    check(/Sig Tester Ausbildungsberatung 🌻\nTelefon: 0761 208-0000\n$/.test(ma.body) && /hat ebenfalls eine Mitteilung/.test(ma.body), 'Arbeitsliste: Azubi-Mail ebenso');
+    const eml = App.emlErzeugen({ to: 'x@example.org', subject: mb.betreff, body: mb.body });
+    check(b64dec(eml.split('\r\n\r\n').slice(1).join('\r\n\r\n')).includes('Ausbildungsberatung 🌻'), 'Entwurf (.eml) trägt die Signatur samt Sonderzeichen (UTF-8)');
+    check(/Sig Tester · eigene Signatur/.test(Workflows._betriebMailOptionenHtml()) && !/Ohne Sig · eigene Signatur<\/option>\s*<option[^>]*>Ohne Sig/.test(Workflows._betriebMailOptionenHtml()), 'Auswahl „Signatur“ kennzeichnet Personen mit eigener Signatur');
+    d.opts.signatur = 'keine';
+    const mk = Workflows._betriebMailInhalt(0);
+    check(!/Sig Tester/.test(mk.body) && !/Mit freundlichen Grüßen/.test(mk.body), '„Keine Signatur“ bleibt ohne Grußformel und ohne Signatur');
+    d.opts.signatur = sigAlt; App.currentUser = ichAlt;
+    // Briefe bleiben beim Briefbogen
+    check(/const \{ betreff, body \} = App\.renderVorlage\(typ, this\._antwortCtx\(\{ \.\.\.t\.ctx, anrede: this\._anrede\(g\.ap\)/.test(read('src/js/modules/workflows.js')) && (read('src/js/modules/workflows.js').match(/this\._mailVorlage\(/g) || []).length === 9, 'Alle neun E-Mail-Wege gehen über _mailVorlage, der Brief nicht');
+    // Vorgabe einmalig, danach gilt der Prüfer-Dialog (auch „leer“)
+    db.run("INSERT OR IGNORE INTO pruefer (name) VALUES ('Hannes Pix')");
+    db.run("UPDATE pruefer SET signatur='' WHERE name='Hannes Pix'"); db.run("DELETE FROM einstellungen WHERE schluessel='signatur_vorgabe_v1'");
+    App.migrateDB();
+    const vorgabe = App.scalar("SELECT signatur FROM pruefer WHERE name='Hannes Pix'") || '';
+    check(/^Mit freundlichen Grüßen\nHannes Pix\n\nHannes Pix Ausbildungsberatung Gartenbau 🌻\nReferat 31 - Recht und Verwaltung, Bildung\nBertoldstraße 43\n79098 Freiburg\n\nTelefon: \(\+49\) 761 208-1356\n/.test(vorgabe) && /postalisch auf Anfrage\.$/.test(vorgabe) && !/\]\(https?:/.test(vorgabe), 'Vorgabe: hinterlegte Signatur wird einmalig eingetragen (ohne Markdown-Reste)');
+    db.run("UPDATE pruefer SET signatur='' WHERE name='Hannes Pix'");
+    App.migrateDB();
+    check((App.scalar("SELECT signatur FROM pruefer WHERE name='Hannes Pix'") || '') === '', 'Geleerte Signatur kommt nicht von selbst zurück');
+    db.run("UPDATE pruefer SET signatur='Eigene' WHERE name='Hannes Pix'"); db.run("DELETE FROM einstellungen WHERE schluessel='signatur_vorgabe_v1'");
+    App.migrateDB();
+    check(App.scalar("SELECT signatur FROM pruefer WHERE name='Hannes Pix'") === 'Eigene', 'Eine schon eingetragene Signatur wird nicht überschrieben');
+    // Schema an drei Stellen, Prüfer-Dialog
+    const ST = read('src/js/modules/stammdaten.js');
+    check((APP_SRC.match(/signatur TEXT DEFAULT ''/g) || []).length === 3, 'Spalte pruefer.signatur: SCHEMA, migrateDB und _migrateDiskDb');
+    check(/<textarea class="form-control" id="mPrSignatur"/.test(ST) && /label for="mPrSignatur"/.test(ST) && /App\.run\('UPDATE pruefer SET signatur=\? WHERE name=\?', \[sig, n\]\)/.test(ST), 'Prüfer-Dialog: Feld „E-Mail-Signatur“, gespeichert als eigene Anweisung');
+    check(/E-Mail-Signatur/.test(read('src/js/modules/views.js')), 'Hilfe beschreibt die Signatur');
+    db.run("DELETE FROM pruefer WHERE name IN ('Sig Tester','Ohne Sig')");
+  }
   // ── Vorlage von Hand wählen: für alle, je Betrieb, je Azubi ──
   {
     console.log('\n  ── Vorlage von Hand wählen ──');

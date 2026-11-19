@@ -1147,6 +1147,10 @@ const StammdatenTab = {
       <div class="form-group"><label>Name</label><input class="form-control" id="mPrName" value="${esc(p.name || '')}" ${p.id ? 'readonly' : ''}></div>
       <div class="form-group"><label>E-Mail</label><input class="form-control" id="mPrEmail" value="${esc(p.email || '')}"></div>
       <div class="form-group"><label>Telefon <span style="font-weight:400;color:var(--clr-text-light)">(steht im Briefkopf der PDF-Briefe an Betriebe)</span></label><input class="form-control" id="mPrTelefon" value="${esc(p.telefon || '')}" placeholder="0761 208-1234"></div>
+      <div class="form-group"><label for="mPrSignatur">E-Mail-Signatur <span style="font-weight:400;color:var(--clr-text-light)">(ersetzt in E-Mail-Entwürfen Grußformel und Absenderblock)</span></label>
+        <textarea class="form-control" id="mPrSignatur" rows="9" placeholder="Mit freundlichen Grüßen&#10;Vorname Nachname&#10;&#10;Funktion&#10;Referat …&#10;Telefon: …&#10;E-Mail: …">${esc(p.signatur || '')}</textarea>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Reiner Text, so wie er unter der E-Mail stehen soll – am besten mit Grußformel. Leer = Schluss der Vorlage (Grußformel, Name, Adresse des RP). Gilt, wenn diese Person unterschreibt (E-Mails an Betriebe, Azubis, Schulen, Ämter); Briefe bleiben beim Briefbogen.</div>
+      </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.savePruefer()">Speichern</button>`);
   },
@@ -1160,6 +1164,13 @@ const StammdatenTab = {
     App.run(`INSERT INTO pruefer (name,email,telefon) VALUES (?,?,?)
       ON CONFLICT(name) DO UPDATE SET email=excluded.email, telefon=excluded.telefon`,
       [n, document.getElementById('mPrEmail').value.trim(), (document.getElementById('mPrTelefon')?.value || '').trim()]);
+    // Signatur als eigene Anweisung: ein Rechner mit älterem Programmstand
+    // (ohne die Spalte) übernimmt E-Mail und Telefon trotzdem
+    const sigFeld = document.getElementById('mPrSignatur');
+    if (sigFeld) {
+      const sig = String(sigFeld.value || '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+      if (sig !== String(App.scalar('SELECT signatur FROM pruefer WHERE name=?', [n]) || '')) App.run('UPDATE pruefer SET signatur=? WHERE name=?', [sig, n]);
+    }
     App.closeModal();
     StammdatenTab.show('pruefer');
   },

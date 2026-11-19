@@ -7970,7 +7970,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-19 14:42 UTC',
+  BUILD: '2026-11-19 15:27 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -9108,6 +9108,7 @@ const App = {
       name TEXT NOT NULL UNIQUE,
       email TEXT DEFAULT '',
       telefon TEXT DEFAULT '',
+      signatur TEXT DEFAULT '',
       aktiv INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS kontrolltermine (
@@ -15250,6 +15251,8 @@ const App = {
     )`);
     // Prüfer: Telefon für den Briefkopf der PDF-Briefe (Name · Telefon · E-Mail)
     run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''");
+    // Prüfer: eigene E-Mail-Signatur (ersetzt Grußformel + Absenderblock der E-Mail-Entwürfe)
+    run("ALTER TABLE pruefer ADD COLUMN signatur TEXT DEFAULT ''");
     try { diskDb.run(`DELETE FROM pruefer WHERE id NOT IN (SELECT MIN(id) FROM pruefer GROUP BY name)`); } catch(e) {}
     run('CREATE UNIQUE INDEX IF NOT EXISTS idx_pruefer_name ON pruefer(name)');
     // Ausbildungsphasen + erweiterte Azubi-Felder
@@ -18454,6 +18457,58 @@ Mit freundlichen Grüßen
   fuellePlatzhalter(text, ctx) {
     return String(text || '').replace(/\{([a-z_]+)\}/g, (m, k) => (ctx && ctx[k] != null) ? String(ctx[k]) : m);
   },
+  // ── E-Mail-Signatur je Prüfer ──
+  // pruefer.signatur (Stammdaten → Prüfer → Bearbeiten) ersetzt in E-Mail-
+  // Entwürfen den Schlussblock der Vorlage (Grußformel, Name, Adresse). Nur
+  // E-Mails – Briefe tragen Absender und Unterschrift im Briefbogen.
+  SIGNATUR_VORGABEN: {
+    'Hannes Pix': `Mit freundlichen Grüßen
+Hannes Pix
+
+Hannes Pix Ausbildungsberatung Gartenbau 🌻
+Referat 31 - Recht und Verwaltung, Bildung
+Bertoldstraße 43
+79098 Freiburg
+
+Telefon: (+49) 761 208-1356
+E-Mail: hannes.pix@rpf.bwl.de oder Abteilung3@rpf.bwl.de
+Internet: www.rp-freiburg.de
+
+Das Regierungspräsidium in den sozialen Netzwerken:
+Facebook | Instagram | X
+
+Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internetseite oder postalisch auf Anfrage.`,
+  },
+  // Signatur zu einem Namen oder einer Prüferliste („Zilz, Pix“): die
+  // angemeldete Person zuerst, wenn sie dazugehört – sie versendet die E-Mail
+  signaturVon(name) {
+    const kand = [String(name || '').trim(), ...String(name || '').split(',').map(x => x.trim())].filter(Boolean);
+    if (!kand.length) return '';
+    const reihe = this.currentUser && kand.includes(this.currentUser) ? [this.currentUser, ...kand] : kand;
+    try {
+      for (const k of reihe) { const s = this.scalar('SELECT signatur FROM pruefer WHERE name=?', [k]); if (s && String(s).trim()) return String(s).replace(/\r\n/g, '\n').replace(/\s+$/, ''); }
+    } catch(e) {}
+    return '';
+  },
+  // Schlussblock der Vorlage (letzte Grußformel + die direkt folgenden Zeilen)
+  // durch die Signatur ersetzen; was danach noch kommt („Anlage: …“), rückt
+  // vor die Signatur. Ohne hinterlegte Signatur bleibt der Text unverändert.
+  mitSignatur(body, name) {
+    const sig = this.signaturVon(name);
+    if (!sig) return body;
+    const zeilen = String(body || '').replace(/\r\n/g, '\n').split('\n');
+    let g = -1;
+    for (let i = zeilen.length - 1; i >= 0; i--) if (/^\s*mit freundlichen gr(ü|ue)(ß|ss)en\b/i.test(zeilen[i])) { g = i; break; }
+    let kopf = zeilen, rest = [];
+    if (g >= 0) {
+      let e = g + 1;
+      while (e < zeilen.length && zeilen[e].trim() !== '') e++;
+      kopf = zeilen.slice(0, g); rest = zeilen.slice(e);
+    }
+    const k = kopf.join('\n').replace(/\s+$/, ''), r = rest.join('\n').trim();
+    const hatGruss = /^\s*(mit\s+)?(freundliche[nm]?|beste[nm]?|herzliche[nm]?|viele[nm]?|liebe[nm]?)\s+gr[üu]/i.test(sig);
+    return k + (r ? '\n\n' + r : '') + '\n\n' + (hatGruss ? '' : 'Mit freundlichen Grüßen\n') + sig + '\n';
+  },
   renderVorlage(typ, ctx) {
     const v = this.getVorlage(typ);
     if (!v) return { betreff: '', body: '' };
@@ -18846,6 +18901,7 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE schueler ADD COLUMN email TEXT DEFAULT ''"); } catch(e) {}
       // pruefer: telefon (Briefkopf der PDF-Briefe)
       try { this.db.run("ALTER TABLE pruefer ADD COLUMN telefon TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE pruefer ADD COLUMN signatur TEXT DEFAULT ''"); } catch(e) {}
       // schueler: geschlecht (m/w/d)
       try { this.db.run("ALTER TABLE schueler ADD COLUMN geschlecht TEXT DEFAULT ''"); } catch(e) {}
       // schueler: schulabschluss + pruefungserfolg
@@ -19026,6 +19082,14 @@ Mit freundlichen Grüßen
         }
       } catch(e) { console.warn('Textbaustein-Migration:', e); }
       // Wetterbeobachtungen sind für alle Pflicht (Nov. 2026): die Zusätze
+      // E-Mail-Signaturen aus SIGNATUR_VORGABEN einmalig eintragen (nur wo noch
+      // keine steht) – danach gilt, was im Prüfer-Dialog steht, auch „leer“
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='signatur_vorgabe_v1'")) {
+          Object.entries(this.SIGNATUR_VORGABEN).forEach(([name, sig]) => this.db.run("UPDATE pruefer SET signatur=? WHERE name=? AND COALESCE(signatur,'')=''", [sig, name]));
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('signatur_vorgabe_v1','1')");
+        }
+      } catch(e) { console.warn('Signatur-Vorgabe:', e); }
       // „nur bei Zusatzvereinbarung“ fallen aus den Standard-Textbausteinen und
       // aus gespeicherten Vorlagen heraus (einmalig, nur der alte Wortlaut)
       try {
@@ -22606,6 +22670,7 @@ const Views = {
               <h4 class="help-untertitel">E-Mails an die Betriebe nach der Kontrolle</h4>
               <p>Über „Betriebe anschreiben“ (Termin-Menü oder Abschluss-Assistent) → „✉︎ Individuelle E-Mails“ öffnet sich <strong>eine Liste aller Betriebe des Termins</strong>: je Betrieb die passende Vorlage (Mängelmitteilung, Nachhol-Aufforderung bei Abwesenheit, Bestätigung ohne Beanstandung), die Azubis mit Ergebnis und darunter, <strong>was nachzuholen ist</strong> – dieselben Sätze wie in der Bemerkung und auf dem Bogen („Fehlende Tagesberichte nachholen (2 Wochen: AJ 2: KW 40, 41)“, „Individueller Ausbildungsplan (1.1) fehlt …“).</p>
               <p>• <strong>Optionen</strong> über der Liste, je Person gemerkt: <em>Ansprechpartner namentlich ansprechen</em> (Standard aus – „Sehr geehrte Damen und Herren“ reicht meist), <em>Signatur</em> (Standard: die angemeldete Person; jeder andere Prüfer wählbar; oder „keine“ – dann endet der Text vor der Grußformel und Outlook hängt beim Senden die eigene Signatur an) und <em>Durchsichtsbögen anhängen</em>. Die Vorschau in der Liste zeigt sofort den geänderten Text.</p>
+              <p>• <strong>E-Mail-Signatur:</strong> Unter Stammdaten → Prüfer → „Bearbeiten“ lässt sich je Person eine eigene E-Mail-Signatur hinterlegen (reiner Text, am besten mit Grußformel). Sie ersetzt in allen E-Mail-Entwürfen – an Betriebe, Azubis, Schulen und Ämter – den Schluss der Vorlage (Grußformel, Name, Adresse), sobald diese Person unterschreibt; die Auswahl <em>Signatur</em> kennzeichnet solche Personen mit „eigene Signatur“. Ohne hinterlegte Signatur bleibt der Schluss der Vorlage. Briefe tragen weiter Absender und Unterschrift des Briefbogens.</p>
               <p>• <strong>Vorlage von Hand wählen:</strong> Normalerweise bestimmt das Ergebnis die Vorlage. Bei Bedarf legen Sie sie selbst fest – oben unter <em>Vorlage</em> für alle E-Mails des Termins, in der Zeile je Betrieb und bei jedem Azubi mit eigener E-Mail noch einmal einzeln (die Wahl in der Zeile hat Vorrang, „Standard“ stellt zurück). Zur Wahl stehen Terminankündigung, Mängelmitteilung bzw. Ergebnis mit Nacharbeit, Bestätigung „ohne Beanstandung“ und Nachhol-Aufforderung; die Texte selbst ändern Sie unter Einstellungen → Kontakt → Vorlagen. Vorschau, „Öffnen“ und die ZIP-Entwürfe nehmen sofort die gewählte Vorlage; war schon ein Entwurf erzeugt, meldet die Zeile „Vorlage seither geändert“. Die Wahl gilt, bis die Seite neu geladen wird.</p>
               <p>• <strong>⬇ Alle als Outlook-Entwürfe (ZIP)</strong> ist der Hauptweg, ohne Längengrenze. Je Empfänger entsteht eine eigene .eml-Datei: der <strong>Betrieb</strong> bekommt Empfänger, Betreff, Text und – nach der Kontrolle – die Durchsichtsbögen seiner Azubis als PDF-Anhang; <strong>jeder Azubi mit hinterlegter E-Mail-Adresse</strong> bekommt einen eigenen Entwurf nur mit seinem Ergebnis, seiner Nacharbeit, seinem Bogen und dem Hinweis, dass der Betrieb ebenfalls informiert wurde. Niemand steht in Kopie – kein Azubi sieht die Ergebnisse der anderen. Die Zeile zeigt je Azubi „eigene E-Mail an …“ mit Öffnen und Vorschau; die Option <em>Eigene E-Mail je Azubi</em> schaltet das ab. Alles zusammen in einer ZIP-Datei (mit LIESMICH, Dateinamen „01_Betrieb_…“ und „01_Azubi_…“). ZIP entpacken, .eml doppelklicken: das klassische Outlook öffnet sie als neuen Entwurf mit „Senden“ (das neue Outlook zeigt solche Dateien nur zum Lesen – dann den Weg „Nächste öffnen“ nutzen).</p>
               <p>• <strong>✎ Brief</strong> (je Betrieb ohne E-Mail) und <strong>✎ Briefe</strong> (Planung → Betriebe anschreiben) öffnen den <strong>Brief-Editor</strong>: der Brief steht als Vorschau im Briefbogen, ein Klick in ein Feld macht es änderbar – Anschrift, Infoblock (Zeilen hinzufügen oder entfernen), Betreff, Text, Übersicht je Azubi (Zellen, Zeilen), Grußformel, Name, Anlagen und Fußzeile. Mit ‹ › oder der Auswahl blättern Sie durch die Briefe; geänderte tragen ✎, „Zurücksetzen“ holt den automatischen Text. Ausgabe je Brief oder für alle: <strong>PDF</strong>, <strong>Word</strong> (.docx, je Brief ein Abschnitt mit eigener Seitenzählung) oder <strong>E-Mail-Entwurf</strong> (.eml mit Brieftext, dem Brief als PDF und/oder Word und auf Wunsch den Durchsichtsbögen als Anhang; mehrere als ZIP). Antworten der Betriebe und Azubis gehen an das Funktionspostfach <strong>Freisprechung.GB@rpf.bwl.de</strong> („Antwort an“ in jedem E-Mail-Entwurf, E-Mail im Briefkopf und in den Texten an Betriebe; änderbar unter Einstellungen → Kontakt → Briefbogen). Änderungen bleiben bis zum Neuladen der Seite erhalten. Die Briefe stehen im Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe, Anschrift im Fensterfeld, rechts Abteilung, Ansprechperson mit Telefon und E-Mail, Geschäftszeichen, Datum und Kontrolltermin; nach der Kontrolle eine Übersicht je Azubi (Ergebnis, Wiedervorlage, Fehltage), Platz für die Unterschrift, Anlagen (Durchsichtsbogen, Berichtsheft), Fußzeile mit Datenschutzhinweis und Dienstgebäude, Falzmarken. Texte des Briefbogens unter Einstellungen → Kontakt → „Briefbogen“, Telefon der Prüfer unter Stammdaten → Prüfer.</p>
@@ -24392,6 +24457,10 @@ const StammdatenTab = {
       <div class="form-group"><label>Name</label><input class="form-control" id="mPrName" value="${esc(p.name || '')}" ${p.id ? 'readonly' : ''}></div>
       <div class="form-group"><label>E-Mail</label><input class="form-control" id="mPrEmail" value="${esc(p.email || '')}"></div>
       <div class="form-group"><label>Telefon <span style="font-weight:400;color:var(--clr-text-light)">(steht im Briefkopf der PDF-Briefe an Betriebe)</span></label><input class="form-control" id="mPrTelefon" value="${esc(p.telefon || '')}" placeholder="0761 208-1234"></div>
+      <div class="form-group"><label for="mPrSignatur">E-Mail-Signatur <span style="font-weight:400;color:var(--clr-text-light)">(ersetzt in E-Mail-Entwürfen Grußformel und Absenderblock)</span></label>
+        <textarea class="form-control" id="mPrSignatur" rows="9" placeholder="Mit freundlichen Grüßen&#10;Vorname Nachname&#10;&#10;Funktion&#10;Referat …&#10;Telefon: …&#10;E-Mail: …">${esc(p.signatur || '')}</textarea>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Reiner Text, so wie er unter der E-Mail stehen soll – am besten mit Grußformel. Leer = Schluss der Vorlage (Grußformel, Name, Adresse des RP). Gilt, wenn diese Person unterschreibt (E-Mails an Betriebe, Azubis, Schulen, Ämter); Briefe bleiben beim Briefbogen.</div>
+      </div>
     `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
         <button class="btn btn-primary" onclick="StammdatenTab.savePruefer()">Speichern</button>`);
   },
@@ -24405,6 +24474,13 @@ const StammdatenTab = {
     App.run(`INSERT INTO pruefer (name,email,telefon) VALUES (?,?,?)
       ON CONFLICT(name) DO UPDATE SET email=excluded.email, telefon=excluded.telefon`,
       [n, document.getElementById('mPrEmail').value.trim(), (document.getElementById('mPrTelefon')?.value || '').trim()]);
+    // Signatur als eigene Anweisung: ein Rechner mit älterem Programmstand
+    // (ohne die Spalte) übernimmt E-Mail und Telefon trotzdem
+    const sigFeld = document.getElementById('mPrSignatur');
+    if (sigFeld) {
+      const sig = String(sigFeld.value || '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+      if (sig !== String(App.scalar('SELECT signatur FROM pruefer WHERE name=?', [n]) || '')) App.run('UPDATE pruefer SET signatur=? WHERE name=?', [sig, n]);
+    }
     App.closeModal();
     StammdatenTab.show('pruefer');
   },
@@ -34861,7 +34937,7 @@ const Workflows = {
     const { gruppen, gruppenKurz, azubiListe } = this._gruppenUndListe(t);
     const ctx = { ...t.ctx, gruppen, gruppen_kurz: gruppenKurz, azubi_liste: azubiListe };
     if (isDone) ctx.ergebnisse = this._ergebnisseFuerSchule(terminId, t.schuelerList, App.schuleErgebnisMitNamen());
-    const { betreff, body } = App.renderVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
+    const { betreff, body } = this._mailVorlage(isDone ? 'schule_ergebnis' : 'schule_anfrage', ctx);
     const to = (schule.email || '').trim();
     const cc = (schule.email_cc || '').trim();
     const emailType = isDone ? 'Ergebnis-Mitteilung' : 'Terminanfrage';
@@ -34975,6 +35051,13 @@ const Workflows = {
     if (bewertet.some(a => a.ke.ergebnis !== 'in_ordnung')) return 'betrieb_maengel';
     if (!bewertet.length) return 'nachholung';
     return 'betrieb_ok';
+  },
+  // Vorlage für eine E-MAIL: wie App.renderVorlage, der Schlussblock weicht der
+  // E-Mail-Signatur des Prüfers, wenn eine hinterlegt ist (App.mitSignatur).
+  // Briefe (_briefInhalt) nehmen weiter App.renderVorlage.
+  _mailVorlage(typ, ctx) {
+    const r = App.renderVorlage(typ, ctx);
+    return { betreff: r.betreff, body: App.mitSignatur(r.body, ctx && ctx.pruefer) };
   },
   _betriebVorlageLabel: { betrieb_ankuendigung: 'Ankündigung', betrieb_maengel: 'Mängelmitteilung', betrieb_ok: 'ohne Beanstandung', nachholung: 'Nachhol-Aufforderung (abwesend)' },
   _azubiVorlageLabel: { azubi_ankuendigung: 'Ankündigung', azubi_maengel: 'Ergebnis mit Nacharbeit', azubi_ok: 'ohne Beanstandung', azubi_nachholung: 'Nachhol-Aufforderung (abwesend)' },
@@ -35146,7 +35229,7 @@ const Workflows = {
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const emails = [...new Set(betriebe.map(g => g.email).filter(Boolean))];
     const ohne = betriebe.filter(g => !g.email);
-    const { betreff, body } = App.renderVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
+    const { betreff, body } = this._mailVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
     App.closeModal();
     App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
       <div style="margin-bottom:8px;font-size:12px">
@@ -35243,9 +35326,11 @@ const Workflows = {
     const d = this._individualData; if (!d) return [];
     const ich = App.currentUser || '';
     const wahl = [];
-    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)` });
+    // „· eigene Signatur“: für diese Person ist unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt
+    const eigen = (n) => App.signaturVon && App.signaturVon(n) ? ' · eigene Signatur' : '';
+    if (ich) wahl.push({ wert: 'ich', label: `${ich} (angemeldet)${eigen(ich)}` });
     App.query('SELECT name FROM pruefer WHERE aktiv=1 ORDER BY name').map(r => r.name).filter(n => n && n !== ich)
-      .forEach(n => wahl.push({ wert: 'p:' + n, label: n }));
+      .forEach(n => wahl.push({ wert: 'p:' + n, label: n + eigen(n) }));
     if (d.t.ctx.pruefer && d.t.ctx.pruefer !== ich && !wahl.some(w => w.wert === 'p:' + d.t.ctx.pruefer)) wahl.push({ wert: 'termin', label: `Prüfer des Termins (${d.t.ctx.pruefer})` });
     wahl.push({ wert: 'keine', label: 'Keine Signatur – eigene in Outlook anfügen' });
     return wahl;
@@ -35272,7 +35357,7 @@ const Workflows = {
           ${this.BETRIEB_VORLAGEN.map(t => `<option value="${t}"${d.vorlageAlle === t ? ' selected' : ''}>für alle: ${esc(this._betriebVorlageLabel[t])}</option>`).join('')}
         </select>
       </label>
-      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand – dann hängt Outlook beim Senden die eigene Signatur an">Signatur
+      <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand. Ist für die Person unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt, steht sie unter der E-Mail; sonst Grußformel, Name und Adresse aus der Vorlage. „Keine“: dann hängt Outlook beim Senden die eigene Signatur an">Signatur
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
       ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
@@ -35411,7 +35496,7 @@ const Workflows = {
       bogen_hinweis: hatBogen ? 'Den Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang.' : '',
       betrieb_hinweis: this._azubiBetriebHinweis(g, d.isDone),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) });
-    let { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = this._mailVorlage(typ, ctx);
     // Leere Bausteine (keine Bemerkung, kein Bogen) hinterlassen keine Lücken
     body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
@@ -35522,7 +35607,7 @@ const Workflows = {
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: formatDate(App.wvFrist('nachholung_abwesend')) });
-    let { betreff, body } = App.renderVorlage(typ, ctx);
+    let { betreff, body } = this._mailVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
     // Ohne Kopie an die Azubis: sie bekommen je eine eigene E-Mail (_azubiMailInhalt)
@@ -35980,7 +36065,7 @@ const Workflows = {
     // Nachholungs-WV (am Kontrolltag abwesend) bekommt die Nachhol-Aufforderung,
     // keinen Mängel-Text; Beratungsgespräch (§ 76) die Einladung
     const typ = this._wvVorlageTyp(w, ueberfaellig);
-    const { betreff, body } = App.renderVorlage(typ, ctx);
+    const { betreff, body } = this._mailVorlage(typ, ctx);
     const to = w.b_email || '';
     const istBeratung = typ === 'beratung_betrieb';
     window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig && !istBeratung ? fristNeu : null };
@@ -36008,7 +36093,7 @@ const Workflows = {
   _wvFristNeuGeaendert(datum) {
     const m = this._wvMailCtx; if (!m || !datum) return;
     m.ctx.frist_neu = formatDate(datum);
-    const { betreff, body } = App.renderVorlage(m.typ, m.ctx);
+    const { betreff, body } = this._mailVorlage(m.typ, m.ctx);
     window._pendingEmail.subject = betreff; window._pendingEmail.body = body; window._pendingEmail.fristNeu = datum;
     const b = document.getElementById('wvMailBody'); if (b) b.textContent = body;
     const s = document.getElementById('wvMailBetreff'); if (s) s.textContent = betreff;
@@ -36066,7 +36151,7 @@ const Workflows = {
     const g = n.betroffen[idx];
     const ctx = this._antwortCtx({ ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt });
-    const { betreff, body } = App.renderVorlage('nachholung', ctx);
+    const { betreff, body } = this._mailVorlage('nachholung', ctx);
     this.openMailto(g.email, betreff, body);
   },
 
@@ -36110,7 +36195,7 @@ const Workflows = {
     const pruefer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || 'Ausbildungsberater';
     const ctx = this._antwortCtx({ ...App.absenderCtx(pruefer), anrede: this._anrede(g.ap), azubi_block: this._sammelBlock(g),
       azubi_namen: g.wvs.map(w => w.nachname + ', ' + w.vorname).filter((v, k, a) => a.indexOf(v) === k).join(' / ') });
-    const { betreff, body } = App.renderVorlage('wv_sammel', ctx);
+    const { betreff, body } = this._mailVorlage('wv_sammel', ctx);
     this.openMailto(g.email, betreff, body);
     g.wvs.forEach(w => this.versandVermerken(w.id, 'email', w.mahnstufe ? 'wv_erinnerung' : 'wv_mahnung', 'Sammel-Erinnerung'));
     App.toast(`Sammel-Erinnerung an ${g.name} geöffnet – ${g.wvs.length} Wiedervorlage(n) vermerkt`, 'success');
@@ -36127,7 +36212,7 @@ const Workflows = {
     const ctx = { ...t.ctx, amt, amt_name: App.AEMTER[amt] || amt, anzahl: String(liste.length),
       azubi_liste: '  - ' + liste.map(s => `${s.nachname}, ${s.vorname}`).join('\n  - '),
       anlagen: `Durchsichtsbögen (${liste.length}), Übergabeliste (Excel)` };
-    const { betreff, body } = App.renderVorlage('amt_uebergabe', ctx);
+    const { betreff, body } = this._mailVorlage('amt_uebergabe', ctx);
     window._pendingEmail = { to, subject: betreff, body };
     App.openModal(`✉︎ Übergabeschreiben an ${esc(App.amtLabel(amt))}`, `
       <div style="font-size:13px">
