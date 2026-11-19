@@ -188,6 +188,54 @@ console.log('\n══ Auswahl und Sammelaktionen ══');
   check(!KH._uebAuswahlIds().includes(999), 'Azubis außerhalb der Liste fallen aus der Auswahl');
 }
 
+console.log('\n══ Auswahl einem Termin zuweisen (bestehend oder neu) ══');
+{
+  for (const [k, f] of Object.entries({ formatDate: (d) => String(d || '').replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1'), todayStr: () => '2026-03-10', esc: (x) => String(x ?? ''), addDaysStr: (n) => '2026-03-31' })) if (typeof sandbox[k] !== 'function') sandbox[k] = f;
+  db.run("INSERT INTO kontrolltermine (id,geplant_datum,status,berufsschule_id,pruefer) VALUES (20,'2026-04-20','geplant',2,'Pix'),(21,'2026-02-01','durchgefuehrt',1,'Pix'),(22,'2026-01-15','geplant',1,'Pix'),(23,'2026-05-05','abgesagt',1,'Pix')");
+  db.run('INSERT INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (20,4)');
+  App.invalidateTerminCache();
+  check(KH._uebZielTermine().map(t => t.id).join() === '20,22', `Zur Wahl: nur andere geplante Termine, kommende zuerst (${KH._uebZielTermine().map(t => t.id).join()})`);
+  // Dialog
+  let dlg = null; const openAlt = App.openModal; App.openModal = (t, b, f) => { dlg = { t, b, f }; };
+  KH.uebAuswahlLeeren(); KH.uebWaehlen(4, true, {}); KH.uebWaehlen(5, true, {});
+  KH.uebTerminZuweisenDialog();
+  check(dlg && /2 Azubis einem Termin zuweisen/.test(dlg.t) && /Dorn, Dana · Ernst, Emil/.test(dlg.b) && /<option value="20">/.test(dlg.b) && /<option value="22">/.test(dlg.b) && !/<option value="21">/.test(dlg.b) && /id="uzNeu" style="display:none"/.test(dlg.b), 'Dialog: Namen, geplante Termine zur Wahl, „Bestehender Termin“ vorgewählt');
+  check(/id="uzDatum"/.test(dlg.b) && /id="uzTyp"/.test(dlg.b) && /id="uzOrt"/.test(dlg.b) && /id="uzPruefer"/.test(dlg.b) && /id="uzBem" value="Folgetermin zu 10\.03\.2026/.test(dlg.b) && /id="uzAbwesend"/.test(dlg.b) && /Den <strong>einen<\/strong> ausgewählten Azubi ohne Ergebnis/.test(dlg.b) && /KontrolleHandler\.uebTerminZuweisen\(\)/.test(dlg.f), 'Dialog: Felder für den neuen Termin, Häkchen „als abwesend markieren“, Knopf „Zuweisen“');
+  check(/In diesem Termin bleiben sie stehen/.test(dlg.b), 'Dialog sagt: die Azubis bleiben zusätzlich in diesem Termin');
+  App.openModal = () => {};
+  // Bestehender Termin: Azubi 4 ist dort schon, 5 kommt dazu
+  const keVor = JSON.stringify(App.query('SELECT schueler_id, ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=10 ORDER BY schueler_id'));
+  const r1 = KH.uebTerminZuweisen({ art: 'bestehend', zielId: 20 });
+  check(r1 && r1.zielId === 20 && r1.angelegt === false && r1.neu === 1 && r1.schon === 1 && App.query('SELECT schueler_id FROM kontrolltermin_schueler WHERE kontrolltermin_id=20 ORDER BY schueler_id').map(x => x.schueler_id).join() === '4,5', `Bestehender Termin: neu zugeordnet 1, schon dort 1 (${r1 && r1.text})`);
+  check(JSON.stringify(App.query('SELECT schueler_id, ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=10 ORDER BY schueler_id')) === keVor && KH.currentSchuelerList.length === 5 && KH._uebAuswahlIds().length === 0, 'Ausgangstermin unverändert (Azubis und Ergebnisse bleiben), Auswahl aufgehoben');
+  check(App.getTerminSchueler(20).map(x => x.id).join() === '4,5', 'Zieltermin führt die Azubis');
+  // Abweisungen
+  KH.uebWaehlen(5, true, {});
+  check(KH.uebTerminZuweisen({ art: 'bestehend', zielId: 10 }) === null && KH.uebTerminZuweisen({ art: 'bestehend', zielId: 21 }) === null && KH.uebTerminZuweisen({ art: 'bestehend', zielId: 0 }) === null && KH.uebTerminZuweisen({ art: 'neu', datum: '20.04.2026' }) === null, 'Abgewiesen: derselbe Termin, abgeschlossener Termin, kein Termin, ungültiges Datum');
+  check(App.scalar('SELECT COUNT(*) FROM kontrolltermine') === 5, 'Abgewiesene Versuche legen keinen Termin an');
+  // Neuer Termin mit freiem Ort, Azubis ohne Ergebnis hier als abwesend
+  db.run('UPDATE kontrollergebnisse SET anwesend=1 WHERE kontrolltermin_id=10');
+  KH.uebAuswahlLeeren(); KH.uebWaehlen(1, true, {}); KH.uebWaehlen(4, true, {}); KH.uebWaehlen(5, true, {});
+  const r2 = KH.uebTerminZuweisen({ art: 'neu', datum: '2026-04-28', typ: 'einsendung', ortId: 1, ortFrei: 'RP Freiburg', pruefer: 'Zilz', bemerkung: 'Nachholtermin', abwesend: true });
+  const neu = App.query('SELECT * FROM kontrolltermine WHERE id=?', [r2.zielId])[0];
+  check(r2.angelegt && r2.neu === 3 && neu.geplant_datum === '2026-04-28' && neu.typ === 'einsendung' && neu.status === 'geplant' && neu.ort === 'RP Freiburg' && neu.berufsschule_id === null && neu.pruefer === 'Zilz' && neu.bemerkung === 'Nachholtermin' && neu.klasse_id === null, `Neuer Termin angelegt: Datum, Art, freier Ort, Prüfer, Bemerkung (${r2.text})`);
+  check(App.getTerminSchueler(r2.zielId).map(x => x.id).join() === '1,4,5' && App.getTerminSchule(r2.zielId).name === 'RP Freiburg', 'Neuer Termin führt genau die Auswahl, Ort über getTerminSchule');
+  const anw = App.query('SELECT schueler_id s, anwesend a, ergebnis e FROM kontrollergebnisse WHERE kontrolltermin_id=10 AND schueler_id IN (1,4,5) ORDER BY schueler_id').map(x => `${x.s}:${x.a}:${x.e || '-'}`).join(' ');
+  check(r2.abwesend === 2 && anw === '1:1:in_ordnung 4:0:- 5:0:-', `„als abwesend markieren“ nur für die ohne Ergebnis (${anw})`);
+  // Neuer Termin an einer Schule, ohne Abwesend-Häkchen
+  KH.uebWaehlen(2, true, {});
+  const r3 = KH.uebTerminZuweisen({ art: 'neu', datum: '2026-05-12', typ: 'schulkontrolle', ortId: 2, ortFrei: '', pruefer: '', bemerkung: '' });
+  const neu3 = App.query('SELECT * FROM kontrolltermine WHERE id=?', [r3.zielId])[0];
+  check(neu3.typ === 'schulkontrolle' && neu3.berufsschule_id === 2 && (neu3.ort || '') === '' && r3.abwesend === 0 && App.getTerminSchule(r3.zielId).name === 'Schule B', 'Neuer Schultermin mit Berufsschule als Ort');
+  db.run('UPDATE kontrollergebnisse SET anwesend=1 WHERE kontrolltermin_id=10');
+  App.openModal = openAlt;
+  // Verdrahtung
+  const K = read('src/js/modules/kontrolle.js'), V = read('src/js/modules/views.js');
+  check(/onclick="KontrolleHandler\.uebTerminZuweisenDialog\(\)"[^>]*>→ Termin zuweisen<\/button>/.test(K.split('  _uebSammelZeigen() {')[1].split('  uebKlasseSetzenAuswahl() {')[0]), 'Sammelleiste: Knopf „→ Termin zuweisen“');
+  check(/TerminSeite\.oeffnen\(\$\{zielId\}\)/.test(K) && /App\.invalidateTerminCache\(\);\n    this\._uebAuswahl\.clear\(\);/.test(K), 'Danach: „Termin öffnen“ angeboten, Termin-Zwischenspeicher geleert');
+  check(/„→ Termin zuweisen“/.test(V), 'Hilfe beschreibt das Zuweisen');
+}
+
 console.log('\n══ Verdrahtung ══');
 {
   const K = read('src/js/modules/kontrolle.js'), C = read('src/css/styles.css'), B = read('src/js/modules/berichte.js'), I = read('src/js/modules/import-handler.js'), T = read('src/js/modules/table-sort.js'), V = read('src/js/modules/views.js');

@@ -604,6 +604,7 @@ const KontrolleHandler = {
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(true)">✓ ${einsendung ? 'Heft da' : 'anwesend'}</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(false)">✗ ${einsendung ? 'Heft fehlt' : 'abwesend'}</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebOkAuswahl()" title="Ausgewählte anwesende Azubis ohne Ergebnis auf „In Ordnung“ setzen">✓ In Ordnung</button>
+      <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebTerminZuweisenDialog()" title="Ausgewählte Azubis einem anderen Termin zuweisen – einem bestehenden oder einem neuen (z. B. Nachholtermin, Einzeltermin)">→ Termin zuweisen</button>
       <button class="btn btn-sm btn-secondary sl-x" onclick="KontrolleHandler.uebAuswahlLeeren()">Auswahl aufheben</button>`;
   },
   uebKlasseSetzenAuswahl() {
@@ -624,6 +625,137 @@ const KontrolleHandler = {
       [anwesend ? 1 : 0, this.activePruefer || '', this.currentTerminId, sid]));
     App.toast(`${ids.length} Azubi${ids.length === 1 ? '' : 's'} als ${anwesend ? 'anwesend' : 'abwesend'} markiert`, 'success');
     this.renderUebersicht();
+  },
+  // ── Ausgewählte Azubis einem anderen Termin zuweisen (bestehend oder neu) ──
+  // Die Azubis kommen als Einzelzuordnung (kontrolltermin_schueler) in den
+  // Zieltermin; in DIESEM Termin bleiben sie mit ihren Ergebnissen stehen.
+  _uebZielTermine() {
+    const heute = todayStr();
+    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' ORDER BY geplant_datum", [this.currentTerminId]);
+    return [...alle.filter(t => t.geplant_datum >= heute), ...alle.filter(t => t.geplant_datum < heute).reverse()].slice(0, 80);
+  },
+  uebTerminZuweisenDialog() {
+    const ids = this._uebAuswahlIds();
+    if (!ids.length) return App.toast('Bitte zuerst Azubis in der Übersicht anhaken', 'info');
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
+    if (!t) return App.toast('Termin nicht gefunden', 'error');
+    const azubis = this.currentSchuelerList.filter(s => this._uebAuswahl.has(s.id));
+    const namen = azubis.slice(0, 8).map(s => esc(s.nachname) + ', ' + esc(s.vorname)).join(' · ') + (azubis.length > 8 ? ` · … und ${azubis.length - 8} weitere` : '');
+    const ziele = this._uebZielTermine();
+    const bs = App.getTerminSchule(t.id);
+    const ortFrei = String(t.ort || '').trim();
+    const ohneErg = ids.filter(sid => { const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0]; return ke && !ke.ergebnis && ke.anwesend !== 0; }).length;
+    const art = ziele.length ? 'bestehend' : 'neu';
+    App.openModal(`${ids.length} Azubi${ids.length === 1 ? '' : 's'} einem Termin zuweisen`, `
+      <p style="font-size:13px;margin-bottom:10px">${namen}</p>
+      <div class="seg" role="group" aria-label="Zieltermin" style="margin-bottom:10px">
+        <button type="button" class="seg-btn${art === 'bestehend' ? ' active' : ''}" id="uzArt_bestehend" aria-pressed="${art === 'bestehend'}" onclick="KontrolleHandler._uzArt('bestehend')" ${ziele.length ? '' : 'disabled title="Es gibt keinen anderen geplanten Termin"'}>Bestehender Termin</button>
+        <button type="button" class="seg-btn${art === 'neu' ? ' active' : ''}" id="uzArt_neu" aria-pressed="${art === 'neu'}" onclick="KontrolleHandler._uzArt('neu')">Neuer Termin</button>
+      </div>
+      <input type="hidden" id="uzArt" value="${art}">
+      <div id="uzBestehend" style="${art === 'bestehend' ? '' : 'display:none'}">
+        <div class="form-group"><label for="uzZiel">Geplanter Termin</label>
+          <select class="form-control" id="uzZiel">${ziele.map(z => `<option value="${z.id}">${esc(App.formatTerminLabel(z))}</option>`).join('')}</select>
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Zur Wahl stehen die geplanten (noch nicht abgeschlossenen) Termine – kommende zuerst.</div>
+        </div>
+      </div>
+      <div id="uzNeu" style="${art === 'neu' ? '' : 'display:none'}">
+        <div class="form-row">
+          <div class="form-group"><label for="uzDatum">Datum</label><input type="date" class="form-control" id="uzDatum" value="${esc(App.wvFrist('nachholung_abwesend'))}"></div>
+          <div class="form-group"><label for="uzTyp">Art</label>
+            <select class="form-control" id="uzTyp">
+              <option value="schulkontrolle"${t.typ === 'einsendung' ? '' : ' selected'}>Schultermin</option>
+              <option value="einsendung"${t.typ === 'einsendung' ? ' selected' : ''}>Einsendung / Einzeltermin</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label for="uzOrt">Ort</label>
+          <select class="form-control" id="uzOrt" onchange="document.getElementById('uzOrtFrei').style.display = this.value === 'frei' ? '' : 'none'">
+            <option value="">– ohne Ort –</option>
+            ${App.query('SELECT id,name FROM berufsschulen ORDER BY name').map(b => `<option value="${b.id}"${!ortFrei && bs && bs.id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}
+            <option value="frei"${ortFrei ? ' selected' : ''}>Anderer Ort (eintragen) …</option>
+          </select>
+          <input class="form-control" id="uzOrtFrei" value="${esc(ortFrei)}" placeholder="z. B. RP Freiburg, Bertoldstraße 43" aria-label="Anderer Ort des Termins" style="margin-top:6px;${ortFrei ? '' : 'display:none'}">
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="uzPruefer">Prüfer</label><input type="text" class="form-control" id="uzPruefer" value="${esc(t.pruefer || this.activePruefer || '')}"></div>
+          <div class="form-group"><label for="uzBem">Bemerkung</label><input type="text" class="form-control" id="uzBem" value="${esc(`Folgetermin zu ${formatDate(t.geplant_datum)}${bs ? ' – ' + bs.name : ''}`)}"></div>
+        </div>
+      </div>
+      ${ohneErg ? `<label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin:4px 0 8px">
+        <input type="checkbox" id="uzAbwesend" style="accent-color:var(--clr-forest);margin-top:2px"> <span>${ohneErg === 1 ? 'Den <strong>einen</strong> ausgewählten Azubi' : `Die <strong>${ohneErg}</strong> ausgewählten Azubis`} ohne Ergebnis in diesem Termin als abwesend markieren</span>
+      </label>` : ''}
+      <p style="font-size:12px;color:var(--clr-text-light);margin:0">Die Azubis kommen zusätzlich in den gewählten Termin. In diesem Termin bleiben sie stehen, ihre Ergebnisse hier ändern sich nicht.</p>
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-primary" onclick="KontrolleHandler.uebTerminZuweisen()">Zuweisen</button>');
+  },
+  _uzArt(art) {
+    const feld = document.getElementById('uzArt'); if (feld) feld.value = art;
+    ['bestehend', 'neu'].forEach(a => {
+      const teil = document.getElementById(a === 'neu' ? 'uzNeu' : 'uzBestehend'); if (teil) teil.style.display = a === art ? '' : 'none';
+      const knopf = document.getElementById('uzArt_' + a); if (knopf) { knopf.classList.toggle('active', a === art); knopf.setAttribute('aria-pressed', String(a === art)); }
+    });
+  },
+  // Azubis als Einzelzuordnung in einen Termin legen → { neu, schon }
+  _azubisZuTermin(ids, zielId) {
+    const drin = new Set(App.getTerminSchueler(zielId).map(s => s.id));
+    let neu = 0, schon = 0;
+    ids.forEach(sid => {
+      if (drin.has(sid)) { schon++; return; }
+      App.run('INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)', [zielId, sid]);
+      neu++;
+    });
+    return { neu, schon };
+  },
+  // params (optional, für Tests): { art, zielId, datum, typ, ortId, ortFrei, pruefer, bemerkung, abwesend }
+  uebTerminZuweisen(params) {
+    const quelle = this.currentTerminId;
+    const ids = this._uebAuswahlIds();
+    if (!ids.length) return null;
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [quelle])[0];
+    if (!t) { App.toast('Termin nicht gefunden', 'error'); return null; }
+    const wert = (id) => { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+    const p = params || (() => {
+      const ort = wert('uzOrt');
+      return { art: wert('uzArt') || 'bestehend', zielId: parseInt(wert('uzZiel')) || 0, datum: wert('uzDatum'), typ: wert('uzTyp'),
+        ortId: ort && ort !== 'frei' ? parseInt(ort) : null, ortFrei: ort === 'frei' ? wert('uzOrtFrei') : '',
+        pruefer: wert('uzPruefer'), bemerkung: wert('uzBem'), abwesend: !!document.getElementById('uzAbwesend')?.checked };
+    })();
+    let zielId = 0, angelegt = false;
+    if (p.art === 'neu') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.datum || '')) { App.toast('Bitte ein Datum für den neuen Termin angeben', 'warning'); return null; }
+      const typ = p.typ === 'einsendung' ? 'einsendung' : 'schulkontrolle';
+      // Jahrgang: der gemeinsame der Auswahl, sonst der des Ausgangstermins
+      const jgs = [...new Set(this.currentSchuelerList.filter(s => this._uebAuswahl.has(s.id)).map(s => s.jahrgang_id).filter(Boolean))];
+      const jg = jgs.length === 1 ? jgs[0] : (t.jahrgang_id || null);
+      App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, berufsschule_id, ort, geplant_datum, pruefer, bemerkung, typ, status) VALUES (?,?,?,?,?,?,?,?,?)',
+        [null, jg, p.ortFrei ? null : (p.ortId || null), p.ortFrei || '', p.datum, p.pruefer || '', p.bemerkung || '', typ, 'geplant']);
+      zielId = App.scalar('SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()');
+      if (!zielId) { App.toast('Termin konnte nicht angelegt werden', 'error'); return null; }
+      angelegt = true;
+    } else {
+      zielId = Number(p.zielId) || 0;
+      const z = zielId && App.query('SELECT id, status FROM kontrolltermine WHERE id=?', [zielId])[0];
+      if (!z || zielId === quelle) { App.toast('Bitte einen anderen Termin wählen', 'warning'); return null; }
+      if (z.status !== 'geplant') { App.toast('Der gewählte Termin ist nicht mehr geplant (abgeschlossen oder abgesagt)', 'warning'); return null; }
+    }
+    const r = this._azubisZuTermin(ids, zielId);
+    let abwesend = 0;
+    if (p.abwesend) ids.forEach(sid => {
+      const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [quelle, sid])[0];
+      if (!ke || ke.ergebnis || ke.anwesend === 0) return;
+      App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`, [0, this.activePruefer || '', quelle, sid]);
+      abwesend++;
+    });
+    App.invalidateTerminCache();
+    this._uebAuswahl.clear();
+    const ziel = App.query('SELECT * FROM kontrolltermine WHERE id=?', [zielId])[0];
+    const text = `${r.neu} Azubi${r.neu === 1 ? '' : 's'} ${angelegt ? 'dem neuen Termin' : 'dem Termin'} am ${formatDate(ziel.geplant_datum)} zugewiesen${r.schon ? ` · ${r.schon} ${r.schon === 1 ? 'war' : 'waren'} dort schon zugeordnet` : ''}${abwesend ? ` · ${abwesend} hier als abwesend markiert` : ''}`;
+    if (!params) {
+      this.renderUebersicht();
+      App.openModal(angelegt ? 'Neuer Termin angelegt' : 'Azubis zugewiesen', `<p style="font-size:13px">${esc(text)}.</p><p style="font-size:13px;color:var(--clr-text-light)">${esc(App.formatTerminLabel(ziel))}</p>`,
+        `<button class="btn btn-secondary" onclick="App.closeModal()">Hier bleiben</button> ${typeof TerminSeite !== 'undefined' ? `<button class="btn btn-primary" onclick="App.closeModal();TerminSeite.oeffnen(${zielId})">Termin öffnen</button>` : ''}`);
+    }
+    return { zielId, angelegt, neu: r.neu, schon: r.schon, abwesend, text };
   },
   async uebOkAuswahl() {
     if (!this._pruefeAbgeschlossen(() => this.uebOkAuswahl())) return;

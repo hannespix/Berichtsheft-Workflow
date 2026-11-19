@@ -185,6 +185,28 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before, 'Ladeanzeige + Rückfrage ohne Konsolenfehler');
 }
 
+// Dialog schließen und in eine andere Ansicht springen (ein Klick): der
+// asynchrone Zurück-Schritt aus closeModal() nahm den neuen Hash wieder zurück
+// und die Ansicht sprang auf die alte.
+{
+  const before = errors.length;
+  await page.evaluate(() => App.navigate('wiedervorlagen'));
+  await page.waitForTimeout(300);
+  const wv = await page.evaluate(() => { const w = App.query('SELECT w.id FROM wiedervorlagen w JOIN kontrollergebnisse ke ON ke.id=w.kontrollergebnis_id LIMIT 1')[0]; if (w) WiedervorlagenHandler.details(w.id); return !!w; });
+  if (wv) {
+    await page.waitForTimeout(300);
+    await page.locator('#modalContent button:has-text("Zur Kontrolle springen")').click();
+    await page.waitForTimeout(1300);
+    const nach = await page.evaluate(() => ({ view: App.currentView, hash: location.hash, termin: !!document.getElementById('terminWahlCard') || !!document.getElementById('lockableContent') }));
+    check(nach.view === 'kontrolle' && nach.hash === '#kontrolle', `Sprung aus einem Dialog bleibt in der Zielansicht (${nach.view} ${nach.hash})`);
+    await page.evaluate(() => { App.navigate('wiedervorlagen'); });
+    await page.waitForTimeout(200);
+    await page.goBack(); await page.waitForTimeout(300);
+    check(await page.evaluate(() => App.currentView) === 'kontrolle', 'Zurück-Taste führt danach in die vorige Ansicht');
+  } else check(true, 'Sprung aus einem Dialog (keine Wiedervorlage in den Demodaten – übersprungen)');
+  check(errors.length === before, 'Sprung aus einem Dialog ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
