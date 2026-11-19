@@ -5,15 +5,27 @@ const PlanungHandler = {
     if (App.currentView === 'termin' && typeof TerminSeite !== 'undefined') { TerminSeite.render(); return; }
     Views.planung();
   },
+  // Termin(e) ins Archiv legen oder zurückholen – reine Ablage, nichts wird gelöscht
+  terminArchivieren(ids, an = true) {
+    const liste = Array.isArray(ids) ? ids : [ids];
+    const n = App.terminArchivieren(liste, an);
+    if (!n) { App.toast(an ? 'Schon archiviert' : 'Nicht im Archiv', 'info'); return 0; }
+    App.toast(an
+      ? `${n === 1 ? 'Termin' : n + ' Termine'} archiviert – zu finden unter „Archiv“, dort lässt ${n === 1 ? 'er' : 'sie'} sich zurückholen`
+      : `${n === 1 ? 'Termin' : n + ' Termine'} aus dem Archiv geholt`, 'success', 6000);
+    this._auffrischen();
+    return n;
+  },
   filterStatus(status) {
     const rows = document.querySelectorAll('#planTableBody tr');
     let visible = 0;
     rows.forEach(r => {
       const st = r.dataset.status, alt = r.dataset.alt === '1', nachbereitet = r.dataset.nachbereitet === '1';
+      const archiv = r.dataset.archiv === '1';   // von Hand archiviert: nur unter „Archiv“ und „Alle“
       let show;
       if (status === 'all') show = true;
-      else if (status === 'geplant') show = st === 'geplant';
-      else if (status === 'nachbereitung') show = st === 'durchgefuehrt' && !nachbereitet;
+      else if (status === 'geplant') show = st === 'geplant' && !archiv;
+      else if (status === 'nachbereitung') show = st === 'durchgefuehrt' && !nachbereitet && !archiv;
       else if (status === 'durchgefuehrt') show = st === 'durchgefuehrt' && !alt;   // Archiv (älter als 90 Tage) nicht dauerhaft
       else if (status === 'alt') show = alt;
       else show = st === status;
@@ -1009,7 +1021,7 @@ const PlanungHandler = {
   exportICS() {
     const termine = App.query(`SELECT kt.*
       FROM kontrolltermine kt
-      WHERE kt.status='geplant' ORDER BY kt.geplant_datum`);
+      WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' ORDER BY kt.geplant_datum`);
     if (!termine.length) return App.toast('Keine Termine zum Exportieren', 'warning');
     App.exportICS(termine.map(t => {
       const klassen = App.getTerminKlassen(t.id);

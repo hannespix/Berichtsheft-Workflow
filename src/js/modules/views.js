@@ -90,7 +90,7 @@ const Views = {
 
     const naechsteTermine = App.query(`SELECT kt.*, kt.id as termin_id
       FROM kontrolltermine kt
-      WHERE kt.status='geplant' AND kt.geplant_datum >= ?${jfkt.where}
+      WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum >= ?${jfkt.where}
       ORDER BY kt.geplant_datum LIMIT 5`, [today, ...jfkt.params]);
     App.preloadTerminKlassen(naechsteTermine.map(t => t.id));
 
@@ -126,10 +126,10 @@ const Views = {
     const in7 = addDaysStr(7), in21 = addDaysStr(21);
     const wvHeute = App.query(`SELECT w.id, w.frist_datum, s.nachname, s.vorname FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND w.frist_datum BETWEEN ? AND ?${jf.where} ORDER BY w.frist_datum`, [today, in7, ...jf.params]);
     const wvOhneVersand = App.scalar(`SELECT COUNT(*) FROM wiedervorlagen w JOIN schueler s ON w.schueler_id=s.id WHERE w.status IN ('offen','ueberfaellig') AND COALESCE(w.versand_datum,'')='' AND w.art != 'nachholung_naechste_durchsicht'${jf.where}`, jf.params) || 0;
-    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
-    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
-    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
-    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
+    const termineOhnePruefer = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum >= ? AND COALESCE(kt.pruefer,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineNichtAngefragt = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.typ='schulkontrolle' AND kt.geplant_datum BETWEEN ? AND ? AND COALESCE(kt.angefragt_am,'')=''${jfkt.where} ORDER BY kt.geplant_datum`, [today, in21, ...jfkt.params]);
+    const termineOhneAbschluss = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')${jfkt.where} ORDER BY kt.geplant_datum`, [today, ...jfkt.params]);
+    const termineOhneNachbereitung = App.query(`SELECT kt.id, kt.geplant_datum FROM kontrolltermine kt WHERE kt.status='durchgefuehrt' AND COALESCE(kt.archiviert_am,'')='' AND COALESCE(kt.nachbereitet_am,'')='' AND kt.geplant_datum >= date(?, '-60 days')${jfkt.where} ORDER BY kt.geplant_datum DESC`, [today, ...jfkt.params]);
     const arbeitsliste = [
       ueberfaellig ? { n: ueberfaellig, text: `Wiedervorlage${ueberfaellig > 1 ? 'n' : ''} überfällig`, farbe: 'var(--clr-red)', view: 'wiedervorlagen', filter: 'ueberfaellig' } : null,
       wvHeute.length ? { n: wvHeute.length, text: `Wiedervorlage${wvHeute.length > 1 ? 'n' : ''} fällig bis ${formatDate(in7)}`, farbe: 'var(--clr-amber)', view: 'wiedervorlagen', filter: 'unerledigt' } : null,
@@ -974,6 +974,9 @@ const Views = {
   //  KONTROLLPLANUNG
   // ════════════════════════════════════════════
   planung() {
+    // Gewählten Filter über ein Neuzeichnen behalten (z. B. nach „Aus dem Archiv holen“)
+    const planFilterAlt = document.getElementById('planFilter');
+    const planFilterVorher = planFilterAlt ? planFilterAlt.value : '';
     const jfkt = App.jgWhere('kt.jahrgang_id');
     let termine = App.query(`SELECT kt.*
       FROM kontrolltermine kt
@@ -995,7 +998,7 @@ const Views = {
             <option value="geplant" selected>Geplante Termine</option>
             <option value="nachbereitung">Durchgeführt, Nachbereitung offen</option>
             <option value="durchgefuehrt">Durchgeführt (letzte 90 Tage)</option>
-            <option value="alt">Ältere Termine (Archiv)</option>
+            <option value="alt">Archiv (archiviert oder älter als 90 Tage)</option>
             <option value="all">Alle anzeigen</option>
           </select>
           <span class="split">
@@ -1097,7 +1100,7 @@ const Views = {
             const frStr = [...new Set(klassen.map(k => k.fachrichtung).filter(Boolean))].join(', ') || '–';
             const jgStr = [...new Set(klassen.map(k => k.jg_bez).filter(Boolean))].join(', ') || '–';
             const schuelerCount = App.getTerminSchuelerCount(t.id);
-            return `<tr data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
+            return `<tr data-id="${t.id}" data-status="${t.status}" data-alt="${App.terminAktuell(t) === 'alt' ? 1 : 0}" data-archiv="${t.archiviert_am ? 1 : 0}" data-nachbereitet="${t.nachbereitet_am ? 1 : 0}">
             <td class="sl-td"><input type="checkbox" class="chk-termin" value="${t.id}" aria-label="Termin ${formatDate(t.geplant_datum)} für eine gemeinsame Auswertung wählen" ${Sammel.hat(t.id) ? 'checked' : ''} onchange="Sammel.toggle(${t.id}, this.checked)"></td>
             <td data-sort="${t.geplant_datum}"><strong>${formatDate(t.geplant_datum)}</strong> <span style="font-size:12px;color:var(--clr-sage)">KW${getKW(t.geplant_datum)}</span>${t.typ==='einsendung'?' <span style="font-size:12px;padding:1px 5px;background:var(--clr-blue-light);color:var(--clr-blue);border-radius:8px">✉︎</span>':''}${t.bemerkung ? `<div style="font-size:12px;color:var(--clr-text-light);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.bemerkung)}">${esc(t.bemerkung)}</div>` : ''}</td>
             <td>${esc(schule)}${ort ? `<div style="font-size:12px;color:var(--clr-text-light)">${esc(ort)}</div>` : ''}</td>
@@ -1105,7 +1108,7 @@ const Views = {
             <td data-sort="${esc(jgStr)}"><span class="badge-status badge-planned">${esc(jgStr)}</span></td>
             <td data-sort="${schuelerCount}">${schuelerCount}</td>
             <td>${esc(t.pruefer)}</td>
-            <td data-sort="${t.status}">${statusBadge(t.status)}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
+            <td data-sort="${t.status}">${statusBadge(t.status)}${t.archiviert_am ? ` <span class="badge-status badge-archiv" title="Archiviert am ${formatDate(t.archiviert_am)} – steht nur noch unter „Archiv“">Archiviert</span>` : ''}${(() => { const k = App.terminKette(t); return k.label ? `<div style="font-size:12px;color:${k.farbe};white-space:nowrap">${esc(k.label)}${k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminBestaetigen(${t.id});return false" style="color:var(--clr-forest)" title="Zusage der Schule vermerken">✓ bestätigt?</a>` : ''}${k.schritt === 'bestaetigt' || k.schritt === 'angefragt' ? ` <a href="#" onclick="PlanungHandler.terminAnfrageZuruecksetzen(${t.id});return false" style="color:var(--clr-text-light)" title="Anfrage-Vermerk zurücksetzen">↺</a>` : ''}</div>` : ''; })()}</td>
             <td style="white-space:nowrap">
               ${(() => {
                 // Ein Hauptknopf je Termin: „Öffnen“ führt auf die Termin-Seite
@@ -1125,6 +1128,9 @@ const Views = {
                   { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
                   abg ? { label: '↻ Nachholtermin anlegen', onclick: `PlanungHandler.nachholterminAnlegen(${t.id})`, title: 'Für die am Kontrolltag abwesenden Azubis' } : null,
                   { trenner: true },
+                  t.archiviert_am
+                    ? { label: '↺ Aus dem Archiv holen', onclick: `PlanungHandler.terminArchivieren(${t.id}, false)`, title: 'Termin wieder in den laufenden Listen zeigen' }
+                    : { label: '▣ Archivieren', onclick: `PlanungHandler.terminArchivieren(${t.id}, true)`, title: 'Termin ablegen: verschwindet aus den laufenden Listen, bleibt mit allen Ergebnissen erhalten (Filter „Archiv“)' },
                   { label: '✕ Termin löschen', onclick: `PlanungHandler.deleteTermin(${t.id})` },
                 ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
               })()}
@@ -1135,7 +1141,9 @@ const Views = {
       </div>
     </div>`;
     // Apply default filter
-    PlanungHandler.filterStatus(document.getElementById('planFilter')?.value || 'geplant');
+    const planFilterNeu = document.getElementById('planFilter');
+    if (planFilterNeu && planFilterVorher) planFilterNeu.value = planFilterVorher;
+    PlanungHandler.filterStatus(planFilterNeu?.value || 'geplant');
     if (typeof Sammel !== 'undefined') Sammel._leiste();
   },
 
@@ -2589,6 +2597,7 @@ const Views = {
             <p>• <strong>Neuer Termin</strong> → Datum, Durchführungsort, zuständiger Ausbildungsberater, Durchsichtsart (Vor-Ort-Durchsicht / Einsendung) festlegen</p>
             <p>• <strong>Klassen zuweisen</strong> → Einem Termin können mehrere Berufsschulklassen zugeordnet werden</p>
             <p>• <strong>Terminstatus</strong> → Geplant → Durchgeführt (nach dem Abschluss-Assistenten: Archiv-Bögen, Wiedervorlagen, Schul-Mitteilung); „Wieder öffnen" setzt zurück</p>
+            <p>• <strong>Termine archivieren</strong> – ⋯ → „▣ Archivieren“ in der Termine-Liste (oder für mehrere: Häkchen setzen, in der Leiste unten ⋯ → „Archivieren“; ebenso auf der Termin-Seite) legt einen Termin ab. Er verschwindet aus „Geplante Termine“, „Nachbereitung offen“, der Startseite und der Terminwahl der Durchsicht und steht nur noch unter dem Filter <em>Archiv</em> (dort stehen auch durchgeführte Termine, die älter als 90 Tage sind) und unter „Alle anzeigen“. Es wird nichts gelöscht: Status, Ergebnisse, Wiedervorlagen und Bögen bleiben, beim Azubi sind die Durchsichten weiter zu sehen. „↺ Aus dem Archiv holen“ macht es rückgängig.</p>
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
             <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
             <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>

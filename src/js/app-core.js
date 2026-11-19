@@ -1405,7 +1405,8 @@ const App = {
       bestaetigt_am TEXT DEFAULT '',
       nachbereitet_am TEXT DEFAULT '',
       aufteilung TEXT DEFAULT '',
-      ort TEXT DEFAULT ''
+      ort TEXT DEFAULT '',
+      archiviert_am TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS kontrollergebnisse (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7432,6 +7433,8 @@ const App = {
     // Prüferaufteilung am Termin (JSON {Prüfer: [von, bis]}) – für Offline-Betrieb in der DB, nicht nur in Positionsdateien
     run("ALTER TABLE kontrolltermine ADD COLUMN aufteilung TEXT DEFAULT ''");
     run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''");
+    // Termin von Hand ins Archiv gelegt (nur Anzeige – Daten bleiben unverändert)
+    run("ALTER TABLE kontrolltermine ADD COLUMN archiviert_am TEXT DEFAULT ''");
     // kw_status: Tabelle kann auf sehr alten Disk-DBs komplett fehlen –
     // ohne CREATE schlagen alle kw_status-Replays still fehl (Parität zu migrateDB!)
     run(`CREATE TABLE IF NOT EXISTS kw_status (
@@ -9346,10 +9349,10 @@ const App = {
     } catch(e) {}
     const in21 = new Date(); in21.setDate(in21.getDate() + 21);
     const in21Iso = in21.toISOString().slice(0, 10);
-    st.termineOffen = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND geplant_datum >= ?", [heute]) || 0;
-    st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
-    st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
-    st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
+    st.termineOffen = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')='' AND geplant_datum >= ?", [heute]) || 0;
+    st.nichtAngefragt = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')='' AND typ='schulkontrolle' AND geplant_datum BETWEEN ? AND ? AND COALESCE(angefragt_am,'')=''", [heute, in21Iso]) || 0;
+    st.ohneAbschluss = this.scalar("SELECT COUNT(*) FROM kontrolltermine kt WHERE kt.status='geplant' AND COALESCE(kt.archiviert_am,'')='' AND kt.geplant_datum < ? AND EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.ergebnis != '')", [heute]) || 0;
+    st.ohneNachbereitung = this.scalar("SELECT COUNT(*) FROM kontrolltermine WHERE status='durchgefuehrt' AND COALESCE(archiviert_am,'')='' AND COALESCE(nachbereitet_am,'')='' AND geplant_datum >= date(?, '-60 days')", [heute]) || 0;
     st.wvUeberfaellig = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status='ueberfaellig' OR (status='offen' AND frist_datum != '' AND frist_datum < ?)", [heute]) || 0;
     st.wvOffen = this.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE status IN ('offen','ueberfaellig')") || 0;
     return st;
@@ -9630,11 +9633,32 @@ const App = {
   TERMIN_KUERZLICH_TAGE: 90,
   terminAktuell(t, heute) {
     if (!t) return 'alt';
+    if (t.archiviert_am) return 'alt';   // von Hand ins Archiv gelegt
     heute = heute || this._heuteIso();
     if (t.status === 'geplant') return 'anstehend';
     const grenze = new Date(heute + 'T00:00:00'); grenze.setDate(grenze.getDate() - this.TERMIN_KUERZLICH_TAGE);
     const g = `${grenze.getFullYear()}-${String(grenze.getMonth() + 1).padStart(2, '0')}-${String(grenze.getDate()).padStart(2, '0')}`;
     return (t.geplant_datum || '') >= g ? 'kuerzlich' : 'alt';
+  },
+
+  // ── Termine archivieren ──
+  // Reine Ablage: der Termin verschwindet aus den laufenden Listen (Termine,
+  // Startseite, Terminwahl der Durchsicht, Zieltermine) und steht unter
+  // „Archiv“. Status, Ergebnisse, Wiedervorlagen und Bögen bleiben unberührt;
+  // zurückholen jederzeit. SQL-Baustein für Abfragen: TERMIN_NICHT_ARCHIVIERT.
+  TERMIN_NICHT_ARCHIVIERT: "COALESCE(archiviert_am,'')=''",
+  terminArchivieren(ids, an = true) {
+    const liste = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean);
+    const wert = an ? this._heuteIso() : '';
+    let n = 0;
+    liste.forEach(id => {
+      const t = this.query('SELECT archiviert_am FROM kontrolltermine WHERE id=?', [id])[0];
+      if (!t || !!t.archiviert_am === !!an) return;
+      this.run('UPDATE kontrolltermine SET archiviert_am=? WHERE id=?', [wert, id]);
+      n++;
+    });
+    if (n) { try { this.invalidateTerminCache(); } catch(e) {} try { this.updateBadges && this.updateBadges(); } catch(e) {} }
+    return n;
   },
 
   // ── Termin-Statuskette (Stufe 2) ──
@@ -11123,6 +11147,7 @@ Mit freundlichen Grüßen
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN berufsschule_id INTEGER DEFAULT NULL"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN ort TEXT DEFAULT ''"); } catch(e) {}
+      try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN archiviert_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN angefragt_von TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN bestaetigt_am TEXT DEFAULT ''"); } catch(e) {}
       try { this.db.run("ALTER TABLE kontrolltermine ADD COLUMN nachbereitet_am TEXT DEFAULT ''"); } catch(e) {}
