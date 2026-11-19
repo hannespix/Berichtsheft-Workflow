@@ -388,15 +388,16 @@ const Workflows = {
     const isDone = t.termin.status === 'durchgefuehrt';
     App.closeModal();
     const alt = this._individualData && this._individualData.terminId === terminId ? this._individualData.status : null;
-    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, opts: this._betriebMailOptsLaden() };
+    const altAzubi = this._individualData && this._individualData.terminId === terminId ? this._individualData.statusAzubi : null;
+    this._individualData = { terminId, betriebe, t, isDone, status: alt || {}, statusAzubi: altAzubi || {}, opts: this._betriebMailOptsLaden() };
     const withEmail = betriebe.filter(g => g.email).length;
     App.openModal('✉︎ E-Mails an ' + betriebe.length + ' Betriebe', `
       <div style="margin-bottom:8px;font-size:13px"><strong>${withEmail}</strong> Betriebe mit E-Mail${betriebe.length - withEmail ? ` · <span style="color:var(--clr-red)">${betriebe.length - withEmail} ohne E-Mail → Brief</span>` : ''}</div>
       ${this._betriebMailOptionenHtml()}
-      <div id="betriebMailListe" style="max-height:420px;overflow-y:auto">${this._betriebMailListeHtml()}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''}</div>`,
+      <div id="betriebMailListe" style="max-height:min(420px,36vh);overflow-y:auto">${this._betriebMailListeHtml()}</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--clr-text-light)">Je Betrieb wird automatisch die passende Vorlage gewählt: Terminankündigung, Mängelmitteilung, Nachhol-Aufforderung (Azubi abwesend) oder Bestätigung „ohne Beanstandung“. „Öffnen“ startet Outlook mit Empfänger, Betreff und Text; ist der Text zu lang für den Link, liegt er in der Zwischenablage und wird in Outlook mit Strg+V eingefügt – die Zeile sagt es. <strong>„Alle als Outlook-Entwürfe (ZIP)“</strong> erzeugt stattdessen je Betrieb eine .eml-Datei${isDone ? ' mit den Durchsichtsbögen als Anhang' : ''}: entpacken, doppelklicken, in Outlook senden – ohne Längengrenze.${isDone ? ' Beides wird als Versand an den Wiedervorlagen der Azubis vermerkt.' : ''} <strong>Datenschutz:</strong> Niemand steht in Kopie – der Betrieb und jeder Azubi mit E-Mail-Adresse bekommen je einen <strong>eigenen Entwurf</strong> (Azubi: nur das eigene Ergebnis, der eigene Bogen und der Hinweis, dass der Betrieb ebenfalls informiert wurde).</div>`,
       `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>
-       <span id="betriebMailFuss">${this._betriebMailFussHtml()}</span>`);
+       <span id="betriebMailFuss" class="mail-fuss">${this._betriebMailFussHtml()}</span>`);
   },
   _betriebMailOffen() {
     const d = this._individualData; if (!d) return [];
@@ -413,6 +414,7 @@ const Workflows = {
       anrede: App.uGet('mail_anrede', '0') === '1',
       signatur: App.uGet('mail_signatur', '') || this.MAIL_SIGNATUR_STANDARD,
       boegen: App.uGet('mail_boegen', '1') !== '0',
+      azubis: App.uGet('mail_azubis', '1') !== '0',
     };
   },
   betriebMailOption(key, wert) {
@@ -420,6 +422,7 @@ const Workflows = {
     if (key === 'anrede') { d.opts.anrede = !!wert; App.uSet('mail_anrede', wert ? '1' : '0'); }
     else if (key === 'signatur') { d.opts.signatur = String(wert || this.MAIL_SIGNATUR_STANDARD); App.uSet('mail_signatur', d.opts.signatur); }
     else if (key === 'boegen') { d.opts.boegen = !!wert; App.uSet('mail_boegen', wert ? '1' : '0'); }
+    else if (key === 'azubis') { d.opts.azubis = !!wert; App.uSet('mail_azubis', wert ? '1' : '0'); }
     // Vorschau, Längen-Hinweis und Fußzeile folgen den Optionen
     const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
     const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
@@ -456,55 +459,78 @@ const Workflows = {
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
       ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Jeder Azubi mit hinterlegter E-Mail-Adresse bekommt einen eigenen Entwurf – nur mit dem eigenen Ergebnis${d.isDone ? ' und dem eigenen Bogen' : ''}. Der Betrieb erhält seine E-Mail ohne Kopie an die Azubis."><input type="checkbox" ${o.azubis !== false ? 'checked' : ''} onchange="Workflows.betriebMailOption('azubis', this.checked)"> Eigene E-Mail je Azubi</label>
     </div>`;
   },
   _betriebMailFussHtml() {
     const d = this._individualData; if (!d) return '';
     const mit = d.betriebe.filter(g => g.email).length;
     const offen = this._betriebMailOffen();
-    if (!mit) return '';
+    const anAzubis = this._azubiMailEmpfaenger().length;
+    if (!mit && !anAzubis) return '';
     // Hauptweg: ZIP mit Outlook-Entwürfen (keine Längengrenze, Bögen als
     // Anhang); „Nächste öffnen“ (mailto) bleibt als zweiter Weg
     const zipKnopf = typeof PizZip !== 'undefined'
-      ? `<button class="btn btn-primary" onclick="Workflows.betriebMailsAlsZip()" title="Je Betrieb eine .eml-Datei mit Empfänger, Betreff, Text${d.isDone ? ' und den Durchsichtsbögen als PDF-Anhang' : ''} – ZIP entpacken, in Outlook per Doppelklick als Entwurf öffnen und senden. Keine Längengrenze, kein Strg+V.">⬇ Alle ${mit} als Outlook-Entwürfe (ZIP)</button>`
+      ? `<button class="btn btn-primary" onclick="Workflows.betriebMailsAlsZip()" title="Je Betrieb eine .eml-Datei mit Empfänger, Betreff, Text${d.isDone ? ' und den Durchsichtsbögen als PDF-Anhang' : ''}${anAzubis ? `; dazu je Azubi mit E-Mail-Adresse ein eigener Entwurf nur mit den eigenen Angaben (${anAzubis})` : ''} – ZIP entpacken, in Outlook per Doppelklick als Entwurf öffnen und senden. Keine Längengrenze, kein Strg+V, niemand in Kopie.">⬇ Alle ${mit + anAzubis} als Outlook-Entwürfe (ZIP)${anAzubis ? ` · ${mit} Betriebe + ${anAzubis} Azubis` : ''}</button>`
       : '';
-    if (!offen.length) return `${zipKnopf}<span style="color:var(--clr-green);font-weight:600;padding:0 8px">✓ Alle ${mit} E-Mails erledigt</span>`;
+    if (!mit) return zipKnopf;
+    if (!offen.length) return `${zipKnopf}<span class="mail-fuss-fertig">✓ Alle ${mit} E-Mails an Betriebe erledigt</span>`;
     const n = mit - offen.length + 1;
     return `${zipKnopf}<button class="btn ${zipKnopf ? 'btn-secondary' : 'btn-primary'}" onclick="Workflows._naechsteBetriebMail()" title="Alternativ einzeln über den E-Mail-Link: öffnet die nächste noch nicht geöffnete E-Mail (${esc(offen[0].g.name)})">✉︎ Nächste öffnen (${n} von ${mit})</button>`;
   },
   // Alle E-Mails eines Termins als .eml-Entwürfe in einer ZIP-Datei: je Betrieb
   // Empfänger, Betreff, Text und (nach der Kontrolle) die Durchsichtsbögen der
-  // genannten Azubis als PDF. Outlook (klassisch) öffnet .eml mit „X-Unsent: 1“
+  // genannten Azubis als PDF – und je Azubi mit E-Mail-Adresse ein EIGENER
+  // Entwurf (nur das eigene Ergebnis, nur der eigene Bogen), niemand in Kopie. Outlook (klassisch) öffnet .eml mit „X-Unsent: 1“
   // als neuen Entwurf mit „Senden“ – ohne mailto-Grenze, ohne Zwischenablage.
   betriebMailsAlsZip() {
     const d = this._individualData; if (!d) return;
     if (typeof PizZip === 'undefined') return App.toast('ZIP-Bibliothek nicht geladen', 'error');
     const mit = d.betriebe.map((g, idx) => ({ g, idx })).filter(x => x.g.email);
-    if (!mit.length) return App.toast('Kein Betrieb mit E-Mail-Adresse', 'warning');
+    const azubiMails = this._azubiMailEmpfaenger();
+    if (!mit.length && !azubiMails.length) return App.toast('Kein Betrieb und kein Azubi mit E-Mail-Adresse', 'warning');
     const zip = new PizZip();
-    let pdfs = 0;
+    let pdfs = 0, anBetriebe = 0, anAzubis = 0;
     const zeit = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    mit.forEach(({ g, idx }, i) => {
-      const m = this._betriebMailInhalt(idx); if (!m) return;
-      const anhaenge = [];
-      if (d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes) {
-        g.azubis.forEach(a => {
-          if (!a.ke || !a.ke.ergebnis) return;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
-          try { const b = PDFExport.bogenBytes(d.terminId, a.id); if (b) anhaenge.push(b); } catch(e) { console.warn('Bogen für Anhang:', e); }
-        });
+    const mitBogen = d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes;
+    const bogen = (a) => {
+      if (!mitBogen || !a.ke || !a.ke.ergebnis) return null;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
+      try { return PDFExport.bogenBytes(d.terminId, a.id) || null; } catch(e) { console.warn('Bogen für Anhang:', e); return null; }
+    };
+    d.betriebe.forEach((g, idx) => {
+      const nr = String(idx + 1).padStart(2, '0');
+      // 1) Der Betrieb: alle seine Azubis, alle ihre Bögen – OHNE Kopie an die Azubis
+      if (g.email) {
+        const m = this._betriebMailInhalt(idx);
+        if (m) {
+          const anhaenge = g.azubis.map(bogen).filter(Boolean);
+          zip.file(App.safeFilename([nr, 'Betrieb', g.name], 'eml'), App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, anhaenge }));
+          pdfs += anhaenge.length; anBetriebe++;
+          const erstesMal = !d.status[idx];
+          d.status[idx] = { zeit, entwurf: true };
+          if (erstesMal) this._betriebVersandVermerken(m, 'Entwurf (.eml) erzeugt');
+        }
       }
-      const eml = App.emlErzeugen({ to: g.email, cc: m.cc, subject: m.betreff, body: m.body, anhaenge });
-      zip.file(App.safeFilename([String(i + 1).padStart(2, '0'), g.name], 'eml'), eml);
-      pdfs += anhaenge.length;
-      const erstesMal = !d.status[idx];
-      d.status[idx] = { zeit, entwurf: true };
-      if (erstesMal) this._betriebVersandVermerken(m, 'Entwurf (.eml) erzeugt');
+      // 2) Je Azubi mit E-Mail-Adresse ein eigener Entwurf: nur das eigene
+      //    Ergebnis, nur der eigene Bogen (kein Azubi sieht die Rückläufer der anderen)
+      azubiMails.filter(x => x.idx === idx).forEach(({ ai, a }) => {
+        const m = this._azubiMailInhalt(idx, ai); if (!m) return;
+        const b = bogen(a);
+        zip.file(App.safeFilename([nr, 'Azubi', a.nachname, a.vorname], 'eml'), App.emlErzeugen({ to: m.to, subject: m.betreff, body: m.body, anhaenge: b ? [b] : [] }));
+        if (b) pdfs++;
+        anAzubis++;
+        d.statusAzubi[idx + '_' + ai] = { zeit, entwurf: true };
+      });
     });
     zip.file('LIESMICH.txt', [
       'E-Mail-Entwürfe der Berichtsheftkontrolle',
       '',
       `Termin: ${d.t.ctx.datum} – ${d.t.ctx.schule}`,
-      `${mit.length} Entwürfe, ${pdfs} Durchsichtsbögen als Anhang`,
+      `${anBetriebe} Entwürfe an Betriebe, ${anAzubis} Entwürfe an Auszubildende, ${pdfs} Durchsichtsbögen als Anhang`,
+      '',
+      'Dateinamen: „NN_Betrieb_…“ geht an den Betrieb (alle seine Auszubildenden), „NN_Azubi_…“ an eine einzelne',
+      'Auszubildende oder einen einzelnen Auszubildenden (nur das eigene Ergebnis, nur der eigene Bogen).',
+      'Niemand steht in Kopie – bitte keine Empfänger zusammenlegen.',
       '',
       'So geht es weiter:',
       '1. Diese ZIP-Datei entpacken (Rechtsklick → „Alle extrahieren“).',
@@ -516,10 +542,83 @@ const Workflows = {
     ].join('\r\n'));
     const bytes = zip.generate({ type: 'uint8array', compression: 'DEFLATE' });
     App.downloadBlob(bytes, App.safeFilename(['E-Mails_Betriebe', d.t.ctx.schule, d.t.termin.geplant_datum], 'zip'), 'application/zip');
-    if (d.isDone && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(e) {} }
+    if (d.isDone && mit.length && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(e) {} }
     const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
     const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
-    App.toast(`ZIP mit ${mit.length} E-Mail-Entwürfen${pdfs ? ` und ${pdfs} Durchsichtsbögen` : ''} erzeugt – entpacken, .eml doppelklicken, in Outlook senden`, 'success', 10000);
+    App.toast(`ZIP erzeugt: ${anBetriebe} Entwürfe an Betriebe${anAzubis ? `, ${anAzubis} eigene Entwürfe an Azubis` : ''}${pdfs ? `, ${pdfs} Durchsichtsbögen` : ''} – entpacken, .eml doppelklicken, in Outlook senden`, 'success', 10000);
+  },
+  // ── Eigene E-Mail je Azubi (Datenschutz) ──
+  // Bisher standen alle Azubis eines Betriebs in Kopie der Betriebs-Mail und
+  // sahen so Ergebnisse, Mängel und Bögen der anderen. Jetzt bekommt jeder
+  // Azubi mit hinterlegter Adresse einen eigenen Entwurf.
+  _azubiMailAdresse(a) {
+    const e = String((a && a.email) || '').trim();
+    return e.includes('@') ? e : '';
+  },
+  // Azubis des Termins mit eigener E-Mail: [{ idx, ai, a, to }] – nicht, wenn
+  // die Option aus ist oder die Adresse die des Betriebs ist (der bekommt sie schon)
+  _azubiMailEmpfaenger() {
+    const d = this._individualData; if (!d || (d.opts && d.opts.azubis === false)) return [];
+    const out = [];
+    d.betriebe.forEach((g, idx) => g.azubis.forEach((a, ai) => {
+      const to = this._azubiMailAdresse(a);
+      if (!to || to.toLowerCase() === String(g.email || '').trim().toLowerCase()) return;
+      out.push({ idx, ai, a, to });
+    }));
+    return out;
+  },
+  AZUBI_VORLAGE: { betrieb_ankuendigung: 'azubi_ankuendigung', betrieb_maengel: 'azubi_maengel', betrieb_ok: 'azubi_ok', nachholung: 'azubi_nachholung' },
+  // Satz „der Betrieb ist ebenfalls informiert“ – ohne die Angaben anderer Azubis
+  _azubiBetriebHinweis(g, isDone) {
+    const name = String((g && g.name) || '').trim();
+    const wer = `Ihr Ausbildungsbetrieb${name ? ` (${name})` : ''}`;
+    return isDone ? `${wer} hat ebenfalls eine Mitteilung über das Ergebnis erhalten.` : `${wer} wurde ebenfalls über den Termin informiert.`;
+  },
+  // Mail-Inhalt für EINEN Azubi: nur seine eigenen Angaben
+  _azubiMailInhalt(idx, ai) {
+    const d = this._individualData; if (!d) return null;
+    const g = d.betriebe[idx]; const a = g && g.azubis[ai]; if (!a) return null;
+    const to = this._azubiMailAdresse(a); if (!to) return null;
+    const typ = this.AZUBI_VORLAGE[this._betriebVorlageTyp({ azubis: [a] }, d.isDone)];
+    const o = d.opts || this._betriebMailOptsLaden();
+    const name = this._signaturName(o);
+    const nz = d.isDone ? this._nachzuholen(a) : [];
+    const bem = d.isDone ? this._bemerkungFuerBetrieb(a.ke) : [];
+    const hatBogen = d.isDone && o.boegen !== false && a.ke && a.ke.ergebnis;
+    const ctx = this._antwortCtx({ ...d.t.ctx,
+      ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
+      azubi_anrede: `Guten Tag ${[a.vorname, a.nachname].filter(Boolean).join(' ')},`,
+      ergebnis: (a.ke && a.ke.ergebnis && (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis)) || '',
+      nachzuholen_block: nz.length ? 'Bitte holen Sie Folgendes nach:\n' + nz.map(z => '  → ' + z).join('\n') : '',
+      bemerkung_block: bem.length ? bem.map((z, i) => (i === 0 ? 'Bemerkung: ' : '           ') + z).join('\n') : '',
+      bogen_hinweis: hatBogen ? 'Den Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang.' : '',
+      betrieb_hinweis: this._azubiBetriebHinweis(g, d.isDone),
+      frist: formatDate(App.wvFrist('nachholung_abwesend')) });
+    let { betreff, body } = App.renderVorlage(typ, ctx);
+    // Leere Bausteine (keine Bemerkung, kein Bogen) hinterlassen keine Lücken
+    body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
+    return { g, a, typ, betreff, body, to };
+  },
+  // Einzeln über den E-Mail-Link (ohne Anhang – der Bogen hängt nur am ZIP-Entwurf)
+  _openAzubiEmail(idx, ai) {
+    const d = this._individualData; if (!d) return;
+    const m = this._azubiMailInhalt(idx, ai);
+    if (!m) return App.toast('Keine E-Mail-Adresse', 'warning');
+    const r = this.openMailto(m.to, m.betreff, m.body, '', '', { still: true }) || {};
+    d.statusAzubi[idx + '_' + ai] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), zwischenablage: !!r.zwischenablage };
+    this._betriebMailZeileAuffrischen(idx);
+    if (!r.geoeffnet) App.toast('E-Mail konnte nicht geöffnet werden – Text in der Zwischenablage', 'warning');
+    else if (r.zwischenablage) App.toast('Text zu lang für den Link – er liegt in der Zwischenablage (Strg+V in Outlook)', 'info', 8000);
+  },
+  _azubiMailVorschau(idx, ai) {
+    const pre = document.getElementById('betriebMailVorschau_' + idx); if (!pre) return;
+    const kennung = 'azubi_' + ai;
+    if (pre.style.display !== 'none' && pre.dataset && pre.dataset.zeigt === kennung) { pre.style.display = 'none'; return; }
+    const m = this._azubiMailInhalt(idx, ai); if (!m) return;
+    pre.textContent = `An: ${m.to}\nBetreff: ${m.betreff}\n\n${m.body}`;
+    if (pre.dataset) pre.dataset.zeigt = kennung;
+    pre.style.display = '';
   },
   // Versandnachweis an den offenen Wiedervorlagen der Azubis eines Betriebs
   // (Mängelmitteilung / Nachhol-Aufforderung nach der Kontrolle)
@@ -540,6 +639,7 @@ const Workflows = {
     const d = this._individualData;
     const terminId = d.terminId, isDone = d.isDone;
     const st = d.status[idx];
+    const eigene = new Set(this._azubiMailEmpfaenger().filter(x => x.idx === idx).map(x => x.ai));
     const details = g.azubis.map(a => {
       let x = '<strong>' + esc(a.nachname) + ', ' + esc(a.vorname) + '</strong>';
       if (a.ke?.ergebnis) x += ' → ' + esc(this._eLbl[a.ke.ergebnis] || a.ke.ergebnis);
@@ -548,11 +648,21 @@ const Workflows = {
         const nz = this._nachzuholen(a);
         if (nz.length) x += '<div style="color:var(--clr-red);font-size:12px;padding-left:10px">' + nz.map(z => '→ ' + esc(z)).join('<br>') + '</div>';
       }
+      // Eigene E-Mail an den Azubi (nur seine Angaben) – statt Kopie der Betriebs-Mail
+      const ai = g.azubis.indexOf(a);
+      if (eigene.has(ai)) {
+        const sa = d.statusAzubi[idx + '_' + ai];
+        x += `<div style="font-size:12px;padding-left:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span title="Eigener Entwurf nur mit den Angaben dieses Azubis${isDone ? ' und dem eigenen Bogen (ZIP)' : ''}">✉︎ eigene E-Mail an ${esc(this._azubiMailAdresse(a))}</span>
+          ${sa ? `<span style="color:var(--clr-green);font-weight:600">✓ ${sa.entwurf ? 'Entwurf (.eml) erzeugt' : 'geöffnet'} ${esc(sa.zeit)}</span>` : ''}
+          <button class="btn btn-sm btn-secondary" style="padding:1px 7px;font-size:12px" onclick="Workflows._openAzubiEmail(${idx},${ai})" title="Einzeln in Outlook öffnen (ohne Anhang – der Bogen hängt am ZIP-Entwurf)" aria-label="E-Mail an ${esc(a.vorname)} ${esc(a.nachname)} öffnen">Öffnen</button>
+          <button class="btn btn-sm btn-secondary" style="padding:1px 7px;font-size:12px" onclick="Workflows._azubiMailVorschau(${idx},${ai})" aria-label="Vorschau der E-Mail an ${esc(a.vorname)} ${esc(a.nachname)}">Vorschau</button>
+        </div>`;
+      }
       return x;
     }).join('<br>');
     const art = this._betriebVorlageLabel[this._betriebVorlageTyp(g, isDone)];
     const passt = g.email ? this._betriebMailPasst(idx) : true;
-    const cc = this._betriebMailCc(g);
     let status = '';
     if (st && st.entwurf) status = `<span style="color:var(--clr-green);font-weight:600">✓ Entwurf (.eml) erzeugt ${esc(st.zeit)}</span> · in Outlook öffnen und senden`;
     else if (st) status = `<span style="color:var(--clr-green);font-weight:600">✓ geöffnet ${esc(st.zeit)}</span>${st.zwischenablage ? ' · <span style="color:var(--clr-amber)">Text liegt in der Zwischenablage – in Outlook mit Strg+V einfügen</span>' : ''}`;
@@ -569,19 +679,10 @@ const Workflows = {
                ${g.betriebId ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebEmailNachtragen(${g.betriebId}, ${terminId})" title="E-Mail-Adresse in den Stammdaten nachtragen">✎ E-Mail nachtragen</button>` : ''}`}
         </span>
       </div>
-      <div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}${g.ap ? ' · ' + esc(g.ap) : ''}${g.email && cc ? ` · <span title="Die betreffenden Azubis mit hinterlegter E-Mail-Adresse erhalten die E-Mail in Kopie">CC Azubi: ${esc(cc)}</span>` : ''}${status ? ' · ' + status : ''}</div>
+      <div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}${g.ap ? ' · ' + esc(g.ap) : ''}${status ? ' · ' + status : ''}</div>
       <div style="margin-top:4px">${details}</div>
       <pre id="betriebMailVorschau_${idx}" style="display:none;margin-top:6px;padding:8px;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);font-size:12px;white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
     </div>`;
-  },
-  // CC an die betreffenden Azubis des Betriebs (alle mit hinterlegter
-  // E-Mail-Adresse, ohne Doppel) – gilt für .eml-Entwurf und mailto-Weg
-  _betriebMailCc(g) {
-    const seen = new Set();
-    return (g?.azubis || []).map(a => String(a.email || '').trim()).filter(e => {
-      if (!e || !e.includes('@') || seen.has(e.toLowerCase())) return false;
-      seen.add(e.toLowerCase()); return true;
-    }).join(', ');
   },
   // Mail-Inhalt eines Betriebs (Vorlage nach Lage, Kontext des Termins)
   _betriebMailInhalt(idx) {
@@ -603,22 +704,25 @@ const Workflows = {
     let { betreff, body } = App.renderVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
-    return { g, typ, betreff, body, cc: this._betriebMailCc(g) };
+    // Ohne Kopie an die Azubis: sie bekommen je eine eigene E-Mail (_azubiMailInhalt)
+    return { g, typ, betreff, body };
   },
   _betriebMailPasst(idx) {
     const m = this._betriebMailInhalt(idx);
-    return !m || this.mailtoPasst(m.g.email, m.betreff, m.body, m.cc);
+    return !m || this.mailtoPasst(m.g.email, m.betreff, m.body);
   },
   _betriebMailKopieren(idx) {
     const m = this._betriebMailInhalt(idx); if (!m) return;
-    const text = `An: ${m.g.email}\n${m.cc ? `CC: ${m.cc}\n` : ''}Betreff: ${m.betreff}\n\n${m.body}`;
+    const text = `An: ${m.g.email}\nBetreff: ${m.betreff}\n\n${m.body}`;
     Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => App.toast('Empfänger, Betreff und Text kopiert', 'success')).catch(() => App.toast('Kopieren nicht möglich', 'error'));
   },
   _betriebMailVorschau(idx) {
     const pre = document.getElementById('betriebMailVorschau_' + idx); if (!pre) return;
-    if (pre.style.display !== 'none') { pre.style.display = 'none'; return; }
+    // zweiter Klick schließt – außer es steht gerade die Vorschau einer Azubi-Mail darin
+    if (pre.style.display !== 'none' && !(pre.dataset && String(pre.dataset.zeigt || '').startsWith('azubi_'))) { pre.style.display = 'none'; return; }
     const m = this._betriebMailInhalt(idx); if (!m) return;
     pre.textContent = `Betreff: ${m.betreff}\n\n${m.body}`;
+    if (pre.dataset) pre.dataset.zeigt = 'betrieb';
     pre.style.display = '';
   },
   _betriebMailZeileAuffrischen(idx) {
@@ -641,7 +745,7 @@ const Workflows = {
     const m = this._betriebMailInhalt(betriebIdx);
     if (!m || !m.g.email) return App.toast('Keine E-Mail-Adresse', 'warning');
     const erstesMal = !d.status[betriebIdx];
-    const r = this.openMailto(m.g.email, m.betreff, m.body, m.cc, '', { still: true }) || {};
+    const r = this.openMailto(m.g.email, m.betreff, m.body, '', '', { still: true }) || {};
     d.status[betriebIdx] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), zwischenablage: !!r.zwischenablage };
     // Versandnachweis an den Wiedervorlagen der Azubis dieses Betriebs (nur
     // beim ersten Öffnen – ein zweites Öffnen ist kein zweites Anschreiben)
@@ -852,10 +956,10 @@ const Workflows = {
       { label: isDone ? 'Kontrolle am:' : 'Kontrolltermin:', wert: t.ctx.datum, gruppe: 4 },
       { label: 'Berufsschule:', wert: t.ctx.schule, gruppe: 4 },
     ].filter(z => z.wert);
-    const cc = this._betriebMailCc(g);
+    // Der Brief geht nur an den Betrieb – keine Kopie an die Azubis (Datenschutz)
     return {
       v: 1, terminId: t.termin.id, key: String(g.key), typ: inhalt.typ, isDone,
-      betriebName: b.b_firma || g.name || '', email: g.email || '', cc,
+      betriebName: b.b_firma || g.name || '', email: g.email || '', cc: '',
       azubiIds: g.azubis.filter(a => a.ke && a.ke.ergebnis).map(a => a.id),
       keIds: g.azubis.filter(a => a.ke).map(a => a.ke.id),
       ruecksende: App.briefEinstellung('ruecksende'),

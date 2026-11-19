@@ -10483,6 +10483,79 @@ Vielen Dank für die sorgfältige Begleitung der Ausbildungsnachweise – {hinwe
 Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
+    // ── Eigene E-Mail je Azubi (Datenschutz): nur das eigene Ergebnis, der
+    //    eigene Bogen; der Betrieb bekommt seine Mitteilung getrennt, ohne CC ──
+    azubi_ankuendigung: { titel: 'Azubi: Terminankündigung (eigene E-Mail)',
+      platzhalter: ['azubi_anrede','datum','schule','schule_ort','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – bitte Berichtsheft mitbringen',
+      body: `{azubi_anrede}
+
+am {datum} findet an der {schule}{schule_ort} die Durchsicht der Berichtshefte (Ausbildungsnachweise) statt.
+
+Bitte bringen Sie Ihr Berichtsheft an diesem Tag vollständig geführt und mit allen erforderlichen Unterschriften mit.
+
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
+
+{betrieb_hinweis}
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    azubi_ok: { titel: 'Azubi: Ergebnis „ohne Beanstandung“ (eigene E-Mail)',
+      platzhalter: ['azubi_anrede','datum','schule','schule_ort','bemerkung_block','bogen_hinweis','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – Ihr Berichtsheft ist in Ordnung',
+      body: `{azubi_anrede}
+
+am {datum} wurde an der {schule}{schule_ort} Ihr Berichtsheft (Ausbildungsnachweis) durchgesehen. Es war ohne Beanstandung – vielen Dank für die sorgfältige Führung.
+
+{bemerkung_block}
+
+{bogen_hinweis}
+
+{betrieb_hinweis}
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    azubi_maengel: { titel: 'Azubi: Ergebnis mit Nacharbeit (eigene E-Mail)',
+      platzhalter: ['azubi_anrede','datum','schule','schule_ort','ergebnis','nachzuholen_block','bemerkung_block','bogen_hinweis','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – Ergebnis und Nacharbeit',
+      body: `{azubi_anrede}
+
+am {datum} wurde an der {schule}{schule_ort} Ihr Berichtsheft (Ausbildungsnachweis) durchgesehen.
+
+Ergebnis: {ergebnis}
+
+{nachzuholen_block}
+
+{bemerkung_block}
+
+{bogen_hinweis}
+
+Ein ordnungsgemäß geführtes Berichtsheft ist Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG). Bei Fragen wenden Sie sich bitte an Ihre Ausbilderin oder Ihren Ausbilder oder an die Ausbildungsberatung.
+
+{betrieb_hinweis}
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    azubi_nachholung: { titel: 'Azubi: Nachhol-Aufforderung (am Kontrolltag abwesend, eigene E-Mail)',
+      platzhalter: ['azubi_anrede','datum','schule','frist','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – bitte Berichtsheft nachreichen',
+      body: `{azubi_anrede}
+
+am {datum} wurde an der {schule} die Berichtsheftkontrolle durchgeführt. Sie waren an diesem Tag nicht anwesend, Ihr Berichtsheft konnte daher nicht geprüft werden.
+
+Bitte legen Sie das vollständig geführte und unterschriebene Berichtsheft bis spätestens {frist} zur Durchsicht vor (per Post an die unten genannte Adresse oder nach Absprache persönlich).
+
+Ein ordnungsgemäß geführtes Berichtsheft ist Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG).
+
+{betrieb_hinweis}
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
     brief_betrieb: { titel: 'Betrieb: Anschreiben als Brief (PDF-Seriendruck)',
       platzhalter: ['datum','schule','schule_ort','klassen','fachrichtung','azubi_liste','pruefer','rp_name'],
       betreff: 'Berichtsheftkontrolle am {datum}',
