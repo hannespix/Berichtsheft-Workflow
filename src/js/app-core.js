@@ -10874,7 +10874,7 @@ Mit freundlichen Grüßen
     // Zurück-Taste bei offenem Modal: Modal schließen statt Ansicht verlassen
     window.addEventListener('popstate', () => {
       // Zurück-Schritt aus closeModal() – nicht als Nutzer-Zurück werten
-      if (App._modalBackPending) { App._modalBackPending = false; return; }
+      if (App._modalBackPending) { App._modalBackPending = false; App._hashNachBackSetzen(); return; }
       const overlay = document.getElementById('modalOverlay');
       if (App._modalHistoryPushed && overlay && overlay.classList.contains('active')) {
         App._modalHistoryPushed = false;
@@ -11567,7 +11567,14 @@ Mit freundlichen Grüßen
   navigate(view, skipHash) {
     this.currentView = view;
     this.kopfZeigen();
-    if (!skipHash) location.hash = '#' + view;
+    // Läuft noch der Zurück-Schritt aus closeModal() (history.back() ist
+    // asynchron), nähme er den neuen Hash gleich wieder zurück und die Ansicht
+    // spränge auf die alte (Dialog schließen + navigieren in einem Klick).
+    // Dann den Hash erst nach diesem Schritt setzen.
+    if (!skipHash) {
+      if (this._modalBackPending) this._hashNachBack = view;
+      else { this._hashNachBack = null; location.hash = '#' + view; }
+    }
     // Persist current view for reload recovery
     try { App.uSet('last_view', view); } catch(e) {}
     // Azubi-Seite und Import gehören zu den Stammdaten, Wartung zu den Einstellungen
@@ -11885,6 +11892,12 @@ Mit freundlichen Grüßen
   },
   _dialogEnde(v) { const r = this._dialogResolve; if (r) r(v); },
 
+  // Hash einer Navigation nachtragen, die während des Zurück-Schritts aus
+  // closeModal() stattfand (siehe navigate)
+  _hashNachBackSetzen() {
+    const v = this._hashNachBack; this._hashNachBack = null;
+    try { if (v && v === this.currentView && location.hash !== '#' + v) location.hash = '#' + v; } catch(e) {}
+  },
   closeModal(fromPopstate = false) {
     document.getElementById('modalOverlay').classList.remove('active');
     { const mc = document.getElementById('modalContent'); if (mc && mc.classList) { mc.classList.remove('modal-brief'); mc.classList.remove('kt-dialog'); } }
@@ -11906,7 +11919,7 @@ Mit freundlichen Grüßen
       // Dialog wieder. Merker, den der popstate-Handler einmal konsumiert.
       this._modalBackPending = true;
       try { history.back(); } catch(e) { this._modalBackPending = false; }
-      setTimeout(() => { this._modalBackPending = false; }, 800);
+      setTimeout(() => { this._modalBackPending = false; this._hashNachBackSetzen(); }, 800);
     } else {
       this._modalHistoryPushed = false;
     }
