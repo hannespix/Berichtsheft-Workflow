@@ -191,7 +191,8 @@ console.log('\n══ Kontroll-Vorlagen: Kohorten aus Datum + Stammdaten ══'
   // (der Test muss in jedem Monat laufen) und die nötigen Kohorten anlegen
   const heute = new Date(), j = heute.getFullYear(), m = heute.getMonth();
   const folgeJahr = m >= 6 ? j + 1 : j;
-  const zpHJahr = m <= 10 ? j : j + 1;
+  // Fenster ZP Herbst läuft bis 20. November (der Tag zählt ganz), danach gilt das Folgejahr
+  const zpHJahr = (m < 10 || (m === 10 && heute.getDate() <= 20)) ? j : j + 1;
   db.run(`INSERT OR IGNORE INTO abschlussjahrgaenge (bezeichnung,typ,jahr) VALUES ('S${folgeJahr}','Sommer',${folgeJahr})`);
   db.run(`INSERT INTO schueler (nachname,vorname,aktiv,zwischenpruefung) VALUES
     ('VorlF','T',1,'F${folgeJahr}'),('VorlH','T',1,'H${folgeJahr - 1}'),('VorlZH','T',1,'H${zpHJahr}')`);

@@ -230,7 +230,7 @@ console.log('\n══ Azubi-Liste: verdeckte Suchtreffer (inaktiv / BAV beendet 
   SDT._azubiAlleTreffer(true);
   html = elems.azubiTableContainer.innerHTML;
   check(/777001/.test(html) && /777002/.test(html) && /777003/.test(html) && /Filter für diese Suche ausgesetzt: alle 3 Treffer zu „Weberzz“/.test(html) && /Filter wieder anwenden/.test(html), '„Alle Treffer anzeigen“: nur der Suchbegriff zählt, Chip mit Rückweg');
-  check(/^1=1 AND \(s\.nachname LIKE \?/.test(SDT._lastAzubiWhere) && SDT._getFilteredAzubis().length === 3, 'Excel/Kopieren folgen der ausgesetzten Filterung (alle drei)');
+  check(/^1=1 AND \(\(s\.nachname LIKE \?/.test(SDT._lastAzubiWhere) && SDT._getFilteredAzubis().length === 3, 'Excel/Kopieren folgen der ausgesetzten Filterung (alle drei)');
   SDT._azubiAlleTreffer(false);
   html = elems.azubiTableContainer.innerHTML;
   check(!/777002/.test(html) && /2 weitere Treffer/.test(html), '„Filter wieder anwenden“ stellt die Filter her');

@@ -207,10 +207,13 @@ const StammdatenTab = {
     let sql = '';
     const params = [];
     const tokens = String(q || '').split(/[,;\s]+/).map(t => t.trim()).filter(t => t.length > 0);
+    // Je Wort alle Schreibweisen (Groß/Klein der Umlaute, ß ↔ ss, ä ↔ ae):
+    // SQLite vergleicht bei LIKE nur ASCII ohne Groß/Klein
+    const gruppe = "(s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
     tokens.forEach(token => {
-      const p = `%${token}%`;
-      sql += " AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
-      params.push(p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p);
+      const varianten = App.suchVarianten ? App.suchVarianten(token) : [token];
+      sql += ' AND (' + varianten.map(() => gruppe).join(' OR ') + ')';
+      varianten.forEach(v => { const p = `%${v}%`; for (let n = 0; n < 17; n++) params.push(p); });
     });
     return { sql, params, tokens };
   },
@@ -328,6 +331,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzeltermin für die Auswahl</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="KontrolleHandler.terminZuweisenDialog({ ids: StammdatenTab._bulkGetSelected(), nach: 'liste' })" title="Die angehakten Azubis einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin für sie planen">→ Termin zuweisen</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('azubis','xlsx')" title="Die angehakten Azubis als Excel-Datei">⬇ Excel</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
@@ -367,6 +371,7 @@ const StammdatenTab = {
             typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'phasen')`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
             { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'akte')` },
             { label: '▤ Einzeltermin anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung / Einzelprüfung)' },
+            { label: '→ Einem Termin zuweisen …', onclick: `KontrolleHandler.terminZuweisenDialog({ ids: [${s.id}], nach: 'liste' })`, title: 'Einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin planen' },
             snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
             { trenner: true },
             { label: '✕ Azubi löschen', onclick: `ImportHandler.deleteSchueler(${s.id})` },
@@ -551,7 +556,18 @@ const StammdatenTab = {
   },
 
   quickEinsendung(schuelerIds) {
-    if (!schuelerIds || !schuelerIds.length) return;
+    const terminId = this.einzelterminAnlegen(schuelerIds);
+    if (!terminId) return;
+    App.toast(`Einzeltermin angelegt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      const sel = document.getElementById('selKontrolltermin');
+      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
+    }, 200);
+  },
+  // Einzeltermin (Einsendung) für heute mit diesen Azubis anlegen → Kennung des Termins
+  einzelterminAnlegen(schuelerIds) {
+    if (!schuelerIds || !schuelerIds.length) return null;
     const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
     const today = todayStr();
     const names = schuelerIds.map(id => {
@@ -559,21 +575,18 @@ const StammdatenTab = {
       return s ? `${s.nachname}, ${s.vorname}` : '';
     }).filter(Boolean);
     const autoTitel = names.length <= 3 ? 'Einzeltermin ' + names.join('; ') : `Einzeltermin ${names.length} Azubis`;
-    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
-      [jgId || null, today, 'einsendung', autoTitel]);
+    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung, pruefer) VALUES (?,?,?,?,?)",
+      [jgId || null, today, 'einsendung', autoTitel, App.currentUser || '']);
     // last_insert_rowid statt MAX(id): die IDs sind wanduhr-basiert global –
     // MAX(id) könnte den soeben synchronisierten Termin eines Kollegen mit
     // vorgehender Uhr treffen und dessen Termin mit fremden Azubis füllen.
     const terminId = App.scalar("SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()");
+    if (!terminId) return null;
     schuelerIds.forEach(sid => {
       App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
     });
-    App.toast(`Einzeltermin angelegt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
-    App.navigate('kontrolle');
-    setTimeout(() => {
-      const sel = document.getElementById('selKontrolltermin');
-      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
-    }, 200);
+    try { App.invalidateTerminCache(); } catch(e) {}
+    return terminId;
   },
 
   showAzubiSnapshots(sid) {

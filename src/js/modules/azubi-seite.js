@@ -86,6 +86,10 @@ const AzubiSeite = {
             <h1>${esc(s.nachname)}, ${esc(s.vorname)}</h1>
             <span class="badge-status ${statusKlasse}">${esc(status)}</span>
             ${s.ibykus_id ? `<span class="az-ident" title="IBYKUS-Ident">${esc(s.ibykus_id)}</span>` : ''}
+            ${App.menue('Termin', [
+              { label: '▸ Einzeltermin jetzt starten', onclick: `AzubiSeite.einzelterminStarten(${s.id})`, title: 'Legt einen Einzeltermin für heute nur mit diesem Azubi an und öffnet gleich die Durchsicht' },
+              { label: '→ Einem Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id})`, title: 'Diesen Azubi einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin für ihn planen' },
+            ], 'Termin für diesen Azubi: Einzeltermin starten oder einem Termin zuweisen', 'az-termin')}
             <button class="btn btn-sm ${this._bearbeiten ? 'btn-primary' : 'btn-secondary'} az-bearbeiten" onclick="AzubiSeite.bearbeiten()" aria-pressed="${this._bearbeiten ? 'true' : 'false'}" title="Stammdaten und Ausbildungsverlauf bearbeiten">${this._bearbeiten ? '✓ Bearbeiten beenden' : '✎ Bearbeiten'}</button>
           </div>
           ${meta.length ? `<div class="az-meta">${meta.map(esc).join(' <span class="az-punkt">·</span> ')}</div>` : ''}
@@ -249,9 +253,34 @@ const AzubiSeite = {
     // Verwaiste Archiv-Bögen (Ergebnis oder Termin inzwischen gelöscht) sichtbar machen,
     // sonst „verschwindet“ eine gelöschte Durchsicht nie ganz
     const waisen = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots ds WHERE ds.schueler_id=? AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.id=ds.kontrollergebnis_id)', [s.id]) || 0;
+    // Geplante Termine, in denen der Azubi steht, die aber noch nicht geöffnet wurden
+    // (noch kein Bogen): einzeln zugeordnet oder über seine Klasse
+    const geplant = App.query(`SELECT kt.id AS kontrolltermin_id, kt.geplant_datum, kt.bemerkung AS kt_bemerkung, kt.typ, bs.name AS schule, 'einzeln' AS weg
+        FROM kontrolltermin_schueler kts JOIN kontrolltermine kt ON kts.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
+        WHERE kts.schueler_id=? AND kt.status='geplant'
+          AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.schueler_id=kts.schueler_id)
+      UNION
+      SELECT kt.id, kt.geplant_datum, kt.bemerkung, kt.typ, bs.name, 'klasse'
+        FROM kontrolltermin_klassen ktk JOIN kontrolltermine kt ON ktk.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
+        WHERE ktk.klasse_id=? AND ?=1 AND kt.status='geplant' AND COALESCE(kt.archiviert_am,'')=''
+          AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.schueler_id=?)
+          AND NOT EXISTS (SELECT 1 FROM kontrolltermin_schueler k2 WHERE k2.kontrolltermin_id=kt.id AND k2.schueler_id=?)
+      ORDER BY 2 DESC`, [s.id, s.klasse_id || -1, s.aktiv ? 1 : 0, s.id, s.id]);
+    const geplantZeilen = geplant.map(r => {
+      const ort = (() => { try { const o = App.getTerminSchule(r.kontrolltermin_id); return o ? o.name : ''; } catch(e) { return r.schule || ''; } })();
+      const menue = App.menue('⋯', [
+        { label: '▦ Termin-Seite', onclick: `TerminSeite.oeffnen(${r.kontrolltermin_id})` },
+        { label: '→ Einem anderen Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id}, ${r.kontrolltermin_id})`, title: r.weg === 'einzeln' ? 'In einen anderen Termin legen – auf Wunsch aus diesem herausnehmen (verschieben)' : 'Zusätzlich einem anderen Termin zuweisen' },
+        r.weg === 'einzeln' ? { trenner: true } : null,
+        r.weg === 'einzeln' ? { label: '✕ Aus diesem Termin nehmen', onclick: `AzubiSeite.ausTerminNehmen(${r.kontrolltermin_id}, ${s.id})`, title: 'Einzelzuordnung zu diesem Termin aufheben' } : null,
+      ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
+      return `<tr class="az-geplant"><td>${esc(formatDate(r.geplant_datum))}</td><td>${esc([ort, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}</td><td><span class="badge-status badge-planned">geplant</span></td><td><span class="az-leer">${r.weg === 'einzeln' ? 'einzeln zugeordnet' : 'über die Klasse'}</span></td><td><span class="az-leer">–</span></td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins bei diesem Azubi öffnen">Öffnen</button> ${menue}</td></tr>`;
+    }).join('');
     const waisenHinweis = waisen ? `<p class="az-leer az-waisen">${waisen} archivierte${waisen === 1 ? 'r' : ''} Bogen ohne zugehörige Durchsicht (Termin oder Ergebnis wurde gelöscht) – <a href="#" onclick="StammdatenTab.showAzubiSnapshots(${s.id});return false">Archiv-Bögen ansehen und löschen</a></p>` : '';
-    if (!rows.length) { el.innerHTML = '<p class="az-leer">Noch keine Kontrolle zu diesem Azubi.</p>' + waisenHinweis; return; }
+    if (!rows.length && !geplant.length) { el.innerHTML = `<p class="az-leer">Noch keine Kontrolle zu diesem Azubi. <a href="#" onclick="AzubiSeite.einzelterminStarten(${s.id});return false">Einzeltermin jetzt starten</a> oder <a href="#" onclick="AzubiSeite.terminZuweisen(${s.id});return false">einem Termin zuweisen</a>.</p>` + waisenHinweis; return; }
     el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th title="Archivierte Durchsichtsbögen (unveränderliche Momentaufnahmen vom Abschluss des Termins)">Archiv</th><th></th></tr></thead><tbody>
+      ${geplantZeilen}
       ${rows.map(r => {
         const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
         const vermerke = [r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
@@ -259,6 +288,7 @@ const AzubiSeite = {
         const menue = App.menue('⋯', [
           { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${r.kontrolltermin_id},${s.id})`, title: 'Bogen mit dem aktuellen Stand' },
           r.snaps ? { label: `▤ Archiv-Bögen ansehen (${r.snaps})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
+          { label: '→ Einem anderen Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id}, ${r.kontrolltermin_id})`, title: 'Diesen Azubi einem anderen geplanten oder einem neuen Termin zuweisen (z. B. Nachholtermin)' },
           { trenner: true },
           { label: '✕ Durchsicht löschen', onclick: `AzubiSeite.kontrolleLoeschen(${r.kontrolltermin_id}, ${s.id})`, title: 'Ergebnis, Wiedervorlagen, Mängel und Archiv-Bögen dieser Durchsicht entfernen' },
         ].filter(Boolean), 'Weitere Aktionen zu dieser Durchsicht', 'klein');
@@ -309,16 +339,44 @@ const AzubiSeite = {
     </tbody></table>`;
   },
   // Durchsicht eines Termins mit diesem Azubi öffnen (wie der Absprung aus der Azubi-Liste)
+  // ── Termine von der Azubi-Seite aus ──
+  // Einem bestehenden geplanten oder einem neuen Termin zuweisen; mit quelleId
+  // aus einer bestehenden Durchsicht heraus (dann auch „verschieben“)
+  terminZuweisen(schuelerId, quelleId) {
+    const o = { ids: [schuelerId], nach: 'azubi' };
+    if (quelleId != null) o.quelleId = quelleId;
+    return KontrolleHandler.terminZuweisenDialog(o);
+  },
+  // Einzeltermin für heute anlegen und die Durchsicht gleich bei diesem Azubi öffnen
+  einzelterminStarten(schuelerId) {
+    const s = App.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s) return null;
+    const terminId = StammdatenTab.einzelterminAnlegen([schuelerId]);
+    if (!terminId) return null;
+    App.toast(`Einzeltermin für ${s.nachname}, ${s.vorname} angelegt`, 'success');
+    this.kontrolleOeffnen(terminId, schuelerId);
+    return terminId;
+  },
+  // Einzelzuordnung zu einem geplanten Termin aufheben (noch kein Ergebnis)
+  async ausTerminNehmen(terminId, schuelerId) {
+    const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0];
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!s || !t) return;
+    if (App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=? AND ergebnis != ''", [terminId, schuelerId])) return this.kontrolleLoeschen(terminId, schuelerId);
+    if (!(await App.confirm(`${s.nachname}, ${s.vorname} aus dem Termin am ${formatDate(t.geplant_datum)} nehmen?\n\nDer Termin selbst bleibt bestehen.`, { titel: 'Aus dem Termin nehmen', ok: 'Herausnehmen' }))) return;
+    App.deleteKontrollergebnisKaskade(terminId, schuelerId);
+    App.toast('Aus dem Termin genommen', 'success');
+    if (this.istOffen(schuelerId)) this.render();
+  },
   kontrolleOeffnen(terminId, schuelerId) {
     App.navigate('kontrolle');
     setTimeout(() => {
       const sel = document.getElementById('selKontrolltermin');
       if (sel) sel.value = terminId;
+      // Ziel merken: ohne gewählten Prüfer wartet die Durchsicht und öffnet den Azubi danach
+      KontrolleHandler._zielAzubi = { terminId: Number(terminId), schuelerId: Number(schuelerId) };
       KontrolleHandler.loadTermin(terminId);
-      setTimeout(() => {
-        const i = (KontrolleHandler.currentSchuelerList || []).findIndex(x => x.id === schuelerId);
-        if (i >= 0) { KontrolleHandler.currentIndex = i; KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.enterSchüler(); }
-      }, 200);
+      setTimeout(() => { KontrolleHandler.zielAzubiOeffnen(); }, 200);
     }, 100);
   },
 };

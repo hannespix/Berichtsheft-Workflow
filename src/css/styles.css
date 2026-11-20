@@ -1027,6 +1027,10 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 .az-teil #mAkteBemerkungen { max-height: none; }
 .az-tabelle { font-size: 13px; }
 .az-bearbeiten { margin-left: auto; }
+/* Menü „Termin“ im Kopf der Azubi-Seite: rechts neben dem Namen, vor „Bearbeiten“ */
+.az-titel .aktionen-menue.az-termin { margin-left: auto; }
+.az-titel .aktionen-menue.az-termin + .az-bearbeiten { margin-left: 0; }
+.az-tabelle tr.az-geplant td { background: var(--clr-sand-light); }
 .az-spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; margin-top: 14px; }
 .az-spalte h3 { font-family: var(--font-display); font-size: 14px; margin: 0 0 6px; color: var(--clr-forest-dark); border-bottom: 1px solid var(--clr-sand); padding-bottom: 4px; }
 .az-spalte h3.az-h3-abstand { margin-top: 14px; }

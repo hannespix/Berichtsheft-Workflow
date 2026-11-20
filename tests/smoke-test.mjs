@@ -269,6 +269,98 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before, 'Export ohne Konsolenfehler');
 }
 
+// Vom Azubi aus zum Termin: Menü „Termin“ auf der Azubi-Seite – einem neuen
+// Termin zuweisen, von dort in einen anderen verschieben, Einzeltermin starten.
+{
+  const before = errors.length;
+  const sid = await page.evaluate(() => {
+    const s = App.query("SELECT s.id FROM schueler s WHERE s.aktiv=1 AND NOT EXISTS (SELECT 1 FROM kontrolltermin_schueler k WHERE k.schueler_id=s.id) ORDER BY s.id LIMIT 1")[0];
+    AzubiSeite.oeffnen(s.id); return s.id;
+  });
+  await page.waitForTimeout(500);
+  const menue = await page.evaluate(() => { const d = document.querySelector('.az-titel details.az-termin'); return d ? [...d.querySelectorAll('.menue-liste *')].map(x => x.textContent.trim()).filter(Boolean).join('|') : ''; });
+  check(/Einzeltermin jetzt starten/.test(menue) && /Einem Termin zuweisen/.test(menue), 'Azubi-Seite: Menü „Termin“ mit „Einzeltermin jetzt starten“ und „Einem Termin zuweisen“');
+  // Neuen Termin für den Azubi planen
+  await page.evaluate((id) => AzubiSeite.terminZuweisen(id), sid);
+  await page.waitForTimeout(300);
+  await page.locator('#uzArt_neu').click();
+  await page.locator('#uzDatum').fill('2027-01-12');
+  await page.locator('#modalContent button:has-text("Zuweisen")').click();
+  await page.waitForTimeout(400);
+  const nach1 = await page.evaluate((id) => ({
+    knoepfe: [...document.querySelectorAll('#modalContent button')].map(b => b.textContent.trim()).join('|'),
+    termin: (App.query("SELECT kt.id FROM kontrolltermin_schueler k JOIN kontrolltermine kt ON kt.id=k.kontrolltermin_id WHERE k.schueler_id=? AND kt.geplant_datum='2027-01-12'", [id])[0] || {}).id || 0,
+  }), sid);
+  check(nach1.termin > 0 && /Hier bleiben/.test(nach1.knoepfe) && /Termin öffnen/.test(nach1.knoepfe) && /Durchsicht öffnen/.test(nach1.knoepfe), 'Azubi einem neuen Termin zugewiesen; danach „Hier bleiben“, „Termin öffnen“, „Durchsicht öffnen“');
+  await page.locator('#modalContent button:has-text("Hier bleiben")').click();
+  await page.waitForTimeout(500);
+  const zeile = await page.evaluate(() => { const r = document.querySelector('#azTeil_kontrollen tr.az-geplant'); return r ? r.textContent.replace(/\s+/g, ' ') : ''; });
+  check(/12\.01\.2027/.test(zeile) && /geplant/.test(zeile) && /einzeln zugeordnet/.test(zeile), 'Azubi-Seite → Kontrollen zeigt den geplanten Termin (einzeln zugeordnet)');
+  // Von dort in einen anderen (neuen) Termin verschieben
+  await page.evaluate(([id, tid]) => AzubiSeite.terminZuweisen(id, tid), [sid, nach1.termin]);
+  await page.waitForTimeout(300);
+  const hatHeraus = await page.locator('#uzHeraus').count();
+  await page.locator('#uzArt_neu').click();
+  await page.locator('#uzDatum').fill('2027-02-09');
+  if (hatHeraus) await page.locator('#uzHeraus').check();
+  await page.locator('#modalContent button:has-text("Zuweisen")').click();
+  await page.waitForTimeout(400);
+  const nach2 = await page.evaluate(([id, tid]) => ({
+    alt: App.scalar('SELECT COUNT(*) FROM kontrolltermin_schueler WHERE kontrolltermin_id=? AND schueler_id=?', [tid, id]),
+    neu: App.scalar("SELECT COUNT(*) FROM kontrolltermin_schueler k JOIN kontrolltermine kt ON kt.id=k.kontrolltermin_id WHERE k.schueler_id=? AND kt.geplant_datum='2027-02-09'", [id]),
+  }), [sid, nach1.termin]);
+  check(hatHeraus === 1 && nach2.alt === 0 && nach2.neu === 1, 'Verschieben: Azubi steht im neuen Termin und nicht mehr im bisherigen');
+  await page.evaluate(() => App.closeModal());
+  await page.waitForTimeout(400);
+  // Einzeltermin sofort starten → Durchsicht bei diesem Azubi
+  await page.evaluate((id) => AzubiSeite.einzelterminStarten(id), sid);
+  await page.waitForTimeout(900);
+  // Im Demo-Modus ist noch kein Prüfer gewählt: die Durchsicht wartet und öffnet den Azubi danach
+  const wartet = await page.evaluate(() => KontrolleHandler._wartetAufPruefer === true);
+  if (wartet) {
+    await page.evaluate(() => { const sel = document.getElementById('topbarUserSelect'); const o = [...sel.options].find(x => x.value); sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.waitForTimeout(700);
+  }
+  const start = await page.evaluate((id) => ({
+    view: App.currentView, modus: KontrolleHandler._viewMode,
+    azubi: (KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex] || {}).id === id,
+    termin: App.query('SELECT typ, geplant_datum, pruefer FROM kontrolltermine WHERE id=?', [KontrolleHandler.currentTerminId])[0] || {},
+    heute: App._heuteIso(), raster: !!document.querySelector('.kw-grid'),
+  }), sid);
+  check(start.view === 'kontrolle' && start.modus === 'einzeln' && start.azubi && start.termin.typ === 'einsendung' && start.termin.geplant_datum === start.heute && start.raster, `„Einzeltermin jetzt starten“ öffnet die Durchsicht dieses Azubis (${start.view}/${start.modus})`);
+  check(errors.length === before, 'Vom Azubi zum Termin ohne Konsolenfehler');
+}
+
+// Feldfall „Weiß“: Namen mit ß/Umlaut beim Hinzufügen zu einem Termin finden
+{
+  const before = errors.length;
+  const r = await page.evaluate(async () => {
+    // ein Azubi außerhalb der geladenen Durchsicht heißt jetzt „Weiß“, ein zweiter „Ärmel“
+    const drin = new Set((KontrolleHandler.currentSchuelerList || []).map(s => s.id));
+    const frei = App.query('SELECT id FROM schueler WHERE aktiv=1 ORDER BY id DESC').map(x => x.id).filter(id => !drin.has(id));
+    App.run("UPDATE schueler SET nachname='Weiß' WHERE id=?", [frei[0]]);
+    App.run("UPDATE schueler SET nachname='Ärmel' WHERE id=?", [frei[1]]);
+    KontrolleHandler._viewMode = 'uebersicht'; KontrolleHandler.renderUebersicht();
+    KontrolleHandler.showAddSchueler();
+    await new Promise(z => setTimeout(z, 200));
+    const suche = (q) => { KontrolleHandler._liveSearchSchueler(q); return document.getElementById('addSchuelerResults').textContent.replace(/\s+/g, ' '); };
+    const a = suche('weiss'), b = suche('Weiß'), c = suche('ärmel'), d = suche('wei');
+    // Termin-Dialog: Einzelne Azubis hinzufügen
+    App.closeModal(); await new Promise(z => setTimeout(z, 300));
+    PlanungHandler.addTermin(); await new Promise(z => setTimeout(z, 300));
+    PlanungHandler._searchEinsendSchueler('weiss');
+    const e = document.getElementById('mKtEinsendResults').textContent.replace(/\s+/g, ' ');
+    PlanungHandler._searchEinsendSchueler('aermel');
+    const f = document.getElementById('mKtEinsendResults').textContent.replace(/\s+/g, ' ');
+    App.closeModal();
+    return { a, b, c, d, e, f };
+  });
+  check(/Weiß,/.test(r.a) && /Weiß,/.test(r.b) && /Ärmel,/.test(r.c) && r.d.trim().startsWith('Weiß,'), 'Durchsicht „+ Azubi hinzufügen“: „weiss“ und „Weiß“ finden Weiß, „ärmel“ findet Ärmel, Nachname steht vorn');
+  check(/Weiß/.test(r.e) && /Ärmel/.test(r.f), 'Termin-Dialog „Einzelne Azubis hinzufügen“: „weiss“ findet Weiß, „aermel“ findet Ärmel');
+  await page.waitForTimeout(300);
+  check(errors.length === before, 'Namenssuche ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));

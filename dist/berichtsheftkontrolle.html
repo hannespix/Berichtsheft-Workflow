@@ -6747,6 +6747,10 @@ body.dark-mode .azubi-sticky { background: var(--clr-white); border-bottom-color
 .az-teil #mAkteBemerkungen { max-height: none; }
 .az-tabelle { font-size: 13px; }
 .az-bearbeiten { margin-left: auto; }
+/* Menü „Termin“ im Kopf der Azubi-Seite: rechts neben dem Namen, vor „Bearbeiten“ */
+.az-titel .aktionen-menue.az-termin { margin-left: auto; }
+.az-titel .aktionen-menue.az-termin + .az-bearbeiten { margin-left: 0; }
+.az-tabelle tr.az-geplant td { background: var(--clr-sand-light); }
 .az-spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; margin-top: 14px; }
 .az-spalte h3 { font-family: var(--font-display); font-size: 14px; margin: 0 0 6px; color: var(--clr-forest-dark); border-bottom: 1px solid var(--clr-sand); padding-bottom: 4px; }
 .az-spalte h3.az-h3-abstand { margin-top: 14px; }
@@ -7977,7 +7981,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-20 09:11 UTC',
+  BUILD: '2026-11-20 12:23 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -8274,7 +8278,7 @@ const App = {
       if (KontrolleHandler.currentTerminId) {
         KontrolleHandler.setActivePruefer(name);
         if (this.currentView === 'kontrolle') {
-          if (KontrolleHandler._wartetAufPruefer) KontrolleHandler.loadTermin(KontrolleHandler.currentTerminId);
+          if (KontrolleHandler._wartetAufPruefer) { KontrolleHandler.loadTermin(KontrolleHandler.currentTerminId); try { KontrolleHandler.zielAzubiOeffnen(); } catch(e) {} }
           else KontrolleHandler.renderSchueler();
         }
       }
@@ -15998,6 +16002,68 @@ const App = {
     a.click();
     setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch(e) {} }, 10000);
   },
+  // ── Namenssuche: tolerant gegen Groß/Klein, Umlaute und ß ──
+  // SQLite vergleicht bei LIKE nur ASCII ohne Groß/Klein: „ärmel“ fand „Ärmel“
+  // nicht, „weiss“ nicht „Weiß“ (Feldfall: Azubi Weiß ließ sich keinem Termin
+  // hinzufügen). Zwei Normalformen wie in der globalen Suche: ä→ae und ä→a.
+  suchNorm(s) {
+    return String(s ?? '').normalize('NFC').toLowerCase()
+      .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s ]+/g, ' ').trim();
+  },
+  suchNorm2(s) {
+    return String(s ?? '').normalize('NFC').toLowerCase().replace(/ß/g, 'ss')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s ]+/g, ' ').trim();
+  },
+  // Heuhaufen aus mehreren Feldern (beide Normalformen)
+  suchText(...teile) {
+    const t = teile.filter(x => x != null && x !== '').join(' ');
+    return this.suchNorm(t) + ' \u0001 ' + this.suchNorm2(t);
+  },
+  suchWoerter(q) {
+    return String(q ?? '').split(/[,;\s ]+/).map(t => t.trim()).filter(Boolean).map(t => [this.suchNorm(t), this.suchNorm2(t)]);
+  },
+  // Jedes Wort der Eingabe muss vorkommen (Reihenfolge egal)
+  suchPasst(heu, woerter) {
+    return woerter.every(([a, b]) => heu.includes(a) || heu.includes(b));
+  },
+  // Azubis nach einer Eingabe filtern und ordnen: Nachname beginnt mit dem
+  // ersten Wort → Nachname enthält es → Vorname → übrige Felder (Betrieb, Klasse …).
+  // felder(s) liefert die weiteren Suchfelder. Kein Abschneiden vor dem Filtern.
+  azubiSuche(liste, q, felder) {
+    const w = this.suchWoerter(q);
+    if (!w.length) return [];
+    const rang = (s) => {
+      const nn = this.suchText(s.nachname), vn = this.suchText(s.vorname);
+      const [a, b] = w[0];
+      if (nn.startsWith(a) || this.suchNorm2(s.nachname).startsWith(b)) return 0;
+      if (nn.includes(a) || nn.includes(b)) return 1;
+      if (vn.includes(a) || vn.includes(b)) return 2;
+      return 3;
+    };
+    return (liste || []).filter(s => this.suchPasst(this.suchText(s.nachname, s.vorname, ...(felder ? felder(s) : [])), w))
+      .map((s, i) => ({ s, r: rang(s), i })).sort((x, y) => x.r - y.r || x.i - y.i).map(x => x.s);
+  },
+  // Schreibweisen eines Suchworts für SQL-LIKE (das nur ASCII ohne Groß/Klein
+  // vergleicht): Groß/Klein der Umlaute, ß ↔ ss, ä ↔ ae …
+  suchVarianten(token) {
+    const t = String(token ?? '').normalize('NFC');
+    if (!t) return [];
+    const basis = new Set([t]);
+    const dazu = (x) => { if (x) basis.add(x); };
+    const tausch = [[/ß/g, 'ss'], [/ss/gi, 'ß'], [/ä/gi, 'ae'], [/ö/gi, 'oe'], [/ü/gi, 'ue'], [/ae/gi, 'ä'], [/oe/gi, 'ö'], [/ue/gi, 'ü']];
+    tausch.forEach(([re, neu]) => { if (re.test(t)) dazu(t.replace(re, neu)); });
+    const alle = new Set();
+    basis.forEach(x => {
+      // ẞ (großes ß) nie erzeugen: toUpperCase macht aus ß „SS“, das deckt die ss-Schreibweise ab
+      [x, x.toLowerCase(), x.toUpperCase(), x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()].forEach(v => alle.add(v));
+    });
+    // LIKE ist für ASCII ohnehin unabhängig von Groß/Klein: gleiche Schreibweisen zusammenfassen
+    const gesehen = new Set(), out = [];
+    alle.forEach(v => { const k = v.replace(/[A-Z]/g, c => c.toLowerCase()); if (!gesehen.has(k)) { gesehen.add(k); out.push(v); } });
+    return out.slice(0, 8);
+  },
+
   // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
   // Teile mit _ verbunden (z.B. safeFilename(['Uebergabe','Amt 94','BS Freiburg','2026-09-15'],'xlsx'))
   safeFilename(teile, ext) {
@@ -22459,6 +22525,14 @@ const Views = {
             <p><strong>Klassen</strong> – Automatisch generierte Berufsschulklassen (Schule + Jahrgang + Fachrichtung + Ausbildungsjahr).</p>
             <p><strong>Ausbildungsberater</strong> – Liste der Sachbearbeiter/Ausbildungsberater, die Durchsichten durchführen.</p>
           <div class="help-abschnitt">
+            <h4 class="help-untertitel">Vom Azubi aus zum Termin</h4>
+            <p>Auf der Azubi-Seite (Stammdaten → Azubi → „Öffnen“) steht oben das Menü <strong>Termin</strong>:</p>
+            <p>• <strong>Einzeltermin jetzt starten</strong> – legt einen Einzeltermin für heute nur mit diesem Azubi an und öffnet gleich seine Durchsicht (z. B. wenn ein Berichtsheft eingesandt wurde oder jemand spontan vorbeikommt).</p>
+            <p>• <strong>Einem Termin zuweisen</strong> – fügt den Azubi einem bestehenden geplanten Termin hinzu oder plant einen neuen Termin für ihn (Datum, Art, Ort). Termine, in denen er schon steht, sind in der Auswahl gekennzeichnet. Danach lässt sich die Durchsicht direkt öffnen.</p>
+            <p>• Unter <strong>Kontrollen</strong> stehen jetzt auch die geplanten Termine, in denen der Azubi steht, aber noch kein Bogen angelegt ist („einzeln zugeordnet“ oder „über die Klasse“). Je Zeile gibt es über ⋯ <strong>Einem anderen Termin zuweisen</strong>: der Azubi kommt zusätzlich in den anderen Termin. Ist er nur einzeln zugeordnet und noch ohne Ergebnis, lässt er sich dabei <em>herausnehmen</em> – also verschieben. Azubis, die über ihre Klasse zum Termin gehören oder schon ein Ergebnis haben, bleiben im bisherigen Termin stehen.</p>
+            <p>• Dasselbe geht aus der Azubi-Liste (⋯ je Zeile, „→ Termin zuweisen“ für mehrere angehakte Azubis) und in der Durchsicht eines Azubis (⋯ unten rechts).</p>
+          </div>
+          <div class="help-abschnitt">
             <h4 class="help-untertitel">Listen exportieren (Excel, Kopieren)</h4>
             <p>Unter jeder Liste steht rechts eine schmale Leiste: <strong>⬇ Excel</strong> speichert die Liste als Excel-Datei, <strong>▤ Kopieren</strong> legt sie in die Zwischenablage (in Excel, Word oder einer E-Mail mit Strg+V einfügen). Exportiert wird immer die <strong>aktuelle Auswahl</strong>: die angehakten Zeilen – und ohne Häkchen alles, was gerade angezeigt wird (Filter, Suche und Sortierung gelten).</p>
             <p>• <strong>Betriebe</strong> – „Excel-Adressliste“ mit Ansprechpartner, Straße, PLZ und Ort in eigenen Spalten (so taugt die Datei als Datenquelle für einen Serienbrief), dazu Telefon, E-Mail und die Zahl der aktiven Azubis; weitere Blätter nennen die Ausbilder und die Azubis je Betrieb. <strong>✉︎ E-Mail-Adressen</strong> kopiert die Adressen der Auswahl für das Bcc-Feld einer Rundmail.</p>
@@ -22991,6 +23065,8 @@ const Views = {
             Stellen Sie sicher, dass Sie die aktuelle Version der Anwendung verwenden. Die Anwendung erkennt hochauflösende Bildschirme (HiDPI/Retina) automatisch und passt die Rendering-Qualität der Diagramme entsprechend an.</p>
             <p style="margin-top:8px"><strong>Auszubildende sind nach dem Import nicht mehr sichtbar.</strong><br>
             Prüfen Sie den BAV-Status-Filter in der Topbar (▤-Schaltfläche). Ist der Filter auf „Aktive BAV" eingestellt, werden Auszubildende mit dem BAV-Status „ENDE" (beendetes Ausbildungsverhältnis) ausgeblendet. Setzen Sie den Filter auf „Alle BAV", um sämtliche Datensätze anzuzeigen.</p>
+            <p style="margin-top:8px"><strong>Ein Azubi wird beim Hinzufügen zu einem Termin nicht gefunden.</strong><br>
+            Die Namenssuche (Termin-Dialog „Einzelne Azubis hinzufügen“, Durchsicht „+ Azubi hinzufügen“, Azubi-Liste) ist tolerant gegen Groß- und Kleinschreibung, Umlaute und ß: „weiss“ findet „Weiß“, „aermel“ und „ärmel“ finden „Ärmel“. Mehrere Wörter grenzen ein („weiß jonas“); der Nachname zählt zuerst. Steht dort „Keine Treffer“, nennt der Hinweis den Grund: der Azubi ist schon im Termin bzw. schon ausgewählt, oder er ist <em>inaktiv</em> (dann in den Stammdaten wieder aktiv setzen). Schneller geht es von der Azubi-Seite aus: Menü „Termin“ → „Einem Termin zuweisen“.</p>
             <p style="margin-top:8px"><strong>Die Suche (Strg+K) findet eine Azubi, die Azubi-Liste zeigt sie nicht.</strong><br>
             Die Suche durchsucht immer den ganzen Bestand, die Azubi-Liste in den Stammdaten dagegen nur, was die Filter durchlassen: standardmäßig nur aktive Azubis, nur „Aktive BAV“ (ohne beendete Verträge) und nur die gewählten Jahrgänge, Berufe und Ämter. Eine inaktive oder beendete Azubi (z. B. vor einer Externenprüfung) ist deshalb in der Suche da, in der Liste aber unsichtbar – die Daten sind nicht weg. Ein Klick auf den Suchtreffer öffnet ihre Azubi-Seite direkt. In der Liste zeigt eine Zeile über der Tabelle, wie viele Treffer zum Suchbegriff ausgeblendet sind, mit „Alle Treffer anzeigen“ setzen Sie die Filter für diese Suche aus. Der Zusatzfilter „Inaktive Azubi: Aktive + Inaktive“ hebt auch die Vorgabe „Aktive BAV“ auf.</p>
             <p style="margin-top:8px"><strong>Können mehrere Sachbearbeiter gleichzeitig mit der Anwendung arbeiten?</strong><br>
@@ -23563,10 +23639,13 @@ const StammdatenTab = {
     let sql = '';
     const params = [];
     const tokens = String(q || '').split(/[,;\s]+/).map(t => t.trim()).filter(t => t.length > 0);
+    // Je Wort alle Schreibweisen (Groß/Klein der Umlaute, ß ↔ ss, ä ↔ ae):
+    // SQLite vergleicht bei LIKE nur ASCII ohne Groß/Klein
+    const gruppe = "(s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
     tokens.forEach(token => {
-      const p = `%${token}%`;
-      sql += " AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ? OR b.name LIKE ? OR s.ibykus_id LIKE ? OR s.email LIKE ? OR s.telefon LIKE ? OR s.zustaendiges_amt LIKE ? OR s.bav_status LIKE ? OR b.email LIKE ? OR b.telefon LIKE ? OR b.ort LIKE ? OR b.betriebsnummer LIKE ? OR bs.name LIKE ? OR k.klassenbezeichnung LIKE ? OR j.bezeichnung LIKE ? OR fr.bezeichnung LIKE ?)";
-      params.push(p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p,p);
+      const varianten = App.suchVarianten ? App.suchVarianten(token) : [token];
+      sql += ' AND (' + varianten.map(() => gruppe).join(' OR ') + ')';
+      varianten.forEach(v => { const p = `%${v}%`; for (let n = 0; n < 17; n++) params.push(p); });
     });
     return { sql, params, tokens };
   },
@@ -23684,6 +23763,7 @@ const StammdatenTab = {
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignJahrgang()">Jahrgang ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="BulkSchueler.assignFachrichtung()">Fachrichtung ändern</button>
       <button class="btn btn-sm" style="background:var(--clr-green);color:white;border:none" onclick="StammdatenTab.quickEinsendung(StammdatenTab._bulkGetSelected())">▤ Einzeltermin für die Auswahl</button>
+      <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="KontrolleHandler.terminZuweisenDialog({ ids: StammdatenTab._bulkGetSelected(), nach: 'liste' })" title="Die angehakten Azubis einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin für sie planen">→ Termin zuweisen</button>
       <button class="btn btn-sm" style="background:var(--clr-white);color:var(--clr-text);border:none" onclick="TabellenExport.fuer('azubis','xlsx')" title="Die angehakten Azubis als Excel-Datei">⬇ Excel</button>
       <span style="margin-left:auto;opacity:0.6;cursor:pointer" onclick="StammdatenTab._bulkDeselectAll()">✕ Abwählen</span>
     </div>
@@ -23723,6 +23803,7 @@ const StammdatenTab = {
             typeof Phasen !== 'undefined' ? { label: `${svgIcon('dashboard', 13)} Ausbildungsverlauf (Phasen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'phasen')`, title: 'Teilzeit, Unterbrechungen, Betriebswechsel' } : null,
             { label: `${svgIcon('akte', 13)} Akte (Bemerkungen)`, onclick: `AzubiSeite.oeffnen(${s.id}, 'akte')` },
             { label: '▤ Einzeltermin anlegen', onclick: `StammdatenTab.quickEinsendung([${s.id}])`, title: 'Termin nur für diesen Azubi (Einsendung / Einzelprüfung)' },
+            { label: '→ Einem Termin zuweisen …', onclick: `KontrolleHandler.terminZuweisenDialog({ ids: [${s.id}], nach: 'liste' })`, title: 'Einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin planen' },
             snpCnt ? { label: `▤ Archivierte Bögen (${snpCnt})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
             { trenner: true },
             { label: '✕ Azubi löschen', onclick: `ImportHandler.deleteSchueler(${s.id})` },
@@ -23907,7 +23988,18 @@ const StammdatenTab = {
   },
 
   quickEinsendung(schuelerIds) {
-    if (!schuelerIds || !schuelerIds.length) return;
+    const terminId = this.einzelterminAnlegen(schuelerIds);
+    if (!terminId) return;
+    App.toast(`Einzeltermin angelegt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
+    App.navigate('kontrolle');
+    setTimeout(() => {
+      const sel = document.getElementById('selKontrolltermin');
+      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
+    }, 200);
+  },
+  // Einzeltermin (Einsendung) für heute mit diesen Azubis anlegen → Kennung des Termins
+  einzelterminAnlegen(schuelerIds) {
+    if (!schuelerIds || !schuelerIds.length) return null;
     const jgId = App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [schuelerIds[0]])[0]?.jahrgang_id;
     const today = todayStr();
     const names = schuelerIds.map(id => {
@@ -23915,21 +24007,18 @@ const StammdatenTab = {
       return s ? `${s.nachname}, ${s.vorname}` : '';
     }).filter(Boolean);
     const autoTitel = names.length <= 3 ? 'Einzeltermin ' + names.join('; ') : `Einzeltermin ${names.length} Azubis`;
-    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung) VALUES (?,?,?,?)",
-      [jgId || null, today, 'einsendung', autoTitel]);
+    App.run("INSERT INTO kontrolltermine (jahrgang_id, geplant_datum, typ, bemerkung, pruefer) VALUES (?,?,?,?,?)",
+      [jgId || null, today, 'einsendung', autoTitel, App.currentUser || '']);
     // last_insert_rowid statt MAX(id): die IDs sind wanduhr-basiert global –
     // MAX(id) könnte den soeben synchronisierten Termin eines Kollegen mit
     // vorgehender Uhr treffen und dessen Termin mit fremden Azubis füllen.
     const terminId = App.scalar("SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()");
+    if (!terminId) return null;
     schuelerIds.forEach(sid => {
       App.run("INSERT OR IGNORE INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (?,?)", [terminId, sid]);
     });
-    App.toast(`Einzeltermin angelegt (${schuelerIds.length} Azubi${schuelerIds.length > 1 ? 's' : ''})`, 'success');
-    App.navigate('kontrolle');
-    setTimeout(() => {
-      const sel = document.getElementById('selKontrolltermin');
-      if (sel) { sel.value = terminId; KontrolleHandler.loadTermin(terminId); }
-    }, 200);
+    try { App.invalidateTerminCache(); } catch(e) {}
+    return terminId;
   },
 
   showAzubiSnapshots(sid) {
@@ -27717,19 +27806,26 @@ const PlanungHandler = {
   _einsendSchuelerIds: [],
   _einsendSchuelerData: [],
 
+  EINSEND_TREFFER_MAX: 20,
   _searchEinsendSchueler(q) {
     const results = document.getElementById('mKtEinsendResults');
     if (!results) return;
     if (!q || q.length < 2) { results.style.display = 'none'; return; }
-    const ql = q.toLowerCase();
-    const matches = this._einsendSchuelerData.filter(s =>
-      !this._einsendSchuelerIds.includes(s.id) &&
-      ((s.nachname||'').toLowerCase().includes(ql) || (s.vorname||'').toLowerCase().includes(ql) || (s.betrieb_display||'').toLowerCase().includes(ql))
-    ).slice(0, 10);
-    if (!matches.length) { results.innerHTML = '<div style="padding:6px;font-size:12px;color:var(--clr-text-light)">Keine Treffer</div>'; results.style.display = ''; return; }
+    // Tolerant gegen Groß/Klein, Umlaute und ß („weiss“ findet „Weiß“); Nachname zuerst.
+    // Erst filtern, dann kürzen – sonst fielen Namen am Ende des Alphabets heraus.
+    const alle = App.azubiSuche(this._einsendSchuelerData, q, s => [s.betrieb_display, s.ausbildungsstaette, s.ibykus_id]);
+    const schon = alle.filter(s => this._einsendSchuelerIds.includes(s.id)).length;
+    const treffer = alle.filter(s => !this._einsendSchuelerIds.includes(s.id));
+    const matches = treffer.slice(0, this.EINSEND_TREFFER_MAX);
+    if (!matches.length) {
+      // Erklären statt nur „Keine Treffer“: schon gewählt oder inaktiv?
+      const inaktiv = schon ? 0 : App.azubiSuche(App.query('SELECT id, nachname, vorname, ausbildungsstaette, ibykus_id FROM schueler WHERE aktiv=0'), q, s => [s.ausbildungsstaette, s.ibykus_id]).length;
+      results.innerHTML = `<div style="padding:6px;font-size:12px;color:var(--clr-text-light)">Keine Treffer${schon ? ` – ${schon} ${schon === 1 ? 'ist' : 'sind'} schon ausgewählt` : ''}${inaktiv ? ` – ${inaktiv} inaktive${inaktiv === 1 ? 'r' : ''} Azubi mit diesem Namen (in den Stammdaten wieder aktiv setzen)` : ''}</div>`;
+      results.style.display = ''; return;
+    }
     results.innerHTML = matches.map(s => `<div style="padding:4px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--clr-sand)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._addEinsendSchueler(${s.id})">
       <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span style="color:var(--clr-text-light)">· ${esc(s.betrieb_display||'–')}</span>
-    </div>`).join('');
+    </div>`).join('') + (treffer.length > matches.length ? `<div style="padding:4px 8px;font-size:12px;color:var(--clr-text-light)">… ${treffer.length - matches.length} weitere Treffer – bitte genauer eingeben</div>` : '');
     results.style.display = '';
   },
 
@@ -28228,7 +28324,10 @@ const PlanungHandler = {
     else if (key === 'apS') { const y = m <= 6 ? j : j + 1; von = D(y, 2, 1); bis = D(y, 3, 30); }
     else if (key === 'apW') { const y = m <= 10 ? j : j + 1; von = D(y, 9, 1); bis = D(y, 10, 15); }
     else { von = D(j, m, 1); bis = new Date(j, m + 3, 0, 12); }
-    if (bis < heute) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
+    // Der letzte Tag des Fensters zählt ganz (bis steht auf 12 Uhr – nachmittags
+    // galt das Fenster sonst schon als abgelaufen und sprang ein Jahr weiter)
+    const tagesbeginn = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate());
+    if (bis < tagesbeginn) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
     return { von, bis };
   },
   _kampFenster(key, heute) {
@@ -30098,43 +30197,91 @@ const KontrolleHandler = {
   // ── Ausgewählte Azubis einem anderen Termin zuweisen (bestehend oder neu) ──
   // Die Azubis kommen als Einzelzuordnung (kontrolltermin_schueler) in den
   // Zieltermin; in DIESEM Termin bleiben sie mit ihren Ergebnissen stehen.
-  _uebZielTermine() {
+  // Sprung von der Azubi-Seite in die Durchsicht eines Azubis: fehlt noch der
+  // Prüfer, bleibt das Ziel gemerkt und wird nach der Prüferwahl geöffnet
+  zielAzubiOeffnen() {
+    const z = this._zielAzubi;
+    if (!z || this._wartetAufPruefer) return false;
+    this._zielAzubi = null;
+    if (z.terminId !== this.currentTerminId) return false;
+    const i = (this.currentSchuelerList || []).findIndex(x => x.id === z.schuelerId);
+    if (i < 0) return false;
+    this.currentIndex = i; this._viewMode = 'einzeln';
+    this.enterSchüler();
+    return true;
+  },
+  _uebZielTermine() { return this._zielTermine(this.currentTerminId); },
+  // Geplante, nicht archivierte Termine als Ziel (ohne den Ausgangstermin) – kommende zuerst
+  _zielTermine(quelleId) {
     const heute = todayStr();
-    const alle = App.query("SELECT * FROM kontrolltermine WHERE id != ? AND status='geplant' AND COALESCE(archiviert_am,'')='' ORDER BY geplant_datum", [this.currentTerminId]);
+    const alle = App.query("SELECT * FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')='' ORDER BY geplant_datum").filter(t => quelleId == null || t.id !== quelleId);
     return [...alle.filter(t => t.geplant_datum >= heute), ...alle.filter(t => t.geplant_datum < heute).reverse()].slice(0, 80);
   },
   uebTerminZuweisenDialog() {
     const ids = this._uebAuswahlIds();
     if (!ids.length) return App.toast('Bitte zuerst Azubis in der Übersicht anhaken', 'info');
-    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [this.currentTerminId])[0];
-    if (!t) return App.toast('Termin nicht gefunden', 'error');
-    const azubis = this.currentSchuelerList.filter(s => this._uebAuswahl.has(s.id));
+    return this.terminZuweisenDialog({ ids, quelleId: this.currentTerminId, nach: 'uebersicht' });
+  },
+  // Ist der Azubi nur einzeln (nicht über seine Klasse) am Termin und noch ohne
+  // Ergebnis? Dann lässt er sich beim Zuweisen aus dem Ausgangstermin herausnehmen.
+  _herausnehmbar(terminId, sid) {
+    const s = App.query('SELECT klasse_id FROM schueler WHERE id=?', [sid])[0];
+    if (!s) return false;
+    let ausKlasse = false;
+    try { ausKlasse = !!s.klasse_id && App.getTerminKlassenIds(terminId).includes(s.klasse_id); } catch(e) {}
+    if (ausKlasse) return false;
+    const ke = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, sid])[0];
+    return !(ke && ke.ergebnis);
+  },
+  // Azubis einem Termin zuweisen – einem bestehenden geplanten oder einem neuen.
+  // o = { ids, quelleId?, nach? }: quelleId = Termin, aus dem heraus zugewiesen
+  // wird (Übersicht der Durchsicht, Durchsicht eines Azubis); ohne quelleId
+  // kommt der Aufruf aus den Stammdaten. nach = 'uebersicht' | 'einzeln' | 'azubi' | 'liste'
+  terminZuweisenDialog(o) {
+    const ids = [...new Set(((o && o.ids) || []).map(Number).filter(Boolean))];
+    if (!ids.length) return App.toast('Bitte zuerst Azubis auswählen', 'info');
+    const quelleId = o && o.quelleId != null ? Number(o.quelleId) : null;
+    const t = quelleId != null ? App.query('SELECT * FROM kontrolltermine WHERE id=?', [quelleId])[0] : null;
+    if (quelleId != null && !t) return App.toast('Termin nicht gefunden', 'error');
+    this._uz = { ids, quelleId, nach: (o && o.nach) || '' };
+    const azubis = ids.map(id => App.query('SELECT id, nachname, vorname, jahrgang_id, klasse_id FROM schueler WHERE id=?', [id])[0]).filter(Boolean);
+    const einer = azubis.length === 1 ? azubis[0] : null;
     const namen = azubis.slice(0, 8).map(s => esc(s.nachname) + ', ' + esc(s.vorname)).join(' · ') + (azubis.length > 8 ? ` · … und ${azubis.length - 8} weitere` : '');
-    const ziele = this._uebZielTermine();
-    const bs = App.getTerminSchule(t.id);
-    const ortFrei = String(t.ort || '').trim();
-    const ohneErg = ids.filter(sid => { const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0]; return ke && !ke.ergebnis && ke.anwesend !== 0; }).length;
-    const art = ziele.length ? 'bestehend' : 'neu';
-    App.openModal(`${ids.length} Azubi${ids.length === 1 ? '' : 's'} einem Termin zuweisen`, `
-      <p style="font-size:13px;margin-bottom:10px">${namen}</p>
+    const ziele = this._zielTermine(quelleId);
+    // Bei einem einzelnen Azubi zeigen, wo er schon dabei ist
+    const dabei = new Set();
+    if (einer) ziele.forEach(z => { try { if (App.getTerminSchueler(z.id).some(x => x.id === einer.id)) dabei.add(z.id); } catch(e) {} });
+    const frei = ziele.filter(z => !dabei.has(z.id));
+    const bs = t ? App.getTerminSchule(t.id) : null;
+    const ortFrei = t ? String(t.ort || '').trim() : '';
+    const ohneErg = t ? ids.filter(sid => { const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0]; return ke && !ke.ergebnis && ke.anwesend !== 0; }).length : 0;
+    const heraus = t ? ids.filter(sid => this._herausnehmbar(t.id, sid)).length : 0;
+    const art = frei.length ? 'bestehend' : 'neu';
+    const datumVor = t ? App.wvFrist('nachholung_abwesend') : todayStr();
+    const typVor = t ? (t.typ === 'einsendung' ? 'einsendung' : 'schulkontrolle') : 'einsendung';
+    const bemVor = t ? `Folgetermin zu ${formatDate(t.geplant_datum)}${bs ? ' – ' + bs.name : ''}`
+      : (azubis.length <= 3 ? 'Einzeltermin ' + azubis.map(s => `${s.nachname}, ${s.vorname}`).join('; ') : `Einzeltermin ${azubis.length} Azubis`);
+    App.openModal(einer ? `${einer.nachname}, ${einer.vorname} einem Termin zuweisen` : `${ids.length} Azubis einem Termin zuweisen`, `
+      ${einer ? '' : `<p style="font-size:13px;margin-bottom:10px">${namen}</p>`}
+      ${t ? `<p style="font-size:12px;color:var(--clr-text-light);margin-bottom:10px">Aus dem Termin: ${esc(App.formatTerminLabel(t))}</p>` : ''}
       <div class="seg" role="group" aria-label="Zieltermin" style="margin-bottom:10px">
-        <button type="button" class="seg-btn${art === 'bestehend' ? ' active' : ''}" id="uzArt_bestehend" aria-pressed="${art === 'bestehend'}" onclick="KontrolleHandler._uzArt('bestehend')" ${ziele.length ? '' : 'disabled title="Es gibt keinen anderen geplanten Termin"'}>Bestehender Termin</button>
+        <button type="button" class="seg-btn${art === 'bestehend' ? ' active' : ''}" id="uzArt_bestehend" aria-pressed="${art === 'bestehend'}" onclick="KontrolleHandler._uzArt('bestehend')" ${frei.length ? '' : `disabled title="${ziele.length ? 'Der Azubi ist in allen geplanten Terminen schon dabei' : 'Es gibt keinen anderen geplanten Termin'}"`}>Bestehender Termin</button>
         <button type="button" class="seg-btn${art === 'neu' ? ' active' : ''}" id="uzArt_neu" aria-pressed="${art === 'neu'}" onclick="KontrolleHandler._uzArt('neu')">Neuer Termin</button>
       </div>
       <input type="hidden" id="uzArt" value="${art}">
       <div id="uzBestehend" style="${art === 'bestehend' ? '' : 'display:none'}">
         <div class="form-group"><label for="uzZiel">Geplanter Termin</label>
-          <select class="form-control" id="uzZiel">${ziele.map(z => `<option value="${z.id}">${esc(App.formatTerminLabel(z))}</option>`).join('')}</select>
+          <select class="form-control" id="uzZiel">${ziele.map(z => `<option value="${z.id}"${dabei.has(z.id) ? ' disabled' : ''}${frei.length && frei[0].id === z.id ? ' selected' : ''}>${esc(App.formatTerminLabel(z))}${dabei.has(z.id) ? ' – schon dabei' : ''}</option>`).join('')}</select>
           <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Zur Wahl stehen die geplanten (noch nicht abgeschlossenen) Termine – kommende zuerst.</div>
         </div>
       </div>
       <div id="uzNeu" style="${art === 'neu' ? '' : 'display:none'}">
         <div class="form-row">
-          <div class="form-group"><label for="uzDatum">Datum</label><input type="date" class="form-control" id="uzDatum" value="${esc(App.wvFrist('nachholung_abwesend'))}"></div>
+          <div class="form-group"><label for="uzDatum">Datum</label><input type="date" class="form-control" id="uzDatum" value="${esc(datumVor)}"></div>
           <div class="form-group"><label for="uzTyp">Art</label>
             <select class="form-control" id="uzTyp">
-              <option value="schulkontrolle"${t.typ === 'einsendung' ? '' : ' selected'}>Schultermin</option>
-              <option value="einsendung"${t.typ === 'einsendung' ? ' selected' : ''}>Einsendung / Einzeltermin</option>
+              <option value="schulkontrolle"${typVor === 'einsendung' ? '' : ' selected'}>Schultermin</option>
+              <option value="einsendung"${typVor === 'einsendung' ? ' selected' : ''}>Einsendung / Einzeltermin</option>
             </select>
           </div>
         </div>
@@ -30147,15 +30294,18 @@ const KontrolleHandler = {
           <input class="form-control" id="uzOrtFrei" value="${esc(ortFrei)}" placeholder="z. B. RP Freiburg, Bertoldstraße 43" aria-label="Anderer Ort des Termins" style="margin-top:6px;${ortFrei ? '' : 'display:none'}">
         </div>
         <div class="form-row">
-          <div class="form-group"><label for="uzPruefer">Prüfer</label><input type="text" class="form-control" id="uzPruefer" value="${esc(t.pruefer || this.activePruefer || '')}"></div>
-          <div class="form-group"><label for="uzBem">Bemerkung</label><input type="text" class="form-control" id="uzBem" value="${esc(`Folgetermin zu ${formatDate(t.geplant_datum)}${bs ? ' – ' + bs.name : ''}`)}"></div>
+          <div class="form-group"><label for="uzPruefer">Prüfer</label><input type="text" class="form-control" id="uzPruefer" value="${esc((t && t.pruefer) || this.activePruefer || App.currentUser || '')}"></div>
+          <div class="form-group"><label for="uzBem">Bemerkung</label><input type="text" class="form-control" id="uzBem" value="${esc(bemVor)}"></div>
         </div>
       </div>
+      ${heraus ? `<label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin:4px 0 8px">
+        <input type="checkbox" id="uzHeraus" style="accent-color:var(--clr-forest);margin-top:2px"> <span>${heraus === 1 && einer ? 'Aus dem bisherigen Termin <strong>herausnehmen</strong> (verschieben)' : `<strong>${heraus}</strong> Azubi${heraus === 1 ? '' : 's'} aus dem bisherigen Termin <strong>herausnehmen</strong> (verschieben)`} – möglich, weil einzeln zugeordnet und noch ohne Ergebnis</span>
+      </label>` : ''}
       ${ohneErg ? `<label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin:4px 0 8px">
         <input type="checkbox" id="uzAbwesend" style="accent-color:var(--clr-forest);margin-top:2px"> <span>${ohneErg === 1 ? 'Den <strong>einen</strong> ausgewählten Azubi' : `Die <strong>${ohneErg}</strong> ausgewählten Azubis`} ohne Ergebnis in diesem Termin als abwesend markieren</span>
       </label>` : ''}
-      <p style="font-size:12px;color:var(--clr-text-light);margin:0">Die Azubis kommen zusätzlich in den gewählten Termin. In diesem Termin bleiben sie stehen, ihre Ergebnisse hier ändern sich nicht.</p>
-    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-primary" onclick="KontrolleHandler.uebTerminZuweisen()">Zuweisen</button>');
+      <p style="font-size:12px;color:var(--clr-text-light);margin:0">${t ? 'Die Azubis kommen zusätzlich in den gewählten Termin. In diesem Termin bleiben sie stehen, ihre Ergebnisse hier ändern sich nicht.' : (einer ? 'Der Azubi kommt als Einzelzuordnung in den gewählten Termin – unabhängig von seiner Klasse.' : 'Die Azubis kommen als Einzelzuordnung in den gewählten Termin – unabhängig von ihrer Klasse.')}</p>
+    `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button> <button class="btn btn-primary" onclick="KontrolleHandler.terminZuweisen()">Zuweisen</button>');
   },
   _uzArt(art) {
     const feld = document.getElementById('uzArt'); if (feld) feld.value = art;
@@ -30175,27 +30325,35 @@ const KontrolleHandler = {
     });
     return { neu, schon };
   },
-  // params (optional, für Tests): { art, zielId, datum, typ, ortId, ortFrei, pruefer, bemerkung, abwesend }
+  // Aus der Übersicht: die angehakten Azubis des geladenen Termins.
+  // params (optional, für Tests): { art, zielId, datum, typ, ortId, ortFrei, pruefer, bemerkung, abwesend, heraus }
   uebTerminZuweisen(params) {
-    const quelle = this.currentTerminId;
     const ids = this._uebAuswahlIds();
     if (!ids.length) return null;
-    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [quelle])[0];
-    if (!t) { App.toast('Termin nicht gefunden', 'error'); return null; }
+    return this.terminZuweisen(params, { ids, quelleId: this.currentTerminId, nach: 'uebersicht' });
+  },
+  // Führt die Zuweisung aus dem Dialog aus. kontext (optional, sonst der des Dialogs): { ids, quelleId, nach }
+  terminZuweisen(params, kontext) {
+    const k = kontext || this._uz;
+    if (!k || !(k.ids || []).length) return null;
+    const ids = [...new Set(k.ids.map(Number).filter(Boolean))];
+    const quelle = k.quelleId != null ? Number(k.quelleId) : null;
+    const t = quelle != null ? App.query('SELECT * FROM kontrolltermine WHERE id=?', [quelle])[0] : null;
+    if (quelle != null && !t) { App.toast('Termin nicht gefunden', 'error'); return null; }
     const wert = (id) => { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
     const p = params || (() => {
       const ort = wert('uzOrt');
       return { art: wert('uzArt') || 'bestehend', zielId: parseInt(wert('uzZiel')) || 0, datum: wert('uzDatum'), typ: wert('uzTyp'),
         ortId: ort && ort !== 'frei' ? parseInt(ort) : null, ortFrei: ort === 'frei' ? wert('uzOrtFrei') : '',
-        pruefer: wert('uzPruefer'), bemerkung: wert('uzBem'), abwesend: !!document.getElementById('uzAbwesend')?.checked };
+        pruefer: wert('uzPruefer'), bemerkung: wert('uzBem'), abwesend: !!document.getElementById('uzAbwesend')?.checked, heraus: !!document.getElementById('uzHeraus')?.checked };
     })();
     let zielId = 0, angelegt = false;
     if (p.art === 'neu') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(p.datum || '')) { App.toast('Bitte ein Datum für den neuen Termin angeben', 'warning'); return null; }
       const typ = p.typ === 'einsendung' ? 'einsendung' : 'schulkontrolle';
       // Jahrgang: der gemeinsame der Auswahl, sonst der des Ausgangstermins
-      const jgs = [...new Set(this.currentSchuelerList.filter(s => this._uebAuswahl.has(s.id)).map(s => s.jahrgang_id).filter(Boolean))];
-      const jg = jgs.length === 1 ? jgs[0] : (t.jahrgang_id || null);
+      const jgs = [...new Set(ids.map(id => (App.query('SELECT jahrgang_id FROM schueler WHERE id=?', [id])[0] || {}).jahrgang_id).filter(Boolean))];
+      const jg = jgs.length === 1 ? jgs[0] : ((t && t.jahrgang_id) || null);
       App.run('INSERT INTO kontrolltermine (klasse_id, jahrgang_id, berufsschule_id, ort, geplant_datum, pruefer, bemerkung, typ, status) VALUES (?,?,?,?,?,?,?,?,?)',
         [null, jg, p.ortFrei ? null : (p.ortId || null), p.ortFrei || '', p.datum, p.pruefer || '', p.bemerkung || '', typ, 'geplant']);
       zielId = App.scalar('SELECT id FROM kontrolltermine WHERE rowid=last_insert_rowid()');
@@ -30208,23 +30366,34 @@ const KontrolleHandler = {
       if (z.status !== 'geplant') { App.toast('Der gewählte Termin ist nicht mehr geplant (abgeschlossen oder abgesagt)', 'warning'); return null; }
     }
     const r = this._azubisZuTermin(ids, zielId);
-    let abwesend = 0;
-    if (p.abwesend) ids.forEach(sid => {
+    let abwesend = 0, heraus = 0;
+    if (t) ids.forEach(sid => {
+      // Verschieben: nur einzeln zugeordnete Azubis ohne Ergebnis verlassen den Ausgangstermin
+      if (p.heraus && this._herausnehmbar(quelle, sid)) { App.deleteKontrollergebnisKaskade(quelle, sid); heraus++; return; }
+      if (!p.abwesend) return;
       const ke = App.query('SELECT ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [quelle, sid])[0];
       if (!ke || ke.ergebnis || ke.anwesend === 0) return;
-      App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`, [0, this.activePruefer || '', quelle, sid]);
+      App.run(`UPDATE kontrollergebnisse SET anwesend=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?`, [0, this.activePruefer || App.currentUser || '', quelle, sid]);
       abwesend++;
     });
     App.invalidateTerminCache();
-    this._uebAuswahl.clear();
+    if (k.nach === 'uebersicht') this._uebAuswahl.clear();
     const ziel = App.query('SELECT * FROM kontrolltermine WHERE id=?', [zielId])[0];
-    const text = `${r.neu} Azubi${r.neu === 1 ? '' : 's'} ${angelegt ? 'dem neuen Termin' : 'dem Termin'} am ${formatDate(ziel.geplant_datum)} zugewiesen${r.schon ? ` · ${r.schon} ${r.schon === 1 ? 'war' : 'waren'} dort schon zugeordnet` : ''}${abwesend ? ` · ${abwesend} hier als abwesend markiert` : ''}`;
+    const text = `${r.neu} Azubi${r.neu === 1 ? '' : 's'} ${angelegt ? 'dem neuen Termin' : 'dem Termin'} am ${formatDate(ziel.geplant_datum)} zugewiesen${r.schon ? ` · ${r.schon} ${r.schon === 1 ? 'war' : 'waren'} dort schon zugeordnet` : ''}${heraus ? ` · ${heraus} aus dem bisherigen Termin herausgenommen` : ''}${abwesend ? ` · ${abwesend} hier als abwesend markiert` : ''}`;
     if (!params) {
-      this.renderUebersicht();
-      App.openModal(angelegt ? 'Neuer Termin angelegt' : 'Azubis zugewiesen', `<p style="font-size:13px">${esc(text)}.</p><p style="font-size:13px;color:var(--clr-text-light)">${esc(App.formatTerminLabel(ziel))}</p>`,
-        `<button class="btn btn-secondary" onclick="App.closeModal()">Hier bleiben</button> ${typeof TerminSeite !== 'undefined' ? `<button class="btn btn-primary" onclick="App.closeModal();TerminSeite.oeffnen(${zielId})">Termin öffnen</button>` : ''}`);
+      // Ansicht darunter auffrischen: wurde jemand herausgenommen, die Liste des geladenen Termins neu holen
+      try {
+        if (k.nach === 'uebersicht' || k.nach === 'einzeln') {
+          if (heraus && this.currentTerminId === quelle) { this._viewMode = 'uebersicht'; this.loadTermin(quelle); }
+          else if (k.nach === 'uebersicht') this.renderUebersicht();
+        } else if (k.nach === 'azubi' && typeof AzubiSeite !== 'undefined' && AzubiSeite.istOffen()) AzubiSeite.render();
+      } catch(e) { console.warn('[Termin zuweisen] Auffrischen:', e); }
+      const einer = ids.length === 1 ? ids[0] : null;
+      App.openModal(angelegt ? 'Neuer Termin angelegt' : (ids.length === 1 ? 'Azubi zugewiesen' : 'Azubis zugewiesen'), `<p style="font-size:13px">${esc(text)}.</p><p style="font-size:13px;color:var(--clr-text-light)">${esc(App.formatTerminLabel(ziel))}</p>`,
+        `<button class="btn btn-secondary" onclick="App.closeModal()">Hier bleiben</button> ${typeof TerminSeite !== 'undefined' ? `<button class="btn ${einer ? 'btn-secondary' : 'btn-primary'}" onclick="App.closeModal();TerminSeite.oeffnen(${zielId})">Termin öffnen</button>` : ''}`
+        + (einer && typeof AzubiSeite !== 'undefined' ? ` <button class="btn btn-primary" onclick="App.closeModal();AzubiSeite.kontrolleOeffnen(${zielId}, ${einer})" title="Die Durchsicht dieses Azubis im neuen Termin öffnen">▸ Durchsicht öffnen</button>` : ''));
     }
-    return { zielId, angelegt, neu: r.neu, schon: r.schon, abwesend, text };
+    return { zielId, angelegt, neu: r.neu, schon: r.schon, abwesend, heraus, text };
   },
   async uebOkAuswahl() {
     if (!this._pruefeAbgeschlossen(() => this.uebOkAuswahl())) return;
@@ -31010,6 +31179,7 @@ const KontrolleHandler = {
         <button class="btn btn-primary" onclick="KontrolleHandler.doAddNewSchueler()">Neuen Azubi anlegen + hinzufügen</button>`);
   },
 
+  ADD_TREFFER_MAX: 50,
   _liveSearchSchueler(query) {
     const q = query.trim();
     const container = document.getElementById('addSchuelerResults');
@@ -31025,20 +31195,24 @@ const KontrolleHandler = {
 
     // Live DB search across ALL active students
     const existingIds = this.currentSchuelerList.map(s => s.id);
-    const p = `%${q}%`;
-    const results = App.query(`SELECT s.*, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang
+    // Tolerant gegen Groß/Klein, Umlaute und ß („weiss“ findet „Weiß“, „ärmel“
+    // findet „Ärmel“); Nachname zuerst. Erst filtern, dann kürzen – die frühere
+    // Grenze (50 Zeilen nach Namen sortiert) schnitt Namen mit W ab.
+    const alleAzubis = App.query(`SELECT s.*, k.klassenbezeichnung, bs.name as schule, j.bezeichnung as jahrgang
       FROM schueler s
       LEFT JOIN klassen k ON s.klasse_id=k.id
       LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id
       LEFT JOIN abschlussjahrgaenge j ON s.jahrgang_id=j.id
-      WHERE s.aktiv=1 AND (s.nachname LIKE ? OR s.vorname LIKE ? OR s.ausbildungsstaette LIKE ?
-        OR k.klassenbezeichnung LIKE ? OR bs.name LIKE ? OR j.bezeichnung LIKE ? OR s.ibykus_id LIKE ?)
-      ORDER BY s.nachname, s.vorname LIMIT 50`, [p,p,p,p,p,p,p]);
-
-    const available = results.filter(s => !existingIds.includes(s.id));
+      ORDER BY s.nachname, s.vorname`);
+    const felder = s => [s.ausbildungsstaette, s.klassenbezeichnung, s.schule, s.jahrgang, s.ibykus_id];
+    const results = App.azubiSuche(alleAzubis.filter(s => s.aktiv), q, felder);
+    const gesamt = results.filter(s => !existingIds.includes(s.id));
+    const available = gesamt.slice(0, this.ADD_TREFFER_MAX);
 
     if (!available.length) {
-      container.innerHTML = `<p style="padding:16px;color:var(--clr-text-light);text-align:center">Keine Treffer für "${esc(q)}"${results.length > available.length ? ` (${results.length - available.length} bereits in Kontrolle)` : ''}</p>`;
+      const drin = results.length - gesamt.length;
+      const inaktiv = App.azubiSuche(alleAzubis.filter(s => !s.aktiv), q, felder).length;
+      container.innerHTML = `<p style="padding:16px;color:var(--clr-text-light);text-align:center">Keine Treffer für "${esc(q)}"${drin ? ` – ${drin} bereits in dieser Durchsicht` : ''}${inaktiv ? ` – ${inaktiv} inaktive${inaktiv === 1 ? 'r' : ''} Azubi mit diesem Namen (in den Stammdaten wieder aktiv setzen)` : ''}</p>`;
     } else {
       container.innerHTML = available.map(s => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--clr-sand);cursor:pointer;font-size:13px"
@@ -31051,7 +31225,7 @@ const KontrolleHandler = {
         </div>
       `).join('');
     }
-    if (countEl) countEl.textContent = `${available.length} Treffer${available.length >= 50 ? ' (max. 50 – Suche verfeinern)' : ''}`;
+    if (countEl) countEl.textContent = `${gesamt.length} Treffer${gesamt.length > available.length ? ` (${available.length} angezeigt – Suche verfeinern)` : ''}`;
   },
 
   // Add existing student from another class to this kontrolle
@@ -31783,6 +31957,7 @@ const KontrolleHandler = {
             { label: 'Freigeben ohne Wechsel', onclick: 'KontrolleHandler.saveAndReleaseExplicit()', title: 'Änderungen sofort auf das Netzlaufwerk schreiben und den Azubi für Kollegen freigeben, ohne weiterzublättern' },
             { label: '⇈ Stand dieses Rechners für alle übernehmen', onclick: `Konsole.ausschreibenDialog(${this.currentTerminId},${s.id})`, title: 'Zeigt ein Kollege für diesen Azubi einen anderen Stand: den Stand DIESES Rechners (Ergebnis, alle Wochen, Mängel, Wiedervorlagen) als neueste Änderung ins Protokoll schreiben – alle übernehmen ihn' },
             { trenner: true },
+            { label: '→ Einem anderen Termin zuweisen …', onclick: `KontrolleHandler.terminZuweisenDialog({ ids: [${s.id}], quelleId: ${this.currentTerminId}, nach: 'einzeln' })`, title: 'Diesen Azubi zusätzlich einem anderen geplanten oder einem neuen Termin zuweisen (z. B. Nachholtermin) – einzeln zugeordnete Azubis ohne Ergebnis lassen sich dabei verschieben' },
             { label: '☎ Beratungsgespräch Betrieb vormerken (§ 76)', onclick: `WiedervorlagenHandler.beratungAnlegen(${s.id})`, title: 'Beratungsgespräch mit dem Ausbildungsbetrieb als Wiedervorlage vormerken (§ 76 Abs. 1 BBiG) – die Stufe vor dem Prüfungsausschuss' },
           ], 'Auto-Weiter, PDFs, Freigabe und Beratung', 'oben')}
         </div>
@@ -39946,6 +40121,10 @@ const AzubiSeite = {
             <h1>${esc(s.nachname)}, ${esc(s.vorname)}</h1>
             <span class="badge-status ${statusKlasse}">${esc(status)}</span>
             ${s.ibykus_id ? `<span class="az-ident" title="IBYKUS-Ident">${esc(s.ibykus_id)}</span>` : ''}
+            ${App.menue('Termin', [
+              { label: '▸ Einzeltermin jetzt starten', onclick: `AzubiSeite.einzelterminStarten(${s.id})`, title: 'Legt einen Einzeltermin für heute nur mit diesem Azubi an und öffnet gleich die Durchsicht' },
+              { label: '→ Einem Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id})`, title: 'Diesen Azubi einem bestehenden geplanten Termin hinzufügen oder einen neuen Termin für ihn planen' },
+            ], 'Termin für diesen Azubi: Einzeltermin starten oder einem Termin zuweisen', 'az-termin')}
             <button class="btn btn-sm ${this._bearbeiten ? 'btn-primary' : 'btn-secondary'} az-bearbeiten" onclick="AzubiSeite.bearbeiten()" aria-pressed="${this._bearbeiten ? 'true' : 'false'}" title="Stammdaten und Ausbildungsverlauf bearbeiten">${this._bearbeiten ? '✓ Bearbeiten beenden' : '✎ Bearbeiten'}</button>
           </div>
           ${meta.length ? `<div class="az-meta">${meta.map(esc).join(' <span class="az-punkt">·</span> ')}</div>` : ''}
@@ -40109,9 +40288,34 @@ const AzubiSeite = {
     // Verwaiste Archiv-Bögen (Ergebnis oder Termin inzwischen gelöscht) sichtbar machen,
     // sonst „verschwindet“ eine gelöschte Durchsicht nie ganz
     const waisen = App.scalar('SELECT COUNT(*) FROM durchsicht_snapshots ds WHERE ds.schueler_id=? AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id WHERE ke.id=ds.kontrollergebnis_id)', [s.id]) || 0;
+    // Geplante Termine, in denen der Azubi steht, die aber noch nicht geöffnet wurden
+    // (noch kein Bogen): einzeln zugeordnet oder über seine Klasse
+    const geplant = App.query(`SELECT kt.id AS kontrolltermin_id, kt.geplant_datum, kt.bemerkung AS kt_bemerkung, kt.typ, bs.name AS schule, 'einzeln' AS weg
+        FROM kontrolltermin_schueler kts JOIN kontrolltermine kt ON kts.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
+        WHERE kts.schueler_id=? AND kt.status='geplant'
+          AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.schueler_id=kts.schueler_id)
+      UNION
+      SELECT kt.id, kt.geplant_datum, kt.bemerkung, kt.typ, bs.name, 'klasse'
+        FROM kontrolltermin_klassen ktk JOIN kontrolltermine kt ON ktk.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
+        WHERE ktk.klasse_id=? AND ?=1 AND kt.status='geplant' AND COALESCE(kt.archiviert_am,'')=''
+          AND NOT EXISTS (SELECT 1 FROM kontrollergebnisse ke WHERE ke.kontrolltermin_id=kt.id AND ke.schueler_id=?)
+          AND NOT EXISTS (SELECT 1 FROM kontrolltermin_schueler k2 WHERE k2.kontrolltermin_id=kt.id AND k2.schueler_id=?)
+      ORDER BY 2 DESC`, [s.id, s.klasse_id || -1, s.aktiv ? 1 : 0, s.id, s.id]);
+    const geplantZeilen = geplant.map(r => {
+      const ort = (() => { try { const o = App.getTerminSchule(r.kontrolltermin_id); return o ? o.name : ''; } catch(e) { return r.schule || ''; } })();
+      const menue = App.menue('⋯', [
+        { label: '▦ Termin-Seite', onclick: `TerminSeite.oeffnen(${r.kontrolltermin_id})` },
+        { label: '→ Einem anderen Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id}, ${r.kontrolltermin_id})`, title: r.weg === 'einzeln' ? 'In einen anderen Termin legen – auf Wunsch aus diesem herausnehmen (verschieben)' : 'Zusätzlich einem anderen Termin zuweisen' },
+        r.weg === 'einzeln' ? { trenner: true } : null,
+        r.weg === 'einzeln' ? { label: '✕ Aus diesem Termin nehmen', onclick: `AzubiSeite.ausTerminNehmen(${r.kontrolltermin_id}, ${s.id})`, title: 'Einzelzuordnung zu diesem Termin aufheben' } : null,
+      ].filter(Boolean), 'Weitere Aktionen zu diesem Termin', 'klein');
+      return `<tr class="az-geplant"><td>${esc(formatDate(r.geplant_datum))}</td><td>${esc([ort, r.kt_bemerkung].filter(Boolean).join(' · ') || ('Termin #' + r.kontrolltermin_id))}</td><td><span class="badge-status badge-planned">geplant</span></td><td><span class="az-leer">${r.weg === 'einzeln' ? 'einzeln zugeordnet' : 'über die Klasse'}</span></td><td><span class="az-leer">–</span></td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="AzubiSeite.kontrolleOeffnen(${r.kontrolltermin_id}, ${s.id})" title="Durchsicht dieses Termins bei diesem Azubi öffnen">Öffnen</button> ${menue}</td></tr>`;
+    }).join('');
     const waisenHinweis = waisen ? `<p class="az-leer az-waisen">${waisen} archivierte${waisen === 1 ? 'r' : ''} Bogen ohne zugehörige Durchsicht (Termin oder Ergebnis wurde gelöscht) – <a href="#" onclick="StammdatenTab.showAzubiSnapshots(${s.id});return false">Archiv-Bögen ansehen und löschen</a></p>` : '';
-    if (!rows.length) { el.innerHTML = '<p class="az-leer">Noch keine Kontrolle zu diesem Azubi.</p>' + waisenHinweis; return; }
+    if (!rows.length && !geplant.length) { el.innerHTML = `<p class="az-leer">Noch keine Kontrolle zu diesem Azubi. <a href="#" onclick="AzubiSeite.einzelterminStarten(${s.id});return false">Einzeltermin jetzt starten</a> oder <a href="#" onclick="AzubiSeite.terminZuweisen(${s.id});return false">einem Termin zuweisen</a>.</p>` + waisenHinweis; return; }
     el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th title="Archivierte Durchsichtsbögen (unveränderliche Momentaufnahmen vom Abschluss des Termins)">Archiv</th><th></th></tr></thead><tbody>
+      ${geplantZeilen}
       ${rows.map(r => {
         const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
         const vermerke = [r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
@@ -40119,6 +40323,7 @@ const AzubiSeite = {
         const menue = App.menue('⋯', [
           { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${r.kontrolltermin_id},${s.id})`, title: 'Bogen mit dem aktuellen Stand' },
           r.snaps ? { label: `▤ Archiv-Bögen ansehen (${r.snaps})`, onclick: `StammdatenTab.showAzubiSnapshots(${s.id})` } : null,
+          { label: '→ Einem anderen Termin zuweisen …', onclick: `AzubiSeite.terminZuweisen(${s.id}, ${r.kontrolltermin_id})`, title: 'Diesen Azubi einem anderen geplanten oder einem neuen Termin zuweisen (z. B. Nachholtermin)' },
           { trenner: true },
           { label: '✕ Durchsicht löschen', onclick: `AzubiSeite.kontrolleLoeschen(${r.kontrolltermin_id}, ${s.id})`, title: 'Ergebnis, Wiedervorlagen, Mängel und Archiv-Bögen dieser Durchsicht entfernen' },
         ].filter(Boolean), 'Weitere Aktionen zu dieser Durchsicht', 'klein');
@@ -40169,16 +40374,44 @@ const AzubiSeite = {
     </tbody></table>`;
   },
   // Durchsicht eines Termins mit diesem Azubi öffnen (wie der Absprung aus der Azubi-Liste)
+  // ── Termine von der Azubi-Seite aus ──
+  // Einem bestehenden geplanten oder einem neuen Termin zuweisen; mit quelleId
+  // aus einer bestehenden Durchsicht heraus (dann auch „verschieben“)
+  terminZuweisen(schuelerId, quelleId) {
+    const o = { ids: [schuelerId], nach: 'azubi' };
+    if (quelleId != null) o.quelleId = quelleId;
+    return KontrolleHandler.terminZuweisenDialog(o);
+  },
+  // Einzeltermin für heute anlegen und die Durchsicht gleich bei diesem Azubi öffnen
+  einzelterminStarten(schuelerId) {
+    const s = App.query('SELECT id, nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0];
+    if (!s) return null;
+    const terminId = StammdatenTab.einzelterminAnlegen([schuelerId]);
+    if (!terminId) return null;
+    App.toast(`Einzeltermin für ${s.nachname}, ${s.vorname} angelegt`, 'success');
+    this.kontrolleOeffnen(terminId, schuelerId);
+    return terminId;
+  },
+  // Einzelzuordnung zu einem geplanten Termin aufheben (noch kein Ergebnis)
+  async ausTerminNehmen(terminId, schuelerId) {
+    const s = App.query('SELECT nachname, vorname FROM schueler WHERE id=?', [schuelerId])[0];
+    const t = App.query('SELECT * FROM kontrolltermine WHERE id=?', [terminId])[0];
+    if (!s || !t) return;
+    if (App.scalar("SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=? AND ergebnis != ''", [terminId, schuelerId])) return this.kontrolleLoeschen(terminId, schuelerId);
+    if (!(await App.confirm(`${s.nachname}, ${s.vorname} aus dem Termin am ${formatDate(t.geplant_datum)} nehmen?\n\nDer Termin selbst bleibt bestehen.`, { titel: 'Aus dem Termin nehmen', ok: 'Herausnehmen' }))) return;
+    App.deleteKontrollergebnisKaskade(terminId, schuelerId);
+    App.toast('Aus dem Termin genommen', 'success');
+    if (this.istOffen(schuelerId)) this.render();
+  },
   kontrolleOeffnen(terminId, schuelerId) {
     App.navigate('kontrolle');
     setTimeout(() => {
       const sel = document.getElementById('selKontrolltermin');
       if (sel) sel.value = terminId;
+      // Ziel merken: ohne gewählten Prüfer wartet die Durchsicht und öffnet den Azubi danach
+      KontrolleHandler._zielAzubi = { terminId: Number(terminId), schuelerId: Number(schuelerId) };
       KontrolleHandler.loadTermin(terminId);
-      setTimeout(() => {
-        const i = (KontrolleHandler.currentSchuelerList || []).findIndex(x => x.id === schuelerId);
-        if (i >= 0) { KontrolleHandler.currentIndex = i; KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.enterSchüler(); }
-      }, 200);
+      setTimeout(() => { KontrolleHandler.zielAzubiOeffnen(); }, 200);
     }, 100);
   },
 };
