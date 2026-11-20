@@ -184,6 +184,7 @@ const KontrolleHandler = {
     return [
       { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${tid})` },
       { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${tid})` },
+      abg ? null : { label: '✉︎ Azubis anschreiben (BCC)', onclick: `Workflows.emailAzubisBCC(${tid})`, title: 'Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC' },
       fremde ? { label: `§ Fremde Ämter (${fremde})`, onclick: `PlanungHandler.fremdeAemter(${tid})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt weitergeben' } : null,
       { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${tid})` },
       { label: '⎙ Übersichtstabelle drucken', onclick: `KontrolleHandler.printUebersicht(${tid})` },
