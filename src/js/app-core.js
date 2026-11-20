@@ -545,7 +545,7 @@ const App = {
       if (KontrolleHandler.currentTerminId) {
         KontrolleHandler.setActivePruefer(name);
         if (this.currentView === 'kontrolle') {
-          if (KontrolleHandler._wartetAufPruefer) KontrolleHandler.loadTermin(KontrolleHandler.currentTerminId);
+          if (KontrolleHandler._wartetAufPruefer) { KontrolleHandler.loadTermin(KontrolleHandler.currentTerminId); try { KontrolleHandler.zielAzubiOeffnen(); } catch(e) {} }
           else KontrolleHandler.renderSchueler();
         }
       }
@@ -8269,6 +8269,68 @@ const App = {
     a.click();
     setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch(e) {} }, 10000);
   },
+  // ── Namenssuche: tolerant gegen Groß/Klein, Umlaute und ß ──
+  // SQLite vergleicht bei LIKE nur ASCII ohne Groß/Klein: „ärmel“ fand „Ärmel“
+  // nicht, „weiss“ nicht „Weiß“ (Feldfall: Azubi Weiß ließ sich keinem Termin
+  // hinzufügen). Zwei Normalformen wie in der globalen Suche: ä→ae und ä→a.
+  suchNorm(s) {
+    return String(s ?? '').normalize('NFC').toLowerCase()
+      .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s ]+/g, ' ').trim();
+  },
+  suchNorm2(s) {
+    return String(s ?? '').normalize('NFC').toLowerCase().replace(/ß/g, 'ss')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s ]+/g, ' ').trim();
+  },
+  // Heuhaufen aus mehreren Feldern (beide Normalformen)
+  suchText(...teile) {
+    const t = teile.filter(x => x != null && x !== '').join(' ');
+    return this.suchNorm(t) + ' \u0001 ' + this.suchNorm2(t);
+  },
+  suchWoerter(q) {
+    return String(q ?? '').split(/[,;\s ]+/).map(t => t.trim()).filter(Boolean).map(t => [this.suchNorm(t), this.suchNorm2(t)]);
+  },
+  // Jedes Wort der Eingabe muss vorkommen (Reihenfolge egal)
+  suchPasst(heu, woerter) {
+    return woerter.every(([a, b]) => heu.includes(a) || heu.includes(b));
+  },
+  // Azubis nach einer Eingabe filtern und ordnen: Nachname beginnt mit dem
+  // ersten Wort → Nachname enthält es → Vorname → übrige Felder (Betrieb, Klasse …).
+  // felder(s) liefert die weiteren Suchfelder. Kein Abschneiden vor dem Filtern.
+  azubiSuche(liste, q, felder) {
+    const w = this.suchWoerter(q);
+    if (!w.length) return [];
+    const rang = (s) => {
+      const nn = this.suchText(s.nachname), vn = this.suchText(s.vorname);
+      const [a, b] = w[0];
+      if (nn.startsWith(a) || this.suchNorm2(s.nachname).startsWith(b)) return 0;
+      if (nn.includes(a) || nn.includes(b)) return 1;
+      if (vn.includes(a) || vn.includes(b)) return 2;
+      return 3;
+    };
+    return (liste || []).filter(s => this.suchPasst(this.suchText(s.nachname, s.vorname, ...(felder ? felder(s) : [])), w))
+      .map((s, i) => ({ s, r: rang(s), i })).sort((x, y) => x.r - y.r || x.i - y.i).map(x => x.s);
+  },
+  // Schreibweisen eines Suchworts für SQL-LIKE (das nur ASCII ohne Groß/Klein
+  // vergleicht): Groß/Klein der Umlaute, ß ↔ ss, ä ↔ ae …
+  suchVarianten(token) {
+    const t = String(token ?? '').normalize('NFC');
+    if (!t) return [];
+    const basis = new Set([t]);
+    const dazu = (x) => { if (x) basis.add(x); };
+    const tausch = [[/ß/g, 'ss'], [/ss/gi, 'ß'], [/ä/gi, 'ae'], [/ö/gi, 'oe'], [/ü/gi, 'ue'], [/ae/gi, 'ä'], [/oe/gi, 'ö'], [/ue/gi, 'ü']];
+    tausch.forEach(([re, neu]) => { if (re.test(t)) dazu(t.replace(re, neu)); });
+    const alle = new Set();
+    basis.forEach(x => {
+      // ẞ (großes ß) nie erzeugen: toUpperCase macht aus ß „SS“, das deckt die ss-Schreibweise ab
+      [x, x.toLowerCase(), x.toUpperCase(), x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()].forEach(v => alle.add(v));
+    });
+    // LIKE ist für ASCII ohnehin unabhängig von Groß/Klein: gleiche Schreibweisen zusammenfassen
+    const gesehen = new Set(), out = [];
+    alle.forEach(v => { const k = v.replace(/[A-Z]/g, c => c.toLowerCase()); if (!gesehen.has(k)) { gesehen.add(k); out.push(v); } });
+    return out.slice(0, 8);
+  },
+
   // Einheitlicher Dateiname: Umlaute transliteriert, Sonderzeichen → _,
   // Teile mit _ verbunden (z.B. safeFilename(['Uebergabe','Amt 94','BS Freiburg','2026-09-15'],'xlsx'))
   safeFilename(teile, ext) {

@@ -729,19 +729,26 @@ const PlanungHandler = {
   _einsendSchuelerIds: [],
   _einsendSchuelerData: [],
 
+  EINSEND_TREFFER_MAX: 20,
   _searchEinsendSchueler(q) {
     const results = document.getElementById('mKtEinsendResults');
     if (!results) return;
     if (!q || q.length < 2) { results.style.display = 'none'; return; }
-    const ql = q.toLowerCase();
-    const matches = this._einsendSchuelerData.filter(s =>
-      !this._einsendSchuelerIds.includes(s.id) &&
-      ((s.nachname||'').toLowerCase().includes(ql) || (s.vorname||'').toLowerCase().includes(ql) || (s.betrieb_display||'').toLowerCase().includes(ql))
-    ).slice(0, 10);
-    if (!matches.length) { results.innerHTML = '<div style="padding:6px;font-size:12px;color:var(--clr-text-light)">Keine Treffer</div>'; results.style.display = ''; return; }
+    // Tolerant gegen Groß/Klein, Umlaute und ß („weiss“ findet „Weiß“); Nachname zuerst.
+    // Erst filtern, dann kürzen – sonst fielen Namen am Ende des Alphabets heraus.
+    const alle = App.azubiSuche(this._einsendSchuelerData, q, s => [s.betrieb_display, s.ausbildungsstaette, s.ibykus_id]);
+    const schon = alle.filter(s => this._einsendSchuelerIds.includes(s.id)).length;
+    const treffer = alle.filter(s => !this._einsendSchuelerIds.includes(s.id));
+    const matches = treffer.slice(0, this.EINSEND_TREFFER_MAX);
+    if (!matches.length) {
+      // Erklären statt nur „Keine Treffer“: schon gewählt oder inaktiv?
+      const inaktiv = schon ? 0 : App.azubiSuche(App.query('SELECT id, nachname, vorname, ausbildungsstaette, ibykus_id FROM schueler WHERE aktiv=0'), q, s => [s.ausbildungsstaette, s.ibykus_id]).length;
+      results.innerHTML = `<div style="padding:6px;font-size:12px;color:var(--clr-text-light)">Keine Treffer${schon ? ` – ${schon} ${schon === 1 ? 'ist' : 'sind'} schon ausgewählt` : ''}${inaktiv ? ` – ${inaktiv} inaktive${inaktiv === 1 ? 'r' : ''} Azubi mit diesem Namen (in den Stammdaten wieder aktiv setzen)` : ''}</div>`;
+      results.style.display = ''; return;
+    }
     results.innerHTML = matches.map(s => `<div style="padding:4px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--clr-sand)" onmouseenter="this.style.background='var(--clr-warm)'" onmouseleave="this.style.background=''" onclick="PlanungHandler._addEinsendSchueler(${s.id})">
       <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)} <span style="color:var(--clr-text-light)">· ${esc(s.betrieb_display||'–')}</span>
-    </div>`).join('');
+    </div>`).join('') + (treffer.length > matches.length ? `<div style="padding:4px 8px;font-size:12px;color:var(--clr-text-light)">… ${treffer.length - matches.length} weitere Treffer – bitte genauer eingeben</div>` : '');
     results.style.display = '';
   },
 
@@ -1240,7 +1247,10 @@ const PlanungHandler = {
     else if (key === 'apS') { const y = m <= 6 ? j : j + 1; von = D(y, 2, 1); bis = D(y, 3, 30); }
     else if (key === 'apW') { const y = m <= 10 ? j : j + 1; von = D(y, 9, 1); bis = D(y, 10, 15); }
     else { von = D(j, m, 1); bis = new Date(j, m + 3, 0, 12); }
-    if (bis < heute) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
+    // Der letzte Tag des Fensters zählt ganz (bis steht auf 12 Uhr – nachmittags
+    // galt das Fenster sonst schon als abgelaufen und sprang ein Jahr weiter)
+    const tagesbeginn = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate());
+    if (bis < tagesbeginn) { von.setFullYear(von.getFullYear() + 1); bis.setFullYear(bis.getFullYear() + 1); }
     return { von, bis };
   },
   _kampFenster(key, heute) {

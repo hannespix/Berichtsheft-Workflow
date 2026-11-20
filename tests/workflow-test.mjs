@@ -234,7 +234,7 @@ console.log('\n══ Audit 7 Paket E: Nachbereitung und Bedienung ══');
   check((APP_SRC.match(/_modalBackPending/g) || []).length >= 5, 'Dialogwechsel: ausstehender Zurück-Schritt wird gemerkt und vom popstate konsumiert');
   check(APP_SRC.indexOf('// ── Restore current user ──') < APP_SRC.indexOf('// ── Restore last position after reload ──'), 'Benutzer wird VOR der letzten Ansicht wiederhergestellt');
   check(/async disconnectDB\(\) \{[\s\S]*?await this\.doAutoSave\(\);/.test(APP_SRC) && /App\.disconnectDB\(\)\.then\(\(\)=>App\.start\(\)\)/.test(APP_SRC), '„Verbindung trennen" wartet auf den Auto-Save');
-  check(/_wartetAufPruefer = true;/.test(K_SRC) && /KontrolleHandler\._wartetAufPruefer\) KontrolleHandler\.loadTermin/.test(APP_SRC), 'Kontrolle verlangt einen gewählten Prüfer und lädt nach der Wahl nach');
+  check(/_wartetAufPruefer = true;/.test(K_SRC) && /KontrolleHandler\._wartetAufPruefer\) \{ KontrolleHandler\.loadTermin/.test(APP_SRC), 'Kontrolle verlangt einen gewählten Prüfer und lädt nach der Wahl nach');
   check((APP_SRC.match(/INSERT OR IGNORE INTO pruefer/g) || []).length === 1, 'Klarnamen-Prüfer nur noch im SEED_DATA neuer Datenbanken');
   check(!/8-Sekunden/.test(V_SRC) && !/Sperrsystem \(Locking\)/.test(V_SRC) && !/v2\.0/.test(V_SRC) && /App\.VERSION/.test(V_SRC), 'Hilfe: 3-s-Protokollabgleich, Bearbeitungshinweis statt Sperrsystem, Version aus App.VERSION');
 }

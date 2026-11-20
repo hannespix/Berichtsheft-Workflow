@@ -199,8 +199,8 @@ console.log('\n══ Auswahl einem Termin zuweisen (bestehend oder neu) ══'
   let dlg = null; const openAlt = App.openModal; App.openModal = (t, b, f) => { dlg = { t, b, f }; };
   KH.uebAuswahlLeeren(); KH.uebWaehlen(4, true, {}); KH.uebWaehlen(5, true, {});
   KH.uebTerminZuweisenDialog();
-  check(dlg && /2 Azubis einem Termin zuweisen/.test(dlg.t) && /Dorn, Dana · Ernst, Emil/.test(dlg.b) && /<option value="20">/.test(dlg.b) && /<option value="22">/.test(dlg.b) && !/<option value="21">/.test(dlg.b) && /id="uzNeu" style="display:none"/.test(dlg.b), 'Dialog: Namen, geplante Termine zur Wahl, „Bestehender Termin“ vorgewählt');
-  check(/id="uzDatum"/.test(dlg.b) && /id="uzTyp"/.test(dlg.b) && /id="uzOrt"/.test(dlg.b) && /id="uzPruefer"/.test(dlg.b) && /id="uzBem" value="Folgetermin zu 10\.03\.2026/.test(dlg.b) && /id="uzAbwesend"/.test(dlg.b) && /Den <strong>einen<\/strong> ausgewählten Azubi ohne Ergebnis/.test(dlg.b) && /KontrolleHandler\.uebTerminZuweisen\(\)/.test(dlg.f), 'Dialog: Felder für den neuen Termin, Häkchen „als abwesend markieren“, Knopf „Zuweisen“');
+  check(dlg && /2 Azubis einem Termin zuweisen/.test(dlg.t) && /Dorn, Dana · Ernst, Emil/.test(dlg.b) && /<option value="20"[^>]*>/.test(dlg.b) && /<option value="22"[^>]*>/.test(dlg.b) && !/<option value="21"/.test(dlg.b) && /id="uzNeu" style="display:none"/.test(dlg.b), 'Dialog: Namen, geplante Termine zur Wahl, „Bestehender Termin“ vorgewählt');
+  check(/id="uzDatum"/.test(dlg.b) && /id="uzTyp"/.test(dlg.b) && /id="uzOrt"/.test(dlg.b) && /id="uzPruefer"/.test(dlg.b) && /id="uzBem" value="Folgetermin zu 10\.03\.2026/.test(dlg.b) && /id="uzAbwesend"/.test(dlg.b) && /Den <strong>einen<\/strong> ausgewählten Azubi ohne Ergebnis/.test(dlg.b) && /KontrolleHandler\.terminZuweisen\(\)/.test(dlg.f), 'Dialog: Felder für den neuen Termin, Häkchen „als abwesend markieren“, Knopf „Zuweisen“');
   check(/In diesem Termin bleiben sie stehen/.test(dlg.b), 'Dialog sagt: die Azubis bleiben zusätzlich in diesem Termin');
   App.openModal = () => {};
   // Bestehender Termin: Azubi 4 ist dort schon, 5 kommt dazu
@@ -232,8 +232,62 @@ console.log('\n══ Auswahl einem Termin zuweisen (bestehend oder neu) ══'
   // Verdrahtung
   const K = read('src/js/modules/kontrolle.js'), V = read('src/js/modules/views.js');
   check(/onclick="KontrolleHandler\.uebTerminZuweisenDialog\(\)"[^>]*>→ Termin zuweisen<\/button>/.test(K.split('  _uebSammelZeigen() {')[1].split('  uebKlasseSetzenAuswahl() {')[0]), 'Sammelleiste: Knopf „→ Termin zuweisen“');
-  check(/TerminSeite\.oeffnen\(\$\{zielId\}\)/.test(K) && /App\.invalidateTerminCache\(\);\n    this\._uebAuswahl\.clear\(\);/.test(K), 'Danach: „Termin öffnen“ angeboten, Termin-Zwischenspeicher geleert');
+  check(/TerminSeite\.oeffnen\(\$\{zielId\}\)/.test(K) && /App\.invalidateTerminCache\(\);\n    if \(k\.nach === 'uebersicht'\) this\._uebAuswahl\.clear\(\);/.test(K), 'Danach: „Termin öffnen“ angeboten, Termin-Zwischenspeicher geleert');
   check(/„→ Termin zuweisen“/.test(V), 'Hilfe beschreibt das Zuweisen');
+}
+
+console.log('\n══ Einzelnen Azubi einem Termin zuweisen (Azubi-Seite, Einzelansicht, Stammdaten) ══');
+{
+  let dlg = null; const openAlt = App.openModal, toastAlt = App.toast; App.openModal = (t, b, f) => { dlg = { t, b, f }; }; App.toast = () => {};
+  const K = read('src/js/modules/kontrolle.js'), AZ = read('src/js/modules/azubi-seite.js'), STM = read('src/js/modules/stammdaten.js');
+  // Ohne Ausgangstermin (aus den Stammdaten): Azubi 3, in Termin 20 sind 4 und 5
+  db.run('INSERT INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (22,3)'); App.invalidateTerminCache();
+  KH.terminZuweisenDialog({ ids: [3], nach: 'azubi' });
+  const s3 = App.query('SELECT * FROM schueler WHERE id=3')[0];
+  check(dlg && dlg.t === `${s3.nachname}, ${s3.vorname} einem Termin zuweisen` && !/Aus dem Termin:/.test(dlg.b) && !/id="uzAbwesend"/.test(dlg.b) && !/id="uzHeraus"/.test(dlg.b), 'Dialog für einen Azubi ohne Ausgangstermin: Name im Titel, keine Häkchen zum Ausgangstermin');
+  check(/<option value="22" disabled>[^<]* – schon dabei<\/option>/.test(dlg.b) && /<option value="20" selected>/.test(dlg.b) && /<option value="10"/.test(dlg.b), 'Termine, in denen der Azubi schon steht, sind gekennzeichnet und gesperrt; der erste freie ist vorgewählt');
+  check(/<option value="einsendung" selected>/.test(dlg.b) && new RegExp(`id="uzBem" value="Einzeltermin ${s3.nachname}, ${s3.vorname}"`).test(dlg.b) && /id="uzDatum" value="2026-03-10"/.test(dlg.b) && /unabhängig von seiner Klasse/.test(dlg.b), 'Neuer Termin vorbelegt: Einzeltermin heute mit dem Namen als Bemerkung');
+  check(/KontrolleHandler\.terminZuweisen\(\)/.test(dlg.f) && KH._uz.ids.join() === '3' && KH._uz.quelleId === null && KH._uz.nach === 'azubi', 'Dialog merkt Azubi und Herkunft');
+  const vor = App.scalar('SELECT COUNT(*) FROM kontrolltermine');
+  const r = KH.terminZuweisen({ art: 'bestehend', zielId: 20 }, { ids: [3], nach: 'azubi' });
+  check(r && r.neu === 1 && r.schon === 0 && r.heraus === 0 && r.abwesend === 0 && App.getTerminSchueler(20).some(x => x.id === 3) && App.scalar('SELECT COUNT(*) FROM kontrolltermine') === vor, 'Zuweisung zu einem bestehenden Termin ohne Ausgangstermin');
+  db.run('UPDATE schueler SET jahrgang_id=7 WHERE id=3');
+  const rn = KH.terminZuweisen({ art: 'neu', datum: '2026-06-02', typ: 'einsendung', ortFrei: 'RP Freiburg', pruefer: 'Pix', bemerkung: 'Einzeltermin' }, { ids: [3], nach: 'azubi' });
+  const tn = App.query('SELECT * FROM kontrolltermine WHERE id=?', [rn.zielId])[0];
+  check(rn.angelegt && tn.typ === 'einsendung' && tn.jahrgang_id === 7 && tn.ort === 'RP Freiburg' && App.getTerminSchueler(rn.zielId).map(x => x.id).join() === '3', 'Neuer Einzeltermin für den Azubi (Jahrgang vom Azubi)');
+  check(KH.terminZuweisen({ art: 'bestehend', zielId: 21 }, { ids: [3] }) === null && KH.terminZuweisen({ art: 'bestehend', zielId: 20 }, { ids: [] }) === null, 'Abgewiesen: nicht mehr geplanter Termin, keine Azubis');
+
+  // Aus einem Termin heraus: verschieben nur, wenn einzeln zugeordnet und ohne Ergebnis
+  db.run("INSERT INTO kontrolltermine (id,geplant_datum,status,typ) VALUES (30,'2026-05-20','geplant','einsendung'),(31,'2026-05-27','geplant','einsendung')");
+  db.run('INSERT INTO kontrolltermin_schueler (kontrolltermin_id, schueler_id) VALUES (30,2),(30,3)');
+  db.run("INSERT INTO kontrollergebnisse (kontrolltermin_id, schueler_id, ergebnis, anwesend) VALUES (30,2,'in_ordnung',1),(30,3,'',1)");
+  App.invalidateTerminCache();
+  check(KH._herausnehmbar(30, 3) === true && KH._herausnehmbar(30, 2) === false, 'Herausnehmbar: einzeln zugeordnet und ohne Ergebnis – mit Ergebnis nicht');
+  const kl1 = App.query('SELECT klasse_id FROM schueler WHERE id=1')[0].klasse_id;
+  db.run('INSERT INTO kontrolltermin_klassen (kontrolltermin_id, klasse_id) VALUES (30,?)', [kl1]); App.invalidateTerminCache();
+  check(KH._herausnehmbar(30, 1) === false, 'Azubis, die über ihre Klasse zum Termin gehören, lassen sich nicht herausnehmen');
+  KH.terminZuweisenDialog({ ids: [3], quelleId: 30, nach: 'azubi' });
+  check(/Aus dem Termin: /.test(dlg.b) && /id="uzHeraus"/.test(dlg.b) && /herausnehmen<\/strong> \(verschieben\)/.test(dlg.b) && /id="uzAbwesend"/.test(dlg.b) && !/<option value="30"/.test(dlg.b), 'Dialog aus einem Termin: Ausgangstermin genannt und nicht wählbar, Häkchen „herausnehmen (verschieben)“');
+  KH.terminZuweisenDialog({ ids: [2], quelleId: 30, nach: 'azubi' });
+  check(!/id="uzHeraus"/.test(dlg.b) && !/id="uzAbwesend"/.test(dlg.b), 'Mit Ergebnis: kein Verschieben, kein „abwesend“ – nur zusätzlich zuweisen');
+  const rv = KH.terminZuweisen({ art: 'bestehend', zielId: 31, heraus: true, abwesend: true }, { ids: [2, 3], quelleId: 30, nach: 'azubi' });
+  const in30 = App.query('SELECT schueler_id FROM kontrolltermin_schueler WHERE kontrolltermin_id=30 ORDER BY schueler_id').map(x => x.schueler_id).join();
+  check(rv.neu === 2 && rv.heraus === 1 && rv.abwesend === 0 && in30 === '2' && App.scalar('SELECT COUNT(*) FROM kontrollergebnisse WHERE kontrolltermin_id=30 AND schueler_id=3') === 0 && App.scalar("SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=30 AND schueler_id=2") === 'in_ordnung', `Verschieben: Azubi ohne Ergebnis verlässt den Ausgangstermin, der mit Ergebnis bleibt (${in30})`);
+  check(App.getTerminSchueler(31).map(x => x.id).sort().join() === '2,3' && /1 aus dem bisherigen Termin herausgenommen/.test(rv.text), 'Beide stehen im Zieltermin, die Meldung nennt das Herausnehmen');
+  check(KH.terminZuweisen({ art: 'bestehend', zielId: 30 }, { ids: [2], quelleId: 30 }) === null, 'Derselbe Termin als Ziel wird abgewiesen');
+
+  // Verdrahtung
+  check(/uebTerminZuweisenDialog\(\) \{\n    const ids = this\._uebAuswahlIds\(\);[\s\S]{0,140}return this\.terminZuweisenDialog\(\{ ids, quelleId: this\.currentTerminId, nach: 'uebersicht' \}\);/.test(K) && /return this\.terminZuweisen\(params, \{ ids, quelleId: this\.currentTerminId, nach: 'uebersicht' \}\);/.test(K), 'Die Übersicht nutzt denselben Dialog und dieselbe Zuweisung');
+  check(/label: '→ Einem anderen Termin zuweisen …', onclick: `KontrolleHandler\.terminZuweisenDialog\(\{ ids: \[\$\{s\.id\}\], quelleId: \$\{this\.currentTerminId\}, nach: 'einzeln' \}\)`/.test(K), 'Einzelansicht der Durchsicht: ⋯ → „Einem anderen Termin zuweisen“');
+  check(/App\.menue\('Termin', \[\n\s+\{ label: '▸ Einzeltermin jetzt starten', onclick: `AzubiSeite\.einzelterminStarten\(\$\{s\.id\}\)`/.test(AZ) && /\{ label: '→ Einem Termin zuweisen …', onclick: `AzubiSeite\.terminZuweisen\(\$\{s\.id\}\)`/.test(AZ), 'Azubi-Seite: Menü „Termin“ mit „Einzeltermin jetzt starten“ und „Einem Termin zuweisen“');
+  check(/onclick: `AzubiSeite\.terminZuweisen\(\$\{s\.id\}, \$\{r\.kontrolltermin_id\}\)`/.test(AZ) && (AZ.match(/AzubiSeite\.terminZuweisen\(\$\{s\.id\}, \$\{r\.kontrolltermin_id\}\)/g) || []).length === 2 && /AzubiSeite\.ausTerminNehmen\(\$\{r\.kontrolltermin_id\}, \$\{s\.id\}\)/.test(AZ), 'Azubi-Seite → Kontrollen: je Durchsicht und je geplantem Termin „Einem anderen Termin zuweisen“, Einzelzuordnung aufheben');
+  check(/class="az-geplant"/.test(AZ) && /einzeln zugeordnet' : 'über die Klasse'/.test(AZ) && /FROM kontrolltermin_schueler kts JOIN kontrolltermine kt/.test(AZ) && /FROM kontrolltermin_klassen ktk JOIN kontrolltermine kt/.test(AZ), 'Azubi-Seite zeigt auch geplante Termine ohne Bogen (einzeln oder über die Klasse)');
+  check(/einzelterminStarten\(schuelerId\) \{[\s\S]{0,260}StammdatenTab\.einzelterminAnlegen\(\[schuelerId\]\)[\s\S]{0,260}this\.kontrolleOeffnen\(terminId, schuelerId\)/.test(AZ), '„Einzeltermin jetzt starten“ legt den Termin an und öffnet die Durchsicht bei diesem Azubi');
+  check(/quickEinsendung\(schuelerIds\) \{\n    const terminId = this\.einzelterminAnlegen\(schuelerIds\);/.test(STM) && /einzelterminAnlegen\(schuelerIds\) \{/.test(STM) && /return terminId;\n  \},/.test(STM), 'Stammdaten: Einzeltermin anlegen als eigene Funktion (liefert die Kennung)');
+  check(/onclick: `KontrolleHandler\.terminZuweisenDialog\(\{ ids: \[\$\{s\.id\}\], nach: 'liste' \}\)`/.test(STM) && /KontrolleHandler\.terminZuweisenDialog\(\{ ids: StammdatenTab\._bulkGetSelected\(\), nach: 'liste' \}\)/.test(STM), 'Azubi-Liste: „Einem Termin zuweisen“ im Zeilenmenü und für die Auswahl');
+  { const VH = read('src/js/modules/views.js'); check(/Einzeltermin jetzt starten<\/strong>/.test(VH) && /Einem Termin zuweisen<\/strong>/.test(VH), 'Hilfe beschreibt beide Wege'); }
+  db.run('DELETE FROM kontrolltermin_klassen WHERE kontrolltermin_id=30');
+  App.openModal = openAlt; App.toast = toastAlt; App.invalidateTerminCache();
 }
 
 console.log('\n══ Verdrahtung ══');
