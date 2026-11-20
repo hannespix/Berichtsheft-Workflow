@@ -1123,6 +1123,7 @@ const Views = {
                   { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
                   { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
                   { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
+                  abg ? null : { label: '✉︎ Azubis anschreiben (BCC)', onclick: `Workflows.emailAzubisBCC(${t.id})`, title: 'Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC' },
                   { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${t.id})` },
                   { label: '§ Fremde Ämter', onclick: `PlanungHandler.fremdeAemter(${t.id})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)' },
                   { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
@@ -2611,6 +2612,7 @@ const Views = {
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
             <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
             <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>
+            <p style="margin-left:14px">• <strong>Betriebe anschreiben</strong> → „✉︎ BCC“: eine E-Mail an alle Betriebe des Termins, alle Empfänger im Bcc. <strong>Azubis anschreiben (BCC)</strong> macht dasselbe für die Azubis mit eigener E-Mail-Adresse: Betreff und Text lassen sich im Dialog anpassen (Vorlage unter Einstellungen → Vorlagen), wer keine Adresse hat, wird genannt, Azubis fremder Ämter kommen per Häkchen dazu. „⬇ Outlook-Entwurf“ speichert die E-Mail als Datei, die Outlook per Doppelklick als Entwurf öffnet – der sichere Weg bei vielen Empfängern, weil der E-Mail-Link nur eine begrenzte Länge fasst. Niemand sieht die Adressen der anderen.</p>
             <p>2. <strong>Durchsicht</strong> → Fortschritt (bewertet, in Ordnung, beanstandet, offen) und „Durchsicht öffnen“ – die Arbeit am Kontrolltag läuft wie bisher in der Übersicht und Einzelansicht; „Termin abschließen“ dort wechselt zur Nachbereitung.</p>
             <p>3. <strong>Nachbereitung</strong> → Ergebnisse an die Schule, E-Mails oder Briefe an die Betriebe, fremde Ämter, Nachholtermin, Wiedervorlagen dieses Termins, „Nachbereitung abgeschlossen“.</p>
             <p>4. <strong>Bögen &amp; Export</strong> → alle Durchsichtsbögen als PDF, Übersichtstabelle, Ergebnisliste (Excel), Gesamtpaket, Seriendruck.</p>

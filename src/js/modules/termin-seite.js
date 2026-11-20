@@ -177,9 +177,12 @@ const TerminSeite = {
       klassen.length ? klassen.map(kl => `${esc(kl.klassenbezeichnung)} (${esc(kl.schule)})`).join(', ') : (t.typ === 'einsendung' ? 'einzeln zugeordnet' : 'ohne Klasse'),
       st.fremde ? `${st.fremde} aus fremden Ämtern` : '',
     ].filter(Boolean).join(' · ');
+    const az = Workflows.azubiBccEmpfaenger(id, false);
+    const azubis = `${az.kreis.length} Azubi${az.kreis.length === 1 ? '' : 's'}${az.kreis.length ? ` · ${az.emails.length} mit eigener E-Mail` : ''}`;
     return `
       ${this._zeile('Anfrage an die Schule', anfrage, anfrageAktionen)}
       ${this._zeile('Betriebe ankündigen', betriebe, st.abg ? '' : `<button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${id})" title="Ankündigung je Betrieb: E-Mail, Brief oder CSV">▤ Betriebe anschreiben</button>`)}
+      ${this._zeile('Azubis ankündigen', azubis, st.abg ? '' : `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailAzubisBCC(${id})" title="Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC">✉︎ Azubis anschreiben (BCC)</button>`)}
       ${this._zeile('Teilnehmer', teilnehmer, `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.editTermin(${id})">✎ Termin bearbeiten</button>`)}
       ${this._zeile('Ort und Zeit', `${formatDate(t.geplant_datum)} (KW ${getKW(t.geplant_datum)})${ortBs ? ' · ' + esc(ortBs.name) + (ortBs.ort ? ', ' + esc(ortBs.ort) : '') : ' · <em>ohne Ort</em>'}${t.pruefer ? ' · ' + esc(t.pruefer) : ''}`, '')}`;
   },

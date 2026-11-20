@@ -596,7 +596,7 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
     check(!/Sig Tester/.test(mk.body) && !/Mit freundlichen Grüßen/.test(mk.body), '„Keine Signatur“ bleibt ohne Grußformel und ohne Signatur');
     d.opts.signatur = sigAlt; App.currentUser = ichAlt;
     // Briefe bleiben beim Briefbogen
-    check(/const \{ betreff, body \} = App\.renderVorlage\(typ, this\._antwortCtx\(\{ \.\.\.t\.ctx, anrede: this\._anrede\(g\.ap\)/.test(read('src/js/modules/workflows.js')) && (read('src/js/modules/workflows.js').match(/this\._mailVorlage\(/g) || []).length === 9, 'Alle neun E-Mail-Wege gehen über _mailVorlage, der Brief nicht');
+    check(/const \{ betreff, body \} = App\.renderVorlage\(typ, this\._antwortCtx\(\{ \.\.\.t\.ctx, anrede: this\._anrede\(g\.ap\)/.test(read('src/js/modules/workflows.js')) && (read('src/js/modules/workflows.js').match(/this\._mailVorlage\(/g) || []).length === 10, 'Alle zehn E-Mail-Wege gehen über _mailVorlage, der Brief nicht');
     // Vorgabe einmalig, danach gilt der Prüfer-Dialog (auch „leer“)
     db.run("INSERT OR IGNORE INTO pruefer (name) VALUES ('Hannes Pix')");
     db.run("UPDATE pruefer SET signatur='' WHERE name='Hannes Pix'"); db.run("DELETE FROM einstellungen WHERE schluessel='signatur_vorgabe_v1'");
@@ -759,6 +759,77 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(/id="mPrTelefon"/.test(ST) && /editPruefer\(id\) \{/.test(ST) && /telefon=excluded\.telefon/.test(ST) && /<th>Telefon<\/th>/.test(ST), 'Prüfer-Dialog mit Telefon, Bearbeiten-Knopf, Spalte');
   check(/id="setBriefAbteilung"/.test(V) && /id="setBriefFuss"/.test(V) && /id="setBriefAnlagen"/.test(V) && /\['brief_geschaeftszeichen', 'setBriefGz'\]/.test(V) && /\$\{t\.kontakt\}\$\{t\.briefkopf\}/.test(V), 'Einstellungen: Karte „Briefbogen“ im Reiter Kontakt, Speichern aller Felder');
   check(/Briefbogen für PDF-Briefe an Betriebe<\/strong>/.test(V) && /Briefbogen des Regierungspräsidiums: Logo, Rücksendeangabe/.test(V), 'Hilfe beschreibt Briefbogen und Einstellungen');
+}
+
+console.log('\n══ Serien-E-Mail mit allen im BCC: Betriebe und Azubis ══');
+{
+  const W_SRC = read('src/js/modules/workflows.js'), TS_SRC = read('src/js/modules/termin-seite.js'), K_SRC2 = read('src/js/modules/kontrolle.js'), V_SRC = read('src/js/modules/views.js');
+  // Eigener Termin mit fünf einzeln zugeordneten Azubis (frühere Blöcke haben Termin 100 verändert)
+  db.run(`INSERT INTO kontrolltermine (id,berufsschule_id,geplant_datum,pruefer,status,typ) VALUES (950,1,'2026-12-03','Muster, Max','geplant','schulkontrolle')`);
+  db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,zustaendiges_amt,ausbildungsstaette) VALUES (951,'Arndt','Anna',1,'93','Betrieb Eins'),(952,'Berg','Bernd',1,'93','Betrieb Eins'),(953,'Conrad','Clara',1,'93','Betrieb Zwei'),(954,'Dorn','Dora',1,'93','Betrieb Zwei'),(955,'Ernst','Emil',1,'93','Betrieb Drei')`);
+  db.run(`INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (950,951),(950,952),(950,953),(950,954),(950,955)`);
+  try { App.invalidateTerminCache(); } catch (e) {}
+  const liste = App.getTerminSchueler(950).slice().sort((x, y) => x.id - y.id);
+  check(liste.length === 5, `Termin 950 hat fünf Azubis (${liste.length})`);
+  const vorher = liste.map(s => [s.id, s.email || '', s.zustaendiges_amt || '']);
+  // Adressen: erster und zweiter Azubi mit E-Mail (zweiter doppelt in anderer Schreibweise beim dritten), ein Azubi eines fremden Amts
+  db.run("UPDATE schueler SET email='', zustaendiges_amt='93' WHERE id IN (" + liste.map(s => s.id).join(',') + ')');
+  db.run("UPDATE schueler SET email='anna@example.org' WHERE id=?", [liste[0].id]);
+  db.run("UPDATE schueler SET email=' Bernd@Example.org ', zustaendiges_amt='94' WHERE id=?", [liste[1].id]);
+  if (liste[2]) db.run("UPDATE schueler SET email='ANNA@example.org' WHERE id=?", [liste[2].id]);
+  if (liste[3]) db.run("UPDATE schueler SET email='keine-adresse' WHERE id=?", [liste[3].id]);
+  const e = Workflows.azubiBccEmpfaenger(950, false);
+  check(e.fremde.length === 1 && e.kreis.length === liste.length - 1 && e.emails.join() === 'anna@example.org', 'Empfänger: Azubis mit eigener Adresse, ohne Doppel; fremde Ämter zunächst ausgenommen');
+  check(e.ohne.length === e.kreis.length - (liste[2] ? 2 : 1) && e.ohne.every(s => !String(s.email || '').includes('@')), 'Azubis ohne (gültige) Adresse werden genannt');
+  const eAlle = Workflows.azubiBccEmpfaenger(950, true);
+  check(eAlle.kreis.length === liste.length && eAlle.emails.join() === 'anna@example.org,Bernd@Example.org', 'Mit Häkchen auch die Azubis fremder Ämter (Adresse getrimmt)');
+
+  let modal = null; const altOpen = App.openModal, altClose = App.closeModal, altDl = App.downloadBlob, altKop = App.kopieren, altToast = App.toast;
+  App.openModal = (t, b, f) => { modal = { t, b, f }; }; App.closeModal = () => {}; App.toast = () => {};
+  Workflows.emailAzubisBCC(950);
+  check(/Serien-E-Mail an 1 Azubi \(BCC\)/.test(modal.t) && /<strong>1<\/strong> von \d+ Azubis mit eigener E-Mail-Adresse/.test(modal.b) && /anna@example\.org/.test(modal.b) && !/Bernd@/.test(modal.b), 'Dialog nennt Zahl und Adressen der Azubis');
+  check(/ohne E-Mail \(über den Betrieb oder die Schule erreichen\)/.test(modal.b) && /id="bccFremde"/.test(modal.b) && /auch die 1 Azubi fremder Ämter anschreiben/.test(modal.b) && /die Azubis sehen sich gegenseitig nicht/.test(modal.b), 'Hinweise: ohne Adresse, fremde Ämter per Häkchen, BCC');
+  check(/id="bccSubject" value="Berichtsheftdurchsicht am [^"]+ – bitte Berichtsheft mitbringen"/.test(modal.b) && /Guten Tag,\n\nam \d\d\.\d\d\.\d{4} findet an der /.test(modal.b) && /Ihr Ausbildungsbetrieb wird ebenfalls über den Termin informiert\./.test(modal.b) && !/\{[a-z_]+\}/.test(modal.b), 'Vorlage „azubi_bcc“ gefüllt, kein offener Platzhalter');
+  check(/Workflows\._bccEntwurf\(\)/.test(modal.f) && /Workflows\._openBCCMail\(\)/.test(modal.f) && /Workflows\._kopiereBccAdressen\(\)/.test(modal.f) && /Workflows\._kopiereBccText\(\)/.test(modal.f), 'Ausgaben: Outlook-Entwurf, E-Mail öffnen, Adressen und Text kopieren');
+  check(Workflows._bccEmails.join() === 'anna@example.org' && Workflows._bcc.schluessel === 'azubis:950', 'Empfängerliste gemerkt');
+  Workflows.emailAzubisBCC(950, true);
+  check(/Serien-E-Mail an 2 Azubis \(BCC\)/.test(modal.t) && /id="bccFremde" checked/.test(modal.b) && Workflows._bccEmails.length === 2, 'Häkchen „fremde Ämter“ nimmt die Azubis dazu');
+
+  // Ausgaben: Felder des Dialogs, Entwurf mit Bcc, mailto
+  const felder = { bccSubject: { value: 'Betreff neu', isConnected: true }, bccBody: { value: 'Text neu\nZeile 2', isConnected: true } };
+  const altGet = sandbox.document.getElementById; sandbox.document.getElementById = (id) => felder[id] || null;
+  const eml = Workflows.bccEml();
+  check(/^X-Unsent: 1\r\n/.test(eml) && /\r\nBcc: anna@example\.org,\r\n Bernd@Example\.org\r\n/.test(eml) && !/\r\nCc: /.test(eml), 'Outlook-Entwurf: alle Empfänger im Bcc (eine Adresse je Zeile), niemand in An/Cc sichtbar');
+  check(/\r\nSubject: /.test(eml) && eml.includes(Buffer.from('Text neu\nZeile 2', 'utf8').toString('base64')), 'Entwurf übernimmt den im Dialog angepassten Betreff und Text');
+  let dl = null; App.downloadBlob = (d, name, mime) => { dl = { d, name, mime }; };
+  Workflows._bccEntwurf();
+  check(dl && /^Ankuendigung_Azubis_.*_2026-09-15\.eml$/.test(dl.name) && dl.mime === 'message/rfc822' && /\r\nBcc: /.test(dl.d), `Entwurf wird als .eml angeboten (${dl && dl.name})`);
+  let mailto = null; const altMailto = Workflows.openMailto; Workflows.openMailto = (...a) => { mailto = a; return { geoeffnet: true }; };
+  Workflows._openBCCMail();
+  check(mailto && mailto[1] === 'Betreff neu' && mailto[2] === 'Text neu\nZeile 2' && mailto[3] === '' && mailto[4] === 'anna@example.org,Bernd@Example.org', 'E-Mail-Link: Empfänger im bcc, kein cc');
+  const kop = []; App.kopieren = async (t, m) => { kop.push([t, m]); return true; };
+  Workflows._kopiereBccAdressen(); Workflows._kopiereBccText();
+  check(kop[0][0] === 'anna@example.org; Bernd@Example.org' && /2 Adressen kopiert/.test(kop[0][1]) && kop[1][0] === 'Text neu\nZeile 2', 'Adressen und Text kopieren');
+  // Neuzeichnen (Häkchen) behält Getipptes
+  Workflows.emailAzubisBCC(950, false);
+  check(/id="bccSubject" value="Betreff neu"/.test(modal.b) && /Text neu\nZeile 2<\/textarea>/.test(modal.b), 'Häkchen-Wechsel behält den schon angepassten Betreff und Text');
+  sandbox.document.getElementById = altGet;
+
+  // Betriebe laufen über denselben Dialog
+  Workflows.emailBetriebeBCC(950);
+  check(/Serien-E-Mail an \d+ Betriebe \(BCC\)/.test(modal.t) && /die Betriebe sehen sich gegenseitig nicht/.test(modal.b) && /Workflows\._bccEntwurf\(\)/.test(modal.f) && Workflows._bcc.schluessel === 'betriebe:950' && !/Betreff neu/.test(modal.b), 'Betriebe: derselbe Dialog, jetzt auch mit Outlook-Entwurf; eigener Text');
+  Workflows.openMailto = altMailto; App.openModal = altOpen; App.closeModal = altClose; App.downloadBlob = altDl; App.kopieren = altKop; App.toast = altToast;
+
+  // Kern und Verdrahtung
+  const ohneBcc = App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'y' });
+  check(!/\r\nBcc:/.test(ohneBcc) && /\r\nBcc: a@x\.de,\r\n b@x\.de\r\n/.test(App.emlErzeugen({ to: '', bcc: 'a@x.de; b@x.de', subject: 'x', body: 'y' })), 'emlErzeugen: Bcc nur auf Wunsch, Liste oder Text mit ; / ,');
+  check(App.VORLAGEN.azubi_bcc && /BCC/.test(App.VORLAGEN.azubi_bcc.titel) && /Wetterbeobachtungen/.test(App.VORLAGEN.azubi_bcc.body) && /Mit freundlichen Grüßen\n\{pruefer\}\n\{rp_adresse\}$/.test(App.VORLAGEN.azubi_bcc.body), 'Vorlage „azubi_bcc“ steht unter den Vorlagen (anpassbar), Schlussblock für die Signatur');
+  check(/this\._mailVorlage\('azubi_bcc', this\._antwortCtx\(t\.ctx\)\)/.test(W_SRC) && /this\._mailVorlage\('betrieb_bcc', this\._antwortCtx\(t\.ctx\)\)/.test(W_SRC), 'Beide Serien-E-Mails über _mailVorlage (Signatur) und die Antwortadresse');
+  check(/this\._zeile\('Azubis ankündigen', azubis, st\.abg \? '' : `<button[^`]*onclick="Workflows\.emailAzubisBCC\(\$\{id\}\)"/.test(TS_SRC) && /Workflows\.azubiBccEmpfaenger\(id, false\)/.test(TS_SRC), 'Termin-Seite → Vorbereitung: Zeile „Azubis ankündigen“ mit Zahl der Adressen');
+  check(/onclick: `Workflows\.emailAzubisBCC\(\$\{tid\}\)`/.test(K_SRC2) && /onclick: `Workflows\.emailAzubisBCC\(\$\{t\.id\}\)`/.test(V_SRC) && /onclick="Workflows\.emailAzubisBCC\(\$\{terminId\}\);return false"/.test(W_SRC), 'Einstiege: Menü „Termin“ der Durchsicht, ⋯-Menü der Termine-Liste, Dialog „Betriebe anschreiben“');
+  check(/Azubis anschreiben \(BCC\)<\/strong>/.test(V_SRC), 'Hilfe beschreibt die Serien-E-Mail an die Azubis');
+  db.run('DELETE FROM kontrolltermin_schueler WHERE kontrolltermin_id=950'); db.run('DELETE FROM kontrolltermine WHERE id=950'); db.run('DELETE FROM schueler WHERE id BETWEEN 951 AND 955');
+  try { App.invalidateTerminCache(); } catch (e) {}
 }
 
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);

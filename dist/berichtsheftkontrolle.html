@@ -6497,6 +6497,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .mail-vorlage { font-family: inherit; font-size: 12px; padding: 1px 4px; min-height: 24px; max-width: 100%; color: var(--clr-text-light); background: transparent; border: 1px solid var(--clr-sand); border-radius: 3px; cursor: pointer; }
 .mail-vorlage.von-hand { color: var(--clr-text); background: var(--clr-white); border-color: var(--clr-text); font-weight: 600; }
 .mail-vorlage option { color: var(--clr-text); background: var(--clr-white); font-weight: 400; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .mail-fuss { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; min-width: 0; }
 .mail-fuss-fertig { color: var(--clr-green); font-weight: 600; font-size: 13px; white-space: nowrap; }
 
@@ -7976,7 +7977,7 @@ const App = {
   // Programmstand: build.sh setzt hier den Zeitpunkt des Builds ein. Zwei
   // Rechner mit verschiedenen Ständen der HTML-Datei sehen sich sonst nie an –
   // die Kennung steht im Zustandsbild und unter Wartung → Verbindung.
-  BUILD: '2026-11-19 16:35 UTC',
+  BUILD: '2026-11-20 09:11 UTC',
   db: null,
   dbFileHandle: null,
   dbLastModified: null,
@@ -15957,7 +15958,9 @@ const App = {
   _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
   // replyTo: Antwortadresse; ohne Angabe das Funktionspostfach (antwortKopf),
   // false = keine Reply-To-Zeile
-  emlErzeugen({ to, cc, subject, body, anhaenge, replyTo }) {
+  emlErzeugen({ to, cc, bcc, subject, body, anhaenge, replyTo }) {
+    // Empfängerlisten gefaltet (eine Adresse je Zeile) – lange Bcc-Listen bleiben unter 78 Zeichen je Zeile
+    const liste = (v) => (Array.isArray(v) ? v : String(v || '').split(/[;,]/)).map(x => String(x).trim()).filter(Boolean).join(',\r\n ');
     const antwort = replyTo === false ? '' : (replyTo || this.antwortKopf());
     const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     const kopf = [
@@ -15966,6 +15969,7 @@ const App = {
       'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
       'To: ' + (to || ''),
       ...(cc ? ['Cc: ' + cc] : []),
+      ...(bcc && liste(bcc) ? ['Bcc: ' + liste(bcc)] : []),
       // lange Kopfzeile gefaltet (Zeilen ≤ 78 Zeichen): Name und Adresse getrennt
       ...(antwort ? ['Reply-To: ' + antwort.replace(/ </, '\r\n <')] : []),
       'Subject: ' + this._mimeWort(subject || ''),
@@ -18187,6 +18191,30 @@ Folgende Unterlagen werden geprüft:
 - Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    azubi_bcc: { titel: 'Azubis: Serien-E-Mail Terminankündigung (BCC)',
+      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftdurchsicht am {datum} – bitte Berichtsheft mitbringen',
+      body: `Guten Tag,
+
+am {datum} findet an der {schule}{schule_ort} die Durchsicht der Berichtshefte (Ausbildungsnachweise) statt.
+
+Bitte bringen Sie Ihr Berichtsheft an diesem Tag vollständig geführt und mit allen erforderlichen Unterschriften mit.
+
+Geprüft werden:
+- Tagesberichte (Teil 2.1, lückenlos geführt, mit Kalenderwoche, Datum und Berufsschulthemen)
+- Ihre Unterschrift und die Ihrer Ausbilderin/Ihres Ausbilders mit Datum
+- Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
+- Bescheinigungen über die überbetriebliche Ausbildung
+- Wetterbeobachtungen
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
+
+Ihr Ausbildungsbetrieb wird ebenfalls über den Termin informiert.
+
+Wenn Sie an diesem Tag verhindert sind oder Fragen haben, melden Sie sich bitte vorab bei mir.
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -21064,6 +21092,7 @@ const Views = {
                   { label: '✎ Termin bearbeiten', onclick: `PlanungHandler.editTermin(${t.id})` },
                   { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${t.id})` },
                   { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${t.id})`, title: 'Brief oder CSV je Betrieb' },
+                  abg ? null : { label: '✉︎ Azubis anschreiben (BCC)', onclick: `Workflows.emailAzubisBCC(${t.id})`, title: 'Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC' },
                   { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${t.id})` },
                   { label: '§ Fremde Ämter', onclick: `PlanungHandler.fremdeAemter(${t.id})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt bündeln (PDF + Excel)' },
                   { label: '⎙ Übersichtsliste drucken', onclick: `KontrolleHandler.printUebersicht(${t.id})` },
@@ -22552,6 +22581,7 @@ const Views = {
             <p>• <strong>Blockplan</strong> → Übersicht der Berufsschulblöcke (welche Klassen befinden sich wann in der Schule) zur Terminkoordination</p>
             <p style="margin-top:8px"><strong>Termin-Seite – ein Ort je Termin:</strong> „Öffnen“ in der Termine-Liste (und auf dem Dashboard) führt auf die Seite des Termins. Oben stehen Datum, Ort, Klassen, Azubis und Prüfer, darunter die vier Phasen als Abschnitte – die Phase, die dran ist, ist aufgeklappt, die anderen zeigen nur ihren Stand:</p>
             <p>1. <strong>Vorbereitung</strong> → Termin bei der Schule anfragen und die Zusage vermerken, Betriebe anschreiben (Ankündigung), Teilnehmer prüfen, Termin bearbeiten.</p>
+            <p style="margin-left:14px">• <strong>Betriebe anschreiben</strong> → „✉︎ BCC“: eine E-Mail an alle Betriebe des Termins, alle Empfänger im Bcc. <strong>Azubis anschreiben (BCC)</strong> macht dasselbe für die Azubis mit eigener E-Mail-Adresse: Betreff und Text lassen sich im Dialog anpassen (Vorlage unter Einstellungen → Vorlagen), wer keine Adresse hat, wird genannt, Azubis fremder Ämter kommen per Häkchen dazu. „⬇ Outlook-Entwurf“ speichert die E-Mail als Datei, die Outlook per Doppelklick als Entwurf öffnet – der sichere Weg bei vielen Empfängern, weil der E-Mail-Link nur eine begrenzte Länge fasst. Niemand sieht die Adressen der anderen.</p>
             <p>2. <strong>Durchsicht</strong> → Fortschritt (bewertet, in Ordnung, beanstandet, offen) und „Durchsicht öffnen“ – die Arbeit am Kontrolltag läuft wie bisher in der Übersicht und Einzelansicht; „Termin abschließen“ dort wechselt zur Nachbereitung.</p>
             <p>3. <strong>Nachbereitung</strong> → Ergebnisse an die Schule, E-Mails oder Briefe an die Betriebe, fremde Ämter, Nachholtermin, Wiedervorlagen dieses Termins, „Nachbereitung abgeschlossen“.</p>
             <p>4. <strong>Bögen &amp; Export</strong> → alle Durchsichtsbögen als PDF, Übersichtstabelle, Ergebnisliste (Excel), Gesamtpaket, Seriendruck.</p>
@@ -29615,6 +29645,7 @@ const KontrolleHandler = {
     return [
       { label: abg ? '✉︎ Ergebnisse an die Schule' : '✉︎ Termin bei der Schule anfragen', onclick: `Workflows.emailSchule(${tid})` },
       { label: '▤ Betriebe anschreiben', onclick: `Workflows.seriendruckBetriebe(${tid})` },
+      abg ? null : { label: '✉︎ Azubis anschreiben (BCC)', onclick: `Workflows.emailAzubisBCC(${tid})`, title: 'Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC' },
       fremde ? { label: `§ Fremde Ämter (${fremde})`, onclick: `PlanungHandler.fremdeAemter(${tid})`, title: 'Ergebnisse der Azubis fremder Ämter je Amt weitergeben' } : null,
       { label: '▤ Alle Durchsichtsbögen als PDF', onclick: `PlanungHandler.exportTerminPDF(${tid})` },
       { label: '⎙ Übersichtstabelle drucken', onclick: `KontrolleHandler.printUebersicht(${tid})` },
@@ -35277,12 +35308,77 @@ const Workflows = {
         </tbody></table>
       </div>
       <p style="font-size:12px;color:var(--clr-text-light)">E-Mail für Betriebe mit Adresse, Brief (PDF/Word) für alle – Texte anpassbar unter Einstellungen → Vorlagen.</p>
+      <p style="font-size:12px;margin-top:6px">Auch die Azubis selbst ankündigen? <a href="#" onclick="Workflows.emailAzubisBCC(${terminId});return false" style="color:var(--clr-forest);font-weight:600;text-decoration:underline">✉︎ Azubis anschreiben (BCC)</a></p>
     `, '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>' +
         '<button class="btn btn-success" onclick="Workflows.emailBetriebIndividuell(' + terminId + ')" title="Individuelle E-Mails an jeden Betrieb mit Azubi-Details">✉︎ Individuelle E-Mails</button>' +
         '<button class="btn btn-secondary" onclick="Workflows.emailBetriebeBCC(' + terminId + ')" title="E-Mail mit allen Betrieben im BCC">✉︎ BCC</button>' +
         '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckCSV(' + terminId + ')">CSV</button>' +
         (App.scalar("SELECT wert FROM einstellungen WHERE schluessel='word_template'") ? '<button class="btn btn-primary" onclick="Workflows.exportSeriendruckWord(' + terminId + ')">✎ Word</button>' : '') +
         '<button class="btn btn-primary" onclick="Workflows.briefeBearbeiten(' + terminId + ')" title="Alle Briefe in der Vorschau bearbeiten und als PDF, Word oder E-Mail-Entwurf ausgeben">✎ Briefe</button>');
+  },
+
+  // ── Serien-E-Mail mit allen Empfängern im BCC (Betriebe oder Azubis) ──
+  // Ein Dialog für beide: Empfängerliste, Betreff und Text zum Anpassen,
+  // Ausgabe als E-Mail-Link, als Outlook-Entwurf (.eml – ohne Längengrenze)
+  // oder über die Zwischenablage. o = { schluessel, titel, wer, emails,
+  // kopfHtml, betreff, body, hinweis, extra, datei }
+  _bccDialog(o) {
+    // Schon Getipptes behalten, wenn derselbe Dialog neu gezeichnet wird (Häkchen „fremde Ämter“)
+    const offen = this._bcc && this._bcc.schluessel === o.schluessel ? { b: document.getElementById('bccSubject'), t: document.getElementById('bccBody') } : {};
+    const betreff = offen.b && offen.b.value != null && offen.b.isConnected ? offen.b.value : o.betreff;
+    const body = offen.t && offen.t.value != null && offen.t.isConnected ? offen.t.value : o.body;
+    const rpEmail = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
+    App.closeModal();
+    App.openModal(o.titel, `
+      <div style="margin-bottom:8px;font-size:12px">${o.kopfHtml || ''}</div>
+      <div style="max-height:80px;overflow-y:auto;margin-bottom:8px;font-size:12px;padding:6px;background:var(--clr-warm);border-radius:var(--radius)">
+        ${o.emails.length ? o.emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:var(--clr-white);border-radius:4px">${esc(e)}</span>`).join('') : '<span style="color:var(--clr-text-light)">Keine E-Mail-Adressen hinterlegt.</span>'}
+      </div>
+      <div class="form-group"><label for="bccSubject">Betreff</label><input class="form-control" id="bccSubject" value="${esc(betreff)}"></div>
+      <div class="form-group"><label for="bccBody">Text (kann vor dem Senden im E-Mail-Programm bearbeitet werden)</label>
+        <textarea class="form-control" id="bccBody" rows="10" style="font-size:12px;font-family:monospace">${esc(body)}</textarea>
+      </div>
+      <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">
+        Alle Empfänger stehen im <strong>BCC</strong> – ${esc(o.hinweis)}
+        ${rpEmail ? `Absender/An: ${esc(rpEmail)}.` : '<span style="color:var(--clr-amber)">Tipp: Unter Einstellungen → Kontaktdaten eine RP-E-Mail hinterlegen, dann steht sie im An-Feld.</span>'}
+        Bei vielen Empfängern ist der <strong>Outlook-Entwurf</strong> der sichere Weg: der E-Mail-Link fasst nur eine begrenzte Länge.
+      </div>
+    `, `<div class="mail-fuss"><button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccText()">▤ Text kopieren</button>
+        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()" ${o.emails.length ? '' : 'disabled'}>▤ Adressen kopieren</button>
+        ${o.extra || ''}
+        <button class="btn btn-secondary" onclick="Workflows._bccEntwurf()" ${o.emails.length ? '' : 'disabled'} title="Als Outlook-Entwurf (.eml) speichern: per Doppelklick öffnen, prüfen, senden – alle Empfänger stehen im Bcc">⬇ Outlook-Entwurf</button>
+        <button class="btn btn-primary" onclick="Workflows._openBCCMail()" ${o.emails.length ? '' : 'disabled'}>✉︎ E-Mail öffnen</button></div>`);
+    this._bcc = { schluessel: o.schluessel, wer: o.wer, emails: o.emails, datei: o.datei || ['Serien-E-Mail', o.wer], rpEmail };
+    this._bccEmails = o.emails;
+  },
+  _bccFelder() {
+    return { subject: (document.getElementById('bccSubject') || {}).value || '', body: (document.getElementById('bccBody') || {}).value || '' };
+  },
+  _kopiereBccText() { App.kopieren(this._bccFelder().body, 'Text kopiert'); },
+  _kopiereBccAdressen() {
+    const n = (this._bccEmails || []).length;
+    App.kopieren((this._bccEmails || []).join('; '), `${n} Adresse${n === 1 ? '' : 'n'} kopiert (durch ; getrennt) – ins Feld „Bcc“ einfügen`);
+  },
+  _openBCCMail() {
+    const { subject, body } = this._bccFelder();
+    const bcc = (this._bccEmails || []).join(',');
+    const rpEmail = (this._bcc && this._bcc.rpEmail) || App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
+    this.openMailto(rpEmail, subject, body, '', bcc);
+    App.closeModal();
+  },
+  // Outlook-Entwurf (.eml, X-Unsent) mit allen Empfängern im Bcc
+  bccEml() {
+    const { subject, body } = this._bccFelder();
+    const st = this._bcc || { emails: this._bccEmails || [], rpEmail: '' };
+    return App.emlErzeugen({ to: st.rpEmail || '', bcc: st.emails, subject, body });
+  },
+  _bccEntwurf() {
+    const st = this._bcc || {};
+    if (!(st.emails || []).length) return App.toast('Keine E-Mail-Adressen in dieser Liste', 'warning');
+    App.downloadBlob(this.bccEml(), App.safeFilename([...(st.datei || ['Serien-E-Mail']), todayStr()], 'eml'), 'message/rfc822');
+    App.toast(`Entwurf mit ${st.emails.length} ${st.wer || 'Empfängern'} im Bcc gespeichert – per Doppelklick in Outlook öffnen, prüfen, senden`, 'success', 9000);
+    App.closeModal();
   },
 
   // ── BCC Serien-E-Mail an alle Betriebe ──
@@ -35293,39 +35389,43 @@ const Workflows = {
     const emails = [...new Set(betriebe.map(g => g.email).filter(Boolean))];
     const ohne = betriebe.filter(g => !g.email);
     const { betreff, body } = this._mailVorlage('betrieb_bcc', this._antwortCtx(t.ctx));
-    App.closeModal();
-    App.openModal(`✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`, `
-      <div style="margin-bottom:8px;font-size:12px">
-        <strong>${emails.length}</strong> Betriebe mit E-Mail${ohne.length ? ` · <span style="color:var(--clr-red)">${ohne.length} ohne E-Mail (Brief nötig): ${esc(ohne.map(g => g.name).join(', '))}</span>` : ''}
-      </div>
-      <div style="max-height:80px;overflow-y:auto;margin-bottom:8px;font-size:12px;padding:6px;background:var(--clr-warm);border-radius:var(--radius)">
-        ${emails.map(e => `<span style="display:inline-block;padding:1px 6px;margin:1px;background:var(--clr-white);border-radius:4px">${esc(e)}</span>`).join('')}
-      </div>
-      <div class="form-group"><label>Betreff</label><input class="form-control" id="bccSubject" value="${esc(betreff)}"></div>
-      <div class="form-group"><label>Text (kann vor dem Senden im E-Mail-Programm bearbeitet werden)</label>
-        <textarea class="form-control" id="bccBody" rows="10" style="font-size:12px;font-family:monospace">${esc(body)}</textarea>
-      </div>
-      <div style="font-size:12px;color:var(--clr-text-light);margin-top:8px">
-        Alle Empfänger stehen im <strong>BCC</strong> – die Betriebe sehen sich gegenseitig nicht.
-        ${t.ctx.rp_email ? `Absender/An: ${esc(t.ctx.rp_email)}` : '<span style="color:var(--clr-amber)">Tipp: Unter Einstellungen → Kontaktdaten eine RP-E-Mail hinterlegen, dann steht sie im An-Feld.</span>'}
-      </div>
-    `, `<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('bccBody').value);App.toast('Text kopiert','success')">▤ Text kopieren</button>
-        <button class="btn btn-sm btn-secondary" onclick="Workflows._kopiereBccAdressen()">▤ Adressen kopieren</button>
-        ${ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${terminId}, { nurOhneEmail: true })" title="Briefe nur für Betriebe ohne E-Mail – in der Vorschau bearbeiten">✎ Briefe für ${ohne.length} ohne E-Mail</button>` : ''}
-        <button class="btn btn-primary" onclick="Workflows._openBCCMail()">✉︎ E-Mail öffnen</button>`);
-    this._bccEmails = emails;
+    this._bccDialog({
+      schluessel: 'betriebe:' + terminId, wer: 'Betrieben', emails, betreff, body,
+      titel: `✉︎ Serien-E-Mail an ${emails.length} Betriebe (BCC)`,
+      kopfHtml: `<strong>${emails.length}</strong> Betriebe mit E-Mail${ohne.length ? ` · <span style="color:var(--clr-red)">${ohne.length} ohne E-Mail (Brief nötig): ${esc(ohne.map(g => g.name).join(', '))}</span>` : ''}`,
+      hinweis: 'die Betriebe sehen sich gegenseitig nicht.',
+      extra: ohne.length ? `<button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${terminId}, { nurOhneEmail: true })" title="Briefe nur für Betriebe ohne E-Mail – in der Vorschau bearbeiten">✎ Briefe für ${ohne.length} ohne E-Mail</button>` : '',
+      datei: ['Ankuendigung', 'Betriebe', t.ctx.schule, t.termin ? t.termin.geplant_datum : ''],
+    });
   },
-  _kopiereBccAdressen() {
-    navigator.clipboard.writeText((this._bccEmails || []).join('; ')).then(() => App.toast('Adressen kopiert (durch ; getrennt)', 'success'));
+
+  // ── BCC Serien-E-Mail an alle Azubis des Termins ──
+  // Empfänger: Azubis mit eigener E-Mail-Adresse. Azubis fremder Ämter sind wie
+  // bei den Betrieben zunächst ausgenommen und lassen sich per Häkchen dazunehmen.
+  azubiBccEmpfaenger(terminId, mitFremden) {
+    const alle = App.getTerminSchueler(terminId);
+    const fremde = alle.filter(s => App.istFremdesAmt(s));
+    const kreis = mitFremden ? alle : alle.filter(s => !App.istFremdesAmt(s));
+    const emails = [], gesehen = new Set();
+    kreis.forEach(s => { const e = this._azubiMailAdresse(s); if (e && !gesehen.has(e.toLowerCase())) { gesehen.add(e.toLowerCase()); emails.push(e); } });
+    return { kreis, fremde, emails, ohne: kreis.filter(s => !this._azubiMailAdresse(s)) };
   },
-  _openBCCMail() {
-    const subject = document.getElementById('bccSubject').value;
-    const body = document.getElementById('bccBody').value;
-    const bcc = (this._bccEmails || []).join(',');
-    const rpEmail = App.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
-    this.openMailto(rpEmail, subject, body, '', bcc);
-    App.closeModal();
+  emailAzubisBCC(terminId, mitFremden) {
+    const t = this._ctxTermin(terminId);
+    if (!t) return App.toast('Termin nicht gefunden', 'error');
+    mitFremden = !!mitFremden;
+    const e = this.azubiBccEmpfaenger(terminId, mitFremden);
+    const { betreff, body } = this._mailVorlage('azubi_bcc', this._antwortCtx(t.ctx));
+    const namen = e.ohne.map(s => `${s.nachname}, ${s.vorname}`);
+    this._bccDialog({
+      schluessel: 'azubis:' + terminId, wer: 'Azubis', emails: e.emails, betreff, body,
+      titel: `✉︎ Serien-E-Mail an ${e.emails.length} Azubi${e.emails.length === 1 ? '' : 's'} (BCC)`,
+      kopfHtml: `<strong>${e.emails.length}</strong> von ${e.kreis.length} Azubis mit eigener E-Mail-Adresse`
+        + (e.ohne.length ? ` · <span style="color:var(--clr-red)">${e.ohne.length} ohne E-Mail (über den Betrieb oder die Schule erreichen): ${esc(namen.slice(0, 12).join(' · '))}${namen.length > 12 ? ` · und ${namen.length - 12} weitere` : ''}</span>` : '')
+        + (e.fremde.length ? `<div style="margin-top:6px"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bccFremde" ${mitFremden ? 'checked' : ''} onchange="Workflows.emailAzubisBCC(${terminId}, this.checked)"> auch die ${e.fremde.length} Azubi${e.fremde.length === 1 ? '' : 's'} fremder Ämter anschreiben</label></div>` : ''),
+      hinweis: 'die Azubis sehen sich gegenseitig nicht.',
+      datei: ['Ankuendigung', 'Azubis', t.ctx.schule, t.termin ? t.termin.geplant_datum : ''],
+    });
   },
 
   // ── Individuelle E-Mails pro Betrieb (Ankündigung / Mängel / ohne Beanstandung) ──
@@ -40263,9 +40363,12 @@ const TerminSeite = {
       klassen.length ? klassen.map(kl => `${esc(kl.klassenbezeichnung)} (${esc(kl.schule)})`).join(', ') : (t.typ === 'einsendung' ? 'einzeln zugeordnet' : 'ohne Klasse'),
       st.fremde ? `${st.fremde} aus fremden Ämtern` : '',
     ].filter(Boolean).join(' · ');
+    const az = Workflows.azubiBccEmpfaenger(id, false);
+    const azubis = `${az.kreis.length} Azubi${az.kreis.length === 1 ? '' : 's'}${az.kreis.length ? ` · ${az.emails.length} mit eigener E-Mail` : ''}`;
     return `
       ${this._zeile('Anfrage an die Schule', anfrage, anfrageAktionen)}
       ${this._zeile('Betriebe ankündigen', betriebe, st.abg ? '' : `<button class="btn btn-sm btn-secondary" onclick="Workflows.seriendruckBetriebe(${id})" title="Ankündigung je Betrieb: E-Mail, Brief oder CSV">▤ Betriebe anschreiben</button>`)}
+      ${this._zeile('Azubis ankündigen', azubis, st.abg ? '' : `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailAzubisBCC(${id})" title="Eine E-Mail an alle Azubis des Termins – alle Empfänger im BCC">✉︎ Azubis anschreiben (BCC)</button>`)}
       ${this._zeile('Teilnehmer', teilnehmer, `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.editTermin(${id})">✎ Termin bearbeiten</button>`)}
       ${this._zeile('Ort und Zeit', `${formatDate(t.geplant_datum)} (KW ${getKW(t.geplant_datum)})${ortBs ? ' · ' + esc(ortBs.name) + (ortBs.ort ? ', ' + esc(ortBs.ort) : '') : ' · <em>ohne Ort</em>'}${t.pruefer ? ' · ' + esc(t.pruefer) : ''}`, '')}`;
   },

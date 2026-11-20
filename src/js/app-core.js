@@ -8229,7 +8229,9 @@ const App = {
   _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
   // replyTo: Antwortadresse; ohne Angabe das Funktionspostfach (antwortKopf),
   // false = keine Reply-To-Zeile
-  emlErzeugen({ to, cc, subject, body, anhaenge, replyTo }) {
+  emlErzeugen({ to, cc, bcc, subject, body, anhaenge, replyTo }) {
+    // Empfängerlisten gefaltet (eine Adresse je Zeile) – lange Bcc-Listen bleiben unter 78 Zeichen je Zeile
+    const liste = (v) => (Array.isArray(v) ? v : String(v || '').split(/[;,]/)).map(x => String(x).trim()).filter(Boolean).join(',\r\n ');
     const antwort = replyTo === false ? '' : (replyTo || this.antwortKopf());
     const grenze = '----=_bhk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     const kopf = [
@@ -8238,6 +8240,7 @@ const App = {
       'Date: ' + new Date().toUTCString().replace(/GMT$/, '+0000'),
       'To: ' + (to || ''),
       ...(cc ? ['Cc: ' + cc] : []),
+      ...(bcc && liste(bcc) ? ['Bcc: ' + liste(bcc)] : []),
       // lange Kopfzeile gefaltet (Zeilen ≤ 78 Zeichen): Name und Adresse getrennt
       ...(antwort ? ['Reply-To: ' + antwort.replace(/ </, '\r\n <')] : []),
       'Subject: ' + this._mimeWort(subject || ''),
@@ -10459,6 +10462,30 @@ Folgende Unterlagen werden geprüft:
 - Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+{pruefer}
+{rp_adresse}` },
+    azubi_bcc: { titel: 'Azubis: Serien-E-Mail Terminankündigung (BCC)',
+      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftdurchsicht am {datum} – bitte Berichtsheft mitbringen',
+      body: `Guten Tag,
+
+am {datum} findet an der {schule}{schule_ort} die Durchsicht der Berichtshefte (Ausbildungsnachweise) statt.
+
+Bitte bringen Sie Ihr Berichtsheft an diesem Tag vollständig geführt und mit allen erforderlichen Unterschriften mit.
+
+Geprüft werden:
+- Tagesberichte (Teil 2.1, lückenlos geführt, mit Kalenderwoche, Datum und Berufsschulthemen)
+- Ihre Unterschrift und die Ihrer Ausbilderin/Ihres Ausbilders mit Datum
+- Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
+- Bescheinigungen über die überbetriebliche Ausbildung
+- Wetterbeobachtungen
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
+
+Ihr Ausbildungsbetrieb wird ebenfalls über den Termin informiert.
+
+Wenn Sie an diesem Tag verhindert sind oder Fragen haben, melden Sie sich bitte vorab bei mir.
 
 Mit freundlichen Grüßen
 {pruefer}
