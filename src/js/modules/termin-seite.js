@@ -69,12 +69,17 @@ const TerminSeite = {
     const schueler = App.getTerminSchueler(id);
     const n = schueler.length;
     const fremde = schueler.filter(s => App.istFremdesAmt(s)).length;
-    const ke = App.query('SELECT schueler_id, anwesend, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=?', [id]);
+    const ke = App.query("SELECT schueler_id, anwesend, ergebnis, COALESCE(heft_form,'') AS heft_form, COALESCE(heft_notiz,'') AS heft_notiz FROM kontrollergebnisse WHERE kontrolltermin_id=?", [id]);
     const ids = new Set(schueler.map(s => s.id));
     const keDa = ke.filter(k => ids.has(k.schueler_id));
     const bewertet = keDa.filter(k => k.ergebnis).length;
     const ok = keDa.filter(k => k.ergebnis === 'in_ordnung').length;
-    const abwesend = keDa.filter(k => k.anwesend === 0 && !k.ergebnis).length;
+    // Vorlage des Hefts: digital vorgelegt / wird digital nachgereicht (noch ohne Ergebnis)
+    const digital = keDa.filter(k => k.heft_form === 'digital').length;
+    const digitalOffen = keDa.filter(k => k.heft_form === 'digital_offen' && !k.ergebnis)
+      .map(k => { const s = schueler.find(x => x.id === k.schueler_id) || {}; return { id: k.schueler_id, name: `${s.nachname || ''}, ${s.vorname || ''}`, notiz: k.heft_notiz }; })
+      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const abwesend = keDa.filter(k => k.anwesend === 0 && !k.ergebnis && k.heft_form !== 'digital_offen').length;
     const offen = Math.max(0, n - bewertet - abwesend);
     let betriebe = [], mitMail = 0;
     try { betriebe = Workflows._betriebeDesTermins(id, false).betriebe; mitMail = betriebe.filter(b => b.email).length; } catch(e) {}
@@ -84,7 +89,7 @@ const TerminSeite = {
     const wvOffen = wv.filter(w => w.status === 'offen' || w.status === 'ueberfaellig').length;
     const kette = App.terminKette(t);
     const phase = t.nachbereitet_am ? 'export' : abg ? 'nachbereitung' : (bewertet > 0 || t.geplant_datum <= heute) ? 'durchsicht' : 'vorbereitung';
-    return { heute, abg, schueler, n, fremde, bewertet, ok, maengel: bewertet - ok, abwesend, offen, betriebe, mitMail, wv, wvOffen, kette, phase };
+    return { heute, abg, schueler, n, fremde, bewertet, ok, maengel: bewertet - ok, abwesend, offen, digital, digitalOffen, betriebe, mitMail, wv, wvOffen, kette, phase };
   },
 
   render() {
@@ -192,7 +197,7 @@ const TerminSeite = {
     const pct = st.n ? Math.round(st.bewertet / st.n * 100) : 0;
     return `
       <div class="fortschritt ts-fortschritt">
-        <div class="fs-kopf"><span class="fs-text"><strong>${st.bewertet} von ${st.n}</strong> bewertet · <span class="fs-ok">${st.ok} in Ordnung</span> · <span class="fs-mangel">${st.maengel} beanstandet</span> · ${st.offen} offen${st.abwesend ? ` · ${st.abwesend} abwesend` : ''}</span></div>
+        <div class="fs-kopf"><span class="fs-text"><strong>${st.bewertet} von ${st.n}</strong> bewertet · <span class="fs-ok">${st.ok} in Ordnung</span> · <span class="fs-mangel">${st.maengel} beanstandet</span> · ${st.offen} offen${st.digitalOffen.length ? ` (davon ${st.digitalOffen.length} ${st.digitalOffen.length === 1 ? 'wird' : 'werden'} digital nachgereicht)` : ''}${st.digital ? ` · ${st.digital} digital vorgelegt` : ''}${st.abwesend ? ` · ${st.abwesend} abwesend` : ''}</span></div>
         <div class="fs-balken" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Fortschritt der Durchsicht"><div style="width:${pct}%"></div></div>
       </div>
       <div class="ts-knoepfe">
@@ -220,6 +225,8 @@ const TerminSeite = {
       ${this._zeile('Ergebnisse an die Schule', 'Zahlen je Ergebnis, Abwesende', `<button class="btn btn-sm btn-primary" onclick="Workflows.emailSchule(${id})">✉︎ Ergebnisse an die Schule</button>`)}
       ${this._zeile('Betriebe', `${st.betriebe.length} Betrieb${st.betriebe.length === 1 ? '' : 'e'} · ${st.mitMail} mit E-Mail`, `<button class="btn btn-sm btn-primary" onclick="Workflows.emailBetriebIndividuell(${id})" title="Arbeitsliste: je Betrieb eine E-Mail, Outlook-Entwürfe als ZIP">✉︎ E-Mails an die Betriebe</button> <button class="btn btn-sm btn-secondary" onclick="Workflows.briefeBearbeiten(${id})" title="Briefe im Brief-Editor (PDF, Word, E-Mail-Entwurf)">✎ Briefe</button>`)}
       ${st.fremde ? this._zeile('Fremde Ämter', `${st.fremde} Azubi${st.fremde === 1 ? '' : 's'} anderer Ämter`, `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.fremdeAemter(${id})">§ Fremde Ämter</button>`) : ''}
+      ${st.digitalOffen.length ? this._zeile('Digital nachzureichen', `${st.digitalOffen.length} Berichtsheft${st.digitalOffen.length === 1 ? '' : 'e'}: ${st.digitalOffen.map(a => esc(a.name) + (a.notiz ? ` <small>(${esc(a.notiz)})</small>` : '')).join(' · ')}`,
+        `<button class="btn btn-sm btn-secondary" onclick="Workflows.emailNachholung(${id}, [${st.digitalOffen.map(a => a.id).join(',')}], null, 'digital_nachreichen')" title="Betriebe um die PDF bitten (Vorlage „Berichtsheft digital nachreichen“)">✉︎ Betriebe bitten</button> <button class="btn btn-sm btn-secondary" onclick="TerminSeite.durchsichtOeffnen()" title="Kommt das Heft: Durchsicht öffnen und das Ergebnis eintragen">▸ Durchsicht</button>`) : ''}
       ${this._zeile('Nachholtermin', st.abwesend ? `${st.abwesend} abwesend` : 'niemand abwesend', `<button class="btn btn-sm btn-secondary" onclick="PlanungHandler.nachholterminAnlegen(${id})" title="Für die am Kontrolltag abwesenden Azubis">↻ Nachholtermin anlegen</button>`)}
       ${this._zeile('Stand', t.nachbereitet_am ? `✓ nachbereitet am ${formatDate(t.nachbereitet_am)}` : 'Nachbereitung offen', t.nachbereitet_am ? '' : `<button class="btn btn-sm btn-success" onclick="TerminSeite.nachbereitetVermerken()" title="Wenn Schule und Betriebe informiert sind">✓ Nachbereitung abgeschlossen</button>`)}
       <h3 class="ts-h3">Wiedervorlagen dieses Termins <span class="ts-zahl">${st.wvOffen} offen</span></h3>

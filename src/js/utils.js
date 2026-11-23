@@ -114,6 +114,7 @@ function wvArtLabel(art) {
     'persoenliche_vorlage_rp': 'Persönliche Vorlage im RP',
     'post_an_rp': 'Per Post ans RP',
     'beratung_betrieb': 'Beratungsgespräch Betrieb (§ 76 BBiG)',
+    'digital_nachreichen': 'Berichtsheft wird digital nachgereicht',
   };
   return map[art] || art || '–';
 }

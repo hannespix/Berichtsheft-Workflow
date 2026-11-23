@@ -80,7 +80,8 @@ const PDFExport = {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
       doc.text('Berichtsheftdurchsicht', RM, y + 6, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...COL_GRAY);
-      doc.text(`Kontrolle am ${formatDate(termin.geplant_datum)}`, RM, y + 11, { align: 'right' });
+      // Vorlage des Hefts: digital vorgelegt (Gerät am Termin oder PDF per E-Mail) steht im Kopf
+      doc.text(`Kontrolle am ${formatDate(termin.geplant_datum)}${ke && ke.heft_form === 'digital' ? ' · Berichtsheft digital vorgelegt' : ''}`, RM, y + 11, { align: 'right' });
       y += Math.max(logoH, 12) + 3;
       doc.setFillColor(...COL_GELB);
       doc.rect(LM, y, PW, 1.6, 'F');

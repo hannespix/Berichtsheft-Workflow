@@ -1755,6 +1755,21 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .ueb-tabelle .ueb-nr input, .ueb-gruppe input { width: 16px; height: 16px; accent-color: var(--clr-forest); margin: 0; }
 .ueb-klasse { width: 92px; padding: 3px 6px; font-size: 13px; }
 .ueb-klasse::placeholder { color: var(--clr-text-light); }
+/* Vorlage des Berichtshefts (Papier · digital · wird digital nachgereicht) + Notiz */
+.ueb-heft-zelle { min-width: 196px; }
+.ueb-heft { width: 100%; padding: 2px 4px; font-size: 12px; }
+.ueb-heft--digital { border-color: var(--clr-blue); font-weight: 600; }
+.ueb-heft--digital_offen { border-color: var(--clr-blue); background: var(--clr-blue-light); font-weight: 700; }
+.ueb-notiz { width: 100%; margin-top: 3px; padding: 2px 6px; font-size: 12px; }
+.ueb-notiz::placeholder { color: var(--clr-text-light); }
+.ueb-heft:focus-visible, .ueb-notiz:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; }
+.ueb-sl-heft { width: auto; padding: 3px 6px; font-size: 13px; color: var(--clr-text); background: var(--clr-white); }
+.heft-karte { padding-top: 10px; padding-bottom: 10px; }
+.heft-zeile { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.heft-zeile label { font-weight: 600; }
+.heft-zeile select { width: auto; flex: 0 0 auto; padding: 3px 6px; font-size: 13px; }
+.heft-zeile input { flex: 1 1 180px; width: auto; padding: 3px 8px; font-size: 13px; }
+.fortschritt .fs-digital { color: var(--clr-blue); }
 .ueb-gruppe td { background: var(--clr-sand); padding: 7px 12px; font-size: 13px; }
 .ueb-gruppe label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-family: var(--font-display); color: var(--clr-forest-dark); }
 .ueb-gruppe-zahl { margin-left: 10px; font-size: 12px; color: var(--clr-text-light); }

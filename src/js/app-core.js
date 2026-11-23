@@ -1434,6 +1434,8 @@ const App = {
       pruefungsausschuss INTEGER DEFAULT 0,
       anwesend INTEGER DEFAULT 1,
       bemerkung TEXT DEFAULT '',
+      heft_form TEXT DEFAULT '',
+      heft_notiz TEXT DEFAULT '',
       erstellt_am TEXT DEFAULT (datetime('now','localtime')),
       geaendert_am TEXT DEFAULT (datetime('now','localtime')),
       geaendert_von TEXT DEFAULT ''
@@ -7392,6 +7394,9 @@ const App = {
     run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_gefuehrt TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_5_gefuehrt TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_unterschrift TEXT DEFAULT ''");
+    // Vorlage des Berichtshefts: '' = Papier | 'digital' | 'digital_offen' (wird digital nachgereicht) + Notiz für die Übersicht
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_form TEXT DEFAULT ''");
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_notiz TEXT DEFAULT ''");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -7780,7 +7785,7 @@ const App = {
 
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
-        'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','durchsicht_nr','geprueft_kws',
+        'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','heft_form','heft_notiz','durchsicht_nr','geprueft_kws',
         'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
@@ -8902,12 +8907,13 @@ const App = {
   WV_FRISTEN_STANDARD: {
     nachholung_naechste_durchsicht: 28, sachberichte_wetter_email: 28, berichte_bis_termin_email: 28,
     persoenliche_vorlage_rp: 14, post_an_rp: 21,
-    erinnerung: 14, nachholung_abwesend: 21, beratung_betrieb: 14,
+    erinnerung: 14, nachholung_abwesend: 21, beratung_betrieb: 14, digital_nachreichen: 14,
   },
   WV_FRISTEN_LABELS: {
     nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
     persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP',
     erinnerung: 'Erinnerung (neue Frist nach Überschreitung)', nachholung_abwesend: 'Nachholung für Abwesende', beratung_betrieb: 'Beratungsgespräch Betrieb (§ 76)',
+    digital_nachreichen: 'Berichtsheft wird digital nachgereicht',
   },
   wvFristen() {
     let o = {};
@@ -10196,6 +10202,68 @@ const App = {
     });
     return n;
   },
+  // ── Vorlage des Berichtshefts je Durchsicht (Nov. 2026) ──
+  // kontrollergebnisse.heft_form: '' = Papier (wie bisher) | 'digital' = digital
+  // vorgelegt (Gerät am Termin oder PDF per E-Mail) | 'digital_offen' = wird
+  // digital nachgereicht. heft_notiz = kurze interne Notiz für die Übersicht
+  // (nicht auf dem Bogen, nicht an den Betrieb). Kein Datei-Upload ins Tool.
+  HEFT_FORMEN: [['', 'Papier'], ['digital', 'digital'], ['digital_offen', 'wird digital nachgereicht']],
+  HEFT_NOTIZ_MAX: 120,
+  heftForm(wert) { const w = String(wert || ''); return this.HEFT_FORMEN.some(f => f[0] === w) ? w : ''; },
+  heftFormLabel(wert, lang) {
+    const w = this.heftForm(wert);
+    if (lang) return w === 'digital' ? 'digital vorgelegt' : w === 'digital_offen' ? 'wird digital nachgereicht' : 'Papier';
+    return (this.HEFT_FORMEN.find(f => f[0] === w) || this.HEFT_FORMEN[0])[1];
+  },
+  heftNotizNormal(text) { return String(text == null ? '' : text).replace(/\s+/g, ' ').trim().slice(0, this.HEFT_NOTIZ_MAX); },
+  // Setzt die Vorlage-Form für einen oder mehrere Azubis eines Termins (natürlicher
+  // Schlüssel Termin + Azubi, eigene Anweisung – ein Rechner mit älterem
+  // Programmstand überspringt sie, ohne etwas anderes zu verlieren). Liefert die Zahl der geänderten.
+  setHeftForm(terminId, ids, wert, pruefer) {
+    const w = this.heftForm(wert);
+    let n = 0;
+    (Array.isArray(ids) ? ids : [ids]).forEach(sid => {
+      const alt = this.query("SELECT COALESCE(heft_form,'') AS f FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?", [terminId, sid])[0];
+      if (!alt || alt.f === w) return;
+      this.run("UPDATE kontrollergebnisse SET heft_form=?, geaendert_von=? WHERE kontrolltermin_id=? AND schueler_id=?", [w, pruefer || this.currentUser || '', terminId, sid]);
+      n++;
+    });
+    return n;
+  },
+  setHeftNotiz(terminId, sid, text) {
+    const t = this.heftNotizNormal(text);
+    const alt = this.query("SELECT COALESCE(heft_notiz,'') AS n FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?", [terminId, sid])[0];
+    if (!alt || alt.n === t) return false;
+    this.run('UPDATE kontrollergebnisse SET heft_notiz=? WHERE kontrolltermin_id=? AND schueler_id=?', [t, terminId, sid]);
+    return true;
+  },
+  // Hat der Azubi sein Heft zuletzt digital vorgelegt? Dann steht die nächste
+  // Durchsicht gleich auf „digital“ (letzte bewertete Durchsicht außer diesem Termin)
+  heftZuletztDigital(sid, ohneTerminId) {
+    const f = this.scalar(`SELECT COALESCE(ke.heft_form,'') FROM kontrollergebnisse ke JOIN kontrolltermine kt ON kt.id=ke.kontrolltermin_id
+      WHERE ke.schueler_id=? AND ke.kontrolltermin_id != ? AND ke.ergebnis != '' ORDER BY kt.geplant_datum DESC, ke.id DESC LIMIT 1`, [sid, ohneTerminId || -1]);
+    return f === 'digital' || f === 'digital_offen';
+  },
+  // Hinweis in den Ankündigungen (Platzhalter {digital_hinweis}); Einstellung
+  // `digital_hinweis`: nicht gesetzt = Standard, leer gespeichert = kein Hinweis
+  DIGITAL_HINWEIS_STANDARD: 'Wird das Berichtsheft elektronisch geführt, kann es auch digital vorgelegt werden: am Termin auf einem eigenen Gerät (Tablet, Laptop) oder vorab als PDF per E-Mail an {antwort_email}. Auch digital muss es vollständig geführt und von Auszubildender/Auszubildendem und Ausbilderin/Ausbilder abgezeichnet sein.',
+  digitalHinweisRoh() {
+    const r = this.query("SELECT wert FROM einstellungen WHERE schluessel='digital_hinweis'")[0];
+    return r ? String(r.wert || '') : this.DIGITAL_HINWEIS_STANDARD;
+  },
+  digitalHinweis() {
+    const roh = this.digitalHinweisRoh().trim();
+    if (!roh) return '';
+    const adr = (this.antwortEmail ? this.antwortEmail() : '') || this.scalar("SELECT wert FROM einstellungen WHERE schluessel='rp_email'") || '';
+    // ohne Adresse entfällt der Zusatz „an …“ sauber
+    return adr ? roh.replace(/\{antwort_email\}/g, adr) : roh.replace(/\s*(per E-Mail )?an \{antwort_email\}/g, (m, p) => p ? ' per E-Mail' : '');
+  },
+  digitalHinweisSetzen(text) {
+    const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    if (t === this.DIGITAL_HINWEIS_STANDARD) this.run("DELETE FROM einstellungen WHERE schluessel='digital_hinweis'");
+    else this.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('digital_hinweis',?)", [t]);
+  },
+
   // Vorschläge: Klassen, die an denselben Berufsschulen schon eingetragen sind
   schulklassenVorschlaege(schuelerListe) {
     const eigene = (schuelerListe || []).map(s => this.schulklasseNormal(s.schulklasse)).filter(Boolean);
@@ -10507,7 +10575,7 @@ Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
     betrieb_bcc: { titel: 'Betriebe: Serien-E-Mail Terminankündigung (BCC)',
-      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse','digital_hinweis'],
       betreff: 'Berichtsheftdurchsicht am {datum} – {schule}',
       body: `Sehr geehrte Ausbilderinnen und Ausbilder,
 
@@ -10523,13 +10591,15 @@ Folgende Unterlagen werden geprüft:
 - Wetterbeobachtungen
 - Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
+{digital_hinweis}
+
 Bei Rückfragen stehe ich Ihnen gerne zur Verfügung.
 
 Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
     azubi_bcc: { titel: 'Azubis: Serien-E-Mail Terminankündigung (BCC)',
-      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['datum','schule','schule_ort','fachrichtung','klassen','pruefer','pruefer_email','rp_adresse','digital_hinweis'],
       betreff: 'Berichtsheftdurchsicht am {datum} – bitte Berichtsheft mitbringen',
       body: `Guten Tag,
 
@@ -10545,6 +10615,8 @@ Geprüft werden:
 - Wetterbeobachtungen
 - Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
 
+{digital_hinweis}
+
 Ihr Ausbildungsbetrieb wird ebenfalls über den Termin informiert.
 
 Wenn Sie an diesem Tag verhindert sind oder Fragen haben, melden Sie sich bitte vorab bei mir.
@@ -10553,7 +10625,7 @@ Mit freundlichen Grüßen
 {pruefer}
 {rp_adresse}` },
     betrieb_ankuendigung: { titel: 'Betrieb: Terminankündigung (individuell)',
-      platzhalter: ['anrede','datum','schule','schule_ort','fachrichtung','klassen','azubi_block','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['anrede','datum','schule','schule_ort','fachrichtung','klassen','azubi_block','pruefer','pruefer_email','rp_adresse','digital_hinweis'],
       betreff: 'Berichtsheftkontrolle am {datum} – {azubi_namen}',
       body: `Sehr geehrte Damen und Herren,{anrede}
 
@@ -10565,6 +10637,8 @@ Folgende Ihrer Auszubildenden sind betroffen:
 Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
 
 Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
+
+{digital_hinweis}
 
 Mit freundlichen Grüßen
 {pruefer}
@@ -10605,7 +10679,7 @@ Mit freundlichen Grüßen
     // ── Eigene E-Mail je Azubi (Datenschutz): nur das eigene Ergebnis, der
     //    eigene Bogen; der Betrieb bekommt seine Mitteilung getrennt, ohne CC ──
     azubi_ankuendigung: { titel: 'Azubi: Terminankündigung (eigene E-Mail)',
-      platzhalter: ['azubi_anrede','datum','schule','schule_ort','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      platzhalter: ['azubi_anrede','datum','schule','schule_ort','betrieb_hinweis','pruefer','pruefer_email','rp_adresse','digital_hinweis'],
       betreff: 'Berichtsheftkontrolle am {datum} – bitte Berichtsheft mitbringen',
       body: `{azubi_anrede}
 
@@ -10614,6 +10688,8 @@ am {datum} findet an der {schule}{schule_ort} die Durchsicht der Berichtshefte (
 Bitte bringen Sie Ihr Berichtsheft an diesem Tag vollständig geführt und mit allen erforderlichen Unterschriften mit.
 
 Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
+
+{digital_hinweis}
 
 {betrieb_hinweis}
 
@@ -10675,8 +10751,41 @@ Mit freundlichen Grüßen
 {pruefer}
 {pruefer_email}
 {rp_adresse}` },
+    digital_nachreichen: { titel: 'Betrieb: Berichtsheft digital nachreichen (am Kontrolltag nicht vorgelegt)',
+      platzhalter: ['anrede','azubi_block','azubi_namen','datum','schule','frist','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – Berichtsheft digital nachreichen ({azubi_namen})',
+      body: `Sehr geehrte Damen und Herren,{anrede}
+
+am {datum} wurde an der {schule} die Berichtsheftkontrolle durchgeführt. Für folgende Ihrer Auszubildenden lag das Berichtsheft an diesem Tag nicht zur Durchsicht vor; es wird digital nachgereicht:
+{azubi_block}
+
+Bitte sorgen Sie dafür, dass das vollständig geführte und abgezeichnete Berichtsheft bis spätestens {frist} als PDF per E-Mail an {pruefer_email} gesendet wird (elektronisch geführtes Heft als PDF-Export, Papierheft als Scan oder gut lesbare Fotos in einer Datei).
+
+Bitte beachten Sie, dass ein ordnungsgemäß geführtes Berichtsheft Voraussetzung für die Zulassung zur Abschlussprüfung ist (§ 43 Abs. 1 Nr. 2 BBiG).
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
+    azubi_digital_nachreichen: { titel: 'Azubi: Berichtsheft digital nachreichen (eigene E-Mail)',
+      platzhalter: ['azubi_anrede','datum','schule','frist','betrieb_hinweis','pruefer','pruefer_email','rp_adresse'],
+      betreff: 'Berichtsheftkontrolle am {datum} – bitte Berichtsheft digital nachreichen',
+      body: `{azubi_anrede}
+
+am {datum} wurde an der {schule} die Berichtsheftkontrolle durchgeführt. Ihr Berichtsheft lag an diesem Tag nicht zur Durchsicht vor; Sie reichen es digital nach.
+
+Bitte senden Sie Ihr vollständig geführtes und abgezeichnetes Berichtsheft bis spätestens {frist} als PDF per E-Mail an {pruefer_email} (elektronisch geführtes Heft als PDF-Export, Papierheft als Scan oder gut lesbare Fotos in einer Datei).
+
+Ein ordnungsgemäß geführtes Berichtsheft ist Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG).
+
+{betrieb_hinweis}
+
+Mit freundlichen Grüßen
+{pruefer}
+{pruefer_email}
+{rp_adresse}` },
     brief_betrieb: { titel: 'Betrieb: Anschreiben als Brief (PDF-Seriendruck)',
-      platzhalter: ['datum','schule','schule_ort','klassen','fachrichtung','azubi_liste','pruefer','rp_name'],
+      platzhalter: ['datum','schule','schule_ort','klassen','fachrichtung','azubi_liste','pruefer','rp_name','digital_hinweis'],
       betreff: 'Berichtsheftkontrolle am {datum}',
       body: `Sehr geehrte Damen und Herren,
 
@@ -10686,6 +10795,8 @@ Folgende Ihrer Auszubildenden sind betroffen:
 {azubi_liste}
 
 Bitte stellen Sie sicher, dass die Berichtshefte Ihrer Auszubildenden vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
+
+{digital_hinweis}
 
 Fehlende oder mangelhafte Berichtshefte können die Zulassung zur Abschlussprüfung gefährden.
 
@@ -10879,7 +10990,14 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
   renderVorlage(typ, ctx) {
     const v = this.getVorlage(typ);
     if (!v) return { betreff: '', body: '' };
-    return { betreff: this.fuellePlatzhalter(v.betreff, ctx), body: this.fuellePlatzhalter(v.body, ctx) };
+    // {digital_hinweis}: Text aus den Einstellungen; ist er leer, verschwindet der Absatz
+    let body = v.body;
+    if (/\{digital_hinweis\}/.test(body) && !(ctx && ctx.digital_hinweis != null)) {
+      const h = this.digitalHinweis();
+      if (h) ctx = { ...(ctx || {}), digital_hinweis: h };
+      else body = body.replace(/\n*[ \t]*\{digital_hinweis\}[ \t]*\n*/g, '\n\n');
+    }
+    return { betreff: this.fuellePlatzhalter(v.betreff, ctx), body: this.fuellePlatzhalter(body, ctx) };
   },
   // Gemeinsame Absenderdaten für Vorlagen
   absenderCtx(prueferName) {
@@ -11207,6 +11325,13 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
       // 1.1 vorhanden, aber nicht unterschrieben: '' | 'ja' | 'nein' (= Unterschrift fehlt)
       if (!keCols.includes('p_1_1_unterschrift')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN p_1_1_unterschrift TEXT DEFAULT ''");
+      }
+      // Vorlage des Berichtshefts (Papier / digital / wird digital nachgereicht) + Notiz
+      if (!keCols.includes('heft_form')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_form TEXT DEFAULT ''");
+      }
+      if (!keCols.includes('heft_notiz')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_notiz TEXT DEFAULT ''");
       }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");

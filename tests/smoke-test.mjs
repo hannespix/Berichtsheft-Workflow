@@ -361,6 +361,62 @@ for (const call of ['BerichteHandler.datenqualitaet()','BerichteHandler.zulassun
   check(errors.length === before, 'Namenssuche ohne Konsolenfehler');
 }
 
+// ── Berichtsheft digital: Spalte „Heft · Notiz“ in der Übersicht, Einzelansicht, Abschluss-Dialog ──
+console.log('\n══ Berichtsheft digital vorgelegt / nachgereicht ══');
+{
+  const before = errors.length;
+  const r = await page.evaluate(async () => {
+    const warte = (ms) => new Promise(z => setTimeout(z, ms));
+    App.closeModal(); await warte(300);
+    // der geplante Termin mit den meisten Azubis (frühere Blöcke legen Einzeltermine an)
+    const t = App.query("SELECT id FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')=''")
+      .map(x => ({ id: x.id, n: App.getTerminSchueler(x.id).length })).sort((a, b) => b.n - a.n)[0];
+    if (!t || t.n < 2) return null;
+    App.navigate('kontrolle'); await warte(300);
+    if (!KontrolleHandler.activePruefer) KontrolleHandler.activePruefer = App.currentUser || App.query('SELECT name FROM pruefer WHERE aktiv=1 LIMIT 1')[0].name;
+    KontrolleHandler.loadTermin(t.id); await warte(600);
+    KontrolleHandler._viewMode = 'uebersicht'; KontrolleHandler.renderUebersicht(); await warte(200);
+    const auswahl = [...document.querySelectorAll('.ueb-heft')], notizen = [...document.querySelectorAll('.ueb-notiz')];
+    const zeilen = document.querySelectorAll('.ueb-tabelle tbody tr[data-sid]').length;
+    if (auswahl.length < 2) return { zeilen, felder: auswahl.length };
+    const sid = parseInt(auswahl[0].dataset.sid);
+    KontrolleHandler.heftFormSetzen(sid, 'digital_offen'); await warte(200);
+    const feld = document.querySelector(`.ueb-notiz[data-sid="${sid}"]`);
+    feld.value = 'schickt PDF bis Freitag'; feld.dispatchEvent(new Event('change', { bubbles: true })); await warte(100);
+    const ke = App.query('SELECT heft_form, heft_notiz FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0];
+    const fortschritt = document.querySelector('.fortschritt .fs-text').textContent.replace(/\s+/g, ' ');
+    const sel = document.querySelector(`.ueb-heft[data-sid="${sid}"]`);
+    const zeile = sel.closest('tr');
+    const breite = { text: sel.scrollWidth, feld: sel.clientWidth };
+    // Einzelansicht zeigt dieselben Felder
+    KontrolleHandler.currentIndex = KontrolleHandler.currentSchuelerList.findIndex(x => x.id === sid);
+    KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.enterSchüler(); await warte(500);
+    const einzel = { form: document.getElementById('keHeftForm')?.value, notiz: document.getElementById('keHeftNotiz')?.value };
+    // Abschluss-Dialog nennt das Heft und schlägt die Wiedervorlage vor
+    KontrolleHandler._viewMode = 'uebersicht'; KontrolleHandler.renderUebersicht(); await warte(200);
+    KontrolleHandler.abschliessen(); await warte(400);
+    const wiz = document.getElementById('wizDigital');
+    const abschluss = { text: wiz ? wiz.textContent.replace(/\s+/g, ' ') : '', wv: !!document.getElementById('wizDigitalWV')?.checked, frist: document.getElementById('wizDigitalFrist')?.value || '' };
+    App.closeModal(); await warte(300);
+    // Ergebnis eintragen → Heft liegt digital vor
+    KontrolleHandler._markOK([sid]);
+    const danach = App.query('SELECT heft_form, ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0];
+    KontrolleHandler.renderUebersicht();
+    return { zeilen, felder: auswahl.length, notizFelder: notizen.length, ke, fortschritt, blau: /blue/.test(zeile.getAttribute('style') || ''), breite, einzel, abschluss, danach };
+  });
+  if (r && r.felder >= 2) {
+    check(r.felder === r.zeilen && r.notizFelder === r.zeilen, `Übersicht: je Azubi eine Auswahl „Heft“ und ein Notizfeld (${r.felder}/${r.zeilen})`);
+    check(r.ke.heft_form === 'digital_offen' && r.ke.heft_notiz === 'schickt PDF bis Freitag', '„Wird digital nachgereicht“ und Notiz werden gespeichert');
+    check(/davon 1 wird digital nachgereicht/.test(r.fortschritt) && r.blau, `Fortschrittszeile und Zeilenfarbe zeigen das nachzureichende Heft (${r.fortschritt.slice(-70)})`);
+    check(r.breite.text <= r.breite.feld + 1, `Längste Auswahl „wird digital nachgereicht“ ist nicht abgeschnitten (${r.breite.text}/${r.breite.feld})`);
+    check(r.einzel.form === 'digital_offen' && r.einzel.notiz === 'schickt PDF bis Freitag', 'Einzelansicht zeigt dieselbe Vorlage und Notiz');
+    check(/wird digital nachgereicht \(1\)/.test(r.abschluss.text) && /schickt PDF bis Freitag/.test(r.abschluss.text) && r.abschluss.wv && /^\d{4}-\d{2}-\d{2}$/.test(r.abschluss.frist), 'Abschluss-Dialog: Wiedervorlage mit Frist vorgeschlagen');
+    check(r.danach.ergebnis === 'in_ordnung' && r.danach.heft_form === 'digital', 'Ergebnis eingetragen → Vorlage springt auf „digital“');
+  } else check(true, 'Berichtsheft digital (kein passender Termin in den Demodaten – übersprungen)');
+  await page.waitForTimeout(300);
+  check(errors.length === before, 'Berichtsheft digital ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
