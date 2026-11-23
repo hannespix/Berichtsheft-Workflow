@@ -246,6 +246,7 @@ const AzubiSeite = {
     const el = document.getElementById('azTeil_kontrollen');
     if (!el) return;
     const rows = App.query(`SELECT ke.id, ke.kontrolltermin_id, ke.ergebnis, ke.anwesend, ke.geaendert_am, ke.zulassung_ap, ke.pruefungsausschuss,
+        COALESCE(ke.heft_form,'') AS heft_form, COALESCE(ke.heft_notiz,'') AS heft_notiz,
         kt.geplant_datum, kt.durchgefuehrt_datum, kt.status AS kt_status, kt.bemerkung AS kt_bemerkung, bs.name AS schule,
         (SELECT COUNT(*) FROM durchsicht_snapshots ds WHERE ds.kontrollergebnis_id=ke.id) AS snaps
       FROM kontrollergebnisse ke JOIN kontrolltermine kt ON ke.kontrolltermin_id=kt.id LEFT JOIN berufsschulen bs ON kt.berufsschule_id=bs.id
@@ -282,8 +283,8 @@ const AzubiSeite = {
     el.innerHTML = `<table class="data-table az-tabelle"><thead><tr><th>Datum</th><th>Termin</th><th>Ergebnis</th><th>Vermerke</th><th title="Archivierte Durchsichtsbögen (unveränderliche Momentaufnahmen vom Abschluss des Termins)">Archiv</th><th></th></tr></thead><tbody>
       ${geplantZeilen}
       ${rows.map(r => {
-        const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
-        const vermerke = [r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : ''].filter(Boolean).join(', ');
+        const erg = r.ergebnis ? `<span class="badge-status ${r.ergebnis === 'in_ordnung' ? 'badge-ok' : 'badge-open'}">${esc(this.ERGEBNIS[r.ergebnis] || r.ergebnis)}</span>` : r.heft_form === 'digital_offen' ? '<span class="badge-status badge-planned">wird digital nachgereicht</span>' : (r.anwesend === 0 ? '<span class="az-leer">abwesend</span>' : '<span class="az-leer">offen</span>');
+        const vermerke = [r.heft_form === 'digital' ? 'Heft digital vorgelegt' : '', r.zulassung_ap === 1 ? 'Berichtsheft-Voraussetzung erfüllt (§ 43)' : '', r.pruefungsausschuss === 1 ? 'Prüfungsausschuss' : '', r.heft_notiz ? 'Notiz: ' + esc(r.heft_notiz) : ''].filter(Boolean).join(', ');
         const archiv = r.snaps ? `<a href="#" onclick="StammdatenTab.showAzubiSnapshots(${s.id});return false" title="Archivierte Bögen ansehen, als PDF ausgeben oder löschen">${r.snaps} ${r.snaps === 1 ? 'Bogen' : 'Bögen'}</a>` : '<span class="az-leer">–</span>';
         const menue = App.menue('⋯', [
           { label: '▤ Durchsichtsbogen (PDF)', onclick: `PDFExport.generateSingle(${r.kontrolltermin_id},${s.id})`, title: 'Bogen mit dem aktuellen Stand' },

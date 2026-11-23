@@ -218,8 +218,23 @@ const Workflows = {
     if (!isDone) return 'betrieb_ankuendigung';
     const bewertet = (g.azubis || []).filter(a => a.ke?.ergebnis);
     if (bewertet.some(a => a.ke.ergebnis !== 'in_ordnung')) return 'betrieb_maengel';
-    if (!bewertet.length) return 'nachholung';
+    // Kein Azubi des Betriebs bewertet: Nachhol-Aufforderung (abwesend) – oder,
+    // wenn alle Offenen ihr Heft digital nachreichen, die Bitte um die PDF
+    if (!bewertet.length) return this._alleDigitalOffen(g.azubis) ? 'digital_nachreichen' : 'nachholung';
     return 'betrieb_ok';
+  },
+  _digitalOffen(a) { return !!(a && a.ke && !a.ke.ergebnis && a.ke.heft_form === 'digital_offen'); },
+  _alleDigitalOffen(azubis) {
+    const offen = (azubis || []).filter(a => !(a.ke && a.ke.ergebnis));
+    return offen.length > 0 && offen.every(a => this._digitalOffen(a));
+  },
+  // Frist in Nachhol-Schreiben: bei „digital nachreichen“ die Frist der offenen
+  // Wiedervorlage (aus dem Abschluss), sonst die Standardfrist der Art
+  _nachreichFrist(typ, azubis) {
+    if (typ !== 'digital_nachreichen' && typ !== 'azubi_digital_nachreichen') return formatDate(App.wvFrist('nachholung_abwesend'));
+    const ids = (azubis || []).map(a => a.ke && a.ke.id).filter(Boolean);
+    const fristen = ids.map(id => App.scalar("SELECT frist_datum FROM wiedervorlagen WHERE kontrollergebnis_id=? AND art='digital_nachreichen' AND status IN ('offen','ueberfaellig') AND frist_datum != '' ORDER BY id DESC LIMIT 1", [id])).filter(Boolean).sort();
+    return formatDate(fristen[0] || App.wvFrist('digital_nachreichen'));
   },
   // Vorlage für eine E-MAIL: wie App.renderVorlage, der Schlussblock weicht der
   // E-Mail-Signatur des Prüfers, wenn eine hinterlegt ist (App.mitSignatur).
@@ -228,13 +243,13 @@ const Workflows = {
     const r = App.renderVorlage(typ, ctx);
     return { betreff: r.betreff, body: App.mitSignatur(r.body, ctx && ctx.pruefer) };
   },
-  _betriebVorlageLabel: { betrieb_ankuendigung: 'Ankündigung', betrieb_maengel: 'Mängelmitteilung', betrieb_ok: 'ohne Beanstandung', nachholung: 'Nachhol-Aufforderung (abwesend)' },
-  _azubiVorlageLabel: { azubi_ankuendigung: 'Ankündigung', azubi_maengel: 'Ergebnis mit Nacharbeit', azubi_ok: 'ohne Beanstandung', azubi_nachholung: 'Nachhol-Aufforderung (abwesend)' },
+  _betriebVorlageLabel: { betrieb_ankuendigung: 'Ankündigung', betrieb_maengel: 'Mängelmitteilung', betrieb_ok: 'ohne Beanstandung', nachholung: 'Nachhol-Aufforderung (abwesend)', digital_nachreichen: 'Berichtsheft digital nachreichen' },
+  _azubiVorlageLabel: { azubi_ankuendigung: 'Ankündigung', azubi_maengel: 'Ergebnis mit Nacharbeit', azubi_ok: 'ohne Beanstandung', azubi_nachholung: 'Nachhol-Aufforderung (abwesend)', azubi_digital_nachreichen: 'Berichtsheft digital nachreichen' },
   // ── Vorlage von Hand wählen (E-Mail-Arbeitsliste) ──────────────────────
   // Vorrang: Wahl in der Zeile → Wahl „für alle“ → automatisch nach Ergebnis.
   // Wählbar sind die Vorlagen, die mit den Angaben der Arbeitsliste gefüllt
   // werden können (BETRIEB_VORLAGEN bzw. deren Azubi-Fassungen).
-  BETRIEB_VORLAGEN: ['betrieb_ankuendigung', 'betrieb_maengel', 'betrieb_ok', 'nachholung'],
+  BETRIEB_VORLAGEN: ['betrieb_ankuendigung', 'betrieb_maengel', 'betrieb_ok', 'nachholung', 'digital_nachreichen'],
   _betriebVorlageFuer(idx) {
     const d = this._individualData; const g = d && d.betriebe[idx]; if (!g) return '';
     const hand = (d.vorlage && d.vorlage[idx]) || d.vorlageAlle || '';
@@ -289,6 +304,7 @@ const Workflows = {
     // Beratungsgespräch (§ 76 BBiG): Einladung statt Mahnung – auch überfällig
     if (art === 'beratung_betrieb') return 'beratung_betrieb';
     if (ueberfaellig) return 'wv_erinnerung';
+    if (art === 'digital_nachreichen') return 'digital_nachreichen';
     return art.startsWith('nachholung') ? 'nachholung' : 'wv_mahnung';
   },
   // Versandnachweis an der Wiedervorlage: Datum/Art des Anschreibens,
@@ -302,7 +318,7 @@ const Workflows = {
     const stufeNeu = erinnerung ? stufeAlt + 1 : Math.max(stufeAlt, 1);
     App.run(`UPDATE wiedervorlagen SET versand_datum=?, versand_art=?, mahnstufe=${stufeNeu}, geaendert_am=datetime('now','localtime') WHERE id=?`,
       [todayStr(), art || 'email', wvId]);
-    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : typ === 'beratung_betrieb' ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : 'Mängelmitteilung';
+    const was = erinnerung ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : typ === 'digital_nachreichen' ? 'Bitte um digitale Vorlage' : typ === 'beratung_betrieb' ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : 'Mängelmitteilung';
     App.run("INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)",
       [wvId, `${was} per ${art === 'email' ? 'E-Mail' : (art || 'Brief')} versendet${zusatz ? ', ' + zusatz : ''}`, (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '']);
   },
@@ -316,6 +332,7 @@ const Workflows = {
     return azubis.map(a => {
       let line = '  - ' + a.nachname + ', ' + a.vorname;
       if (mitErgebnis && a.ke?.ergebnis) line += ': ' + (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis);
+      else if (mitErgebnis && this._digitalOffen(a)) line += ': Berichtsheft lag nicht vor – wird digital nachgereicht';
       else if (mitErgebnis && a.ke && a.ke.anwesend === 0) line += ': am Kontrolltag nicht anwesend – Berichtsheft bitte nachreichen';
       if (mitErgebnis) this._nachzuholen(a).forEach(z => { line += '\n    → ' + z; });
       // Eigene Bemerkung des Prüfers (ohne die automatischen Code-Zeilen, die
@@ -707,7 +724,7 @@ const Workflows = {
     }));
     return out;
   },
-  AZUBI_VORLAGE: { betrieb_ankuendigung: 'azubi_ankuendigung', betrieb_maengel: 'azubi_maengel', betrieb_ok: 'azubi_ok', nachholung: 'azubi_nachholung' },
+  AZUBI_VORLAGE: { betrieb_ankuendigung: 'azubi_ankuendigung', betrieb_maengel: 'azubi_maengel', betrieb_ok: 'azubi_ok', nachholung: 'azubi_nachholung', digital_nachreichen: 'azubi_digital_nachreichen' },
   // Satz „der Betrieb ist ebenfalls informiert“ – ohne die Angaben anderer Azubis
   _azubiBetriebHinweis(g, isDone) {
     const name = String((g && g.name) || '').trim();
@@ -733,7 +750,7 @@ const Workflows = {
       bemerkung_block: bem.length ? bem.map((z, i) => (i === 0 ? 'Bemerkung: ' : '           ') + z).join('\n') : '',
       bogen_hinweis: hatBogen ? 'Den Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang.' : '',
       betrieb_hinweis: this._azubiBetriebHinweis(g, d.isDone),
-      frist: formatDate(App.wvFrist('nachholung_abwesend')) });
+      frist: this._nachreichFrist(typ, [a]) });
     let { betreff, body } = this._mailVorlage(typ, ctx);
     // Leere Bausteine (keine Bemerkung, kein Bogen) hinterlassen keine Lücken
     body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
@@ -764,11 +781,11 @@ const Workflows = {
   // (Mängelmitteilung / Nachhol-Aufforderung nach der Kontrolle)
   _betriebVersandVermerken(m, zusatz) {
     const d = this._individualData; if (!d || !d.isDone) return;
-    if (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung') return;
+    if (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung' && m.typ !== 'digital_nachreichen') return;
     m.g.azubis.forEach(a => {
       if (!a.ke) return;
       App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [a.ke.id])
-        .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung', zusatz));
+        .forEach(w => this.versandVermerken(w.id, 'email', m.typ === 'nachholung' || m.typ === 'digital_nachreichen' ? m.typ : 'wv_mahnung', zusatz));
     });
   },
   _betriebMailListeHtml() {
@@ -844,7 +861,7 @@ const Workflows = {
       azubi_block: this._azubiBlock(g.azubis, d.isDone),
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(App.wvFrist('nachholung_abwesend')) });
+      frist: this._nachreichFrist(typ, g.azubis) });
     let { betreff, body } = this._mailVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
     if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
@@ -1057,7 +1074,7 @@ const Workflows = {
       azubi_block: this._azubiBlock(g.azubis, isDone),
       hinweis: this._betriebHinweis(isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
-      frist: formatDate(App.wvFrist('nachholung_abwesend')),
+      frist: this._nachreichFrist(typ, g.azubis),
       rp_adresse: '', rp_name: '' }));
     // Helvetica in jsPDF kennt keine Pfeile/Häkchen – die Zeilen der Vorlage
     // (→ aus dem Mängel-Block) sonst als „!'“ gedruckt
@@ -1066,10 +1083,11 @@ const Workflows = {
     const uebersicht = isDone ? g.azubis.filter(a => a.ke).map(a => {
       const ke = a.ke;
       const wv = App.query("SELECT frist_datum, status FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1", [ke.id])[0];
-      let ergebnis = ke.ergebnis ? (this._eLbl[ke.ergebnis] || ke.ergebnis) : (ke.anwesend === 0 ? 'nicht anwesend – Berichtsheft nachreichen' : 'nicht bewertet');
+      let ergebnis = ke.ergebnis ? (this._eLbl[ke.ergebnis] || ke.ergebnis) : this._digitalOffen(a) ? 'wird digital nachgereicht' : (ke.anwesend === 0 ? 'nicht anwesend – Berichtsheft nachreichen' : 'nicht bewertet');
       let frist = '–';
       if (wv && wv.frist_datum) frist = formatDate(wv.frist_datum);
       else if (ke.ergebnis && ke.ergebnis !== 'in_ordnung') frist = 'nächste Durchsicht';
+      else if (this._digitalOffen(a)) frist = this._nachreichFrist('digital_nachreichen', [a]);
       else if (!ke.ergebnis && ke.anwesend === 0) frist = formatDate(App.wvFrist('nachholung_abwesend'));
       return [`${a.nachname}, ${a.vorname}`, ergebnis, frist, String(ke.fehltage_gesamt || 0)];
     }) : [];
@@ -1307,7 +1325,7 @@ const Workflows = {
     const to = w.b_email || '';
     const istBeratung = typ === 'beratung_betrieb';
     window._pendingEmail = { to, subject: betreff, body, wvId, typ, fristNeu: ueberfaellig && !istBeratung ? fristNeu : null };
-    App.openModal(`✉︎ ${istBeratung ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
+    App.openModal(`✉︎ ${istBeratung ? 'Einladung zum Beratungsgespräch (§ 76 BBiG)' : ueberfaellig ? 'Erinnerung' : typ === 'nachholung' ? 'Nachhol-Aufforderung' : typ === 'digital_nachreichen' ? 'Berichtsheft digital nachreichen' : 'Mängelmitteilung'} an Betrieb (Wiedervorlage)`, `
       <div style="font-size:13px">
         <div><strong>An:</strong> ${to ? esc(to) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt!</span>'}</div>
         <div><strong>Betrieb:</strong> ${esc(w.b_name || w.ausbildungsstaette)} · <strong>Azubi:</strong> ${esc(w.nachname)}, ${esc(w.vorname)}</div>
@@ -1363,14 +1381,16 @@ const Workflows = {
   },
 
   // ── D) Nachhol-Aufforderung an Betriebe (am Kontrolltag abwesende Azubis) ──
-  emailNachholung(terminId, schuelerIds, frist) {
+  // typ 'digital_nachreichen': dieselbe Liste für Azubis, deren Heft digital nachgereicht wird
+  emailNachholung(terminId, schuelerIds, frist, typ) {
     const t = this._ctxTermin(terminId);
     if (!t) return;
+    const digital = typ === 'digital_nachreichen';
     const ids = new Set(schuelerIds || []);
     const { betriebe } = this._betriebeDesTermins(terminId, false);
     const betroffen = betriebe.map(g => ({ ...g, azubis: g.azubis.filter(a => ids.has(a.id)) })).filter(g => g.azubis.length);
-    if (!betroffen.length) return App.toast('Keine abwesenden Azubis', 'info');
-    const fristTxt = formatDate(frist || App.wvFrist('nachholung_abwesend'));
+    if (!betroffen.length) return App.toast(digital ? 'Keine Azubis, die ihr Berichtsheft digital nachreichen' : 'Keine abwesenden Azubis', 'info');
+    const fristTxt = formatDate(frist || App.wvFrist(digital ? 'digital_nachreichen' : 'nachholung_abwesend'));
     this._individualData = null;
     let listHtml = '';
     betroffen.forEach((g, idx) => {
@@ -1379,9 +1399,11 @@ const Workflows = {
         ${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._nachholungMail(${idx})">✉︎ Senden</button>` : `<button class="btn btn-sm btn-secondary" style="font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._nachholung.betroffen[${idx}].key })">✎ Brief</button>`}
       </div>`;
     });
-    this._nachholung = { t, betroffen, fristTxt };
-    App.openModal(`Nachhol-Aufforderung – ${betroffen.length} Betrieb(e)`, `
-      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">Abwesende Azubis vom ${t.ctx.datum}: Betriebe werden gebeten, das Berichtsheft bis <strong>${esc(fristTxt)}</strong> vorzulegen (Vorlage „Nachhol-Aufforderung").</div>
+    this._nachholung = { t, betroffen, fristTxt, typ: digital ? 'digital_nachreichen' : 'nachholung' };
+    App.openModal(`${digital ? 'Berichtsheft digital nachreichen' : 'Nachhol-Aufforderung'} – ${betroffen.length} Betrieb(e)`, `
+      <div style="font-size:12px;color:var(--clr-text-light);margin-bottom:8px">${digital
+        ? `Berichtshefte, die am ${t.ctx.datum} nicht vorlagen und digital nachgereicht werden: Die Betriebe werden gebeten, das Heft bis <strong>${esc(fristTxt)}</strong> als PDF an ${esc(App.antwortEmail() || 'das Postfach der Ausbildungsberatung')} zu senden (Vorlage „Berichtsheft digital nachreichen"). Eigene E-Mails an die Azubis: Termin → Nachbereitung → E-Mails an Betriebe.`
+        : `Abwesende Azubis vom ${t.ctx.datum}: Betriebe werden gebeten, das Berichtsheft bis <strong>${esc(fristTxt)}</strong> vorzulegen (Vorlage „Nachhol-Aufforderung").`}</div>
       ${listHtml}`, `<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>`);
   },
   _nachholungMail(idx) {
@@ -1389,7 +1411,7 @@ const Workflows = {
     const g = n.betroffen[idx];
     const ctx = this._antwortCtx({ ...n.t.ctx, anrede: this._anrede(g.ap), azubi_block: this._azubiBlock(g.azubis, false),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '), frist: n.fristTxt });
-    const { betreff, body } = this._mailVorlage('nachholung', ctx);
+    const { betreff, body } = this._mailVorlage(n.typ || 'nachholung', ctx);
     this.openMailto(g.email, betreff, body);
   },
 

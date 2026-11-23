@@ -225,10 +225,10 @@ const BriefEditor = {
   },
   // Versandnachweis an den offenen Wiedervorlagen (Mängel/Nachholung)
   _versandVermerken(m) {
-    if (!m || !m.isDone || (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung')) return;
+    if (!m || !m.isDone || (m.typ !== 'betrieb_maengel' && m.typ !== 'nachholung' && m.typ !== 'digital_nachreichen')) return;
     (m.keIds || []).forEach(keId => {
       App.query("SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [keId])
-        .forEach(w => Workflows.versandVermerken(w.id, 'email', m.typ === 'nachholung' ? 'nachholung' : 'wv_mahnung', 'Brief-Editor: Entwurf (.eml) erzeugt'));
+        .forEach(w => Workflows.versandVermerken(w.id, 'email', m.typ === 'nachholung' || m.typ === 'digital_nachreichen' ? m.typ : 'wv_mahnung', 'Brief-Editor: Entwurf (.eml) erzeugt'));
     });
   },
 

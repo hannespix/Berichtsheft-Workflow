@@ -59,7 +59,7 @@ console.log('\n══ Verhalten mit Daten ══');
   const SQL = await initSqlJs({ locateFile: f => path.join(ROOT, 'libs', f) });
   const db = new SQL.Database();
   db.run(`CREATE TABLE kontrolltermine (id INTEGER PRIMARY KEY, geplant_datum TEXT, status TEXT DEFAULT 'geplant', typ TEXT DEFAULT 'schulkontrolle', pruefer TEXT DEFAULT '', bemerkung TEXT DEFAULT '', angefragt_am TEXT DEFAULT '', angefragt_von TEXT DEFAULT '', bestaetigt_am TEXT DEFAULT '', nachbereitet_am TEXT DEFAULT '', durchgefuehrt_datum TEXT DEFAULT '', berufsschule_id INTEGER, ort TEXT DEFAULT '');
-    CREATE TABLE kontrollergebnisse (id INTEGER PRIMARY KEY, kontrolltermin_id INTEGER, schueler_id INTEGER, anwesend INTEGER DEFAULT 1, ergebnis TEXT DEFAULT '');
+    CREATE TABLE kontrollergebnisse (id INTEGER PRIMARY KEY, kontrolltermin_id INTEGER, schueler_id INTEGER, anwesend INTEGER DEFAULT 1, ergebnis TEXT DEFAULT '', heft_form TEXT DEFAULT '', heft_notiz TEXT DEFAULT '');
     CREATE TABLE wiedervorlagen (id INTEGER PRIMARY KEY, kontrollergebnis_id INTEGER, schueler_id INTEGER, art TEXT, frist_datum TEXT, status TEXT);
     CREATE TABLE schueler (id INTEGER PRIMARY KEY, nachname TEXT, vorname TEXT, zustaendiges_amt TEXT DEFAULT '93', betrieb_id INTEGER);
     INSERT INTO kontrolltermine (id, geplant_datum) VALUES (1, '2099-01-10');
@@ -86,6 +86,15 @@ console.log('\n══ Verhalten mit Daten ══');
   const s2 = T.stand(t(2));
   check(s2.phase === 'nachbereitung' && s2.bewertet === 2 && s2.ok === 1 && s2.maengel === 1 && s2.abwesend === 1 && s2.offen === 0 && s2.wvOffen === 1 && s2.mitMail === 1, 'Abgeschlossener Termin → Nachbereitung; Zahlen: 2 bewertet, 1 in Ordnung, 1 beanstandet, 1 abwesend, 1 offene WV, 1 Betrieb mit E-Mail');
   check(T.stand(t(3)).phase === 'export', 'Nachbereiteter Termin → Bögen & Export');
+  // Vorlage des Hefts: digital vorgelegt / wird digital nachgereicht
+  check(s2.digital === 0 && s2.digitalOffen.length === 0, 'Ohne digitale Vorlage: keine Zahlen, keine Zeile „Digital nachzureichen“');
+  db.run("UPDATE kontrollergebnisse SET heft_form='digital' WHERE id=1; UPDATE kontrollergebnisse SET heft_form='digital_offen', heft_notiz='schickt PDF' WHERE id=3;");
+  const s2d = T.stand(t(2));
+  check(s2d.digital === 1 && s2d.digitalOffen.length === 1 && s2d.digitalOffen[0].id === 3 && s2d.digitalOffen[0].notiz === 'schickt PDF' && s2d.abwesend === 0 && s2d.offen === 1, 'Digital: 1 digital vorgelegt, 1 wird digital nachgereicht (zählt als offen, nicht als abwesend)');
+  check(/davon 1 wird digital nachgereicht/.test(T._durchsicht(t(2), s2d)) && /1 digital vorgelegt/.test(T._durchsicht(t(2), s2d)), 'Durchsicht-Phase nennt die digitalen Hefte');
+  const nb = T._nachbereitung(t(2), s2d);
+  check(/Digital nachzureichen/.test(nb) && /Workflows\.emailNachholung\(2, \[3\], null, 'digital_nachreichen'\)/.test(nb) && /schickt PDF/.test(nb), 'Nachbereitung: Zeile „Digital nachzureichen“ mit Namen, Notiz und „Betriebe bitten“');
+  db.run("UPDATE kontrollergebnisse SET heft_form='', heft_notiz='' WHERE id IN (1,3);");
   check(/2 von 3 bewertet/.test(T._standText('durchsicht', t(2), s2)) && /1 offene Wiedervorlage$/.test(T._standText('nachbereitung', t(2), s2)) && T._standText('nachbereitung', t(3), T.stand(t(3))) === 'nachbereitet 20.01.2020' && T._standText('vorbereitung', t(1), T.stand(t(1))) === 'noch nicht angefragt', 'Standzeilen nennen Zahlen und Daten');
 }
 

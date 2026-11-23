@@ -392,8 +392,8 @@ const KontrolleHandler = {
   //  Rechner – daran hängt „Mein Bereich #von–bis“. Gruppierung und Sortierung
   //  sind je Person gemerkt und bestimmen Anzeige, Druckliste und „Weiter“.
   // ═══════════════════════════════════════════
-  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Stand der Durchsicht']],
-  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
+  UEB_GRUPPEN: [['', 'keine'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['fachklasse', 'Jahrgang · Fachrichtung'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['heft', 'Vorlage des Hefts'], ['stand', 'Stand der Durchsicht']],
+  UEB_SORT: [['nr', 'Nummer (#)'], ['name', 'Name'], ['klasse', 'Klasse'], ['fachrichtung', 'Fachrichtung'], ['lehrjahr', 'Lehrjahr'], ['betrieb', 'Betrieb'], ['amt', 'Zuständiges Amt'], ['heft', 'Vorlage des Hefts'], ['stand', 'Ergebnis'], ['fehltage', 'Fehltage']],
   UEB_STAND: ['Offen', 'Beanstandet', 'In Ordnung', 'Abwesend'],
   UEB_OHNE: { klasse: 'Ohne Klasse', fachrichtung: 'Ohne Fachrichtung', lehrjahr: 'Ohne Lehrjahr', fachklasse: 'Ohne Zuordnung', betrieb: 'Ohne Betrieb', amt: 'Ohne zuständiges Amt' },
   uebOrdnung() {
@@ -423,7 +423,7 @@ const KontrolleHandler = {
     const fr = {}, klassen = {}, ke = {};
     App.query('SELECT id, bezeichnung, typ FROM fachrichtungen').forEach(f => { fr[f.id] = (f.typ === 'Fachwerker' ? 'FW: ' : '') + f.bezeichnung; });
     App.query('SELECT id, klassenbezeichnung FROM klassen').forEach(k => { klassen[k.id] = k.klassenbezeichnung || ''; });
-    App.query('SELECT schueler_id, ergebnis, anwesend FROM kontrollergebnisse WHERE kontrolltermin_id=?', [terminId]).forEach(k => { ke[k.schueler_id] = k; });
+    App.query("SELECT schueler_id, ergebnis, anwesend, COALESCE(heft_form,'') AS heft_form FROM kontrollergebnisse WHERE kontrolltermin_id=?", [terminId]).forEach(k => { ke[k.schueler_id] = k; });
     const t = App.query('SELECT geplant_datum, durchgefuehrt_datum, typ FROM kontrolltermine WHERE id=?', [terminId])[0] || {};
     return { fr, klassen, ke, datum: t.durchgefuehrt_datum || t.geplant_datum || null, einsendung: t.typ === 'einsendung' };
   },
@@ -445,6 +445,8 @@ const KontrolleHandler = {
       betrieb: String(s.ausbildungsstaette || '').trim(),
       amt: amtCode ? App.amtLabel(amtCode) : '', eigenesAmt: !!amtCode && amtCode === App.EIGENES_AMT,
       standNr: ergebnis ? (ergebnis === 'in_ordnung' ? 2 : 1) : (anwesend ? 0 : 3),
+      // Vorlage des Hefts: Papier · digital vorgelegt · wird digital nachgereicht
+      heft: App.heftFormLabel(ke && ke.heft_form, true), heftForm: App.heftForm(ke && ke.heft_form),
       fehltage: fehltage == null ? 0 : fehltage,
     };
   },
@@ -528,8 +530,13 @@ const KontrolleHandler = {
     if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(ev.key)) return;
     // Pfeiltasten gehören bei offener Vorschlagsliste dem Browser – nur ohne Vorschläge springen
     ev.preventDefault();
-    if (el.value !== el.defaultValue) { this.klasseSetzen(parseInt(el.dataset.sid), el.value, el); el.defaultValue = el.value; }
-    const alle = [...document.querySelectorAll('.ueb-klasse')];
+    // dieselbe Bedienung für das Notizfeld (Vorlage des Hefts)
+    const notiz = !!(el.classList && el.classList.contains('ueb-notiz'));
+    if (el.value !== el.defaultValue) {
+      if (notiz) this.heftNotizSetzen(parseInt(el.dataset.sid), el.value, el); else this.klasseSetzen(parseInt(el.dataset.sid), el.value, el);
+      el.defaultValue = el.value;
+    }
+    const alle = [...document.querySelectorAll(notiz ? '.ueb-notiz' : '.ueb-klasse')];
     const ziel = alle[alle.indexOf(el) + (ev.key === 'ArrowUp' ? -1 : 1)];
     if (ziel) { ziel.focus(); ziel.select && ziel.select(); }
   },
@@ -543,6 +550,35 @@ const KontrolleHandler = {
       const o = this.uebOrdnung();
       if ((o.gruppe === 'klasse' || o.sort === 'klasse') && this._viewMode === 'uebersicht') this.renderUebersicht();
     }, 150);
+  },
+
+  // ── Vorlage des Berichtshefts (Papier · digital · wird digital nachgereicht) und Notiz ──
+  heftFormSetzen(sid, wert) {
+    if (!this.currentTerminId) return;
+    const w = App.heftForm(wert);
+    const n = App.setHeftForm(this.currentTerminId, [sid], w, this.activePruefer || '');
+    if (n && w === 'digital_offen') App.toast('Wird digital nachgereicht – beim Abschließen des Termins entsteht dazu eine Wiedervorlage mit Frist', 'info');
+    if (this._viewMode === 'uebersicht') this.renderUebersicht();
+  },
+  heftNotizSetzen(sid, text, el) {
+    if (!this.currentTerminId) return;
+    const t = App.heftNotizNormal(text);
+    App.setHeftNotiz(this.currentTerminId, sid, t);
+    if (el) { el.value = t; el.title = t; el.defaultValue = t; }
+  },
+  uebHeftAuswahl(wert) {
+    const ids = this._uebAuswahlIds();
+    if (!ids.length || !wert) return;
+    const w = App.heftForm(wert === 'papier' ? '' : wert);
+    const n = App.setHeftForm(this.currentTerminId, ids, w, this.activePruefer || '');
+    App.toast(`Vorlage „${App.heftFormLabel(w, true)}“ für ${ids.length} Azubi${ids.length === 1 ? '' : 's'} eingetragen${n < ids.length ? ` (${ids.length - n} hatten sie schon)` : ''}`, 'success');
+    this.renderUebersicht();
+  },
+  // Ein Ergebnis heißt: das Heft lag vor – „wird digital nachgereicht“ wird zu „digital“
+  _heftEingegangen(ke) {
+    if (!ke || ke.heft_form !== 'digital_offen') return false;
+    App.run("UPDATE kontrollergebnisse SET heft_form='digital' WHERE id=?", [ke.id]);
+    return true;
   },
 
   // ── Auswahl und Sammelaktionen ──
@@ -605,6 +641,7 @@ const KontrolleHandler = {
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(true)">✓ ${einsendung ? 'Heft da' : 'anwesend'}</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebAnwesendAuswahl(false)">✗ ${einsendung ? 'Heft fehlt' : 'abwesend'}</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebOkAuswahl()" title="Ausgewählte anwesende Azubis ohne Ergebnis auf „In Ordnung“ setzen">✓ In Ordnung</button>
+      <select id="uebHeftSammel" class="form-control ueb-sl-heft" onchange="KontrolleHandler.uebHeftAuswahl(this.value)" aria-label="Vorlage des Berichtshefts für die ausgewählten Azubis setzen" title="Vorlage des Berichtshefts für alle ausgewählten Azubis eintragen"><option value="">Heft …</option><option value="papier">Papier</option><option value="digital">digital vorgelegt</option><option value="digital_offen">wird digital nachgereicht</option></select>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebTerminZuweisenDialog()" title="Ausgewählte Azubis einem anderen Termin zuweisen – einem bestehenden oder einem neuen (z. B. Nachholtermin, Einzeltermin)">→ Termin zuweisen</button>
       <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebExcelAuswahl()" title="Ergebnisliste nur der ausgewählten Azubis als Excel-Datei">⬇ Excel</button>
       <button class="btn btn-sm btn-secondary sl-x" onclick="KontrolleHandler.uebAuswahlLeeren()">Auswahl aufheben</button>`;
@@ -882,7 +919,7 @@ const KontrolleHandler = {
     }
     // Count stats
     const linkedKlassenIds = new Set(App.getTerminKlassenIds(terminId));
-    let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0;
+    let anwCount = 0, doneCount = 0, okCount = 0, mangelCount = 0, paCount = 0, zulCount = 0, autoZulCount = 0, digitalCount = 0, digitalOffenCount = 0;
     // Hersendung (Einsendung): „Anwesend" = Berichtsheft eingegangen; fehlende Hefte → Erinnerung an die Betriebe
     const istEinsendung = termin && termin.typ === 'einsendung';
     const fehlendeHefte = schueler.filter(s => { const ke = alleKE[s.id]; return ke && ke.anwesend === 0 && !ke.ergebnis && !App.istFremdesAmt(s); }).map(s => s.id);
@@ -914,8 +951,16 @@ const KontrolleHandler = {
            prev.bescheinigungen_anzahl || 0,
            prev.f_1_2_vertragliche_regelungen || '',
            prev.f_1_6_ausbildungsbetrieb || '']);
+        // Wer sein Heft zuletzt digital vorgelegt hat, steht gleich auf „digital“
+        // (eigene Anweisung: ältere Programmstände überspringen nur sie)
+        if (prev.heft_form === 'digital' || prev.heft_form === 'digital_offen') {
+          App.run("UPDATE kontrollergebnisse SET heft_form='digital' WHERE kontrolltermin_id=? AND schueler_id=? AND COALESCE(heft_form,'')=''", [terminId, s.id]);
+        }
         ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0];
       }
+      const heft = App.heftForm(ke.heft_form);
+      if (heft === 'digital') digitalCount++;
+      if (heft === 'digital_offen' && !(ke.ergebnis && ke.ergebnis !== '')) digitalOffenCount++;
       const isAnw = ke.anwesend !== 0;
       const isDone = ke.ergebnis && ke.ergebnis !== '';
       const isOK = ke.ergebnis === 'in_ordnung';
@@ -962,7 +1007,7 @@ const KontrolleHandler = {
       const w = this._uebWert(s, i, ke, uebCtx, fehlGesamt);
       werte.push(w);
       const nameLang = `${esc(s.nachname)}, ${esc(s.vorname)}`;
-      return `<tr data-sid="${s.id}" class="${gewaehlt.has(s.id) ? 'ueb-gewaehlt' : ''}" style="${isPA ? 'background:var(--clr-red-light) !important;border-left:4px solid var(--clr-red)' : !isAnw ? 'opacity:0.5;background:var(--clr-warm)' : isDone && !isOK ? 'background:var(--clr-red-light)' : isDone && isOK ? 'background:var(--clr-green-light)' : ''}">
+      return `<tr data-sid="${s.id}" class="${gewaehlt.has(s.id) ? 'ueb-gewaehlt' : ''}" style="${isPA ? 'background:var(--clr-red-light) !important;border-left:4px solid var(--clr-red)' : !isAnw ? 'opacity:0.5;background:var(--clr-warm)' : isDone && !isOK ? 'background:var(--clr-red-light)' : isDone && isOK ? 'background:var(--clr-green-light)' : heft === 'digital_offen' ? 'background:var(--clr-blue-light)' : ''}">
         <td class="ueb-nr"><label title="Für Sammelaktionen auswählen (Umschalt+Klick: Bereich)"><input type="checkbox" class="ueb-chk" data-sid="${s.id}" ${gewaehlt.has(s.id) ? 'checked' : ''} onclick="KontrolleHandler.uebWaehlen(${s.id}, this.checked, event)" aria-label="Auswählen: ${nameLang}"> ${i+1}</label></td>
         <td data-sort="${esc(s.nachname)}, ${esc(s.vorname)}">
           <strong>${esc(s.nachname)}</strong>, ${esc(s.vorname)}
@@ -979,6 +1024,12 @@ const KontrolleHandler = {
         </td>
         <td style="text-align:center">
           <input type="checkbox" ${isAnw ? 'checked' : ''} onchange="KontrolleHandler.quickToggleAnwesend(${s.id}, this.checked)" style="width:18px;height:18px;accent-color:var(--clr-forest)" aria-label="${istEinsendung ? 'Heft eingegangen' : 'Anwesend'}: ${esc(s.nachname)}, ${esc(s.vorname)}">
+        </td>
+        <td class="ueb-heft-zelle" data-sort="${esc(w.heft)}">
+          <select class="form-control ueb-heft${heft ? ' ueb-heft--' + heft : ''}" data-sid="${s.id}" onchange="KontrolleHandler.heftFormSetzen(${s.id}, this.value)" aria-label="Vorlage des Berichtshefts: ${nameLang}" title="Wie wurde das Berichtsheft vorgelegt? Papier · digital (Gerät am Termin oder PDF per E-Mail) · wird digital nachgereicht (Wiedervorlage beim Abschließen)">${App.HEFT_FORMEN.map(([k, l]) => `<option value="${k}" ${heft === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <input type="text" class="form-control ueb-notiz" maxlength="${App.HEFT_NOTIZ_MAX}" value="${esc(ke.heft_notiz || '')}" data-sid="${s.id}" placeholder="Notiz" autocomplete="off" title="${esc(ke.heft_notiz || 'Kurze interne Notiz – steht nicht auf dem Bogen und geht nicht an den Betrieb')}"
+            onchange="KontrolleHandler.heftNotizSetzen(${s.id}, this.value, this)" onkeydown="KontrolleHandler.uebKlasseTaste(event, this)"
+            aria-label="Notiz zur Durchsicht: ${nameLang}">
         </td>
         <td data-sort="${ke.ergebnis || ''}">
           ${isDone ? `<span class="badge-status ${isOK ? 'badge-ok' : 'badge-open'}" style="font-size:12px">${ergebnisLabels[ke.ergebnis]||ke.ergebnis}</span>`
@@ -1004,7 +1055,7 @@ const KontrolleHandler = {
     // feste Grundreihenfolge – „Mein Bereich #von–bis“ gilt für alle Rechner gleich.
     const gruppen = this._uebGruppenAus(werte, ordnung, uebCtx);
     this._uebFolge = gruppen.flatMap(g => g.indizes);
-    const SPALTEN = 8;
+    const SPALTEN = 9;
     const tableRows = gruppen.map(g => {
       const kopf = ordnung.gruppe ? (() => {
         const ids = g.indizes.map(i => schueler[i].id);
@@ -1045,7 +1096,7 @@ const KontrolleHandler = {
         <!-- Fortschritt mit Beschriftung (ersetzt die Zähl-Chips) + Umschalter -->
         <div class="fortschritt">
           <div class="fs-kopf">
-            <div class="fs-text"><strong>${doneCount} von ${nenner}</strong> ${istEinsendung ? 'eingegangenen Heften' : 'anwesenden Azubis'} bewertet (${pctDone} %) · <span class="fs-ok">✓ ${okCount} in Ordnung</span> · <span class="${mangelCount ? 'fs-mangel' : ''}">✗ ${mangelCount} beanstandet</span> · <strong>${offen} offen</strong>${abwesend ? ` · ${abwesend} ${istEinsendung ? 'Heft(e) fehlen' : 'abwesend'}` : ''}${zulCount ? ` · ${zulCount} Voraussetzung erfüllt` : ''}${paCount ? ` · <span class="fs-mangel">⚠︎ ${paCount} Prüfungsausschuss</span>` : ''}${cockpit ? `<div class="fs-cockpit" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">${cockpit}</div>` : ''}</div>
+            <div class="fs-text"><strong>${doneCount} von ${nenner}</strong> ${istEinsendung ? 'eingegangenen Heften' : 'anwesenden Azubis'} bewertet (${pctDone} %) · <span class="fs-ok">✓ ${okCount} in Ordnung</span> · <span class="${mangelCount ? 'fs-mangel' : ''}">✗ ${mangelCount} beanstandet</span> · <strong>${offen} offen</strong>${digitalOffenCount ? ` <span class="fs-digital">(davon ${digitalOffenCount} ${digitalOffenCount === 1 ? 'wird' : 'werden'} digital nachgereicht)</span>` : ''}${digitalCount ? ` · ${digitalCount} digital vorgelegt` : ''}${abwesend ? ` · ${abwesend} ${istEinsendung ? 'Heft(e) fehlen' : 'abwesend'}` : ''}${zulCount ? ` · ${zulCount} Voraussetzung erfüllt` : ''}${paCount ? ` · <span class="fs-mangel">⚠︎ ${paCount} Prüfungsausschuss</span>` : ''}${cockpit ? `<div class="fs-cockpit" title="Aus den Zeitpunkten der heutigen Ergebnisse berechnet">${cockpit}</div>` : ''}</div>
             <div class="seg" role="group" aria-label="Ansicht der Durchsicht">
               <button class="seg-btn active" onclick="KontrolleHandler._viewMode='uebersicht';KontrolleHandler.renderUebersicht()">Übersicht</button>
               <button class="seg-btn" onclick="KontrolleHandler._viewMode='einzeln';KontrolleHandler.enterSchüler()">Einzelansicht</button>
@@ -1062,11 +1113,11 @@ const KontrolleHandler = {
           <label>Gruppieren <select id="uebGruppe" class="form-control" onchange="KontrolleHandler.uebGruppeSetzen(this.value)">${this.UEB_GRUPPEN.map(([k, l]) => `<option value="${k}" ${ordnung.gruppe === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label>Sortieren <select id="uebSort" class="form-control" onchange="KontrolleHandler.uebSortSetzen(this.value)">${this.UEB_SORT.map(([k, l]) => `<option value="${k}" ${ordnung.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <button class="btn btn-sm btn-secondary" onclick="KontrolleHandler.uebSortRichtung()" title="Sortierrichtung umkehren" aria-label="Sortierrichtung umkehren (${ordnung.ab ? 'absteigend' : 'aufsteigend'})">${ordnung.ab ? '↓ absteigend' : '↑ aufsteigend'}</button>
-          <span class="ueb-leiste-hinweis">Klasse frei eintragen (Enter = nächste Zeile) · Häkchen vorne für Sammelaktionen · „Weiter“ in der Einzelansicht folgt dieser Reihenfolge</span>
+          <span class="ueb-leiste-hinweis">Klasse und Notiz frei eintragen (Enter = nächste Zeile) · Häkchen vorne für Sammelaktionen · „Weiter“ in der Einzelansicht folgt dieser Reihenfolge</span>
         </div>
         <datalist id="uebKlassenListe">${App.schulklassenVorschlaege(schueler).map(k => `<option value="${esc(k)}"></option>`).join('')}</datalist>
 
-        <!-- Tabelle: 8 Spalten -->
+        <!-- Tabelle: 9 Spalten -->
         <div style="overflow-x:auto">
           <table class="data-table ueb-tabelle" data-sort-eigen="1" data-kein-export>
             <thead><tr>
@@ -1074,6 +1125,7 @@ const KontrolleHandler = {
               <th>${this._uebSortKopf('name', 'Azubi', ordnung)}</th>
               <th style="width:104px" title="Klasse an der Berufsschule – frei eintragbar (z. B. G2a), wird beim Azubi gespeichert. Unabhängig von Fachrichtung und Jahrgang: drei GaLaBau-Klassen oder eine gemischte Produktionsgärtner-Klasse lassen sich so abbilden.">${this._uebSortKopf('klasse', 'Klasse', ordnung)}</th>
               <th style="width:50px;text-align:center" title="${istEinsendung ? 'Berichtsheft eingegangen (Hersendung ans RP)' : 'Anwesend bei der Durchsicht'}">${istEinsendung ? 'Heft da' : 'Anw.'}</th>
+              <th style="width:204px" title="Vorlage des Berichtshefts (Papier · digital · wird digital nachgereicht) und eine kurze interne Notiz – z. B. „schickt PDF bis Freitag“. Die Notiz steht nicht auf dem Bogen und geht nicht an den Betrieb.">${this._uebSortKopf('heft', 'Heft', ordnung)} · Notiz</th>
               <th>${this._uebSortKopf('stand', 'Ergebnis', ordnung)}</th>
               <th style="width:60px;text-align:center" title="Fehltage gesamt (ohne Urlaub und Berufsschule) und Anteil an der bisherigen Ausbildungszeit">${this._uebSortKopf('fehltage', 'Fehl.', ordnung)}</th>
               <th style="min-width:150px" title="Pflichtteile 1.1 und 1.5 · Berichtsheft-Voraussetzung für die Zulassung zur Abschlussprüfung (§ 43 Abs. 1 Nr. 2 BBiG) · dem Prüfungsausschuss vorgelegt (§ 46 Abs. 1 Satz 2 BBiG). Automatisch im letzten Lehrjahr, sonst über „…“ je Azubi">Zulassung ${zulAlleZeigbar ? `<button class="bz-mini bz-mini-text" onclick="KontrolleHandler._zulAlle=!KontrolleHandler._zulAlle;KontrolleHandler.renderUebersicht()" title="${this._zulAlle ? 'Zulassung nur im letzten Lehrjahr zeigen' : 'Zulassung bei allen Azubis einblenden'}">${this._zulAlle ? 'nur letztes Jahr' : 'alle'}</button>` : ''}</th>
@@ -1162,6 +1214,7 @@ const KontrolleHandler = {
         // wurden gesehen → im Raster als geprüft markieren (vorhandene Codes
         // bleiben unangetastet, nur fehlende Wochen werden ergänzt)
         this._markiereGeprueftBisVorwoche(ke.id, sid);
+        this._heftEingegangen(ke);
         const offene = App.query("SELECT id FROM wiedervorlagen WHERE schueler_id=? AND status IN ('offen','ueberfaellig')", [sid]);
         offene.forEach(w => App.run("UPDATE wiedervorlagen SET status='erledigt', erledigt_datum=?, erledigt_bemerkung='Automatisch erledigt – Berichtsheft bei erneuter Durchsicht in Ordnung' WHERE id=?", [todayStr(), w.id]));
         wv += offene.length;
@@ -1469,12 +1522,12 @@ const KontrolleHandler = {
         <td style="font-size:12px">${esc(App.schulklasseNormal(s.schulklasse))}</td>
         <td style="font-size:12px">${esc(s.ausbildungsstaette || '–')}</td>
         <td style="text-align:center">${isAnw ? '✓' : '–'}</td>
-        <td>${isDone ? (eLbl[ke.ergebnis] || ke.ergebnis || '–') : ''}</td>
+        <td>${isDone ? (eLbl[ke.ergebnis] || ke.ergebnis || '–') : (ke.heft_form === 'digital_offen' ? 'wird digital nachgereicht' : '')}${ke.heft_form === 'digital' ? ' <span style="font-size:12px;color:#555">(digital)</span>' : ''}</td>
         <td style="text-align:center;${fehlWarn ? 'color:red;font-weight:bold' : ''}">${fehl} <span style="font-size:12px">(${fehlPct.toFixed(0)}%)</span></td>
         <td style="text-align:center">${pflOK ? '✓' : '–'}</td>
         <td style="text-align:center;color:${isZul ? (trotz ? '#b7791f' : '#27ae60') : '#999'};font-weight:${isZul ? '700' : '400'}">${isZul ? (trotz ? '✓ trotz Abw.' : '✓') : '–'}</td>
         <td style="text-align:center;color:${isPA ? '#c0392b' : '#999'};font-weight:${isPA ? '700' : '400'}">${isPA ? '⚠︎ PA' : '–'}</td>
-        <td style="font-size:12px">${esc(ke.bemerkung || '')}</td>
+        <td style="font-size:12px">${ke.heft_notiz ? `<em>Notiz: ${esc(ke.heft_notiz)}</em>${ke.bemerkung ? '<br>' : ''}` : ''}${esc(ke.bemerkung || '')}</td>
       </tr>`;
     });
     // Dieselbe Gruppierung und Sortierung wie in der Übersicht (je Person gemerkt)
@@ -2186,6 +2239,15 @@ const KontrolleHandler = {
       </details>`;
       })()}
 
+      <!-- Vorlage des Berichtshefts: Papier · digital · wird digital nachgereicht -->
+      <div class="card heft-karte" style="margin-bottom:12px;max-width:540px">
+        <div class="heft-zeile">
+          <label for="keHeftForm" title="Wie wurde das Berichtsheft vorgelegt? Digital = auf einem Gerät am Termin oder als PDF per E-Mail. „Wird digital nachgereicht“ legt beim Abschließen des Termins eine Wiedervorlage an.">Berichtsheft vorgelegt</label>
+          <select id="keHeftForm" class="form-control ueb-heft${ke.heft_form ? ' ueb-heft--' + App.heftForm(ke.heft_form) : ''}" data-field="heft_form" onchange="KontrolleHandler.saveField('heft_form', this.value); this.className='form-control ueb-heft' + (this.value ? ' ueb-heft--' + this.value : '')">${App.HEFT_FORMEN.map(([k, l]) => `<option value="${k}" ${App.heftForm(ke.heft_form) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <input type="text" id="keHeftNotiz" class="form-control" maxlength="${App.HEFT_NOTIZ_MAX}" value="${esc(ke.heft_notiz || '')}" placeholder="Notiz für die Übersicht (intern)" autocomplete="off" onchange="KontrolleHandler.saveField('heft_notiz', this.value)" aria-label="Notiz für die Übersicht – intern, steht nicht auf dem Bogen" title="Kurze interne Notiz, erscheint in der Übersicht des Termins – nicht auf dem Bogen, nicht an den Betrieb">
+        </div>
+      </div>
+
       <!-- Pflichtteile (kompakt) -->
       <div class="card" style="margin-bottom:12px;max-width:540px">
         <div class="card-header" style="padding-bottom:6px;display:flex;justify-content:space-between;align-items:center">
@@ -2469,7 +2531,7 @@ const KontrolleHandler = {
   },
 
   // Whitelist erlaubter Feldnamen für saveField() – schützt gegen SQL-Injection
-  _allowedFields: new Set(['ergebnis','bemerkung','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb','sachberichte_anzahl','anwesend','bescheinigungen_anzahl','zulassung_ap','pruefungsausschuss']),
+  _allowedFields: new Set(['ergebnis','bemerkung','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb','sachberichte_anzahl','anwesend','heft_form','heft_notiz','bescheinigungen_anzahl','zulassung_ap','pruefungsausschuss']),
 
   saveField(field, value) {
     if (!this._allowedFields.has(field)) {
@@ -2488,12 +2550,16 @@ const KontrolleHandler = {
     })) return;
     const ke = App.query(`SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?`, [this.currentTerminId, s.id])[0];
     if (!ke) return;
+    if (field === 'heft_form') value = App.heftForm(value);
+    if (field === 'heft_notiz') { value = App.heftNotizNormal(value); const nf = document.getElementById('keHeftNotiz'); if (nf) nf.value = value; }
+    // Ein Ergebnis heißt: das Heft lag vor – „wird digital nachgereicht“ wird zu „digital“
+    const heftEingang = field === 'ergebnis' && !!value && ke.heft_form === 'digital_offen';
     const oldVal = ke[field] || '';
     const keId = ke.id;
     const pruefer = this.activePruefer || '';
 
     // Push undo entry
-    const fieldLabels = {ergebnis:'Ergebnis',bemerkung:'Bemerkung',p_1_1_ausbildungsplan:'Ausbildungsplan',p_1_1_gefuehrt:'Ausbildungsplan geführt',p_1_1_unterschrift:'Ausbildungsplan unterschrieben',p_1_5_gefuehrt:'Zusammenstellung geführt',p_1_4_auszubildende:'Auszubildende',p_1_5_bescheinigungen:'Bescheinigungen',f_1_2_vertragliche_regelungen:'Vertragliches',f_1_6_ausbildungsbetrieb:'Betrieb/Skizze',sachberichte_anzahl:'Sachberichte',anwesend:'Anwesend'};
+    const fieldLabels = {heft_form:'Vorlage des Hefts',heft_notiz:'Notiz',ergebnis:'Ergebnis',bemerkung:'Bemerkung',p_1_1_ausbildungsplan:'Ausbildungsplan',p_1_1_gefuehrt:'Ausbildungsplan geführt',p_1_1_unterschrift:'Ausbildungsplan unterschrieben',p_1_5_gefuehrt:'Zusammenstellung geführt',p_1_4_auszubildende:'Auszubildende',p_1_5_bescheinigungen:'Bescheinigungen',f_1_2_vertragliche_regelungen:'Vertragliches',f_1_6_ausbildungsbetrieb:'Betrieb/Skizze',sachberichte_anzahl:'Sachberichte',anwesend:'Anwesend'};
     // Nebenwirkungen von "In Ordnung" (Pflichtteile → ja, Wiedervorlagen →
     // erledigt) VOR der Änderung einfrieren, damit Undo sie mit zurücknimmt
     const pflichtVorher = {};
@@ -2525,16 +2591,23 @@ const KontrolleHandler = {
         wvVorher.forEach(w => App.run("UPDATE wiedervorlagen SET status=?, erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [w.status, w.id]));
         if (wvEigeneVorher) this._wvZuruecksetzen(keId, wvEigeneVorher);
         if (bemGeaendert) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemVorher, keId]);
+        if (heftEingang) App.run("UPDATE kontrollergebnisse SET heft_form='digital_offen' WHERE id=?", [keId]);
         this.renderSchueler();
       },
       () => {
         App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]);
         if (bemGeaendert) App.run('UPDATE kontrollergebnisse SET bemerkung=? WHERE id=?', [bemNeu, keId]);
+        if (heftEingang) App.run("UPDATE kontrollergebnisse SET heft_form='digital' WHERE id=?", [keId]);
         this.renderSchueler();
       }
     );
 
     App.run(`UPDATE kontrollergebnisse SET ${field}=?, geaendert_am=datetime('now','localtime'), geaendert_von=? WHERE id=?`, [value, pruefer, keId]);
+    if (heftEingang) {
+      this._heftEingegangen(ke);
+      const hf = document.getElementById('keHeftForm'); if (hf) hf.value = 'digital';
+      App.toast('Berichtsheft liegt digital vor – „wird digital nachgereicht“ ist erledigt', 'info');
+    }
     // Wer das Ergebnis festgestellt hat, unterschreibt den Bogen
     if (field === 'ergebnis' && value) App.run('UPDATE kontrollergebnisse SET pruefer=? WHERE id=?', [pruefer, keId]);
     if (bemGeaendert) {
@@ -3451,10 +3524,12 @@ const KontrolleHandler = {
 
     // Collect results + mangelhafte
     const results = {}; let done = 0, open = 0;
-    const mangelhafte = [], offene = [], abwesende = [];
+    const mangelhafte = [], offene = [], abwesende = [], digitale = [];
     this.currentSchuelerList.forEach((s, idx) => {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
       const e = ke?.ergebnis || '';
+      // „Wird digital nachgereicht“ ist eine Verabredung, kein vergessener Bogen
+      if (ke && !e && ke.heft_form === 'digital_offen') { digitale.push({ ...s, ke, idx }); return; }
       if (ke && ke.anwesend === 0 && !e) { abwesende.push({ ...s, ke }); return; }
       if (e) { done++; results[e] = (results[e]||0) + 1; }
       else { open++; offene.push({ ...s, idx }); }
@@ -3475,15 +3550,25 @@ const KontrolleHandler = {
       post_an_rp: App.wvFrist('post_an_rp')
     };
     const nachholFrist = App.wvFrist('nachholung_abwesend');
+    const digitalFrist = App.wvFrist('digital_nachreichen');
 
     App.openModal('Termin abschließen – Nachbereitung', `
       <!-- Step 1: Zusammenfassung -->
       <div style="font-size:14px;margin-bottom:8px">
-        <strong>${done} von ${total - abwesende.length}</strong> anwesenden Azubis kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''}${abwesende.length ? ` · ${abwesende.length} abwesend` : ''} · ${esc(schule)}
+        <strong>${done} von ${total - abwesende.length - digitale.length}</strong> vorgelegten Berichtsheften kontrolliert${open > 0 ? ` – <span style="color:var(--clr-red)">${open} offen</span>` : ''}${digitale.length ? ` · ${digitale.length} ${digitale.length === 1 ? 'wird' : 'werden'} digital nachgereicht` : ''}${abwesende.length ? ` · ${abwesende.length} abwesend` : ''} · ${esc(schule)}
       </div>
       ${offene.length ? `<div style="font-size:12px;margin-bottom:10px;padding:8px 10px;background:var(--clr-red-light);border-radius:var(--radius)">
         <strong>Noch ohne Ergebnis</strong> (Klick öffnet die Einzelansicht):
         ${offene.map(o => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:var(--clr-white);border-radius:10px;cursor:pointer;border:1px solid var(--clr-red)" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${o.idx};KontrolleHandler.enterSchüler()">${esc(o.nachname)}, ${esc(o.vorname)}</span>`).join('')}
+      </div>` : ''}
+      ${digitale.length ? `<div id="wizDigital" style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+        <strong style="font-size:13px;color:var(--clr-forest)">Berichtsheft wird digital nachgereicht (${digitale.length})</strong>
+        <div style="font-size:12px;margin-top:6px">${digitale.map(a => `<span style="display:inline-block;margin:2px;padding:2px 8px;background:var(--clr-blue-light);border-radius:10px;cursor:pointer" onclick="App.closeModal();KontrolleHandler._viewMode='einzeln';KontrolleHandler.currentIndex=${a.idx};KontrolleHandler.enterSchüler()" title="Einzelansicht öffnen">${esc(a.nachname + ', ' + a.vorname)}${a.ke.heft_notiz ? ` – <em>${esc(a.ke.heft_notiz)}</em>` : ''}</span>`).join('')}</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px">
+          <input type="checkbox" id="wizDigitalWV" checked style="accent-color:var(--clr-forest)"> Wiedervorlage „Berichtsheft wird digital nachgereicht" anlegen, Frist
+          <input type="date" class="form-control" id="wizDigitalFrist" value="${digitalFrist}" style="width:140px;padding:3px 6px;font-size:12px" aria-label="Frist für die digitale Vorlage">
+        </label>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:6px">Die Bitte um die PDF geht mit den E-Mails an Betriebe und Azubis hinaus (Vorlage „Berichtsheft digital nachreichen") – oder später je Wiedervorlage über ✉︎. Kommt das Heft, öffnen Sie die Durchsicht des Azubis und tragen das Ergebnis ein; die Wiedervorlage folgt dem Ergebnis.</div>
       </div>` : ''}
       ${abwesende.length ? `<div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
         <strong style="font-size:13px;color:var(--clr-forest)">Abwesend am Kontrolltag (${abwesende.length}) → Nachholung</strong>
@@ -3558,7 +3643,7 @@ const KontrolleHandler = {
       const pflicht = {
         p_1_1: ke.p_1_1_ausbildungsplan, p_1_4: ke.p_1_4_auszubildende,
         p_1_5: ke.p_1_5_bescheinigungen, besch_anz: ke.bescheinigungen_anzahl,
-        g_1_1: ke.p_1_1_gefuehrt || '', g_1_5: ke.p_1_5_gefuehrt || '', u_1_1: ke.p_1_1_unterschrift || '',
+        g_1_1: ke.p_1_1_gefuehrt || '', g_1_5: ke.p_1_5_gefuehrt || '', u_1_1: ke.p_1_1_unterschrift || '', heft: ke.heft_form || '',
         f_1_2: ke.f_1_2_vertragliche_regelungen, f_1_6: ke.f_1_6_ausbildungsbetrieb
       };
       // Erneutes Abschließen (nach "wieder öffnen") aktualisiert den vorhandenen
@@ -3579,12 +3664,24 @@ const KontrolleHandler = {
       const frist = document.getElementById('wizNachholungFrist')?.value || App.wvFrist('nachholung_abwesend');
       this.currentSchuelerList.forEach(s => {
         const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
-        if (!ke || ke.anwesend !== 0 || ke.ergebnis) return;
+        if (!ke || ke.anwesend !== 0 || ke.ergebnis || ke.heft_form === 'digital_offen') return;
         // Fremdes Amt: Nachholung läuft über die Übergabe an das zuständige Amt
         if (App.istFremdesAmt(s)) return;
         nachholIds.push(s.id);
         const da = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [ke.id]);
         if (!da) App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,'nachholung_naechste_durchsicht',?,'offen')", [ke.id, s.id, frist]);
+      });
+    }
+
+    // 1c) „Wird digital nachgereicht“ → Wiedervorlage mit Frist (folgt später dem Ergebnis)
+    let digitalWV = 0;
+    if (document.getElementById('wizDigitalWV')?.checked) {
+      const frist = document.getElementById('wizDigitalFrist')?.value || App.wvFrist('digital_nachreichen');
+      this.currentSchuelerList.forEach(s => {
+        const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0];
+        if (!ke || ke.ergebnis || ke.heft_form !== 'digital_offen') return;
+        const da = App.scalar("SELECT COUNT(*) FROM wiedervorlagen WHERE kontrollergebnis_id=? AND status IN ('offen','ueberfaellig')", [ke.id]);
+        if (!da) { App.run("INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum, status) VALUES (?,?,'digital_nachreichen',?,'offen')", [ke.id, s.id, frist]); digitalWV++; }
       });
     }
 
@@ -3639,7 +3736,7 @@ const KontrolleHandler = {
     if (doNachholMail) { const frist = document.getElementById('wizNachholungFrist')?.value; setTimeout(() => Workflows.emailNachholung(tid, nachholIds, frist), delay); }
 
     App.hideLoading();
-    App.toast(`Kontrolle abgeschlossen – Archiv-Bögen erstellt, ${anzWV} Wiedervorlage(n)${nachholIds.length ? `, ${nachholIds.length} Nachholung(en) für Abwesende` : ''}`, 'success');
+    App.toast(`Kontrolle abgeschlossen – Archiv-Bögen erstellt, ${anzWV} Wiedervorlage(n)${nachholIds.length ? `, ${nachholIds.length} Nachholung(en) für Abwesende` : ''}${digitalWV ? `, ${digitalWV} Berichtsheft(e) werden digital nachgereicht` : ''}`, 'success');
     // Zurück in die Übersicht (mit Abschluss-Banner), nicht auf einen beliebigen Azubi
     this._viewMode = 'uebersicht';
     this.renderUebersicht();

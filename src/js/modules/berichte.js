@@ -819,7 +819,8 @@ const BerichteHandler = {
         'Schule': kl.schule || (bs ? bs.name : ''), 'Klasse': kl.klassenbezeichnung || '',
         'Klasse (Berufsschule)': App.schulklasseNormal(s.schulklasse),
         'Zuständiges Amt': s.zustaendiges_amt ? App.amtLabel(s.zustaendiges_amt) : '',
-        'Ergebnis': ke.ergebnis ? (eLbl[ke.ergebnis] || ke.ergebnis) : '(nicht erfasst)',
+        'Ergebnis': ke.ergebnis ? (eLbl[ke.ergebnis] || ke.ergebnis) : (ke.heft_form === 'digital_offen' ? '(wird digital nachgereicht)' : '(nicht erfasst)'),
+        'Heft': App.heftFormLabel(ke.heft_form, true), 'Notiz': ke.heft_notiz || '',
         'Fehltage': ke.fehltage_gesamt ?? '',
         'Offene Mängel (AJ/KW: Codes)': maengel.map(m => `${App.jahrNr(s.id, m.ausbildungsjahr, m.kalenderwoche)}/${m.kalenderwoche}: ${m.offen}`).join('; '),
         'Wiedervorlage Frist': wv ? formatDate(wv.frist_datum) : '', 'WV-Status': wv ? wv.status : '',
@@ -829,7 +830,7 @@ const BerichteHandler = {
     });
   },
   _ergebnisSpalten(mitTermin) {
-    const cols = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:30},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
+    const cols = [{wch:16},{wch:14},{wch:30},{wch:26},{wch:10},{wch:16},{wch:22},{wch:30},{wch:24},{wch:28},{wch:8},{wch:40},{wch:12},{wch:10},{wch:30},{wch:18},{wch:14}];
     return mitTermin ? [{wch:28}, ...cols] : cols;
   },
   // nurIds: nur diese Azubis (Auswahl in der Übersicht der Durchsicht)
