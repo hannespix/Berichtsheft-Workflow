@@ -451,7 +451,15 @@ const PDFExport = {
         curY += 5;
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
         doc.setTextColor(...COL_RED);
-        doc.text(wv[0].frist_datum ? `Wiedervorlage bis ${formatDate(wv[0].frist_datum)}` : 'Wiedervorlage bei der nächsten Durchsicht', LM + 3, curY);
+        // Der Termin ist freiwillig: mit Datum „bis …“ (persönliche Vorlage: „Termin im RP am …“),
+        // ohne Datum „bei der nächsten Durchsicht“ bzw. „ohne Termin“ / „Termin nach Absprache“
+        const wvKopf = (() => {
+          const w0 = { art: wvArt, frist_datum: wv[0].frist_datum }, f = App.wvFristArt(w0), termin = App.wvIstTermin(wvArt);
+          if (f === 'datum') return termin ? `Termin im RP am ${formatDate(w0.frist_datum)}` : `Wiedervorlage bis ${formatDate(w0.frist_datum)}`;
+          if (f === 'naechste') return 'Wiedervorlage bei der nächsten Durchsicht';
+          return termin ? 'Vorlage im RP – Termin nach Absprache' : 'Wiedervorlage (ohne Termin)';
+        })();
+        doc.text(wvKopf, LM + 3, curY);
         curY += 3.5;
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
         doc.setTextColor(120, 50, 40);

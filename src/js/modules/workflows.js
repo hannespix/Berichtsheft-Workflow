@@ -1083,11 +1083,12 @@ const Workflows = {
     const zeilen = pdfText(body).replace(/\s+$/, '').split('\n');
     const uebersicht = isDone ? g.azubis.filter(a => a.ke).map(a => {
       const ke = a.ke;
-      const wv = App.query("SELECT frist_datum, status FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1", [ke.id])[0];
+      const wv = App.query("SELECT art, frist_datum, status FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1", [ke.id])[0];
       let ergebnis = ke.ergebnis ? (this._eLbl[ke.ergebnis] || ke.ergebnis) : this._digitalOffen(a) ? 'wird digital nachgereicht' : (ke.anwesend === 0 ? 'nicht anwesend – Berichtsheft nachreichen' : 'nicht bewertet');
       let frist = '–';
       if (wv && wv.frist_datum) frist = formatDate(wv.frist_datum);
-      else if (ke.ergebnis && ke.ergebnis !== 'in_ordnung') frist = 'nächste Durchsicht';
+      // ohne Datum: „nächste Durchsicht“ bzw. „ohne Termin“ (der Termin ist freiwillig)
+      else if (ke.ergebnis && ke.ergebnis !== 'in_ordnung') frist = wv ? App.wvFristText(wv) : 'nächste Durchsicht';
       else if (this._digitalOffen(a)) frist = this._nachreichFrist('digital_nachreichen', [a]);
       else if (!ke.ergebnis && ke.anwesend === 0) frist = formatDate(App.wvFrist('nachholung_abwesend'));
       return [`${a.nachname}, ${a.vorname}`, ergebnis, frist, String(ke.fehltage_gesamt || 0)];
@@ -1315,7 +1316,7 @@ const Workflows = {
     // Anlass eines Beratungsgesprächs (§ 76) steht als Notiz „Anlass: …“ an der Wiedervorlage
     const anlass = App.query("SELECT notiz FROM wiedervorlage_notizen WHERE wiedervorlage_id=? AND notiz LIKE 'Anlass:%' ORDER BY id DESC LIMIT 1", [wvId]).map(r => r.notiz.replace(/^Anlass:\s*/, ''))[0] || (maengel.length ? maengelText : '  wiederholte Beanstandungen der Berichtsheftführung');
     const ctx = this._antwortCtx({ ...App.absenderCtx(prueferName), anrede: this._anrede(w.b_ap), azubi, maengel: maengelText,
-      frist: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_alt: w.frist_datum ? formatDate(w.frist_datum) : 'zur nächsten Durchsicht', frist_neu: formatDate(fristNeu),
+      frist: App.wvFristSatz(w), frist_alt: App.wvFristSatz(w), frist_neu: formatDate(fristNeu),
       azubi_block: '  - ' + w.nachname + ', ' + w.vorname, azubi_namen: w.nachname + ', ' + w.vorname,
       betrieb: w.b_name || w.ausbildungsstaette || '', anlass,
       datum: formatDate(w.kt_datum || ''), schule: ktSchule ? ktSchule.name : '' });
@@ -1444,11 +1445,11 @@ const Workflows = {
       ${gruppen.map((g, i) => `<div style="padding:8px 10px;margin-bottom:6px;background:${g.email ? 'var(--clr-warm)' : 'var(--clr-red-light)'};border-radius:var(--radius);font-size:12px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>${esc(g.name)}</strong> <span style="color:var(--clr-text-light)">${g.wvs.length} WV${g.wvs.some(w => w.ueberfaellig) ? ' · <span style="color:var(--clr-red)">überfällig</span>' : ''}</span>
           <span style="margin-left:auto">${g.email ? `<button class="btn btn-sm" style="background:var(--clr-forest);color:var(--clr-white);border:none;font-size:12px" onclick="Workflows._sammelMail(${i})">✉︎ Senden</button>` : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}</span></div>
-        <div style="margin-top:4px">${g.wvs.map(w => `${esc(w.nachname)}, ${esc(w.vorname)} – ${esc(wvArtLabel(w.art))}, ${w.frist_datum ? 'Frist ' + formatDate(w.frist_datum) : 'bis zur nächsten Durchsicht'}${w.mahnstufe ? ` (${w.mahnstufe}× angeschrieben)` : ''}`).join('<br>')}</div>
+        <div style="margin-top:4px">${g.wvs.map(w => `${esc(w.nachname)}, ${esc(w.vorname)} – ${esc(wvArtLabel(w.art))}, ${esc(App.wvFristAngabe(w))}${w.mahnstufe ? ` (${w.mahnstufe}× angeschrieben)` : ''}`).join('<br>')}</div>
       </div>`).join('')}`, '<button class="btn btn-secondary" onclick="App.closeModal()">Schließen</button>');
   },
   _sammelBlock(g) {
-    return g.wvs.map(w => `  - ${w.nachname}, ${w.vorname}: ${wvArtLabel(w.art)}, ${w.frist_datum ? 'Frist ' + formatDate(w.frist_datum) : 'bis zur nächsten Durchsicht'}${w.ueberfaellig ? ' (überschritten)' : ''}`).join('\n');
+    return g.wvs.map(w => `  - ${w.nachname}, ${w.vorname}: ${wvArtLabel(w.art)}, ${App.wvFristAngabe(w)}${w.ueberfaellig ? ' (überschritten)' : ''}`).join('\n');
   },
   _sammelMail(i) {
     const g = (this._sammel || [])[i];

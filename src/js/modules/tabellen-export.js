@@ -197,7 +197,7 @@ const TabellenExport = {
       name: 'Wiedervorlagen',
       kopf: ['Nachname', 'Vorname', 'Betrieb', 'E-Mail (Betrieb)', 'Telefon (Betrieb)', 'Berufsschule', 'Klasse', 'Jahrgang', 'Art', 'Frist', 'Status', 'Mahnstufe', 'Anschreiben am', 'Versandart', 'Erledigt am', 'Erledigt-Bemerkung', 'Durchsicht am', 'Angelegt am'],
       zeilen: rows.map(w => [w.nachname || '', w.vorname || '', w.b_name ? this._betriebName({ name: w.b_name, vorname: w.b_vorname }) : (w.ausbildungsstaette || ''), w.b_email || '', w.b_tel || '',
-        w.schule || '', w.klassenbezeichnung || '', w.jahrgang || '', wvArtLabel(w.art), w.frist_datum ? this._d(w.frist_datum) : 'nächste Durchsicht', status[w.status] || w.status || '',
+        w.schule || '', w.klassenbezeichnung || '', w.jahrgang || '', wvArtLabel(w.art), w.frist_datum ? this._d(w.frist_datum) : App.wvFristText(w), status[w.status] || w.status || '',
         w.mahnstufe || 0, this._d(w.versand_datum), w.versand_art || '', this._d(w.erledigt_datum), w.erledigt_bemerkung || '', this._d(w.durchgefuehrt_datum || w.geplant_datum), this._d(w.erstellt_am)]),
     }];
   },

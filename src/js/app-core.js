@@ -8959,7 +8959,7 @@ const App = {
   },
   WV_FRISTEN_LABELS: {
     nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Erfahrungsberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
-    persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP',
+    persoenliche_vorlage_rp: 'Persönliche Vorlage im RP (ohne Wirkung – der Termin wird von Hand eingetragen)', post_an_rp: 'Per Post ans RP',
     erinnerung: 'Erinnerung (neue Frist nach Überschreitung)', nachholung_abwesend: 'Nachholung für Abwesende', beratung_betrieb: 'Beratungsgespräch Betrieb (§ 76)',
     digital_nachreichen: 'Berichtsheft wird digital nachgereicht',
   },
@@ -8969,6 +8969,39 @@ const App = {
     return { ...this.WV_FRISTEN_STANDARD, ...Object.fromEntries(Object.entries(o).filter(([k, v]) => k in this.WV_FRISTEN_STANDARD && v >= 1 && v <= 365)) };
   },
   wvFristTage(art) { const f = this.wvFristen(); return f[art] || this.WV_FRISTEN_STANDARD[art] || 28; },
+  // ── Termin der Wiedervorlage ist optional (Nov. 2026) ──
+  // frist_datum leer heißt bei „nächste Durchsicht“ wie bisher: bei der nächsten
+  // Durchsicht; bei jeder anderen Art: OHNE TERMIN (wird nie überfällig).
+  // Bei persönlicher Vorlage im RP ist das Datum ein vereinbarter Termin, keine
+  // Frist – es wird deshalb nicht vorgeschlagen, sondern von Hand eingetragen.
+  WV_TERMIN_ARTEN: ['persoenliche_vorlage_rp'],
+  wvIstTermin(art) { return this.WV_TERMIN_ARTEN.includes(String(art || '')); },
+  wvNaechsteDurchsicht(art) { const a = String(art || ''); return !a || a === 'nachholung_naechste_durchsicht' || a === 'nachholung'; },
+  // 'datum' | 'naechste' | 'ohne'
+  wvFristArt(w) {
+    if (w && w.frist_datum) return 'datum';
+    return this.wvNaechsteDurchsicht(w && w.art) ? 'naechste' : 'ohne';
+  },
+  // Text für Listen: „08.12.2026“ · „Termin 08.12.2026“ (mitArt, persönliche
+  // Vorlage) · „nächste Durchsicht“ · „ohne Termin“
+  wvFristText(w, mitArt) {
+    const art = this.wvFristArt(w);
+    if (art === 'naechste') return 'nächste Durchsicht';
+    if (art === 'ohne') return 'ohne Termin';
+    return (mitArt && this.wvIstTermin(w.art) ? 'Termin ' : '') + formatDate(w.frist_datum);
+  },
+  // Für Sätze wie „bis spätestens {frist}“ in Anschreiben
+  wvFristSatz(w) {
+    const art = this.wvFristArt(w);
+    return art === 'datum' ? formatDate(w.frist_datum) : art === 'naechste' ? 'zur nächsten Durchsicht' : 'zum vereinbarten Termin';
+  },
+  // Für Aufzählungen: „Frist 08.12.2026“ · „Termin 08.12.2026“ · „bis zur nächsten Durchsicht“ · „ohne Termin“
+  wvFristAngabe(w) {
+    const art = this.wvFristArt(w);
+    if (art === 'naechste') return 'bis zur nächsten Durchsicht';
+    if (art === 'ohne') return 'ohne Termin';
+    return (this.wvIstTermin(w.art) ? 'Termin ' : 'Frist ') + formatDate(w.frist_datum);
+  },
   wvFrist(art) { return addDaysStr(this.wvFristTage(art)); },
   wvFristenSetzen(text) {
     // Zeilen "art;tage"; leer = Standard
