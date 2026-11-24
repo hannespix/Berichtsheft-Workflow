@@ -131,14 +131,14 @@ console.log('\n══ Sammelpause ohne Verhungern ══');
   sb.clearTimeout = () => {};
   A._lastSaveDurationMs = 0; A._wartetSeit = 0; A.autoSaveTimer = null;
   A.scheduleAutoSave();
-  check(delays.at(-1) === 1500 && A._wartetSeit > 0, 'Gut: erste Änderung wartet 1,5 s');
+  check(Math.abs(delays.at(-1) - 1500) <= 50 && A._wartetSeit > 0, 'Gut: erste Änderung wartet 1,5 s');   // Toleranz: die Rechnung läuft gegen die Uhr
   A.setVerbindung('langsam');
   A._wartetSeit = Date.now() - 9000; A.scheduleAutoSave();
   check(Math.abs(delays.at(-1) - 1000) <= 50, 'Langsam: nach 9 s Warten nur noch 1 s bis zum Anhängen – Tippen verschiebt nicht endlos');
   A._wartetSeit = Date.now() - 20000; A.scheduleAutoSave();
   check(delays.at(-1) === 300, 'Frist überschritten: Anhängen in 300 ms');
   A.setVerbindung('getaktet'); A._wartetSeit = 0; A.scheduleAutoSave();
-  check(delays.at(-1) === 60000, 'Getaktet: 60 s Sammelpause');
+  check(Math.abs(delays.at(-1) - 60000) <= 50, 'Getaktet: 60 s Sammelpause');
   A.setVerbindung('auto'); A._wartetSeit = 0;
   sb.setTimeout = origTimeout;
   op(A, "UPDATE schueler SET vorname=? WHERE id=?", ['Pause', 3], 3);

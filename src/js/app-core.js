@@ -1419,15 +1419,16 @@ const App = {
       p_1_1_ausbildungsplan TEXT DEFAULT '' CHECK (p_1_1_ausbildungsplan IN ('','ja','nein','nicht_vorhanden')),
       p_1_1_gefuehrt TEXT DEFAULT '',
       p_1_1_unterschrift TEXT DEFAULT '',
-      p_1_4_auszubildende TEXT DEFAULT '' CHECK (p_1_4_auszubildende IN ('','ja','nein','nicht_vorhanden')),
+      p_1_4_auszubildende TEXT DEFAULT '' CHECK (p_1_4_auszubildende IN ('','ja','nein','unterschrift','nicht_vorhanden')),
       p_1_5_bescheinigungen TEXT DEFAULT '' CHECK (p_1_5_bescheinigungen IN ('','ja','nein','nicht_vorhanden')),
       bescheinigungen_anzahl INTEGER DEFAULT 0,
       p_1_5_gefuehrt TEXT DEFAULT '',
       f_1_2_vertragliche_regelungen TEXT DEFAULT '' CHECK (f_1_2_vertragliche_regelungen IN ('','ja','nein','nicht_vorhanden')),
-      f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','nicht_vorhanden')),
+      f_1_6_ausbildungsbetrieb TEXT DEFAULT '' CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','skizze','nicht_vorhanden')),
       fehltage_gesamt INTEGER DEFAULT 0,
       fehltage_pauschal INTEGER DEFAULT 0,
       sachberichte_anzahl INTEGER DEFAULT 0,
+      pflanzenberichte_anzahl INTEGER DEFAULT 0,
       zulassung_ap INTEGER DEFAULT 0,
       zulassung_manuell INTEGER DEFAULT 0,
       pruefer TEXT DEFAULT '',
@@ -7362,10 +7363,51 @@ const App = {
     return true;
   },
 
+  // Teil 1.4 kennt zusätzlich „Unterschrift fehlt“ ('unterschrift'), Teil 1.6
+  // „Skizze nicht vorhanden“ ('skizze'): die Prüfregel der Spalte wird im
+  // Schema-Text erweitert (ohne Neuaufbau der Tabelle; Rückfall: Neuaufbau).
+  // Läuft in migrateDB UND _migrateDiskDb.
+  PFLICHT_CHECK_NEU: {
+    p_1_4_auszubildende: "CHECK (p_1_4_auszubildende IN ('','ja','nein','unterschrift','nicht_vorhanden'))",
+    f_1_6_ausbildungsbetrieb: "CHECK (f_1_6_ausbildungsbetrieb IN ('','ja','nein','skizze','nicht_vorhanden'))",
+  },
+  _pflichtCheckText(sql) {
+    let neu = String(sql || '');
+    Object.keys(this.PFLICHT_CHECK_NEU).forEach(spalte => {
+      neu = neu.replace(new RegExp('CHECK\\s*\\(\\s*' + spalte + '\\s+IN\\s*\\([^)]*\\)\\s*\\)', 'i'), this.PFLICHT_CHECK_NEU[spalte]);
+    });
+    return neu;
+  },
+  _migratePflichtCheck(db) {
+    const lies = (q) => { const r = db.exec(q); return r.length && r[0].values.length ? r[0].values[0][0] : null; };
+    const alt = String(lies("SELECT sql FROM sqlite_master WHERE type='table' AND name='kontrollergebnisse'") || '');
+    if (!alt) return false;
+    const neu = this._pflichtCheckText(alt);
+    if (neu === alt) return false;
+    try {
+      const v = lies('PRAGMA schema_version') || 0;
+      db.run('PRAGMA writable_schema=ON');
+      db.run("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='kontrollergebnisse'", [neu]);
+      db.run('PRAGMA schema_version=' + (v + 1));
+      db.run('PRAGMA writable_schema=OFF');
+    } catch(e) { try { db.run('PRAGMA writable_schema=OFF'); } catch(e2) {} }
+    // Rückfall, wenn sich der Schema-Text nicht ersetzen ließ: Tabelle neu aufbauen
+    const jetzt = String(lies("SELECT sql FROM sqlite_master WHERE type='table' AND name='kontrollergebnisse'") || '');
+    if (jetzt !== neu) {
+      db.run('ALTER TABLE kontrollergebnisse RENAME TO kontrollergebnisse_alt');
+      db.run(neu);
+      db.run('INSERT INTO kontrollergebnisse SELECT * FROM kontrollergebnisse_alt');
+      db.run('DROP TABLE kontrollergebnisse_alt');
+      try { db.run(this.INDIZES); } catch(e) {}
+    }
+    return true;
+  },
+
   _migrateDiskDb(diskDb) {
     const run = (sql) => { try { diskDb.run(sql); } catch(e) { if (!e.message?.includes('duplicate column') && !e.message?.includes('already exists')) console.warn('DiskDB-Migration:', e.message, sql.substring(0,60)); } };
     try { this._migrateZusatzvereinbarung(diskDb); } catch(e) { console.warn('DiskDB-Migration Zusatzvereinbarung:', e.message); }
     try { this._migrateAjCheck(diskDb); } catch(e) { console.warn('DiskDB-Migration Raster-Nummer:', e.message); }
+    try { this._migratePflichtCheck(diskDb); } catch(e) { console.warn('DiskDB-Migration Pflichtteil-Werte:', e.message); }
     // Tables
     run(`CREATE TABLE IF NOT EXISTS aktive_sitzung (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7397,6 +7439,8 @@ const App = {
     // Vorlage des Berichtshefts: '' = Papier | 'digital' | 'digital_offen' (wird digital nachgereicht) + Notiz für die Übersicht
     run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_form TEXT DEFAULT ''");
     run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_notiz TEXT DEFAULT ''");
+    // Anzahl Pflanzenberichte (optional, neben der Anzahl Erfahrungsberichte)
+    run("ALTER TABLE kontrollergebnisse ADD COLUMN pflanzenberichte_anzahl INTEGER DEFAULT 0");
     // schueler columns
     run("ALTER TABLE schueler ADD COLUMN betrieb_id INTEGER DEFAULT NULL");
     run("ALTER TABLE schueler ADD COLUMN status TEXT DEFAULT 'aktiv'");
@@ -7786,7 +7830,7 @@ const App = {
       const mergeColumns = ['ergebnis','p_1_1_ausbildungsplan','p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende','p_1_5_bescheinigungen','p_1_5_gefuehrt',
         'bescheinigungen_anzahl','f_1_2_vertragliche_regelungen','f_1_6_ausbildungsbetrieb',
         'fehltage_gesamt','fehltage_pauschal','anwesend','bemerkung','heft_form','heft_notiz','durchsicht_nr','geprueft_kws',
-        'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','geaendert_von','geaendert_am'];
+        'zulassung_ap','pruefungsausschuss','sachberichte_anzahl','pflanzenberichte_anzahl','geaendert_von','geaendert_am'];
 
       diskKE.forEach(dke => {
         const local = this.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?',
@@ -8844,7 +8888,7 @@ const App = {
   // G (KW/Datum). Wetterbeobachtungen sind für ALLE Auszubildenden Pflicht
   // (Vorgabe der Sachbearbeitung, Nov. 2026) – vorher zählte D nur mit
   // Zusatzvereinbarung (Teil 1.2). Die Zusatzvereinbarung betrifft nur noch
-  // Sachberichte und Pflanze der Woche. I (Sonstiges) ist ein Hinweis.
+  // Erfahrungsberichte und Pflanze der Woche. I (Sonstiges) ist ein Hinweis.
   ZULASSUNG_CODES: ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
   hatZusatzvereinbarung(ke) { return !!ke && ke.f_1_2_vertragliche_regelungen === 'ja'; },
   // Für alle gleich; der Parameter bleibt, weil alle Aufrufer das Ergebnis mitgeben
@@ -8885,10 +8929,14 @@ const App = {
   WEGE: [
     { val: 'naechste_durchsicht', label: 'bis zur nächsten Durchsicht', ergebnis: 'nachholung_naechste_durchsicht' },
     { val: 'email', label: 'per E-Mail nachreichen', ergebnis: 'berichte_bis_termin_email' },
-    { val: 'email_sachberichte', label: 'per E-Mail: Wetter/Sachberichte', ergebnis: 'sachberichte_wetter_email' },
+    // Nicht mehr wählbar (Nov. 2026): fehlendes Wetter wird nachgetragen, Sonderfälle
+    // stehen in der Bemerkung. Bleibt für ältere Ergebnisse lesbar (alt: true).
+    { val: 'email_sachberichte', label: 'per E-Mail: Erfahrungsberichte für fehlendes Wetter (alt)', ergebnis: 'sachberichte_wetter_email', alt: true },
     { val: 'post', label: 'per Post ans RP', ergebnis: 'post_an_rp' },
     { val: 'persoenlich', label: 'persönliche Vorlage im RP', ergebnis: 'persoenliche_vorlage_rp' },
   ],
+  // Wählbare Wege; ein alter Weg erscheint nur, solange das Ergebnis ihn trägt
+  wegeWaehlbar(aktuellerWeg) { return this.WEGE.filter(w => !w.alt || w.val === aktuellerWeg); },
   befundAus(ergebnis) {
     if (!ergebnis) return { befund: '', weg: '' };
     if (ergebnis === 'in_ordnung') return { befund: 'ok', weg: '' };
@@ -8910,7 +8958,7 @@ const App = {
     erinnerung: 14, nachholung_abwesend: 21, beratung_betrieb: 14, digital_nachreichen: 14,
   },
   WV_FRISTEN_LABELS: {
-    nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Sachberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
+    nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht (wenn kein Termin geplant)', sachberichte_wetter_email: 'Erfahrungsberichte/Wetter per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail',
     persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP',
     erinnerung: 'Erinnerung (neue Frist nach Überschreitung)', nachholung_abwesend: 'Nachholung für Abwesende', beratung_betrieb: 'Beratungsgespräch Betrieb (§ 76)',
     digital_nachreichen: 'Berichtsheft wird digital nachgereicht',
@@ -8961,6 +9009,17 @@ const App = {
     if (fr.typ === 'Fachwerker' || (fr.bezeichnung||'').toLowerCase().includes('fachwerker') || (fr.bezeichnung||'').toLowerCase().includes('fachpraktiker')) return 1;
     if (fr.code === '036' || fr.code === '176' || (fr.bezeichnung||'').toLowerCase().includes('galabau')) return 6;
     return 2;
+  },
+
+  // Gruppe für die Anzeige „n/Soll (…)“: GaLaBau 6, Produktionsgartenbau
+  // (Gemüse, Zierpflanzen, Friedhof, Stauden, Obst, Baumschule) 2, Fachwerker 1
+  ubaGruppe(fachrichtungId) {
+    const fr = fachrichtungId ? this.query('SELECT code, bezeichnung, typ FROM fachrichtungen WHERE id=?', [fachrichtungId])[0] : null;
+    if (!fr) return '';
+    const b = (fr.bezeichnung || '').toLowerCase();
+    if (fr.typ === 'Fachwerker' || b.includes('fachwerker') || b.includes('fachpraktiker')) return 'Fachwerker';
+    if (fr.code === '036' || fr.code === '176' || b.includes('galabau')) return 'GaLaBau';
+    return 'Produktion';
   },
 
   // ── Kampagnen-Hinweise (Hersendungs-Schulen, Fachrichtungs-Ausnahmen, ZP-
@@ -10350,21 +10409,113 @@ const App = {
     return prev.length ? prev[0] : null;
   },
 
-  // ── Unterpunkte zu 1.1 / 1.5 („nicht geführt“, „Unterschrift fehlt“): fester
-  //  Hinweis in der Bemerkung bei Wert 'nein'. Steht auf einer EIGENEN Zeile,
-  //  damit er sich beim Zurücksetzen sauber und ohne Rätselraten wieder
-  //  entfernen lässt. Von Hand geänderte Fassungen bleiben unangetastet.
-  HINWEISE_NICHT_GEFUEHRT: {
-    p_1_1_gefuehrt: 'Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.',
-    p_1_1_unterschrift: 'Individueller Ausbildungsplan (1.1): Unterschrift fehlt. Der Ausbildungsplan ist von Ausbildungsbetrieb und Auszubildender/Auszubildendem zu unterschreiben.',
-    p_1_5_gefuehrt: 'Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.',
+  // ── Pflichtteile des Berichtshefts in der Reihenfolge des Registers ──
+  // art 'pflicht' = muss im Heft sein · 'hinweis' = informativ; zul = zählt für
+  // die Berichtsheft-Voraussetzung der Zulassung (§ 43 Abs. 1 Nr. 2 BBiG).
+  // Teil 1.4 ist Pflicht, aber NICHT zulassungsrelevant (Vorgabe Nov. 2026).
+  PFLICHT_TEILE: [
+    { nr: '1.1', feld: 'p_1_1_ausbildungsplan', titel: 'Ausbildungsplan', art: 'pflicht', zul: true },
+    { nr: '1.2', feld: 'f_1_2_vertragliche_regelungen', titel: 'Zusatzvereinbarung Berichtsheftführung', art: 'hinweis', zul: false },
+    { nr: '1.4', feld: 'p_1_4_auszubildende', titel: 'Der/die Auszubildende', art: 'pflicht', zul: false },
+    { nr: '1.5', feld: 'p_1_5_bescheinigungen', titel: 'Bescheinigungen ÜBA', art: 'pflicht', zul: true },
+    { nr: '1.6', feld: 'f_1_6_ausbildungsbetrieb', titel: 'Ausbildungsbetrieb / Skizze', art: 'hinweis', zul: false },
+  ],
+  // Auswahlwerte je Feld: [wert, Beschriftung]. Gespeichert bleiben die
+  // bisherigen Werte ('ja', 'nein', 'nicht_vorhanden'); neu sind 'unterschrift'
+  // (1.4) und 'skizze' (1.6). Bei 1.1 heißt ein altes 'nein' „nicht vorhanden“.
+  PFLICHT_OPTIONEN: {
+    p_1_1_ausbildungsplan: [['ja', 'vorhanden'], ['nicht_vorhanden', 'nicht vorhanden']],
+    p_1_1_gefuehrt: [['ja', 'geführt'], ['nein', 'nicht geführt']],
+    p_1_1_unterschrift: [['ja', 'unterschrieben'], ['nein', 'Unterschrift fehlt']],
+    f_1_2_vertragliche_regelungen: [['ja', 'Ja'], ['nein', 'Nein'], ['nicht_vorhanden', 'Nicht vorhanden']],
+    p_1_4_auszubildende: [['ja', 'geführt'], ['nein', 'nicht geführt'], ['unterschrift', 'Unterschrift fehlt'], ['nicht_vorhanden', 'nicht vorhanden']],
+    zusammenstellung: [['ja', 'geführt'], ['nein', 'nicht geführt'], ['nicht_vorhanden', 'nicht vorhanden']],
+    f_1_6_ausbildungsbetrieb: [['ja', 'geführt'], ['nein', 'nicht geführt'], ['skizze', 'Skizze nicht vorhanden'], ['nicht_vorhanden', 'alles nicht vorhanden']],
   },
-  // ── Fehlende Pflicht- und Hinweisteile („nein“ / „nicht vorhanden“) ──
-  HINWEISE_PFLICHT_FEHLT: {
-    p_1_1_ausbildungsplan: 'Individueller Ausbildungsplan (1.1) fehlt. Der Ausbildungsplan ist Anlage zum Ausbildungsvertrag, von Betrieb und Azubi zu unterschreiben und dem Berichtsheft beizufügen.',
-    p_1_4_auszubildende: 'Angaben zum/zur Auszubildenden (1.4) fehlen – Personalbogen ausfüllen.',
-    p_1_5_bescheinigungen: 'Zusammenstellung der Bescheinigungen (1.5) fehlt. Die Bescheinigungen der überbetrieblichen Ausbildung sind zusammenzustellen und dem Berichtsheft beizufügen.',
-    f_1_6_ausbildungsbetrieb: 'Angaben zum Ausbildungsbetrieb / Betriebsskizze (1.6) fehlen – bitte ergänzen.',
+  // Wert, wie ihn die Auswahl zeigt (Altwerte abgebildet)
+  pflichtWert(feld, wert) {
+    const w = String(wert || '');
+    if (feld === 'p_1_1_ausbildungsplan' && w === 'nein') return 'nicht_vorhanden';
+    return w;
+  },
+  pflichtLabel(feld, wert) {
+    const w = this.pflichtWert(feld, wert);
+    const o = (this.PFLICHT_OPTIONEN[feld] || []).find(x => x[0] === w);
+    return o ? o[1] : (w ? w : '–');
+  },
+  // 'gut' | 'mangel' | 'teil' | '' – für Farbe in Auswahl und Bogen
+  pflichtStufe(feld, wert) {
+    const w = this.pflichtWert(feld, wert);
+    if (!w) return '';
+    if (w === 'ja') return 'gut';
+    return (w === 'unterschrift' || w === 'skizze') ? 'teil' : 'mangel';
+  },
+  // Teil 1.5: EINE Auswahl „Zusammenstellung“ (geführt / nicht geführt / nicht
+  // vorhanden) über den beiden Spalten p_1_5_bescheinigungen (Seite da?) und
+  // p_1_5_gefuehrt (geführt?) – die Zahl der Bescheinigungen steht daneben.
+  zusammenstellung(ke) {
+    const k = ke || {};
+    if (this.pflichtFehlt(k.p_1_5_bescheinigungen)) return 'nicht_vorhanden';
+    if (k.p_1_5_gefuehrt === 'nein') return 'nein';
+    return k.p_1_5_bescheinigungen === 'ja' ? 'ja' : '';
+  },
+  // → { p_1_5_bescheinigungen, p_1_5_gefuehrt } zu einem Wert der Auswahl
+  zusammenstellungFelder(wert) {
+    if (wert === 'ja') return { p_1_5_bescheinigungen: 'ja', p_1_5_gefuehrt: 'ja' };
+    if (wert === 'nein') return { p_1_5_bescheinigungen: 'ja', p_1_5_gefuehrt: 'nein' };
+    if (wert === 'nicht_vorhanden') return { p_1_5_bescheinigungen: 'nicht_vorhanden', p_1_5_gefuehrt: '' };
+    return { p_1_5_bescheinigungen: '', p_1_5_gefuehrt: '' };
+  },
+
+  // ── Automatische Sätze zu den Pflichtteilen (Nov. 2026: kurz in Bemerkung
+  //  und Bogen, ausformuliert in E-Mails und Briefen). Je Feld und Zustand:
+  //  'fehlt' (nein / nicht vorhanden), 'nein' (nicht geführt), 'unterschrift',
+  //  'skizze'. Jeder Satz steht auf einer EIGENEN Zeile der Bemerkung, damit er
+  //  sich sauber wieder entfernen lässt; von Hand geänderte Fassungen bleiben.
+  HINWEISE_KURZ: {
+    p_1_1_ausbildungsplan: { fehlt: '1.1 Ausbildungsplan fehlt.' },
+    p_1_1_gefuehrt: { nein: '1.1 Ausbildungsplan wird nicht geführt.' },
+    p_1_1_unterschrift: { nein: '1.1 Ausbildungsplan: Unterschrift fehlt.' },
+    p_1_4_auszubildende: { nein: '1.4 Angaben zur/zum Auszubildenden nicht ausgefüllt.', unterschrift: '1.4 Angaben zur/zum Auszubildenden: Unterschrift fehlt.', fehlt: '1.4 Angaben zur/zum Auszubildenden fehlen.' },
+    p_1_5_bescheinigungen: { fehlt: '1.5 Zusammenstellung der ÜBA-Bescheinigungen fehlt.' },
+    p_1_5_gefuehrt: { nein: '1.5 Zusammenstellung der ÜBA-Bescheinigungen wird nicht geführt.' },
+    f_1_6_ausbildungsbetrieb: { nein: '1.6 Angaben zum Ausbildungsbetrieb nicht ausgefüllt.', skizze: '1.6 Betriebsskizze fehlt.', fehlt: '1.6 Angaben zum Ausbildungsbetrieb und Betriebsskizze fehlen.' },
+  },
+  HINWEISE_MAIL: {
+    p_1_1_ausbildungsplan: { fehlt: 'Der individuelle Ausbildungsplan (Teil 1.1) fehlt im Berichtsheft. Bitte legen Sie ihn bei – unterschrieben von Ausbildungsbetrieb und Auszubildender/Auszubildendem.' },
+    p_1_1_gefuehrt: { nein: 'Der individuelle Ausbildungsplan (Teil 1.1) wird nicht geführt. Bitte kreuzen Sie die vermittelten Ausbildungsinhalte laufend an.' },
+    p_1_1_unterschrift: { nein: 'Im individuellen Ausbildungsplan (Teil 1.1) fehlen Unterschriften. Bitte unterschreiben Sie ihn als Ausbildungsbetrieb und als Auszubildende/r.' },
+    p_1_4_auszubildende: {
+      nein: 'Das Blatt „Der/die Auszubildende“ (Teil 1.4) ist nicht ausgefüllt. Bitte tragen Sie die Angaben nach.',
+      unterschrift: 'Auf dem Blatt „Der/die Auszubildende“ (Teil 1.4) fehlt die Unterschrift. Bitte holen Sie sie nach.',
+      fehlt: 'Das Blatt „Der/die Auszubildende“ (Teil 1.4) fehlt im Berichtsheft. Bitte fügen Sie es ausgefüllt bei.' },
+    p_1_5_bescheinigungen: { fehlt: 'Die Zusammenstellung der Bescheinigungen über die überbetriebliche Ausbildung (Teil 1.5) fehlt. Bitte fügen Sie sie zusammen mit den Bescheinigungen dem Berichtsheft bei.' },
+    p_1_5_gefuehrt: { nein: 'Die Zusammenstellung der Bescheinigungen über die überbetriebliche Ausbildung (Teil 1.5) wird nicht geführt. Bitte ergänzen Sie sie nach jedem Lehrgang.' },
+    f_1_6_ausbildungsbetrieb: {
+      nein: 'Die Angaben zum Ausbildungsbetrieb (Teil 1.6) sind nicht ausgefüllt. Bitte tragen Sie sie nach.',
+      skizze: 'Die Betriebsskizze (Teil 1.6) fehlt. Bitte ergänzen Sie sie.',
+      fehlt: 'Die Angaben zum Ausbildungsbetrieb und die Betriebsskizze (Teil 1.6) fehlen. Bitte ergänzen Sie beides.' },
+  },
+  // Frühere lange Fassungen – nur noch zum Erkennen: sie gelten weiter als
+  // automatische Zeile (gehen also nicht als „eigene Bemerkung“ an den Betrieb)
+  // und werden beim nächsten Nachziehen durch die kurze Fassung ersetzt
+  HINWEISE_ALT: {
+    p_1_1_gefuehrt: ['Individueller Ausbildungsplan (1.1): vorhanden, wird aber nicht geführt. Die vermittelten Ausbildungsinhalte sind während der gesamten Ausbildung laufend im Ausbildungsplan anzukreuzen.'],
+    p_1_1_unterschrift: ['Individueller Ausbildungsplan (1.1): Unterschrift fehlt. Der Ausbildungsplan ist von Ausbildungsbetrieb und Auszubildender/Auszubildendem zu unterschreiben.'],
+    p_1_5_gefuehrt: ['Zusammenstellung der Bescheinigungen (1.5): wird nicht geführt. Die Übersicht ist laufend zu führen und nach jeder überbetrieblichen Ausbildungsmaßnahme zu ergänzen.'],
+    p_1_1_ausbildungsplan: ['Individueller Ausbildungsplan (1.1) fehlt. Der Ausbildungsplan ist Anlage zum Ausbildungsvertrag, von Betrieb und Azubi zu unterschreiben und dem Berichtsheft beizufügen.'],
+    p_1_4_auszubildende: ['Angaben zum/zur Auszubildenden (1.4) fehlen – Personalbogen ausfüllen.'],
+    p_1_5_bescheinigungen: ['Zusammenstellung der Bescheinigungen (1.5) fehlt. Die Bescheinigungen der überbetrieblichen Ausbildung sind zusammenzustellen und dem Berichtsheft beizufügen.'],
+    f_1_6_ausbildungsbetrieb: ['Angaben zum Ausbildungsbetrieb / Betriebsskizze (1.6) fehlen – bitte ergänzen.'],
+  },
+  // Die bisherigen Namen bleiben als Sicht auf die kurzen Sätze
+  get HINWEISE_NICHT_GEFUEHRT() {
+    const k = this.HINWEISE_KURZ;
+    return { p_1_1_gefuehrt: k.p_1_1_gefuehrt.nein, p_1_1_unterschrift: k.p_1_1_unterschrift.nein, p_1_5_gefuehrt: k.p_1_5_gefuehrt.nein };
+  },
+  get HINWEISE_PFLICHT_FEHLT() {
+    const k = this.HINWEISE_KURZ;
+    return { p_1_1_ausbildungsplan: k.p_1_1_ausbildungsplan.fehlt, p_1_4_auszubildende: k.p_1_4_auszubildende.fehlt, p_1_5_bescheinigungen: k.p_1_5_bescheinigungen.fehlt, f_1_6_ausbildungsbetrieb: k.f_1_6_ausbildungsbetrieb.fehlt };
   },
   // ── Mängel-Codes im Raster → was nachzuholen ist (Stamm; die betroffenen
   //    Wochen kommen in Klammern dahinter) ──
@@ -10380,7 +10531,13 @@ const App = {
   // Feste Reihenfolge der automatischen Zeilen am Ende der Bemerkung
   HINWEISE_REIHENFOLGE: ['p_1_1_ausbildungsplan', 'p_1_1_gefuehrt', 'p_1_1_unterschrift', 'p_1_4_auszubildende', 'p_1_5_bescheinigungen', 'p_1_5_gefuehrt', 'f_1_6_ausbildungsbetrieb', 'A', 'B', 'C', 'D', 'E', 'F', 'G'],
   autoHinweisStamm(key) {
-    return this.HINWEISE_NICHT_GEFUEHRT[key] || this.HINWEISE_PFLICHT_FEHLT[key] || this.HINWEISE_CODES[key] || null;
+    return this.autoHinweisStaemme(key)[0] || null;
+  },
+  // Alle Sätze, an denen eine automatische Zeile zu `key` erkannt wird:
+  // die aktuellen kurzen Fassungen (je Zustand) und die früheren langen
+  autoHinweisStaemme(key) {
+    if (this.HINWEISE_CODES[key]) return [this.HINWEISE_CODES[key]];
+    return [...Object.values(this.HINWEISE_KURZ[key] || {}), ...(this.HINWEISE_ALT[key] || [])];
   },
   // Unterpunkt → Hauptpunkt. Fehlt der Hauptpunkt („nein“ / „nicht vorhanden“),
   // sagt sein Satz schon alles: die Sätze der Unterpunkte entfallen dann, damit
@@ -10399,19 +10556,29 @@ const App = {
   },
   // Automatische Zeile zu einem Pflichtteil-Wert (null = keine) – EIN Feld für
   // sich, ohne Blick auf den Hauptpunkt (dafür: autoHinweisePflicht)
-  autoHinweisPflicht(feld, wert) {
-    if (this.HINWEISE_NICHT_GEFUEHRT[feld]) return wert === 'nein' ? this.HINWEISE_NICHT_GEFUEHRT[feld] : null;
-    if (this.HINWEISE_PFLICHT_FEHLT[feld]) return this.pflichtFehlt(wert) ? this.HINWEISE_PFLICHT_FEHLT[feld] : null;
-    return null;
+  // art 'mail' = ausformulierte Fassung für E-Mails und Briefe
+  autoHinweisPflicht(feld, wert, art) {
+    const v = this._hinweisVariante(feld, wert);
+    if (!v) return null;
+    const mail = art === 'mail' && this.HINWEISE_MAIL[feld] && this.HINWEISE_MAIL[feld][v];
+    return mail || this.HINWEISE_KURZ[feld][v];
+  },
+  // Zustand eines Werts: 'fehlt' | 'nein' | 'unterschrift' | 'skizze' | null
+  _hinweisVariante(feld, wert) {
+    const k = this.HINWEISE_KURZ[feld];
+    if (!k || !wert || wert === 'ja') return null;
+    if (wert === 'nicht_vorhanden') return k.fehlt ? 'fehlt' : null;
+    if (wert === 'nein') return k.nein ? 'nein' : (k.fehlt ? 'fehlt' : null);
+    return k[wert] ? wert : null;
   },
   // Automatische Zeilen zu den Pflichtteilen EINES Kontrollergebnisses:
   // { feld: zeile | null } für `felder` (Vorgabe: alle). Ein Unterpunkt liefert
   // null, solange sein Hauptpunkt fehlt – so entsteht nie eine Doppelung.
-  autoHinweisePflicht(ke, felder) {
+  autoHinweisePflicht(ke, felder, art) {
     const neu = {};
     (felder || this.HINWEIS_PFLICHT_FELDER).forEach(f => {
       const haupt = this.HINWEISE_HAUPTPUNKT[f];
-      neu[f] = haupt && this.pflichtFehlt((ke || {})[haupt]) ? null : this.autoHinweisPflicht(f, (ke || {})[f]);
+      neu[f] = haupt && this.pflichtFehlt((ke || {})[haupt]) ? null : this.autoHinweisPflicht(f, (ke || {})[f], art);
     });
     return neu;
   },
@@ -10437,8 +10604,9 @@ const App = {
     const z = String(zeile || '').trim();
     if (!z) return null;
     for (const k of this.HINWEISE_REIHENFOLGE) {
-      const st = this.autoHinweisStamm(k);
-      if (z === st || (z.startsWith(st + ' (') && z.endsWith(')'))) return k;
+      for (const st of this.autoHinweisStaemme(k)) {
+        if (z === st || (z.startsWith(st + ' (') && z.endsWith(')'))) return k;
+      }
     }
     return null;
   },
@@ -10460,7 +10628,7 @@ const App = {
   // Bemerkung passend zum Wert: bei 'nein' Hinweis anhängen (genau einmal),
   // sonst einen vorhandenen Hinweis entfernen
   bemerkungMitHinweis(bemerkung, feld, wert) {
-    if (!this.HINWEISE_NICHT_GEFUEHRT[feld]) return String(bemerkung || '');
+    if (!this.HINWEISE_KURZ[feld] || !this.HINWEISE_KURZ[feld].nein || this.HINWEISE_KURZ[feld].fehlt) return String(bemerkung || '');
     return this.bemerkungMitAutoZeilen(bemerkung, { [feld]: this.autoHinweisPflicht(feld, wert) });
   },
   // Zeile zu einem Mängel-Code: Stamm + betroffene Wochen (offene Mängel des
@@ -10589,7 +10757,7 @@ Folgende Unterlagen werden geprüft:
 - Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
 - Bescheinigungen über die überbetriebliche Ausbildung
 - Wetterbeobachtungen
-- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Erfahrungsberichte, Pflanze der Woche
 
 {digital_hinweis}
 
@@ -10613,7 +10781,7 @@ Geprüft werden:
 - Individueller Ausbildungsplan (ausgefüllt, unterschrieben und laufend geführt)
 - Bescheinigungen über die überbetriebliche Ausbildung
 - Wetterbeobachtungen
-- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche
+- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Erfahrungsberichte, Pflanze der Woche
 
 {digital_hinweis}
 
@@ -10636,7 +10804,7 @@ Folgende Ihrer Auszubildenden sind betroffen:
 
 Bitte stellen Sie sicher, dass die Berichtshefte vollständig geführt, mit allen erforderlichen Unterschriften versehen und am Kontrolltag in der Berufsschule vorliegen.
 
-Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Erfahrungsberichte und Pflanze der Woche.
 
 {digital_hinweis}
 
@@ -10687,7 +10855,7 @@ am {datum} findet an der {schule}{schule_ort} die Durchsicht der Berichtshefte (
 
 Bitte bringen Sie Ihr Berichtsheft an diesem Tag vollständig geführt und mit allen erforderlichen Unterschriften mit.
 
-Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Sachberichte und Pflanze der Woche.
+Geprüft werden: Tagesberichte (lückenlos, mit Berufsschulthemen), Wetterbeobachtungen, Unterschriften mit Datum, individueller Ausbildungsplan, ÜBA-Bescheinigungen – bei Zusatzvereinbarung auch Erfahrungsberichte und Pflanze der Woche.
 
 {digital_hinweis}
 
@@ -11333,6 +11501,10 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
       if (!keCols.includes('heft_notiz')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN heft_notiz TEXT DEFAULT ''");
       }
+      // Anzahl Pflanzenberichte (optional)
+      if (!keCols.includes('pflanzenberichte_anzahl')) {
+        this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN pflanzenberichte_anzahl INTEGER DEFAULT 0");
+      }
       if (!keCols.includes('zulassung_ap')) {
         this.db.run("ALTER TABLE kontrollergebnisse ADD COLUMN zulassung_ap INTEGER DEFAULT 0");
       }
@@ -11534,14 +11706,14 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
             [JSON.stringify([
               'Wetterbericht fehlt durchgehend',
               'Unterschrift Ausbilder fehlt',
-              'Sachberichte zu Wetter nachzureichen per E-Mail',
+              'Erfahrungsberichte zu Wetter nachzureichen per E-Mail',
               'Berichte komplett lückenhaft – persönliches Gespräch empfohlen',
               'Berichtsheft ordentlich und vollständig geführt',
               'Fehltage-Nachweise nicht beigelegt',
               'Überbetriebliche Ausbildungsnachweise fehlen',
               'Ausbildungsplan nicht abgeheftet',
               'Berichtsheft nicht vollständig unterschrieben',
-              'Sachberichte fehlen teilweise',
+              'Erfahrungsberichte fehlen teilweise',
               'Wochenberichte zu knapp / nicht aussagekräftig',
               'Zeichnungen/Skizzen fehlen',
               'Berichtsheft verschmutzt / unordentlich',
@@ -11599,6 +11771,19 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
           this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('wetter_pflicht_v1','1')");
         }
       } catch(e) { console.warn('Wetter-Pflicht-Migration:', e); }
+      // „Sachberichte“ heißen „Erfahrungsberichte“ – auch in gespeicherten
+      // Textbausteinen und von Hand angepassten Vorlagen (einmalig)
+      try {
+        if (!this.scalar("SELECT wert FROM einstellungen WHERE schluessel='erfahrungsberichte_v1'")) {
+          const um = (t) => String(t == null ? '' : t).replace(/Sachbericht/g, 'Erfahrungsbericht');
+          const roh = this.scalar("SELECT wert FROM einstellungen WHERE schluessel='textbausteine_bemerkung'");
+          if (roh && roh !== um(roh)) this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('textbausteine_bemerkung',?)", [um(roh)]);
+          this.query("SELECT schluessel, wert FROM einstellungen WHERE schluessel LIKE 'vorlage_%'").forEach(r => {
+            if (r.wert !== um(r.wert)) this.db.run('UPDATE einstellungen SET wert=? WHERE schluessel=?', [um(r.wert), r.schluessel]);
+          });
+          this.db.run("INSERT OR REPLACE INTO einstellungen (schluessel,wert) VALUES ('erfahrungsberichte_v1','1')");
+        }
+      } catch(e) { console.warn('Umbenennung Erfahrungsberichte:', e); }
       // Bestätigung „ohne Beanstandung“: der feste Schlusssatz „es besteht kein
       // weiterer Handlungsbedarf“ wird zum Platzhalter {hinweis}, damit bei
       // vorhandenen Bemerkungen „bitte beachten Sie die Bemerkungen“ steht –
@@ -11613,7 +11798,7 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
         }
       } catch(e) { console.warn('Vorlagen-Migration:', e); }
       // Teil 1.2 heißt jetzt „Zusatzvereinbarung zur Berichtsheftführung liegt vor“
-      // (Sachberichte, Pflanze der Woche; Wetter ist für alle Pflicht). Bisher setzte
+      // (Erfahrungsberichte, Pflanze der Woche; Wetter ist für alle Pflicht). Bisher setzte
       // „In Ordnung“ das Feld automatisch auf „ja“ (ohne fachliche Bedeutung) –
       // diese Automatik-Werte werden einmalig geleert, der Prüfer setzt den
       // neuen Wert bei der nächsten Durchsicht (Wert wird weitervererbt).
@@ -11782,6 +11967,7 @@ Informationen zum Schutz personenbezogener Daten finden Sie auf unserer Internet
 
     // ── Indizes (auch auf Bestands-Datenbanken nachziehen) ──
     try { this._migrateAjCheck(this.db); } catch(e) { console.warn('Migration Raster-Nummer:', e); }
+    try { this._migratePflichtCheck(this.db); } catch(e) { console.warn('Migration Pflichtteil-Werte:', e); }
     try { this.db.run(this.INDIZES); } catch(e) { console.warn('Index-Migration:', e); }
 
     // ── Auto-link schueler.ausbildungsstaette → betriebe ──

@@ -804,7 +804,7 @@ const BerichteHandler = {
     const bs = App.getTerminSchule(terminId);
     const wahl = nurIds && nurIds.length ? new Set(nurIds.map(Number)) : null;
     const liste = App.getTerminSchueler(terminId).filter(s => !wahl || wahl.has(Number(s.id)));
-    const eLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht', sachberichte_wetter_email: 'Sachberichte (Wetter) per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail bis Termin', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP', abwesend: 'Abwesend' };
+    const eLbl = { in_ordnung: 'In Ordnung', nachholung_naechste_durchsicht: 'Nachholung bis nächste Durchsicht', sachberichte_wetter_email: 'Erfahrungsberichte (Wetter) per E-Mail', berichte_bis_termin_email: 'Berichte per E-Mail bis Termin', persoenliche_vorlage_rp: 'Persönliche Vorlage im RP', post_an_rp: 'Per Post ans RP', abwesend: 'Abwesend' };
     return liste.map(s => {
       const ke = App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, s.id])[0] || {};
       const kl = App.query('SELECT k.klassenbezeichnung, bs.name as schule FROM klassen k LEFT JOIN berufsschulen bs ON k.berufsschule_id=bs.id WHERE k.id=?', [s.klasse_id])[0] || {};

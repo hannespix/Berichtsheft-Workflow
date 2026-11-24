@@ -417,6 +417,55 @@ console.log('\n══ Berichtsheft digital vorgelegt / nachgereicht ══');
   check(errors.length === before, 'Berichtsheft digital ohne Konsolenfehler');
 }
 
+// ── Teil 1 des Berichtshefts: Reihenfolge, Kennzeichnung, neue Auswahlwerte, 1.5 als Anzahl + Zusammenstellung ──
+console.log('\n══ Pflichtteile und Hinweise (Teil 1) ══');
+{
+  const before = errors.length;
+  const r = await page.evaluate(async () => {
+    const warte = (ms) => new Promise(z => setTimeout(z, ms));
+    App.closeModal(); await warte(300);
+    const t = App.query("SELECT id FROM kontrolltermine WHERE status='geplant' AND COALESCE(archiviert_am,'')=''")
+      .map(x => ({ id: x.id, n: App.getTerminSchueler(x.id).length })).sort((a, b) => b.n - a.n)[0];
+    if (!t || t.n < 2) return null;
+    App.navigate('kontrolle'); await warte(300);
+    if (!KontrolleHandler.activePruefer) KontrolleHandler.activePruefer = App.currentUser || App.query('SELECT name FROM pruefer WHERE aktiv=1 LIMIT 1')[0].name;
+    KontrolleHandler.loadTermin(t.id); await warte(600);
+    KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.currentIndex = KontrolleHandler.currentSchuelerList.length - 1; KontrolleHandler.enterSchüler(); await warte(600);
+    const karte = document.querySelector('.pfl-karte');
+    if (!karte) return { karte: false };
+    const sid = KontrolleHandler.currentSchuelerList[KontrolleHandler.currentIndex].id;
+    const ke = () => App.query('SELECT * FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [t.id, sid])[0];
+    const waehle = async (sel, wert) => { const e = karte.querySelector(sel); e.value = wert; e.dispatchEvent(new Event('change', { bubbles: true })); await warte(150); };
+    App.run("UPDATE kontrollergebnisse SET bemerkung='', p_1_1_ausbildungsplan='', p_1_4_auszubildende='', p_1_5_bescheinigungen='', p_1_5_gefuehrt='', f_1_6_ausbildungsbetrieb='' WHERE id=?", [ke().id]);
+    KontrolleHandler.renderSchueler(); await warte(400);
+    const k2 = document.querySelector('.pfl-karte');
+    const nummern = [...k2.querySelectorAll('.pfl-nr')].map(e => e.textContent.trim()).join(' ');
+    const marken = [...k2.querySelectorAll('.pfl-liste .pfl-marke')].map(e => e.textContent.trim()).join(' | ');
+    const optionen14 = [...k2.querySelectorAll('[data-field="p_1_4_auszubildende"] option')].map(o => o.textContent.trim()).join(' / ');
+    const w = async (sel, wert) => { const e = document.querySelector('.pfl-karte ' + sel); e.value = wert; e.dispatchEvent(new Event('change', { bubbles: true })); await warte(200); };
+    await w('[data-field="p_1_4_auszubildende"]', 'unterschrift');
+    await w('#keZusammenstellung', 'nein');
+    await w('[data-field="f_1_6_ausbildungsbetrieb"]', 'skizze');
+    await w('#keUbaAnzahl', '2');
+    const nach = ke();
+    const feld = document.getElementById('keBemerkung');
+    return { karte: true, nummern, marken, optionen14, p14: nach.p_1_4_auszubildende, p15: nach.p_1_5_bescheinigungen, g15: nach.p_1_5_gefuehrt, f16: nach.f_1_6_ausbildungsbetrieb, anz: nach.bescheinigungen_anzahl,
+      bem: nach.bemerkung, feldBem: feld ? feld.value : '', schrift: feld ? getComputedStyle(feld).fontSize : '', uba: document.getElementById('keUbaStand').textContent.trim(),
+      farbe14: document.querySelector('.pfl-karte [data-field="p_1_4_auszubildende"]').className, wege: [...document.querySelectorAll('#keWeg option')].map(o => o.value).join(' ') };
+  });
+  if (r && r.karte) {
+    check(r.nummern === '1.1 1.2 1.4 1.5 1.6', `Teile aufsteigend nach Nummern (${r.nummern})`);
+    check(r.marken === 'Pflicht§ 43 | Hinweis | Pflicht | Pflicht§ 43 | Hinweis', `Kennzeichnung Pflicht / § 43 / Hinweis (${r.marken})`);
+    check(r.optionen14 === '– / geführt / nicht geführt / Unterschrift fehlt / nicht vorhanden', '1.4 mit vier Auswahlwerten');
+    check(r.p14 === 'unterschrift' && r.f16 === 'skizze' && r.p15 === 'ja' && r.g15 === 'nein' && r.anz === 2, 'Neue Werte werden gespeichert (1.4 Unterschrift fehlt, 1.6 Skizze, 1.5 Zusammenstellung nicht geführt, Anzahl 2)');
+    check(r.bem === '1.4 Angaben zur/zum Auszubildenden: Unterschrift fehlt.\n1.5 Zusammenstellung der ÜBA-Bescheinigungen wird nicht geführt.\n1.6 Betriebsskizze fehlt.' && r.feldBem === r.bem, 'Kurze Sätze stehen in der Bemerkung (auch im Feld)');
+    check(r.schrift === '14px' && /pfl-wahl--teil/.test(r.farbe14) && /^2\/\d+ \(/.test(r.uba), `Bemerkung 14 px, Auswahl eingefärbt, ÜBA-Stand „${r.uba}“`);
+    check(r.wege === 'naechste_durchsicht email post persoenlich', 'Nachweisweg „fehlendes Wetter“ wird nicht mehr angeboten');
+  } else check(true, 'Pflichtteile (kein passender Termin in den Demodaten – übersprungen)');
+  await page.waitForTimeout(300);
+  check(errors.length === before, 'Pflichtteile ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
