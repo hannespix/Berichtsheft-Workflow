@@ -98,7 +98,7 @@ console.log('\n══ Paket 5: Fristen, ÜBA-Sollzahlen, Kampagnen-Hinweise als 
   check(App.wvFrist('post_an_rp') === add(21), `wvFrist rechnet vom heutigen Datum (${App.wvFrist('post_an_rp')})`);
   App.wvFristenSetzen('post_an_rp;10\nerinnerung;7\nunbekannt;5\npersoenliche_vorlage_rp;999');
   check(App.wvFristTage('post_an_rp') === 10 && App.wvFristTage('erinnerung') === 7 && App.wvFristTage('persoenliche_vorlage_rp') === 14, 'Einstellung greift; unbekannte Art und unplausible Tage werden ignoriert');
-  check(KH._wvDefaultFuer('post_an_rp') === add(10) && KH._wvDefaultFuer('persoenliche_vorlage_rp') === add(14), 'Standardfrist je Ergebnis kommt aus der Einstellung');
+  check(KH._wvDefaultFuer('post_an_rp') === add(10) && KH._wvDefaultFuer('persoenliche_vorlage_rp') === '', 'Standardfrist je Ergebnis kommt aus der Einstellung; persönliche Vorlage im RP ohne Vorschlag (Termin, keine Frist)');
   App.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=100'); // eine bestehende WV behält ihre Frist
   KH.setzeErgebnisKurz(5);
   const wvFrist = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE kontrollergebnis_id=100 ORDER BY id DESC LIMIT 1');

@@ -2440,8 +2440,9 @@ const KontrolleHandler = {
             ${App.wegeWaehlbar(bf.weg).map((w, wi) => `<option value="${w.val}" ${bf.weg === w.val ? 'selected' : ''}>${esc(w.label)}${w.val === 'naechste_durchsicht' ? ' (⇧3)' : w.val === 'email' ? ' (⇧4)' : w.val === 'post' ? ' (⇧5)' : w.val === 'persoenlich' ? ' (⇧6)' : ''}</option>`).join('')}
           </select>`; })()}
           <span id="wvSection" class="ke-wv" style="${ke.ergebnis && ke.ergebnis !== 'in_ordnung' ? '' : 'display:none'}">
-            <label for="wvDatum">Wiedervorlage</label>
-            <input type="date" class="form-control" id="wvDatum" value="${this.wvOhneDatum(ke.ergebnis) ? '' : this.getWVDate(ke.id)}" style="${this.wvOhneDatum(ke.ergebnis) ? 'display:none' : ''}" onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <label for="wvDatum" id="wvLabel">${this._wvLabel(ke.ergebnis)}</label>
+            <input type="date" class="form-control" id="wvDatum" value="${this.wvOhneDatum(ke.ergebnis) ? '' : this.getWVDate(ke.id)}" style="${this.wvOhneDatum(ke.ergebnis) ? 'display:none' : ''}" title="Termin der Wiedervorlage – freiwillig. Leer = ohne Termin: die Wiedervorlage bleibt offen, wird aber nicht überfällig. Bei persönlicher Vorlage im RP der vereinbarte Termin." onchange="KontrolleHandler.saveWV(${ke.id},this.value)">
+            <button type="button" class="ke-wv-x" id="wvLeeren" style="${this.wvOhneDatum(ke.ergebnis) || !this.getWVDate(ke.id) ? 'display:none' : ''}" onclick="KontrolleHandler.wvLeeren(${ke.id})" title="Termin entfernen – Wiedervorlage ohne Termin" aria-label="Termin der Wiedervorlage entfernen">✕</button>
             <span id="wvNaechste" class="ke-wv-text" style="${this.wvOhneDatum(ke.ergebnis) ? '' : 'display:none'}" title="Nachholung bei der nächsten Durchsicht – ohne festes Datum">bei der nächsten Durchsicht</span>
           </span>
         </div>
@@ -2487,6 +2488,9 @@ const KontrolleHandler = {
     // Durchsicht“ hat KEIN Datum: die Frist ist die nächste Kontrolle selbst,
     // ein Datum wäre nur geraten und machte die Wiedervorlage überfällig.
     if (ergebnis === 'nachholung_naechste_durchsicht') return '';
+    // Persönliche Vorlage im RP: das Datum ist ein vereinbarter Termin, kein
+    // Fristvorschlag – es bleibt leer, bis es von Hand eingetragen wird
+    if (App.wvIstTermin(ergebnis)) return '';
     return App.wvFrist(ergebnis in App.WV_FRISTEN_STANDARD ? ergebnis : 'berichte_bis_termin_email');
   },
   // Hat diese Wiedervorlage ein Datum? (Nachholung bei nächster Durchsicht: nein)
@@ -2499,6 +2503,22 @@ const KontrolleHandler = {
     const ohne = this.wvOhneDatum(ergebnis);
     if (inp) { inp.style.display = ohne ? 'none' : ''; if (ohne) inp.value = ''; }
     if (txt) txt.style.display = ohne ? '' : 'none';
+    // Beschriftung: „Termin im RP“ bei persönlicher Vorlage, sonst „Wiedervorlage“
+    const lbl = document.getElementById('wvLabel');
+    if (lbl) lbl.textContent = this._wvLabel(ergebnis);
+    this._wvLeerenAnzeigen();
+  },
+  _wvLabel(ergebnis) { return App.wvIstTermin(ergebnis) ? 'Termin im RP' : 'Wiedervorlage'; },
+  // Knopf „✕“ neben dem Datum: nur sichtbar, wenn ein Datum eingetragen ist
+  _wvLeerenAnzeigen() {
+    const inp = document.getElementById('wvDatum'), x = document.getElementById('wvLeeren');
+    if (x) x.style.display = inp && inp.style.display !== 'none' && inp.value ? '' : 'none';
+  },
+  // Termin entfernen: die Wiedervorlage bleibt, aber ohne Termin
+  wvLeeren(keId) {
+    const inp = document.getElementById('wvDatum');
+    if (inp) inp.value = '';
+    this.saveWV(keId, '');
   },
 
   getWVDate(keId) {
@@ -2663,6 +2683,8 @@ const KontrolleHandler = {
         const wvId = this._wvNachErgebnis(keId, s.id, value);
         const inp = document.getElementById('wvDatum');
         if (inp && wvId) inp.value = App.scalar('SELECT frist_datum FROM wiedervorlagen WHERE id=?', [wvId]) || '';
+        // ✕ „Termin entfernen“ erst jetzt nachführen – das Datum steht erst seit dieser Zeile im Feld
+        this._wvLeerenAnzeigen();
       }
       // Quick-Nav-Kachel dieses Azubis sofort grün/grau färben
       const btn = document.querySelector(`#quickNavGrid button:nth-child(${this.currentIndex + 1})`);
@@ -2784,9 +2806,13 @@ const KontrolleHandler = {
     const wv = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1', [keId])[0];
     if (wv) {
       const wiederOeffnen = wv.status === 'erledigt' && /^Automatisch erledigt/.test(wv.erledigt_bemerkung || '');
-      // Frist folgt der Art: „nächste Durchsicht“ ohne Datum, jede andere Art
-      // bekommt ein Datum (bestehendes bleibt, fehlendes wird ergänzt)
-      const frist = this.wvOhneDatum(ergebnis) ? '' : (wv.frist_datum || this._wvDefaultFuer(ergebnis));
+      // Datum folgt der Art. Der Termin ist optional – ein bewusst geleertes
+      // Datum bleibt leer. Drei Gruppen: „nächste Durchsicht“ (nie ein Datum),
+      // Termin (persönliche Vorlage im RP, von Hand) und Frist (Vorschlag aus
+      // den Einstellungen). Innerhalb der Gruppe bleibt, was eingetragen ist;
+      // beim Wechsel der Gruppe gilt die Vorgabe der neuen Art.
+      const gruppe = (a) => this.wvOhneDatum(a) || App.wvNaechsteDurchsicht(a) ? 'naechste' : App.wvIstTermin(a) ? 'termin' : 'frist';
+      const frist = this.wvOhneDatum(ergebnis) ? '' : (gruppe(wv.art) === gruppe(ergebnis) ? (wv.frist_datum || '') : this._wvDefaultFuer(ergebnis));
       if (wiederOeffnen) App.run("UPDATE wiedervorlagen SET art=?, frist_datum=?, status='offen', erledigt_datum='', erledigt_bemerkung='' WHERE id=?", [ergebnis, frist, wv.id]);
       else if (wv.art !== ergebnis || (wv.frist_datum || '') !== frist) App.run('UPDATE wiedervorlagen SET art=?, frist_datum=? WHERE id=?', [ergebnis, frist, wv.id]);
       return wv.id;
@@ -2807,14 +2833,22 @@ const KontrolleHandler = {
     });
   },
 
+  // Termin der Wiedervorlage setzen – oder leeren: leer = ohne Termin
+  // (die Wiedervorlage bleibt offen, wird aber nie überfällig)
   saveWV(keId, datum) {
-    if (!datum) return;
+    datum = String(datum || '').trim();
     const ke = App.query('SELECT * FROM kontrollergebnisse WHERE id=?', [keId])[0];
-    if (!ke) return;
+    if (!ke || !ke.ergebnis || ke.ergebnis === 'in_ordnung') return;
     // Upsert wiedervorlage
     const existing = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]);
     if (existing.length) {
       App.run('UPDATE wiedervorlagen SET frist_datum=?, art=? WHERE kontrollergebnis_id=?', [datum, ke.ergebnis, keId]);
+      // Ohne Termin (oder mit einem künftigen) ist nichts mehr überfällig
+      if (!datum || datum >= todayStr()) App.run("UPDATE wiedervorlagen SET status='offen' WHERE kontrollergebnis_id=? AND status='ueberfaellig'", [keId]);
+      this._wvLeerenAnzeigen();
+      if (!datum && !this.wvOhneDatum(ke.ergebnis)) App.toast('Wiedervorlage ohne Termin – sie bleibt offen, wird aber nicht überfällig', 'info');
+    } else if (!datum) {
+      return;
     } else {
       App.run('INSERT INTO wiedervorlagen (kontrollergebnis_id, schueler_id, art, frist_datum) VALUES (?,?,?,?)',
         [keId, ke.schueler_id, ke.ergebnis, datum]);
@@ -3616,7 +3650,7 @@ const KontrolleHandler = {
       nachholung_naechste_durchsicht: nextTermin || App.wvFrist('nachholung_naechste_durchsicht'),
       sachberichte_wetter_email: App.wvFrist('sachberichte_wetter_email'),
       berichte_bis_termin_email: App.wvFrist('berichte_bis_termin_email'),
-      persoenliche_vorlage_rp: App.wvFrist('persoenliche_vorlage_rp'),
+      persoenliche_vorlage_rp: '',   // Termin, kein Fristvorschlag
       post_an_rp: App.wvFrist('post_an_rp')
     };
     const nachholFrist = App.wvFrist('nachholung_abwesend');
@@ -3658,12 +3692,13 @@ const KontrolleHandler = {
       <!-- Step 2: Wiedervorlagen-Fristen -->
       ${mangelhafte.length ? `
       <div style="border:1px solid var(--clr-sand);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-        <strong style="font-size:13px;color:var(--clr-forest)">◷ Wiedervorlagen-Fristen (automatisch vorgeschlagen)</strong>
+        <strong style="font-size:13px;color:var(--clr-forest)">◷ Wiedervorlagen – Termin (vorgeschlagen, freiwillig)</strong>
+        <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">Leeres Datum = Wiedervorlage ohne Termin. Bei persönlicher Vorlage im RP den vereinbarten Termin eintragen.</div>
         <div style="max-height:150px;overflow-y:auto;margin-top:8px">
           ${mangelhafte.map(m => {
             const existingWV = App.query('SELECT * FROM wiedervorlagen WHERE kontrollergebnis_id=?', [m.ke.id]);
             const hasWV = existingWV.length > 0;
-            const defaultDate = wvDefaults[m.ergebnis] || plus4w;
+            const defaultDate = m.ergebnis in wvDefaults ? wvDefaults[m.ergebnis] : plus4w;
             return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--clr-sand);font-size:12px" data-wv-ke="${m.ke.id}" data-wv-sid="${m.id}" data-wv-art="${m.ergebnis}">
               <input type="checkbox" class="wv-auto" ${!hasWV?'checked':''} style="accent-color:var(--clr-forest)">
               <span style="min-width:120px"><strong>${esc(m.nachname)}</strong>, ${esc(m.vorname)}</span>
@@ -3762,8 +3797,8 @@ const KontrolleHandler = {
       const keId = parseInt(row.dataset.wvKe);
       const sid = parseInt(row.dataset.wvSid);
       const art = row.dataset.wvArt;
-      const frist = row.querySelector('.wv-date')?.value;
-      if (!frist) return;
+      // Der Termin ist optional: ein leeres Feld legt die Wiedervorlage ohne Termin an
+      const frist = row.querySelector('.wv-date')?.value || '';
       const existing = App.query('SELECT id FROM wiedervorlagen WHERE kontrollergebnis_id=?', [keId]);
       if (existing.length) {
         App.run('UPDATE wiedervorlagen SET frist_datum=?, art=? WHERE kontrollergebnis_id=?', [frist, art, keId]);

@@ -40,7 +40,7 @@ check(/Workflows\.emailSchule\(\$\{id\}\)/.test(TS) && /PlanungHandler\.terminBe
 check(/freier Ort – keine Schulanfrage nötig/.test(TS), 'Vorbereitung: freier Ort braucht keine Schulanfrage');
 check(/class="fortschritt ts-fortschritt"/.test(TS) && /role="progressbar"/.test(TS) && /KontrolleHandler\.printUebersicht\(\$\{id\}\)/.test(TS), 'Durchsicht: Fortschritt mit Balken, Übersichtstabelle');
 check(/Workflows\.emailBetriebIndividuell\(\$\{id\}\)/.test(TS) && /Workflows\.briefeBearbeiten\(\$\{id\}\)/.test(TS) && /PlanungHandler\.fremdeAemter\(\$\{id\}\)/.test(TS) && /PlanungHandler\.nachholterminAnlegen\(\$\{id\}\)/.test(TS) && /TerminSeite\.nachbereitetVermerken\(\)/.test(TS) && /App\.terminSchritt\(this\._id, 'nachbereitet'\)/.test(TS), 'Nachbereitung: Schule, E-Mails und Briefe an Betriebe, fremde Ämter, Nachholtermin, „Nachbereitung abgeschlossen“');
-check(/Wiedervorlagen dieses Termins/.test(TS) && /JOIN kontrollergebnisse k ON w\.kontrollergebnis_id=k\.id/.test(TS) && /WiedervorlagenHandler\.details\(\$\{w\.id\}\)/.test(TS) && /'nächste Durchsicht'/.test(TS), 'Nachbereitung: Wiedervorlagen dieses Termins (ohne Datum = nächste Durchsicht)');
+check(/Wiedervorlagen dieses Termins/.test(TS) && /JOIN kontrollergebnisse k ON w\.kontrollergebnis_id=k\.id/.test(TS) && /WiedervorlagenHandler\.details\(\$\{w\.id\}\)/.test(TS) && /App\.wvFristText\(w, true\)/.test(TS), 'Nachbereitung: Wiedervorlagen dieses Termins (ohne Datum = nächste Durchsicht bzw. ohne Termin)');
 check(/PlanungHandler\.exportTerminPDF\(\$\{id\}\)/.test(TS) && /BerichteHandler\.exportTerminExcel\(\$\{id\}\)/.test(TS) && /BerichteHandler\.gesamtpaket\(\$\{id\}\)/.test(TS) && /Workflows\.exportSeriendruckCSV\(\$\{id\}\)/.test(TS) && /Workflows\.exportSeriendruckWord\(\$\{id\}\)/.test(TS), 'Bögen & Export: PDF, Excel, Gesamtpaket, Seriendruck');
 
 console.log('\n══ Verdrahtung ══');
@@ -72,6 +72,7 @@ console.log('\n══ Verhalten mit Daten ══');
   const query = (sql, params = []) => { const st = db.prepare(sql); st.bind(params); const rows = []; while (st.step()) rows.push(st.getAsObject()); st.free(); return rows; };
   const App = {
     query, _heuteIso: () => '2026-11-03', getTerminSchueler: () => query('SELECT * FROM schueler'), istFremdesAmt: () => false,
+    wvFristText: w => w.frist_datum ? w.frist_datum : (w.art && !/^nachholung/.test(w.art) ? 'ohne Termin' : 'nächste Durchsicht'),
     terminKette: t => ({ schritt: t.bestaetigt_am ? 'bestaetigt' : t.angefragt_am ? 'angefragt' : '', label: '', farbe: '' }),
   };
   const Workflows = { _betriebeDesTermins: () => ({ betriebe: [{ email: 'x@y' }, { email: '' }] }) };

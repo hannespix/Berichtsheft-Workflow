@@ -216,7 +216,7 @@ const TerminSeite = {
       ${st.wv.slice(0, 60).map(w => `<tr>
         <td>${esc(w.nachname)}, ${esc(w.vorname)}</td>
         <td><small>${esc(typeof wvArtLabel === 'function' ? wvArtLabel(w.art) : w.art)}</small></td>
-        <td>${w.frist_datum ? formatDate(w.frist_datum) : 'nächste Durchsicht'}</td>
+        <td>${esc(App.wvFristText(w, true))}</td>
         <td><span class="badge-status ${w.status === 'erledigt' ? 'badge-done' : w.status === 'ueberfaellig' ? 'badge-overdue' : 'badge-open'}">${esc(w.status)}</span></td>
         <td>${typeof WiedervorlagenHandler !== 'undefined' && WiedervorlagenHandler.details ? `<button class="btn btn-sm btn-secondary" onclick="WiedervorlagenHandler.details(${w.id})">Details</button>` : ''}</td>
       </tr>`).join('')}

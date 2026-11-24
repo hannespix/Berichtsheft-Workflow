@@ -114,7 +114,7 @@ const WiedervorlagenHandler = {
       <p style="font-size:13px;margin-bottom:10px">Erledigt${w.erledigt_datum ? ' am <strong>' + formatDate(w.erledigt_datum) + '</strong>' : ''}${w.erledigt_bemerkung ? ' – ' + esc(w.erledigt_bemerkung) : ''}. Die Wiedervorlage (${wvArtLabel(w.art)}) wird wieder geöffnet; Erledigungsdatum und -bemerkung wandern als Notiz in den Verlauf.</p>
       <div class="form-row">
         <div class="form-group"><label for="mWvFristNeu">Frist</label><input type="date" class="form-control" id="mWvFristNeu" value="${esc(w.frist_datum || '')}">
-          <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">${ohneDatum ? 'Leer = bei der nächsten Durchsicht (wie bisher).' : (w.frist_datum < todayStr() ? 'Die Frist ist abgelaufen – ohne neue Frist steht die Wiedervorlage sofort auf „Überfällig“.' : 'Die Frist läuft noch.')}</div>
+          <div style="font-size:12px;color:var(--clr-text-light);margin-top:2px">${ohneDatum ? (App.wvFristArt(w) === 'naechste' ? 'Leer = bei der nächsten Durchsicht (wie bisher).' : 'Leer = ohne Termin (wie bisher).') : (w.frist_datum < todayStr() ? 'Die Frist ist abgelaufen – ohne neue Frist steht die Wiedervorlage sofort auf „Überfällig“.' : 'Die Frist läuft noch.')}</div>
         </div>
         <div class="form-group"><label for="mWvGrund">Grund (optional)</label><input type="text" class="form-control" id="mWvGrund" placeholder="z.B. versehentlich erledigt"></div>
       </div>
@@ -144,7 +144,7 @@ const WiedervorlagenHandler = {
     if (wochen) { try { App.run("UPDATE wiedervorlagen SET erledigt_behoben='' WHERE id=?", [id]); } catch(e) {} }
     const wer = (typeof KontrolleHandler !== 'undefined' && KontrolleHandler.activePruefer) || App.currentUser || '';
     const teile = ['Wieder geöffnet – war' + (w.erledigt_datum ? ' am ' + formatDate(w.erledigt_datum) : '') + ' als erledigt markiert' + (w.erledigt_bemerkung ? ' (' + w.erledigt_bemerkung + ')' : '')];
-    if ((w.frist_datum || '') !== frist) teile.push('Frist ' + (w.frist_datum ? formatDate(w.frist_datum) : 'nächste Durchsicht') + ' → ' + (frist ? formatDate(frist) : 'nächste Durchsicht'));
+    if ((w.frist_datum || '') !== frist) teile.push('Frist ' + App.wvFristText(w) + ' → ' + App.wvFristText({ art: w.art, frist_datum: frist }));
     if (wochen) teile.push(wochen + ' Woche' + (wochen === 1 ? '' : 'n') + ' wieder als offener Mangel');
     if (p.grund) teile.push('Grund: ' + p.grund);
     App.run('INSERT INTO wiedervorlage_notizen (wiedervorlage_id, notiz, erstellt_von) VALUES (?,?,?)', [id, teile.join(' · '), wer]);
@@ -292,7 +292,7 @@ const WiedervorlagenHandler = {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:12px">
         <div><strong>Betrieb:</strong> ${esc(w.ausbildungsstaette)}</div>
         <div><strong>Art:</strong> ${wvArtLabel(w.art)}</div>
-        <div><strong>Frist:</strong> ${w.frist_datum ? formatDate(w.frist_datum) : 'bei der nächsten Durchsicht'}</div>
+        <div><strong>${App.wvIstTermin(w.art) ? 'Termin' : 'Frist'}:</strong> ${App.wvFristArt(w) === 'naechste' ? 'bei der nächsten Durchsicht' : esc(App.wvFristText(w))}</div>
         ${w.versand_datum ? `<div><strong>Versand:</strong> ${w.mahnstufe || 1}× angeschrieben, zuletzt ${formatDate(w.versand_datum)} per ${esc(w.versand_art === 'email' ? 'E-Mail' : (w.versand_art || 'Brief'))}</div>` : '<div style="color:var(--clr-text-light)"><strong>Versand:</strong> noch kein Anschreiben vermerkt</div>'}
         <div><strong>Status:</strong> ${wvStatusBadge(w.status)}</div>
         ${w.erledigt_datum ? `<div><strong>Erledigt am:</strong> ${formatDate(w.erledigt_datum)}</div>` : ''}

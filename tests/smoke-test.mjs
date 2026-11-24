@@ -466,6 +466,42 @@ console.log('\n══ Pflichtteile und Hinweise (Teil 1) ══');
   check(errors.length === before, 'Pflichtteile ohne Konsolenfehler');
 }
 
+// ── Termin der Wiedervorlage ist freiwillig: Vorschlag, ✕, „Termin im RP“ ──
+console.log('\n══ Wiedervorlage: Termin freiwillig ══');
+{
+  const before = errors.length;
+  const r = await page.evaluate(async () => {
+    const warte = (ms) => new Promise(z => setTimeout(z, ms));
+    App.closeModal(); await warte(300);
+    if (App.currentView !== 'kontrolle' || !KontrolleHandler.currentTerminId) return null;
+    const liste = KontrolleHandler.currentSchuelerList;
+    const tid = KontrolleHandler.currentTerminId;
+    const i = liste.findIndex(s => { const k = App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [tid, s.id])[0]; return k && !k.ergebnis; });
+    if (i < 0) return null;
+    KontrolleHandler._viewMode = 'einzeln'; KontrolleHandler.currentIndex = i; KontrolleHandler.enterSchüler(); await warte(600);
+    const stand = () => ({ label: document.getElementById('wvLabel').textContent, datum: document.getElementById('wvDatum').value, x: document.getElementById('wvLeeren').style.display !== 'none' });
+    const wv = () => App.query('SELECT w.art, w.frist_datum, w.status FROM wiedervorlagen w JOIN kontrollergebnisse k ON k.id=w.kontrollergebnis_id WHERE k.kontrolltermin_id=? AND k.schueler_id=? ORDER BY w.id DESC', [tid, liste[i].id])[0];
+    KontrolleHandler.setzeBefund('maengel'); await warte(200);
+    const weg = document.getElementById('keWeg');
+    weg.value = 'email'; weg.dispatchEvent(new Event('change', { bubbles: true })); await warte(300);
+    const email = { ...stand(), wv: wv() };
+    document.getElementById('wvLeeren').click(); await warte(300);
+    const leer = { ...stand(), wv: wv() };
+    weg.value = 'persoenlich'; weg.dispatchEvent(new Event('change', { bubbles: true })); await warte(300);
+    const rp = { ...stand(), wv: wv() };
+    // aufräumen: Azubi wieder ohne Ergebnis
+    KontrolleHandler.setzeBefund(''); await warte(200);
+    return { email, leer, rp, text: App.wvFristText({ art: 'berichte_bis_termin_email', frist_datum: '' }) };
+  });
+  if (r) {
+    check(/^\d{4}-\d{2}-\d{2}$/.test(r.email.datum) && r.email.x && r.email.label === 'Wiedervorlage' && r.email.wv.frist_datum === r.email.datum, 'Mängel per E-Mail: Datum vorgeschlagen, ✕ sichtbar');
+    check(r.leer.datum === '' && !r.leer.x && r.leer.wv.frist_datum === '' && r.leer.wv.status === 'offen' && r.text === 'ohne Termin', '✕ entfernt den Termin – Wiedervorlage bleibt offen, „ohne Termin“');
+    check(r.rp.label === 'Termin im RP' && r.rp.datum === '' && r.rp.wv.art === 'persoenliche_vorlage_rp' && r.rp.wv.frist_datum === '', 'Persönliche Vorlage: Feld heißt „Termin im RP“ und bleibt leer');
+  } else check(true, 'Wiedervorlage-Termin (kein offener Azubi in der Durchsicht – übersprungen)');
+  await page.waitForTimeout(300);
+  check(errors.length === before, 'Wiedervorlage-Termin ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
