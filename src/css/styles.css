@@ -1152,7 +1152,7 @@ body.grosse-schrift { zoom: 1.2; }
 .ke-wv input { width: auto; padding: 2px 6px; font-size: 12px; }
 .ke-wv .ke-wv-text { font-size: 12px; color: var(--clr-forest); font-weight: 600; white-space: nowrap; }
 .ke-zeile2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.ke-zeile2 textarea { flex: 1 1 260px; font-size: 12px; padding: 5px 8px; resize: none; min-height: 28px; line-height: 1.3; align-self: flex-start; }
+.ke-zeile2 textarea { flex: 1 1 260px; font-size: 14px; padding: 5px 8px; resize: none; min-height: 28px; line-height: 1.3; align-self: flex-start; }
 .ke-zeile2 .btn, .ke-zeile2 .aktionen-menue { align-self: flex-start; }
 .ke-zeile2 .btn { padding: 5px 12px; }
 .ke-zeile2 .aktionen-menue > summary { padding: 5px 10px; }
@@ -1755,6 +1755,32 @@ body.dark-mode .aktionen-menue .menue-liste { background: var(--clr-white); bord
 .ueb-tabelle .ueb-nr input, .ueb-gruppe input { width: 16px; height: 16px; accent-color: var(--clr-forest); margin: 0; }
 .ueb-klasse { width: 92px; padding: 3px 6px; font-size: 13px; }
 .ueb-klasse::placeholder { color: var(--clr-text-light); }
+/* Teil 1 des Berichtshefts: Pflichtteile und Hinweise, nach Nummern wie im Register */
+.pfl-legende { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--clr-text-light); margin-bottom: 8px; }
+.pfl-liste { display: grid; grid-template-columns: 30px 92px 1fr auto; gap: 5px 8px; align-items: center; font-size: 13px; }
+.pfl-nr { font-weight: 700; color: var(--clr-text); }
+.pfl-nr--hinweis { font-weight: 400; color: var(--clr-text-light); }
+.pfl-titel { font-weight: 600; }
+.pfl-titel--hinweis { font-weight: 400; }
+.pfl-zusatz { font-size: 12px; font-weight: 400; color: var(--clr-text-light); }
+.pfl-unter { font-size: 12px; color: var(--clr-text-light); padding-left: 10px; }
+.pfl-marke { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 1; padding: 3px 6px; border-radius: 4px; white-space: nowrap; justify-self: start; }
+.pfl-marke--pflicht { background: var(--clr-forest); color: var(--clr-white); font-weight: 700; }
+.pfl-marke--hinweis { background: transparent; color: var(--clr-text-light); border: 1px dashed var(--clr-sage); }
+.pfl-zul { font-size: 12px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: var(--clr-gelb); color: #1B1917; }
+.pfl-legende .pfl-zul { padding: 2px 5px; }
+.pfl-wahl { width: auto; display: inline; padding: 4px 8px; font-size: 12px; }
+.pfl-wahl--unter { padding: 2px 6px; }
+.pfl-wahl--gut { border-color: var(--clr-green); }
+.pfl-wahl--mangel { border-color: var(--clr-red); color: var(--clr-red); }
+.pfl-wahl--teil { border-color: var(--clr-amber); color: var(--clr-amber); }
+.pfl-wahl:focus-visible, .pfl-uba input:focus-visible { outline: 3px solid var(--clr-gelb); outline-offset: 2px; }
+.pfl-uba { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pfl-uba input { width: 52px; padding: 3px 4px; font-size: 12px; text-align: center; }
+.pfl-uba-stand { font-size: 12px; font-weight: 600; color: var(--clr-text-light); }
+.pfl-uba-stand--gut { color: var(--clr-green); }
+.pfl-uba-stand--teil { color: var(--clr-amber); }
+@media (max-width: 560px) { .pfl-liste { grid-template-columns: 30px 1fr auto; } .pfl-liste .pfl-marke { display: none; } .pfl-liste > span:empty + span:empty { display: none; } }
 /* Vorlage des Berichtshefts (Papier · digital · wird digital nachgereicht) + Notiz */
 .ueb-heft-zelle { min-width: 196px; }
 .ueb-heft { width: 100%; padding: 2px 4px; font-size: 12px; }

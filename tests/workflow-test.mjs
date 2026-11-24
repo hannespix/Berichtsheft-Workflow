@@ -393,7 +393,8 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   const autoZeile = App.autoHinweisStamm('B') + ' (1 Woche: AJ 2: KW 41)';
   // Haupt- und Unterpunkt nie doppelt: fehlt der Plan, steht nur „fehlt“
   {
-    const U11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_unterschrift, G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan;
+    // Schreiben tragen die ausformulierte Fassung (App.HINWEISE_MAIL), die Bemerkung die kurze
+    const U11 = App.HINWEISE_MAIL.p_1_1_unterschrift.nein, G11 = App.HINWEISE_MAIL.p_1_1_gefuehrt.nein, F11 = App.HINWEISE_MAIL.p_1_1_ausbildungsplan.fehlt;
     const mitKe = ke => Workflows._azubiBlock([{ nachname: 'Kopp', vorname: 'Lukas', maengel: [], ke: { id: 1, ergebnis: 'berichte_bis_termin_email', anwesend: 1, ...ke } }], true);
     const fehltBlock = mitKe({ p_1_1_ausbildungsplan: 'nein', p_1_1_gefuehrt: 'nein', p_1_1_unterschrift: 'nein' });
     check(fehltBlock.includes('→ ' + F11) && !fehltBlock.includes(G11) && !fehltBlock.includes(U11), 'Plan fehlt: nur der Satz „fehlt“, „nicht geführt“ und „Unterschrift fehlt“ entfallen');
@@ -420,7 +421,7 @@ console.log('\n══ E-Mails an Betriebe: Arbeitsliste, kompakter Mängel-Block
   App.run("DELETE FROM einstellungen WHERE schluessel='vorlage_betrieb_ok_body'");
   check(/hinweis: this\._betriebHinweis\(d\.isDone \? g\.azubis : \[\]\)/.test(W_SRC) && /hinweis: this\._betriebHinweis\(isDone \? g\.azubis : \[\]\)/.test(W_SRC), 'E-Mail-Arbeitsliste und Brief-PDF übergeben den Hinweis');
   check(/→ Sonstige Beanstandungen, siehe Bemerkung \(1 Woche: AJ 1: KW 50\)/.test(block) && !/Fehltage/.test(block), 'Sonstiges mit Wochen, Fehltage ohne Zeile');
-  check(/→ Individueller Ausbildungsplan \(1\.1\) fehlt\./.test(block), 'Fehlender Pflichtteil steht im Block');
+  check(/→ Der individuelle Ausbildungsplan \(Teil 1\.1\) fehlt im Berichtsheft\. Bitte legen Sie ihn bei/.test(block) && !/→ 1\.1 Ausbildungsplan fehlt/.test(block), 'Fehlender Pflichtteil steht ausformuliert im Block (nicht die Kurzfassung der Bemerkung)');
   check(!/AJ 2, KW 40:/.test(block), 'Alte Wochen-Zeilen sind weg');
   check(/mit Zusatzvereinbarung/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true)) === false && /Wetterangaben nachtragen \(1 Woche: AJ 2: KW 44\)\n/.test(Workflows._azubiBlock([{ ...a, ke: { ...a.ke, f_1_2_vertragliche_regelungen: 'ja' } }], true) + '\n'), 'Mit Zusatzvereinbarung derselbe Wortlaut');
   // mailto-Grenze

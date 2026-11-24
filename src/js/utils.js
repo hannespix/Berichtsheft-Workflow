@@ -109,7 +109,7 @@ function wvStatusBadge(status) {
 function wvArtLabel(art) {
   const map = {
     'nachholung_naechste_durchsicht': 'Nachholung bis nächste Durchsicht',
-    'sachberichte_wetter_email': 'Sachberichte (Wetter) per E-Mail',
+    'sachberichte_wetter_email': 'Erfahrungsberichte (Wetter) per E-Mail',
     'berichte_bis_termin_email': 'Berichte per E-Mail bis Termin',
     'persoenliche_vorlage_rp': 'Persönliche Vorlage im RP',
     'post_an_rp': 'Per Post ans RP',
@@ -123,7 +123,7 @@ function ergebnisLabel(e) {
   const map = {
     'in_ordnung': 'In Ordnung',
     'nachholung_naechste_durchsicht': 'Nachholung',
-    'sachberichte_wetter_email': 'Sachberichte (E-Mail)',
+    'sachberichte_wetter_email': 'Erfahrungsberichte (E-Mail)',
     'berichte_bis_termin_email': 'Berichte (E-Mail)',
     'persoenliche_vorlage_rp': 'Vorlage RP',
     'post_an_rp': 'Post RP',

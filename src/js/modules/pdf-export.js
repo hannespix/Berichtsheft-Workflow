@@ -15,7 +15,7 @@ const PDFExport = {
   generateBatch(transform, termin, terminId, schuelerList, opts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
-    const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung bis nächste Durchsicht',sachberichte_wetter_email:'Sachberichte (Wetter) per E-Mail',berichte_bis_termin_email:'Berichte per E-Mail bis Termin',persoenliche_vorlage_rp:'Persönliche Vorlage im RP',post_an_rp:'Per Post ans RP'};
+    const eLbl = {in_ordnung:'In Ordnung',nachholung_naechste_durchsicht:'Nachholung bis nächste Durchsicht',sachberichte_wetter_email:'Erfahrungsberichte (Wetter) per E-Mail',berichte_bis_termin_email:'Berichte per E-Mail bis Termin',persoenliche_vorlage_rp:'Persönliche Vorlage im RP',post_an_rp:'Per Post ans RP'};
     const codeLabels = {A:'Unterschrift Azubi',B:'Unterschrift Ausbilder',C:'Berufsschulthemen',D:'Wetter',E:'Inhaltlich lückenhaft',F:'Berichte fehlen komplett',G:'Datum/KW falsch',H:'Fehltage',I:'Sonstiges'};
     const LM = 10; // left margin
     const RM = 200; // right margin (210 - 10)
@@ -277,84 +277,61 @@ const PDFExport = {
         doc.text(`${s.nachname}, ${s.vorname} – Ergebnis`, LM+3, y+4);
         y += 8;
       }
-      const valLabel = (v) => v === 'ja' ? 'Ja' : v === 'nein' ? 'Nein' : v === 'nicht_vorhanden' ? 'N. vorh.' : '–';
-      const valColor = (v) => v === 'ja' ? COL_GREEN : v === 'nein' ? COL_RED : v === 'nicht_vorhanden' ? COL_AMBER : [160,160,160];
+      // Farbe nach Stufe: gut grün, Mangel rot, teilweise (Unterschrift/Skizze fehlt) orange
+      const stufeFarbe = (st) => st === 'gut' ? COL_GREEN : st === 'mangel' ? COL_RED : st === 'teil' ? COL_AMBER : [160,160,160];
+      const kurz = (t) => String(t).replace(/^nicht vorhanden$/, 'n. vorh.').replace(/^alles nicht vorhanden$/, 'alles n. vorh.').replace(/^Skizze nicht vorhanden$/, 'Skizze n. vorh.');
+      const zeichneTeile = (teile, yy, grau) => {
+        let px = LM + 18;
+        teile.forEach(t => {
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+          doc.setTextColor(...(grau ? [100, 100, 100] : [60, 60, 60]));
+          doc.text(t.nr, px, yy);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
+          doc.text(t.label, px + 5, yy);
+          let zx = px + 5;
+          t.werte.forEach((w, wi) => {
+            const text = (wi ? '· ' : '') + w.text;
+            doc.setFont('helvetica', wi && w.stufe !== 'mangel' ? 'normal' : 'bold'); doc.setFontSize(wi ? 6 : 7);
+            doc.setTextColor(...stufeFarbe(w.stufe));
+            doc.text(text, zx, yy + (grau ? 2.5 : 3.5));
+            zx += doc.getTextWidth(text) + 1.2;
+          });
+          px += 58;
+        });
+      };
+      const wert = (feld, v) => ({ text: kurz(App.pflichtLabel(feld, v)), stufe: App.pflichtStufe(feld, v) });
 
       // Box background
       doc.setFillColor(250, 250, 250);
       doc.setDrawColor(...COL_BORDER);
       doc.rect(LM, y, PW, 15, 'FD');
 
-      // Pflicht header
+      // PFLICHT: 1.1 Ausbildungsplan und 1.5 ÜBA (zulassungsrelevant, § 43 Abs. 1
+      // Nr. 2 BBiG) sowie 1.4 „Der/die Auszubildende“ (Pflicht ohne Zulassungswirkung)
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
       doc.setTextColor(...COL_INK);
       doc.text('PFLICHT:', LM + 2, y + 4);
+      const planDa = App.pflichtWert('p_1_1_ausbildungsplan', ke?.p_1_1_ausbildungsplan) === 'ja';
+      const reqUBA = App.getRequiredUBA(s.fachrichtung_id), uba = ke?.bescheinigungen_anzahl || 0;
+      const zus = App.zusammenstellung(ke);
+      zeichneTeile([
+        { nr: '1.1', label: 'Ausbildungsplan', werte: [wert('p_1_1_ausbildungsplan', ke?.p_1_1_ausbildungsplan),
+          // Unterpunkte nur, wenn der Plan da ist – sonst sagt „nicht vorhanden“ schon alles
+          ...(planDa && (ke?.p_1_1_gefuehrt === 'ja' || ke?.p_1_1_gefuehrt === 'nein') ? [wert('p_1_1_gefuehrt', ke.p_1_1_gefuehrt)] : []),
+          ...(planDa && (ke?.p_1_1_unterschrift === 'ja' || ke?.p_1_1_unterschrift === 'nein') ? [wert('p_1_1_unterschrift', ke.p_1_1_unterschrift)] : [])] },
+        { nr: '1.4', label: 'Der/die Auszubildende', werte: [wert('p_1_4_auszubildende', ke?.p_1_4_auszubildende)] },
+        { nr: '1.5', label: 'Beschein. überbetr. Ausb.', werte: [{ text: `${uba}/${reqUBA}`, stufe: uba >= reqUBA ? 'gut' : uba > 0 ? 'teil' : '' },
+          ...(zus ? [{ text: 'Zusammenst. ' + kurz(App.pflichtLabel('zusammenstellung', zus)), stufe: App.pflichtStufe('zusammenstellung', zus) }] : [])] },
+      ], y + 4, false);
 
-      // Pflicht items (§ 43 Abs. 1 Nr. 2 BBiG): 1.1 Ausbildungsplan, 1.5 Bescheinigungen ÜA
-      // (1.4 „Der/die Auszubildende“ ist keine Zulassungsvoraussetzung → Hinweis)
-      const pflichtItems = [
-        ['1.1', 'Ausbildungsplan', ke?.p_1_1_ausbildungsplan],
-        ['1.5', 'Beschein. überbetr. Ausb.', ke?.p_1_5_bescheinigungen, ke?.bescheinigungen_anzahl, App.getRequiredUBA(s.fachrichtung_id)],
-      ];
-      let px = LM + 18;
-      pflichtItems.forEach(([nr, label, val, count, reqUBA]) => {
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-        doc.setTextColor(60, 60, 60);
-        doc.text(`${nr}`, px, y + 4);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-        doc.text(label, px + 5, y + 4);
-        // Value
-        const displayVal = val || '';
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-        doc.setTextColor(...valColor(displayVal));
-        let valText = valLabel(displayVal);
-        if (nr === '1.5' && reqUBA) valText += ` (${count||0}/${reqUBA})`;
-        doc.text(valText, px + 5, y + 7.5);
-        // Zusätze der Unterpunkte: „geführt / nicht geführt“ (1.1 Inhalte
-        // angekreuzt, 1.5 Zusammenstellung) und bei 1.1 „unterschrieben /
-        // Unterschrift fehlt“ – nur wenn der Teil selbst da ist (fehlt er,
-        // sagt „Nein“ / „Nicht vorhanden“ schon alles)
-        const teilFehlt = displayVal === 'nein' || displayVal === 'nicht_vorhanden';
-        const zusaetze = teilFehlt ? [] : (nr === '1.1'
-          ? [[ke?.p_1_1_gefuehrt, 'geführt', 'nicht geführt'], [ke?.p_1_1_unterschrift, 'unterschrieben', 'Unterschrift fehlt']]
-          : nr === '1.5' ? [[ke?.p_1_5_gefuehrt, 'geführt', 'nicht geführt']] : []);
-        let zx = px + 6 + doc.getTextWidth(valText);
-        zusaetze.forEach(([wert, jaText, neinText]) => {
-          if (wert !== 'ja' && wert !== 'nein') return;
-          const text = '· ' + (wert === 'nein' ? neinText : jaText);
-          doc.setFont('helvetica', wert === 'nein' ? 'bold' : 'normal'); doc.setFontSize(6);
-          doc.setTextColor(...(wert === 'nein' ? [180, 40, 30] : [60, 120, 60]));
-          doc.text(text, zx, y + 7.5);
-          zx += doc.getTextWidth(text) + 1.2;
-        });
-        px += 58;
-      });
-
-      // Freiwillig header
+      // HINWEIS: 1.2 Zusatzvereinbarung (informativ), 1.6 Ausbildungsbetrieb / Skizze
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
       doc.setTextColor(...COL_GRAY);
       doc.text('HINWEIS:', LM + 2, y + 11.5);
-
-      const freiItems = [
-        ['1.2', 'Zusatzvereinbarung', ke?.f_1_2_vertragliche_regelungen],
-        ['1.4', 'Der/die Auszubildende', ke?.p_1_4_auszubildende],
-        ['1.6', 'Ausbildungsbetrieb / Skizze', ke?.f_1_6_ausbildungsbetrieb],
-      ];
-      px = LM + 18;
-      freiItems.forEach(([nr, label, val]) => {
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-        doc.setTextColor(100, 100, 100);
-        doc.text(`${nr}`, px, y + 11.5);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-        doc.text(label, px + 5, y + 11.5);
-        // Value
-        const displayVal = val || '';
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-        doc.setTextColor(...valColor(displayVal));
-        doc.text(valLabel(displayVal), px + 5, y + 14);
-        // Leave space but we're outside box, that's fine – box is 14 high
-        px += 58;
-      });
+      zeichneTeile([
+        { nr: '1.2', label: 'Zusatzvereinbarung', werte: [wert('f_1_2_vertragliche_regelungen', ke?.f_1_2_vertragliche_regelungen)] },
+        { nr: '1.6', label: 'Ausbildungsbetrieb / Skizze', werte: [wert('f_1_6_ausbildungsbetrieb', ke?.f_1_6_ausbildungsbetrieb)] },
+      ], y + 11.5, true);
 
       y += 16;
 

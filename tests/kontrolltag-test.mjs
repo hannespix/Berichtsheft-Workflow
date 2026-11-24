@@ -330,7 +330,7 @@ console.log('\n══ Sticky-Kopf der Einzelansicht ══');
 console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in der Bemerkung ══');
 {
   const H11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, H15 = App.HINWEISE_NICHT_GEFUEHRT.p_1_5_gefuehrt;
-  check(/1\.1/.test(H11) && /anzukreuzen/.test(H11) && /1\.5/.test(H15) && /Zusammenstellung/.test(H15), 'Beide Hinweistexte vorhanden und klar zugeordnet');
+  check(/^1\.1 /.test(H11) && /nicht geführt/.test(H11) && /^1\.5 /.test(H15) && /Zusammenstellung/.test(H15) && H11.length < 60 && /anzukreuzen|kreuzen Sie/.test(App.HINWEISE_MAIL.p_1_1_gefuehrt.nein), 'Beide Hinweistexte vorhanden und klar zugeordnet (kurz in der Bemerkung, ausformuliert für Schreiben)');
   // Reine Textlogik
   const b = App.bemerkungMitHinweis;
   check(b.call(App, '', 'p_1_1_gefuehrt', 'nein') === H11, 'Leere Bemerkung: Hinweis wird eingesetzt');
@@ -338,7 +338,7 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   check(b.call(App, b.call(App, 'X', 'p_1_1_gefuehrt', 'nein'), 'p_1_1_gefuehrt', 'nein') === 'X\n' + H11, 'Zweimal „nicht geführt“ ergibt den Hinweis nur einmal');
   check(b.call(App, 'X\n' + H11, 'p_1_1_gefuehrt', 'ja') === 'X', '„geführt“ entfernt den Hinweis, der Rest bleibt');
   check(b.call(App, 'X\n' + H11, 'p_1_1_gefuehrt', '') === 'X', 'Zurück auf „–“ entfernt den Hinweis ebenfalls');
-  const handgeaendert = H11.replace('laufend', 'fortlaufend');
+  const handgeaendert = H11.replace('wird nicht', 'wird leider nicht');
   check(b.call(App, handgeaendert, 'p_1_1_gefuehrt', 'ja') === handgeaendert, 'Von Hand geänderte Fassung wird nicht angetastet');
   check(b.call(App, 'A\n' + H11 + '\n' + H15, 'p_1_1_gefuehrt', 'ja') === 'A\n' + H15, 'Die Hinweise zu 1.1 und 1.5 sind unabhängig voneinander');
 
@@ -379,7 +379,7 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   check(/ADD COLUMN p_1_1_gefuehrt/.test(disk) && /ADD COLUMN p_1_5_gefuehrt/.test(disk), '_migrateDiskDb() zieht beide nach');
   // Archiv und PDF
   check(/g_1_1: ke\.p_1_1_gefuehrt/.test(K_SRC) && /g_1_1: ke\.p_1_1_gefuehrt/.test(NE_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest');
-  check(/nicht geführt/.test(read('src/js/modules/pdf-export.js')) && /p_1_1_gefuehrt/.test(read('src/js/modules/pdf-export.js')), 'Der Durchsichtsbogen (PDF) zeigt „geführt / nicht geführt“');
+  check(/wert\('p_1_1_gefuehrt', ke\.p_1_1_gefuehrt\)/.test(read('src/js/modules/pdf-export.js')) && App.pflichtLabel('p_1_1_gefuehrt', 'nein') === 'nicht geführt' && /App\.zusammenstellung\(ke\)/.test(read('src/js/modules/pdf-export.js')), 'Der Durchsichtsbogen (PDF) zeigt „geführt / nicht geführt“');
   // „nicht geführt“ zählt in der Zulassung als nicht erfüllt
   const voll = { p_1_1_ausbildungsplan: 'ja', p_1_4_auszubildende: '', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_1_gefuehrt: '', p_1_5_gefuehrt: '' };
   check(KH.pflichtteileOK(voll, 2) === true, 'Pflichtteile erfüllt: 1.1 und 1.5 vorhanden, ÜBA erreicht (1.4 ist keine Zulassungsvoraussetzung)');
@@ -389,7 +389,7 @@ console.log('\n══ 1.1 / 1.5 „geführt / nicht geführt“ mit Hinweis in d
   check(KH.pflichtteileOK({ ...voll, bescheinigungen_anzahl: 1 }, 2) === false, 'Zu wenig ÜBA → nicht erfüllt');
   const KSRC = read('src/js/modules/kontrolle.js');
   check((KSRC.match(/this\.zulassungsBefund\(s, ke\)/g) || []).length === 3 && (KSRC.match(/this\.pflichtteileOK\(ke, reqUBA\)/g) || []).length === 1 && !/p_1_5_bescheinigungen === 'ja' && \(ke\.bescheinigungen_anzahl\|\|0\) >= reqUBA/.test(KSRC), 'Übersicht und Druck nutzen denselben Befund (keine zweite Formel)');
-  check(/data-field="\$\{name\}"/.test(K_SRC) && /gefuehrtOptHtml\('p_1_1_gefuehrt'/.test(K_SRC) && /gefuehrtOptHtml\('p_1_5_gefuehrt'/.test(K_SRC), 'Beide Auswahlfelder stehen in der Eingabemaske');
+  check(/data-field="\$\{name\}"/.test(K_SRC) && /gefuehrtOptHtml\('p_1_1_gefuehrt'/.test(K_SRC) && /id="keZusammenstellung"/.test(K_SRC) && /KontrolleHandler\.zusammenstellungSetzen\(this\.value\)/.test(K_SRC), 'Beide Auswahlfelder stehen in der Eingabemaske (1.5 als eine Auswahl „Zusammenstellung“)');
   KH.currentIndex = 0;
 }
 
@@ -427,7 +427,7 @@ console.log('\n══ Automatische Bemerkung: fehlende Pflichtteile und Mängel-
   KH._pruefeAbgeschlossen = () => true;
   KH.nextOffen = () => {};
   const F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan, F15 = App.HINWEISE_PFLICHT_FEHLT.p_1_5_bescheinigungen, G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt;
-  check(/Ausbildungsplan \(1\.1\) fehlt/.test(F11) && /\(1\.4\)/.test(App.HINWEISE_PFLICHT_FEHLT.p_1_4_auszubildende) && /\(1\.5\) fehlt/.test(F15) && /\(1\.6\)/.test(App.HINWEISE_PFLICHT_FEHLT.f_1_6_ausbildungsbetrieb), 'Texte für 1.1, 1.4, 1.5 und 1.6 „fehlt“ vorhanden');
+  check(/^1\.1 Ausbildungsplan fehlt\.$/.test(F11) && /^1\.4 .*fehlen\.$/.test(App.HINWEISE_PFLICHT_FEHLT.p_1_4_auszubildende) && /^1\.5 .*fehlt\.$/.test(F15) && /^1\.6 .*fehlen\.$/.test(App.HINWEISE_PFLICHT_FEHLT.f_1_6_ausbildungsbetrieb), 'Texte für 1.1, 1.4, 1.5 und 1.6 „fehlt“ vorhanden (kurz)');
   check(App.HINWEISE_CODES.F === 'Fehlende Tagesberichte nachholen' && /Auszubildenden nachholen/.test(App.HINWEISE_CODES.A) && /Ausbilders/.test(App.HINWEISE_CODES.B) && ['C', 'D', 'E', 'G'].every(c => App.HINWEISE_CODES[c]) && !App.HINWEISE_CODES.H && !App.HINWEISE_CODES.I, 'Texte je Mängel-Code A–G (H Fehltage und I Sonstiges ohne Satz)');
   // Reine Textlogik
   check(App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'nein') === F11 && App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'nicht_vorhanden') === F11 && App.autoHinweisPflicht('p_1_1_ausbildungsplan', 'ja') === null && App.autoHinweisPflicht('p_1_1_gefuehrt', 'nein') === G11, '„nein“ und „nicht vorhanden“ ergeben den Satz, „ja“ keinen');
@@ -489,7 +489,7 @@ console.log('\n══ 1.1 „Unterschrift fehlt“ und keine Doppelungen bei Hau
 {
   const F11 = App.HINWEISE_PFLICHT_FEHLT.p_1_1_ausbildungsplan, F15 = App.HINWEISE_PFLICHT_FEHLT.p_1_5_bescheinigungen;
   const G11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_gefuehrt, U11 = App.HINWEISE_NICHT_GEFUEHRT.p_1_1_unterschrift, G15 = App.HINWEISE_NICHT_GEFUEHRT.p_1_5_gefuehrt;
-  check(/^Individueller Ausbildungsplan \(1\.1\): Unterschrift fehlt\./.test(U11) && /zu unterschreiben/.test(U11), 'Satz „Unterschrift fehlt“ nennt Teil 1.1 und was zu tun ist');
+  check(/^1\.1 Ausbildungsplan: Unterschrift fehlt\.$/.test(U11) && /Teil 1\.1/.test(App.HINWEISE_MAIL.p_1_1_unterschrift.nein) && /unterschreiben Sie/.test(App.HINWEISE_MAIL.p_1_1_unterschrift.nein), 'Satz „Unterschrift fehlt“ nennt Teil 1.1; die Fassung für Schreiben sagt, was zu tun ist');
   check(App.autoHinweisPflicht('p_1_1_unterschrift', 'nein') === U11 && App.autoHinweisPflicht('p_1_1_unterschrift', 'ja') === null && App.autoHinweisPflicht('p_1_1_unterschrift', '') === null, 'Nur „Unterschrift fehlt“ ergibt den Satz');
   check(App._autoZeileKey(U11) === 'p_1_1_unterschrift' && App._autoZeileKey(G11) === 'p_1_1_gefuehrt' && App._autoZeileKey(F11) === 'p_1_1_ausbildungsplan', 'Die drei Sätze zu 1.1 werden auseinandergehalten');
   const reihe = App.HINWEISE_REIHENFOLGE;
@@ -562,11 +562,11 @@ console.log('\n══ 1.1 „Unterschrift fehlt“ und keine Doppelungen bei Hau
   const disk = APP_SRC.slice(APP_SRC.indexOf('_migrateDiskDb(diskDb)'));
   check(/p_1_1_unterschrift TEXT/.test(schema) && /keCols\.includes\('p_1_1_unterschrift'\)/.test(APP_SRC) && /ADD COLUMN p_1_1_unterschrift/.test(disk), 'Spalte in SCHEMA, migrateDB() und _migrateDiskDb()');
   check(/'p_1_1_gefuehrt','p_1_1_unterschrift','p_1_4_auszubildende'/.test(APP_SRC), 'Zusammenführung nach Offline-Phase kennt das Feld (mergeColumns)');
-  check(/u_1_1: ke\.p_1_1_unterschrift/.test(K_SRC) && /u_1_1: ke\.p_1_1_unterschrift/.test(NE_SRC) && /pflicht\.u_1_1 === 'nein'/.test(K_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest und zeigt ihn');
+  check(/u_1_1: ke\.p_1_1_unterschrift/.test(K_SRC) && /u_1_1: ke\.p_1_1_unterschrift/.test(NE_SRC) && /p\.u_1_1 === 'nein' \? ' – Unterschrift fehlt'/.test(K_SRC), 'Archiv (Kontrolle und Nacherfassung) hält den Wert fest und zeigt ihn');
   const PE = read('src/js/modules/pdf-export.js');
-  check(/Unterschrift fehlt/.test(PE) && /p_1_1_unterschrift/.test(PE) && /teilFehlt \? \[\]/.test(PE), 'Durchsichtsbogen (PDF): „Unterschrift fehlt“ – Zusätze nur, wenn der Teil da ist');
+  check(App.pflichtLabel('p_1_1_unterschrift', 'nein') === 'Unterschrift fehlt' && /p_1_1_unterschrift/.test(PE) && /planDa && \(ke\?\.p_1_1_unterschrift === 'ja'/.test(PE), 'Durchsichtsbogen (PDF): „Unterschrift fehlt“ – Zusätze nur, wenn der Teil da ist');
   check(/unterschriftOptHtml\('p_1_1_unterschrift'/.test(K_SRC) && /data-haupt="\$\{haupt\}"/.test(K_SRC) && /\$\{gesperrt \? 'disabled' : ''\}/.test(K_SRC) && /\[data-haupt="\$\{field\}"\]/.test(K_SRC), 'Auswahl in der Eingabemaske; Unterpunkte gesperrt, solange der Hauptpunkt fehlt');
-  check(/App\.autoHinweisePflicht\(a\.ke\)/.test(read('src/js/modules/workflows.js')) && /App\.bemerkungOhneDoppelungen\(ke\.bemerkung, ke\)/.test(K_SRC), 'Anschreiben und Öffnen der Durchsicht nutzen dieselbe Regel');
+  check(/App\.autoHinweisePflicht\(a\.ke, null, 'mail'\)/.test(read('src/js/modules/workflows.js')) && /App\.bemerkungOhneDoppelungen\(ke\.bemerkung, ke\)/.test(K_SRC), 'Anschreiben und Öffnen der Durchsicht nutzen dieselbe Regel');
   App.run("UPDATE kontrollergebnisse SET bemerkung='', ergebnis='', p_1_1_ausbildungsplan='', p_1_1_gefuehrt='', p_1_1_unterschrift='', p_1_5_bescheinigungen='', p_1_5_gefuehrt='' WHERE id=200"); db.run('DELETE FROM wiedervorlagen WHERE kontrollergebnis_id=200');
   KH.currentIndex = 0;
 }

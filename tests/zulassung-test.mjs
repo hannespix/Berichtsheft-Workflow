@@ -100,7 +100,9 @@ console.log('\n══ Pflichtteile: 1.1 und 1.5 sind Voraussetzung, 1.4 ist Hinw
   check(!KH.PFLICHT_AUTO_JA.includes('f_1_2_vertragliche_regelungen') && KH.PFLICHT_AUTO_JA.includes('p_1_4_auszubildende'), '„In Ordnung“ setzt 1.4/1.6 auf ja, aber NICHT die Zusatzvereinbarung (1.2)');
   check(!/pflichtFields = \[[^\]]*f_1_2_vertragliche_regelungen/.test(K_SRC), '_markOK setzt 1.2 nicht');
   const P = read('src/js/modules/pdf-export.js');
-  check(/pflichtItems = \[\s*\['1\.1'[\s\S]*?\['1\.5'/.test(P) && !/pflichtItems = \[[\s\S]*?\['1\.4'[\s\S]*?\];\s*let px/.test(P) && /freiItems = \[[\s\S]*?\['1\.4', 'Der\/die Auszubildende'/.test(P) && /'HINWEIS:'/.test(P), 'PDF: 1.4 steht unter HINWEIS, Pflicht sind 1.1 und 1.5');
+  { const pfl = P.split("doc.text('PFLICHT:'")[1].split("doc.text('HINWEIS:'")[0], hin = P.split("doc.text('HINWEIS:'")[1].split('y += 16;')[0];
+  check(/nr: '1\.1'/.test(pfl) && /nr: '1\.4'/.test(pfl) && /nr: '1\.5'/.test(pfl) && /nr: '1\.2'/.test(hin) && /nr: '1\.6'/.test(hin) && !/nr: '1\.4'/.test(hin), 'PDF: Pflicht sind 1.1, 1.4 und 1.5 (aufsteigend), Hinweis 1.2 und 1.6'); }
+  check(KH.pflichtteileOK({ p_1_1_ausbildungsplan: 'ja', p_1_5_bescheinigungen: 'ja', bescheinigungen_anzahl: 2, p_1_4_auszubildende: 'nicht_vorhanden' }, 2) === true && App.PFLICHT_TEILE.find(t => t.nr === '1.4').art === 'pflicht' && App.PFLICHT_TEILE.find(t => t.nr === '1.4').zul === false, '1.4 ist Pflicht, zählt aber nicht für die Zulassung');
   check(/Zusatzvereinbarung Berichtsheftführung/.test(K_SRC) && /Hinweis \(keine Zulassungsvoraussetzung\)/.test(K_SRC), 'Karte: 1.2 heißt Zusatzvereinbarung, Block „Hinweis (keine Zulassungsvoraussetzung)“');
 }
 
@@ -201,7 +203,7 @@ console.log('\n══ Zusatzvereinbarung: Migration, Ergebnis-Hinweis, Vorlagen 
   check(/Tagesberichte/.test(V.betrieb_ankuendigung.body) && /§ 14 Abs\. 2 BBiG/.test(V.betrieb_maengel.body), 'Ankündigung nennt Tagesberichte, Mängelmitteilung § 14 Abs. 2');
   check(/kw-hinweis/.test(read('src/css/styles.css')) && /kw-hinweis/.test(K_SRC) && /kw-hinweis/.test(read('src/js/modules/kw-nav.js')), 'Hinweis-Code (I) wird gelb statt rot gezeichnet');
   // Wetter für alle Pflicht: Vorlagen, Textbausteine, einmalige Bereinigung alter Wortlaute
-  check(/\n- Wetterbeobachtungen\n- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Sachberichte, Pflanze der Woche/.test(V.betrieb_bcc.body) && !/zusätzlich: Wetterbeobachtungen/.test(V.betrieb_bcc.body), 'Serien-Mail: Wetterbeobachtungen stehen als eigener Pflichtpunkt, nicht mehr unter der Zusatzvereinbarung');
+  check(/\n- Wetterbeobachtungen\n- Bei Zusatzvereinbarung zur Berichtsheftführung zusätzlich: Erfahrungsberichte, Pflanze der Woche/.test(V.betrieb_bcc.body) && !/zusätzlich: Wetterbeobachtungen/.test(V.betrieb_bcc.body), 'Serien-Mail: Wetterbeobachtungen stehen als eigener Pflichtpunkt, nicht mehr unter der Zusatzvereinbarung');
   check(Object.values(V).every(v => !/bei Zusatzvereinbarung auch Wetter/.test(v.body || '')) && Object.values(V).some(v => /Wetterbeobachtungen, Unterschriften mit Datum/.test(v.body || '')), 'Kein Standard-Anschreiben nennt Wetter mehr nur „bei Zusatzvereinbarung“');
   const alt = Object.keys(App.WETTER_TEXT_ALT);
   check(alt.length === 4 && alt.every(k => /Zusatzvereinbarung/.test(k)) && Object.values(App.WETTER_TEXT_ALT).every(v => !/nur bei Zusatzvereinbarung/.test(v)), 'Alte Wortlaute (Textbausteine, Vorlagen) haben je eine neue Fassung');
