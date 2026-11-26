@@ -502,6 +502,32 @@ console.log('\n══ Wiedervorlage: Termin freiwillig ══');
   check(errors.length === before, 'Wiedervorlage-Termin ohne Konsolenfehler');
 }
 
+console.log('\n── E-Mail an die Betriebe: Tabellen und Bögen ──');
+{
+  const before = errors.length;
+  const r = await page.evaluate(() => {
+    const t = App.query("SELECT kontrolltermin_id t FROM kontrollergebnisse WHERE ergebnis!='' GROUP BY kontrolltermin_id ORDER BY COUNT(*) DESC LIMIT 1")[0];
+    if (!t) return null;
+    const alt = App.query('SELECT status FROM kontrolltermine WHERE id=?', [t.t])[0].status;
+    App.run("UPDATE kontrolltermine SET status='durchgefuehrt' WHERE id=?", [t.t]); App.invalidateTerminCache();
+    Workflows.emailBetriebIndividuell(t.t);
+    const d = Workflows._individualData;
+    const idx = d.betriebe.findIndex(g => g.azubis.some(a => a.ke && a.ke.ergebnis));
+    const g = d.betriebe[idx]; const merk = g.email; if (!g.email) g.email = 'betrieb@example.org';
+    const e = Workflows._betriebEntwurf(idx);
+    const bewertet = g.azubis.filter(a => a.ke && a.ke.ergebnis);
+    g.email = merk;
+    App.closeModal();
+    App.run('UPDATE kontrolltermine SET status=? WHERE id=?', [alt, t.t]); App.invalidateTerminCache();
+    return { n: bewertet.length, namen: e.anhaenge.map(a => a.name), ok: bewertet.filter(a => a.ke.ergebnis === 'in_ordnung').length, fehlend: e.fehlend, html: /Ergebnis je Auszubildender/.test(e.m.html) && /<table/.test(e.m.html), eml: /multipart\/alternative/.test(e.eml) && /Content-Type: application\/pdf/.test(e.eml) };
+  });
+  if (r) {
+    check(r.namen.length === r.n && !r.fehlend.length && r.eml && r.html, `Entwurf an einen Betrieb: alle ${r.n} Bögen der bewerteten Azubis (echte PDFs), HTML-Tabellen`);
+    check(r.namen.every(n => /^BH-Durchsicht_(OK|Maengel)_/.test(n)) && r.namen.filter(n => /^BH-Durchsicht_OK_/.test(n)).length === r.ok, `Dateinamen nennen das Ergebnis (${r.namen[0]})`);
+  } else check(true, 'Betriebs-E-Mail (kein bewerteter Termin – übersprungen)');
+  check(errors.length === before, 'Betriebs-E-Mail ohne Konsolenfehler');
+}
+
 if (errors.length) {
   console.log('\n──── Konsolenfehler ────');
   [...new Set(errors)].forEach(e => console.log('  ' + e));
