@@ -341,6 +341,105 @@ const Workflows = {
       return line;
     }).join('\n');
   },
+  // Stand eines Azubis nach der Kontrolle – EINE Quelle für die Brief-Übersicht
+  // und die Tabellen der HTML-E-Mail: { name, art: ok|maengel|offen, status,
+  // detail, ergebnis, frist, fehltage, nachzuholen[], bemerkung[] }
+  _azubiStand(a) {
+    const ke = a.ke || null;
+    const name = `${a.nachname}, ${a.vorname}`;
+    const fehltage = (() => { if (!ke) return '0'; try { return String(App.fehltageGesamtKE ? App.fehltageGesamtKE(ke).gesamt : (ke.fehltage_gesamt || 0)); } catch(e) { return String(ke.fehltage_gesamt || 0); } })();
+    if (!ke) return { name, art: 'offen', status: 'Offen', detail: 'nicht bewertet', ergebnis: 'nicht bewertet', frist: '–', fehltage, nachzuholen: [], bemerkung: [] };
+    const wv = App.query("SELECT art, frist_datum, status FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1", [ke.id])[0];
+    const digital = this._digitalOffen(a), abwesend = !ke.ergebnis && ke.anwesend === 0;
+    const ergebnis = ke.ergebnis ? (this._eLbl[ke.ergebnis] || ke.ergebnis) : digital ? 'wird digital nachgereicht' : (abwesend ? 'nicht anwesend – Berichtsheft nachreichen' : 'nicht bewertet');
+    let frist = '–';
+    if (wv && wv.frist_datum) frist = formatDate(wv.frist_datum);
+    // ohne Datum: „nächste Durchsicht“ bzw. „ohne Termin“ (der Termin ist freiwillig)
+    else if (ke.ergebnis && ke.ergebnis !== 'in_ordnung') frist = wv ? App.wvFristText(wv) : 'nächste Durchsicht';
+    else if (digital) frist = this._nachreichFrist('digital_nachreichen', [a]);
+    else if (abwesend) frist = formatDate(App.wvFrist('nachholung_abwesend'));
+    const art = ke.ergebnis === 'in_ordnung' ? 'ok' : ke.ergebnis ? 'maengel' : 'offen';
+    const nachzuholen = this._nachzuholen(a);
+    if (digital) nachzuholen.unshift('Berichtsheft digital (als PDF) zur Durchsicht senden.');
+    else if (abwesend) nachzuholen.unshift('Berichtsheft zur Durchsicht vorlegen (am Kontrolltag nicht anwesend).');
+    return { name, art, status: art === 'ok' ? 'In Ordnung' : art === 'maengel' ? 'Mängel' : 'Offen',
+      detail: art === 'ok' ? '' : ergebnis, ergebnis, frist, fehltage, nachzuholen, bemerkung: this._bemerkungFuerBetrieb(ke) };
+  },
+  // ── HTML-Fassung der E-Mails (Outlook zeigt sie, die Textfassung bleibt) ──
+  // Nur Inline-Stile und Tabellen (Outlook nutzt die Word-Engine: kein CSS-Grid,
+  // kein border-radius); Zeilenumbrüche in Zellen mit mso-data-placement, damit
+  // eine in Excel eingefügte Tabelle je Zelle EINE Zelle bleibt.
+  MAIL_FARBEN: { text: '#2A2623', leise: '#56524E', linie: '#E4E1DE', zebra: '#F7F6F5', kopf: '#2A2623', gelb: '#FFFC00',
+    ok: '#3F6B0A', okHell: '#EFF5E4', maengel: '#C6332E', maengelHell: '#FBEDEC', offen: '#A94E00', offenHell: '#FBF1E5' },
+  MAIL_MARKE: '\u0001TABELLE\u0001',
+  _h(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  _zellUmbruch(zeilen) { return zeilen.map(z => this._h(z)).join('<br style="mso-data-placement:same-cell">'); },
+  _mailTabelle(kopf, zeilen) {
+    const F = this.MAIL_FARBEN;
+    const th = kopf.map(k => `<th align="left" bgcolor="${F.kopf}" style="background-color:${F.kopf};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;text-align:left;padding:7px 10px;border:1px solid ${F.kopf}${k.breite ? ';width:' + k.breite : ''}">${this._h(k.titel)}</th>`).join('');
+    const tr = zeilen.map((z, i) => {
+      const bg = i % 2 ? F.zebra : '#ffffff';
+      return '<tr>' + z.map(c => `<td valign="top" bgcolor="${bg}" style="background-color:${bg};font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.4;color:${F.text};vertical-align:top;padding:7px 10px;border:1px solid ${F.linie}${c.nowrap ? ';white-space:nowrap' : ''}">${c.html}</td>`).join('') + '</tr>';
+    }).join('');
+    return `<table role="table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;margin:4px 0 14px 0;mso-table-lspace:0;mso-table-rspace:0"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+  },
+  _mailUeberschrift(text) {
+    const F = this.MAIL_FARBEN;
+    return `<p style="margin:20px 0 6px 0;padding:0 0 4px 0;border-bottom:2px solid ${F.gelb};font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:${F.text}">${this._h(text)}</p>`;
+  },
+  _statusZelle(st) {
+    const F = this.MAIL_FARBEN;
+    const farbe = F[st.art], hell = F[st.art + 'Hell'];
+    const marke = `<span style="display:inline-block;background-color:${hell};color:${farbe};font-weight:bold;padding:1px 6px;border:1px solid ${farbe}">${st.art === 'ok' ? '&#10003; ' : ''}${this._h(st.status)}</span>`;
+    return marke + (st.detail ? '<br style="mso-data-placement:same-cell"><span style="color:' + F.leise + '">' + this._h(st.detail) + '</span>' : '');
+  },
+  // Tabellen für den Betrieb: Übersicht je Azubi und – zum Herauskopieren in
+  // eine eigene Liste – je offenem Punkt eine Zeile „Wer · Was · bis · erledigt am“
+  _betriebTabellenHtml(azubis, isDone) {
+    const F = this.MAIL_FARBEN;
+    if (!isDone) return this._mailTabelle([{ titel: 'Nr.', breite: '40px' }, { titel: 'Auszubildende/r' }],
+      azubis.map((a, i) => [{ html: String(i + 1) }, { html: '<strong>' + this._h(a.nachname + ', ' + a.vorname) + '</strong>' }]));
+    const staende = azubis.map(a => this._azubiStand(a));
+    const mitBem = staende.some(s => s.bemerkung.length);
+    const kopf = [{ titel: 'Auszubildende/r' }, { titel: 'Ergebnis' }, { titel: 'Nachweis bis' }, { titel: 'Fehltage' }].concat(mitBem ? [{ titel: 'Bemerkung' }] : []);
+    const n = { ok: 0, maengel: 0, offen: 0 }; staende.forEach(s => n[s.art]++);
+    const zahl = [n.ok ? `${n.ok} in Ordnung` : '', n.maengel ? `${n.maengel} mit Mängeln` : '', n.offen ? `${n.offen} offen` : ''].filter(Boolean).join(' · ');
+    let html = this._mailUeberschrift('Ergebnis je Auszubildender/Auszubildendem')
+      + `<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${F.leise}">${staende.length} Auszubildende · ${this._h(zahl)}</p>`
+      + this._mailTabelle(kopf, staende.map(s => [
+        { html: '<strong>' + this._h(s.name) + '</strong>' },
+        { html: this._statusZelle(s) },
+        { html: this._h(s.art === 'ok' ? '–' : s.frist), nowrap: true },
+        { html: this._h(s.fehltage) },
+      ].concat(mitBem ? [{ html: this._zellUmbruch(s.bemerkung) }] : [])));
+    const offen = [];
+    staende.forEach(s => s.nachzuholen.forEach(z => offen.push([
+      { html: '<strong>' + this._h(s.name) + '</strong>' }, { html: this._h(z) }, { html: this._h(s.frist), nowrap: true }, { html: '&nbsp;' }])));
+    if (offen.length) html += this._mailUeberschrift('Was ist noch zu erledigen?')
+      + `<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${F.leise}">${offen.length} ${offen.length === 1 ? 'Punkt' : 'Punkte'} – je Zeile ein Punkt. Die Tabelle lässt sich markieren, kopieren und in Excel einfügen.</p>`
+      + this._mailTabelle([{ titel: 'Auszubildende/r' }, { titel: 'Was ist nachzuholen?' }, { titel: 'bis' }, { titel: 'Erledigt am', breite: '90px' }], offen);
+    return html;
+  },
+  // Text der Vorlage → HTML: Absätze, Zeilenumbrüche; die Marke wird durch die
+  // Tabellen ersetzt, Anlagen kommen als Liste ans Ende
+  _mailHtml(betreff, text, tabellen, anlagen) {
+    const F = this.MAIL_FARBEN, M = this.MAIL_MARKE;
+    const absatz = (t) => { t = t.replace(/^\n+|\s+$/g, ''); return t ? `<p style="margin:0 0 12px 0">${this._h(t).replace(/\n/g, '<br>')}</p>` : ''; };
+    const teile = String(text || '').split(/\n{2,}/).map(p => {
+      if (!p.includes(M)) return absatz(p);
+      return p.split(M).map((t, i) => (i ? tabellen : '') + absatz(t)).join('');
+    }).join('');
+    const anl = (anlagen || []).length ? this._mailUeberschrift(`Anlagen (${anlagen.length})`)
+      + `<p style="margin:0 0 12px 0;font-size:13px">${anlagen.map(n => '&#128206; ' + this._h(n)).join('<br>')}</p>` : '';
+    return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${this._h(betreff)}</title></head>`
+      + `<body style="margin:0;padding:0;background-color:#ffffff"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:12px 16px">`
+      + `<div lang="de" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:${F.text};max-width:760px">${teile}${anl}</div>`
+      + `</td></tr></table></body></html>`;
+  },
+  // Anlagen-Zeilen für die Textfassung des Entwurfs
+  _anlagenText(namen) {
+    return namen && namen.length ? '\n\nAnlagen (' + namen.length + '):\n' + namen.map(n => '  - ' + n).join('\n') + '\n' : '';
+  },
   // Zeilen der Ergebnis-Bemerkung, die der Betrieb sehen soll: eigener Text
   // und Sonstiges-Einträge („[AJ2/KW40] …“); automatische Code-/Pflichtteil-
   // Sätze stehen bereits im Mängel-Block, „[Zulassung trotz Abweichung]“ ist intern
@@ -616,7 +715,7 @@ const Workflows = {
       <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand. Ist für die Person unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt, steht sie unter der E-Mail; sonst Grußformel, Name und Adresse aus der Vorlage. „Keine“: dann hängt Outlook beim Senden die eigene Signatur an">Signatur
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
-      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (nur ZIP)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
+      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (⬇ Entwurf und ZIP; Dateiname mit „OK“ bzw. „Maengel“)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Jeder Azubi mit hinterlegter E-Mail-Adresse bekommt einen eigenen Entwurf – nur mit dem eigenen Ergebnis${d.isDone ? ' und dem eigenen Bogen' : ''}. Der Betrieb erhält seine E-Mail ohne Kopie an die Azubis."><input type="checkbox" ${o.azubis !== false ? 'checked' : ''} onchange="Workflows.betriebMailOption('azubis', this.checked)"> Eigene E-Mail je Azubi</label>
     </div>`;
   },
@@ -649,32 +748,29 @@ const Workflows = {
     if (!mit.length && !azubiMails.length) return App.toast('Kein Betrieb und kein Azubi mit E-Mail-Adresse', 'warning');
     const zip = new PizZip();
     let pdfs = 0, anBetriebe = 0, anAzubis = 0;
+    const fehlend = [];
     const zeit = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    const mitBogen = d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes;
-    const bogen = (a) => {
-      if (!mitBogen || !a.ke || !a.ke.ergebnis) return null;   // ohne Ergebnis (abwesend) gibt es keinen Bogen
-      try { return PDFExport.bogenBytes(d.terminId, a.id) || null; } catch(e) { console.warn('Bogen für Anhang:', e); return null; }
-    };
+    const bogen = this._bogenQuelle();
     d.betriebe.forEach((g, idx) => {
       const nr = String(idx + 1).padStart(2, '0');
       // 1) Der Betrieb: alle seine Azubis, alle ihre Bögen – OHNE Kopie an die Azubis
       if (g.email) {
-        const m = this._betriebMailInhalt(idx);
-        if (m) {
-          const anhaenge = g.azubis.map(bogen).filter(Boolean);
-          zip.file(App.safeFilename([nr, 'Betrieb', g.name], 'eml'), App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, anhaenge }));
-          pdfs += anhaenge.length; anBetriebe++;
+        const e = this._betriebEntwurf(idx, bogen);
+        if (e) {
+          zip.file(App.safeFilename([nr, 'Betrieb', g.name], 'eml'), e.eml);
+          pdfs += e.anhaenge.length; anBetriebe++;
+          e.fehlend.forEach(n => fehlend.push(n));
           const erstesMal = !d.status[idx];
           d.status[idx] = { zeit, entwurf: true };
-          if (erstesMal) this._betriebVersandVermerken(m, 'Entwurf (.eml) erzeugt');
+          if (erstesMal) this._betriebVersandVermerken(e.m, 'Entwurf (.eml) erzeugt');
         }
       }
       // 2) Je Azubi mit E-Mail-Adresse ein eigener Entwurf: nur das eigene
       //    Ergebnis, nur der eigene Bogen (kein Azubi sieht die Rückläufer der anderen)
       azubiMails.filter(x => x.idx === idx).forEach(({ ai, a }) => {
-        const m = this._azubiMailInhalt(idx, ai); if (!m) return;
         const b = bogen(a);
-        zip.file(App.safeFilename([nr, 'Azubi', a.nachname, a.vorname], 'eml'), App.emlErzeugen({ to: m.to, subject: m.betreff, body: m.body, anhaenge: b ? [b] : [] }));
+        const m = this._azubiMailInhalt(idx, ai, b ? [App.emlAnhangName(b.name)] : []); if (!m) return;
+        zip.file(App.safeFilename([nr, 'Azubi', a.nachname, a.vorname], 'eml'), App.emlErzeugen({ to: m.to, subject: m.betreff, body: m.body, html: m.html, anhaenge: b ? [b] : [] }));
         if (b) pdfs++;
         anAzubis++;
         d.statusAzubi[idx + '_' + ai] = { zeit, entwurf: true };
@@ -704,6 +800,51 @@ const Workflows = {
     const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
     const fuss = document.getElementById('betriebMailFuss'); if (fuss) fuss.innerHTML = this._betriebMailFussHtml();
     App.toast(`ZIP erzeugt: ${anBetriebe} Entwürfe an Betriebe${anAzubis ? `, ${anAzubis} eigene Entwürfe an Azubis` : ''}${pdfs ? `, ${pdfs} Durchsichtsbögen` : ''} – entpacken, .eml doppelklicken, in Outlook senden`, 'success', 10000);
+    if (fehlend.length) App.toast(`Bogen nicht erzeugt für: ${fehlend.join(', ')} – diese Bögen einzeln über „Bögen (PDF)“ erzeugen und von Hand anhängen.`, 'warning', 15000);
+  },
+  // Durchsichtsbogen je Azubi als Anhang ({ name, bytes }) – null ohne Ergebnis
+  // (abwesend, digital offen: es gibt noch nichts zu zeigen) oder wenn die
+  // Option „Bögen anhängen“ aus ist; ein Fehler beim Erzeugen wird gemeldet,
+  // nicht verschluckt (Feldfall: Bögen fehlten in der Betriebs-E-Mail)
+  _bogenQuelle() {
+    const d = this._individualData;
+    const mitBogen = !!(d && d.isDone && d.opts.boegen !== false && typeof PDFExport !== 'undefined' && PDFExport.bogenBytes);
+    const f = (a) => {
+      if (!mitBogen || !a.ke || !a.ke.ergebnis) return null;
+      try { return PDFExport.bogenBytes(d.terminId, a.id) || null; } catch(e) { console.warn('Bogen für Anhang:', e); return null; }
+    };
+    f.erwartet = (a) => mitBogen && !!(a.ke && a.ke.ergebnis);
+    return f;
+  },
+  // Entwurf (.eml) an EINEN Betrieb: Text- und HTML-Fassung, alle Bögen seiner
+  // bewerteten Azubis, Anlagenliste in beiden Fassungen
+  _betriebEntwurf(idx, bogen) {
+    const d = this._individualData; const g = d && d.betriebe[idx];
+    if (!g || !g.email) return null;
+    bogen = bogen || this._bogenQuelle();
+    const anhaenge = [], fehlend = [];
+    g.azubis.forEach(a => {
+      const b = bogen(a);
+      if (b) anhaenge.push(b);
+      else if (bogen.erwartet && bogen.erwartet(a)) fehlend.push(a.vorname + ' ' + a.nachname);
+    });
+    const m = this._betriebMailInhalt(idx, anhaenge.map(b => App.emlAnhangName(b.name)));
+    if (!m) return null;
+    return { m, anhaenge, fehlend, eml: App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, html: m.html, anhaenge }) };
+  },
+  // Ein einzelner Entwurf mit Bögen – für einen Betrieb, ohne alle zu packen
+  betriebEntwurfLaden(idx) {
+    const d = this._individualData; if (!d) return;
+    const e = this._betriebEntwurf(idx);
+    if (!e) return App.toast('Keine E-Mail-Adresse', 'warning');
+    App.downloadBlob(e.eml, App.safeFilename(['Betrieb', e.m.g.name, d.t.termin.geplant_datum], 'eml'), 'message/rfc822');
+    const erstesMal = !d.status[idx];
+    d.status[idx] = { zeit: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), entwurf: true };
+    if (erstesMal) this._betriebVersandVermerken(e.m, 'Entwurf (.eml) erzeugt');
+    if (d.isDone && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(err) {} }
+    this._betriebMailZeileAuffrischen(idx);
+    App.toast(`Entwurf für ${e.m.g.name}${e.anhaenge.length ? ` mit ${e.anhaenge.length} ${e.anhaenge.length === 1 ? 'Bogen' : 'Bögen'}` : ''} gespeichert – Datei doppelklicken, in Outlook senden`, 'success', 8000);
+    if (e.fehlend.length) App.toast(`Bogen nicht erzeugt für: ${e.fehlend.join(', ')}`, 'warning', 12000);
   },
   // ── Eigene E-Mail je Azubi (Datenschutz) ──
   // Bisher standen alle Azubis eines Betriebs in Kopie der Betriebs-Mail und
@@ -733,7 +874,7 @@ const Workflows = {
     return isDone ? `${wer} hat ebenfalls eine Mitteilung über das Ergebnis erhalten.` : `${wer} wurde ebenfalls über den Termin informiert.`;
   },
   // Mail-Inhalt für EINEN Azubi: nur seine eigenen Angaben
-  _azubiMailInhalt(idx, ai) {
+  _azubiMailInhalt(idx, ai, anlagen) {
     const d = this._individualData; if (!d) return null;
     const g = d.betriebe[idx]; const a = g && g.azubis[ai]; if (!a) return null;
     const to = this._azubiMailAdresse(a); if (!to) return null;
@@ -747,16 +888,21 @@ const Workflows = {
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       azubi_anrede: `Guten Tag ${[a.vorname, a.nachname].filter(Boolean).join(' ')},`,
       ergebnis: (a.ke && a.ke.ergebnis && (this._eLbl[a.ke.ergebnis] || a.ke.ergebnis)) || '',
-      nachzuholen_block: nz.length ? 'Bitte holen Sie Folgendes nach:\n' + nz.map(z => '  → ' + z).join('\n') : '',
+      nachzuholen_block: nz.length ? this.MAIL_MARKE : '',
       bemerkung_block: bem.length ? bem.map((z, i) => (i === 0 ? 'Bemerkung: ' : '           ') + z).join('\n') : '',
       bogen_hinweis: hatBogen ? 'Den Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang.' : '',
       betrieb_hinweis: this._azubiBetriebHinweis(g, d.isDone),
       frist: this._nachreichFrist(typ, [a]) });
-    let { betreff, body } = this._mailVorlage(typ, ctx);
+    let { betreff, body: roh } = this._mailVorlage(typ, ctx);
     // Leere Bausteine (keine Bemerkung, kein Bogen) hinterlassen keine Lücken
-    body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
-    if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
-    return { g, a, typ, betreff, body, to };
+    roh = roh.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    if (!name) roh = roh.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
+    const body = roh.split(this.MAIL_MARKE).join('Bitte holen Sie Folgendes nach:\n' + nz.map(z => '  → ' + z).join('\n')) + this._anlagenText(anlagen);
+    const frist = d.isDone ? this._azubiStand(a).frist : '';
+    const tab = nz.length ? this._mailUeberschrift('Bitte holen Sie Folgendes nach')
+      + this._mailTabelle([{ titel: 'Was ist nachzuholen?' }, { titel: 'bis' }, { titel: 'Erledigt am', breite: '90px' }], nz.map(z => [{ html: this._h(z) }, { html: this._h(frist), nowrap: true }, { html: '&nbsp;' }])) : '';
+    const html = this._mailHtml(betreff, roh, tab, anlagen);
+    return { g, a, typ, betreff, body, html, to };
   },
   // Einzeln über den E-Mail-Link (ohne Anhang – der Bogen hängt nur am ZIP-Entwurf)
   _openAzubiEmail(idx, ai) {
@@ -774,6 +920,7 @@ const Workflows = {
     const kennung = 'azubi_' + ai;
     if (pre.style.display !== 'none' && pre.dataset && pre.dataset.zeigt === kennung) { pre.style.display = 'none'; return; }
     const m = this._azubiMailInhalt(idx, ai); if (!m) return;
+    pre.style.whiteSpace = 'pre-wrap';
     pre.textContent = `An: ${m.to}\nBetreff: ${m.betreff}\n\n${m.body}`;
     if (pre.dataset) pre.dataset.zeigt = kennung;
     pre.style.display = '';
@@ -834,7 +981,8 @@ const Workflows = {
         <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong>${esc(g.name)}</strong> ${art}</span>
         <span style="display:flex;gap:4px;flex-wrap:wrap">
           ${g.email
-            ? `<button class="btn btn-sm ${st ? 'btn-secondary' : ''}" style="padding:2px 8px;font-size:12px${st ? '' : ';background:var(--clr-forest);color:var(--clr-white);border:none'}" onclick="Workflows._openIndividualEmail(${terminId},${idx})" title="${st ? 'Erneut in Outlook öffnen' : 'In Outlook öffnen'}">✉︎ ${st ? 'Erneut öffnen' : 'Öffnen'}</button>
+            ? `<button class="btn btn-sm ${st ? 'btn-secondary' : ''}" style="padding:2px 8px;font-size:12px${st ? '' : ';background:var(--clr-forest);color:var(--clr-white);border:none'}" onclick="Workflows.betriebEntwurfLaden(${idx})" title="Outlook-Entwurf (.eml) nur für diesen Betrieb: Tabellen${isDone ? ' und alle Durchsichtsbögen als Anhang' : ''} – Datei doppelklicken, senden">⬇ Entwurf</button>
+              <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._openIndividualEmail(${terminId},${idx})" title="Über den E-Mail-Link: nur der Text, ohne Tabellen und ohne Bögen">✉︎ ${st ? 'Erneut öffnen' : 'Öffnen'}</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailKopieren(${idx})" title="Empfänger, Betreff und Text in die Zwischenablage">▤ Text</button>
                <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows._betriebMailVorschau(${idx})" title="Text anzeigen">Vorschau</button>`
             : `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:12px" onclick="Workflows.briefeBearbeiten(${terminId}, { nurKey: Workflows._individualData.betriebe[${idx}].key })" title="Brief nur für diesen Betrieb – in der Vorschau bearbeiten">✎ Brief</button>
@@ -843,11 +991,12 @@ const Workflows = {
       </div>
       <div style="font-size:12px">${g.email ? '✉︎ ' + esc(g.email) : '<span style="color:var(--clr-red)">Keine E-Mail hinterlegt</span>'}${g.ap ? ' · ' + esc(g.ap) : ''}${status ? ' · ' + status : ''}</div>
       <div style="margin-top:4px">${details}</div>
-      <pre id="betriebMailVorschau_${idx}" style="display:none;margin-top:6px;padding:8px;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);font-size:12px;white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
+      <div id="betriebMailVorschau_${idx}" style="display:none;margin-top:6px;padding:8px;background:var(--clr-white);border:1px solid var(--clr-sand);border-radius:var(--radius);font-size:12px;white-space:pre-wrap;max-height:420px;overflow:auto"></div>
     </div>`;
   },
   // Mail-Inhalt eines Betriebs (Vorlage nach Lage, Kontext des Termins)
-  _betriebMailInhalt(idx) {
+  // anlagen: Dateinamen der Anhänge (nur der Entwurf als .eml kennt sie)
+  _betriebMailInhalt(idx, anlagen) {
     const d = this._individualData; if (!d) return null;
     const g = d.betriebe[idx]; if (!g) return null;
     // Nach der Kontrolle: Mängelmitteilung, Nachhol-Aufforderung (abwesend)
@@ -859,15 +1008,19 @@ const Workflows = {
     const ctx = this._antwortCtx({ ...d.t.ctx,
       ...(name ? { ...App.absenderCtx(name), pruefer: name } : { pruefer: '', pruefer_email: '', rp_adresse: '' }),
       anrede: o.anrede ? this._anrede(g.ap) : '',
-      azubi_block: this._azubiBlock(g.azubis, d.isDone),
+      azubi_block: this.MAIL_MARKE,
       hinweis: this._betriebHinweis(d.isDone ? g.azubis : []),
       azubi_namen: g.azubis.map(a => a.nachname + ', ' + a.vorname).join(' / '),
       frist: this._nachreichFrist(typ, g.azubis) });
-    let { betreff, body } = this._mailVorlage(typ, ctx);
+    let { betreff, body: roh } = this._mailVorlage(typ, ctx);
     // Ohne Signatur auch die Grußformel weg – Outlook hängt die eigene an
-    if (!name) body = body.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
+    if (!name) roh = roh.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
+    // Textfassung wie bisher (Block je Azubi), HTML-Fassung mit Tabellen –
+    // ein Betrieb mit vielen Azubis kopiert sie sich als Liste heraus
+    const body = roh.split(this.MAIL_MARKE).join(this._azubiBlock(g.azubis, d.isDone)) + this._anlagenText(anlagen);
+    const html = this._mailHtml(betreff, roh, this._betriebTabellenHtml(g.azubis, d.isDone), anlagen);
     // Ohne Kopie an die Azubis: sie bekommen je eine eigene E-Mail (_azubiMailInhalt)
-    return { g, typ, betreff, body };
+    return { g, typ, betreff, body, html };
   },
   _betriebMailPasst(idx) {
     const m = this._betriebMailInhalt(idx);
@@ -883,7 +1036,15 @@ const Workflows = {
     // zweiter Klick schließt – außer es steht gerade die Vorschau einer Azubi-Mail darin
     if (pre.style.display !== 'none' && !(pre.dataset && String(pre.dataset.zeigt || '').startsWith('azubi_'))) { pre.style.display = 'none'; return; }
     const m = this._betriebMailInhalt(idx); if (!m) return;
-    pre.textContent = `Betreff: ${m.betreff}\n\n${m.body}`;
+    // So sieht der Entwurf in Outlook aus (HTML-Fassung mit Tabellen); der
+    // E-Mail-Link („Öffnen“) kann nur die Textfassung übergeben
+    const inhalt = (m.html.match(/<body[^>]*>([\s\S]*)<\/body>/) || [null, ''])[1];
+    const d = this._individualData, g = m.g;
+    const bogen = this._bogenQuelle();
+    const n = g.azubis.filter(a => bogen.erwartet(a)).length;
+    pre.style.whiteSpace = 'normal';
+    pre.innerHTML = `<div style="margin-bottom:6px"><strong>Betreff:</strong> ${esc(m.betreff)}</div>${inhalt}`
+      + (d.isDone ? `<div style="margin-top:6px;color:var(--clr-text-light)">${n ? `Anlagen im Entwurf (⬇ Entwurf / ZIP): ${n} ${n === 1 ? 'Durchsichtsbogen' : 'Durchsichtsbögen'} (PDF, Dateiname mit „OK“ bzw. „Maengel“)` : 'Keine Durchsichtsbögen als Anlage'} – der E-Mail-Link „Öffnen“ übergibt nur den Text ohne Anhang.</div>` : '');
     if (pre.dataset) pre.dataset.zeigt = 'betrieb';
     pre.style.display = '';
   },
@@ -1082,16 +1243,8 @@ const Workflows = {
     const pdfText = (s) => String(s || '').replace(/→/g, '–').replace(/✓|✔/g, 'OK').replace(/⚠/g, '!');
     const zeilen = pdfText(body).replace(/\s+$/, '').split('\n');
     const uebersicht = isDone ? g.azubis.filter(a => a.ke).map(a => {
-      const ke = a.ke;
-      const wv = App.query("SELECT art, frist_datum, status FROM wiedervorlagen WHERE kontrollergebnis_id=? ORDER BY id DESC LIMIT 1", [ke.id])[0];
-      let ergebnis = ke.ergebnis ? (this._eLbl[ke.ergebnis] || ke.ergebnis) : this._digitalOffen(a) ? 'wird digital nachgereicht' : (ke.anwesend === 0 ? 'nicht anwesend – Berichtsheft nachreichen' : 'nicht bewertet');
-      let frist = '–';
-      if (wv && wv.frist_datum) frist = formatDate(wv.frist_datum);
-      // ohne Datum: „nächste Durchsicht“ bzw. „ohne Termin“ (der Termin ist freiwillig)
-      else if (ke.ergebnis && ke.ergebnis !== 'in_ordnung') frist = wv ? App.wvFristText(wv) : 'nächste Durchsicht';
-      else if (this._digitalOffen(a)) frist = this._nachreichFrist('digital_nachreichen', [a]);
-      else if (!ke.ergebnis && ke.anwesend === 0) frist = formatDate(App.wvFrist('nachholung_abwesend'));
-      return [`${a.nachname}, ${a.vorname}`, ergebnis, frist, String(ke.fehltage_gesamt || 0)];
+      const st = this._azubiStand(a);   // dieselben Werte wie die Tabelle der E-Mail
+      return [st.name, st.ergebnis, st.frist, st.fehltage];
     }) : [];
     return { typ, betreff: pdfText(betreff), zeilen, uebersicht };
   },

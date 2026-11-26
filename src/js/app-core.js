@@ -8277,8 +8277,10 @@ const App = {
   _b64Text(text) { return this._b64(new TextEncoder().encode(String(text || ''))); },
   _mimeWort(text) { return /^[\x20-\x7e]*$/.test(text || '') ? (text || '') : `=?UTF-8?B?${this._b64Text(text)}?=`; },
   // replyTo: Antwortadresse; ohne Angabe das Funktionspostfach (antwortKopf),
-  // false = keine Reply-To-Zeile
-  emlErzeugen({ to, cc, bcc, subject, body, anhaenge, replyTo }) {
+  // false = keine Reply-To-Zeile. html: zusätzlich eine HTML-Fassung (Tabellen) –
+  // dann trägt der Entwurf beide Fassungen (multipart/alternative), Outlook zeigt
+  // die HTML-Fassung, die Textfassung bleibt für Programme ohne HTML
+  emlErzeugen({ to, cc, bcc, subject, body, html, anhaenge, replyTo }) {
     // Empfängerlisten gefaltet (eine Adresse je Zeile) – lange Bcc-Listen bleiben unter 78 Zeichen je Zeile
     const liste = (v) => (Array.isArray(v) ? v : String(v || '').split(/[;,]/)).map(x => String(x).trim()).filter(Boolean).join(',\r\n ');
     const antwort = replyTo === false ? '' : (replyTo || this.antwortKopf());
@@ -8294,19 +8296,29 @@ const App = {
       ...(antwort ? ['Reply-To: ' + antwort.replace(/ </, '\r\n <')] : []),
       'Subject: ' + this._mimeWort(subject || ''),
     ];
-    const textTeil = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
+    const nurText = ['Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(body || '')))];
+    // Mit HTML: Text- und HTML-Fassung als Alternativen (zuerst Text, dann HTML – die letzte gilt als bevorzugt)
+    const alt = '----=_bhk_alt_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const textTeil = html ? [`Content-Type: multipart/alternative; boundary="${alt}"`, '', '--' + alt, ...nurText, '', '--' + alt,
+      'Content-Type: text/html; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(new TextEncoder().encode(String(html))), '', '--' + alt + '--'] : nurText;
     const teile = (anhaenge || []).filter(a => a && a.bytes && a.name);
     if (!teile.length) return kopf.concat(textTeil).join('\r\n') + '\r\n';
     const zeilen = kopf.concat([`Content-Type: multipart/mixed; boundary="${grenze}"`, '', 'This is a multi-part message in MIME format.', '', '--' + grenze], textTeil);
     teile.forEach(a => {
       // Endung bleibt (PDF, Word); ohne Endung gilt PDF
       const endung = (a.name.match(/\.(pdf|docx|xlsx|txt)$/i) || [null, 'pdf'])[1].toLowerCase();
-      const name = this.safeFilename(a.name.replace(/\.(pdf|docx|xlsx|txt)$/i, ''), endung);
+      const name = this.emlAnhangName(a.name);
       const typ = a.typ || this.EML_TYPEN[endung] || 'application/octet-stream';
       zeilen.push('', '--' + grenze, `Content-Type: ${typ}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, 'Content-Transfer-Encoding: base64', '', this._b64Zeilen(a.bytes));
     });
     zeilen.push('', '--' + grenze + '--', '');
     return zeilen.join('\r\n');
+  },
+  // Dateiname eines Anhangs, wie er im Entwurf steht (ä → ae, keine Sonderzeichen) –
+  // Anlagenlisten im Text nennen denselben Namen
+  emlAnhangName(name) {
+    const endung = (String(name || '').match(/\.(pdf|docx|xlsx|txt)$/i) || [null, 'pdf'])[1].toLowerCase();
+    return this.safeFilename(String(name || '').replace(/\.(pdf|docx|xlsx|txt)$/i, ''), endung);
   },
   EML_TYPEN: { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', txt: 'text/plain' },
   // Datei zum Herunterladen anbieten (Bytes oder Text)

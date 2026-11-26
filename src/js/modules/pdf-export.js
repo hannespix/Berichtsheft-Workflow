@@ -540,8 +540,11 @@ const PDFExport = {
     });
 
     const dateStr = termin.geplant_datum.replace(/-/g,'');
+    // Ein Azubi: Ergebnis gleich hinter dem Präfix („OK“ / „Maengel“), damit es
+    // in jeder Anhangsliste sichtbar bleibt, auch wenn das Programm den Namen kürzt
+    const status = schuelerList.length === 1 ? this.bogenStatus(App.query('SELECT ergebnis FROM kontrollergebnisse WHERE kontrolltermin_id=? AND schueler_id=?', [terminId, schuelerList[0].id])[0]) : '';
     const fname = schuelerList.length === 1
-      ? `BH-Durchsicht_${schuelerList[0].nachname}_${schuelerList[0].vorname}_${termin.schule}_${termin.klassenbezeichnung}_${dateStr}.pdf`
+      ? `BH-Durchsicht_${status ? status + '_' : ''}${schuelerList[0].nachname}_${schuelerList[0].vorname}_${termin.schule}_${termin.klassenbezeichnung}_${dateStr}.pdf`
       : `BH-Durchsicht_${termin.schule}_${termin.klassenbezeichnung}_${schuelerList.length}Schueler_${dateStr}.pdf`;
     const dateiname = fname.replace(/[\/ \\\\:,;+]/g,'_');
     // Als Bytes zurückgeben (E-Mail-Entwürfe mit Anhang) statt herunterzuladen
@@ -566,6 +569,11 @@ const PDFExport = {
     const s = App.query('SELECT * FROM schueler WHERE id=?', [schuelerId])[0];
     if (!s) return App.toast('Daten nicht gefunden', 'error');
     this.generateBatch(d=>d, termin, terminId, [s]);
+  },
+  // Ergebnis im Dateinamen: „OK“ (in Ordnung), „Maengel“ (jedes andere Ergebnis), '' (noch keins)
+  bogenStatus(ke) {
+    const e = ke && ke.ergebnis;
+    return !e ? '' : e === 'in_ordnung' ? 'OK' : 'Maengel';
   },
   // Durchsichtsbogen eines Azubis als { name, bytes } – Anhang für E-Mail-Entwürfe
   bogenBytes(terminId, schuelerId) {

@@ -58,7 +58,7 @@ db.run(`INSERT INTO schueler (id,nachname,vorname,aktiv,klasse_id,jahrgang_id,be
   (901,'Eins','Erik',1,1,1,21,'2024-09-01','2027-08-31','93','IB-901','erik@example.org'),(902,'Zwei','Zoe',1,1,1,21,'2024-09-01','2027-08-31','93','IB-902',''),(903,'Drei','Dora',1,1,1,22,'2024-09-01','2027-08-31','93','IB-903','')`);
 db.run(`INSERT INTO kontrolltermine (id,berufsschule_id,geplant_datum,pruefer,status,typ) VALUES (900,1,'2026-09-16','Muster, Max','durchgefuehrt','schulkontrolle'),(910,1,'2026-11-20','Muster, Max','geplant','schulkontrolle')`);
 db.run(`INSERT INTO kontrolltermin_schueler (kontrolltermin_id,schueler_id) VALUES (900,901),(900,902),(900,903),(910,901),(910,903)`);
-db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend,fehltage_gesamt) VALUES (9001,900,901,'post_an_rp',1,3),(9002,900,902,'in_ordnung',1,0),(9003,900,903,'',0,0)`);
+db.run(`INSERT INTO kontrollergebnisse (id,kontrolltermin_id,schueler_id,ergebnis,anwesend,fehltage_gesamt,fehltage_pauschal) VALUES (9001,900,901,'post_an_rp',1,3,3),(9002,900,902,'in_ordnung',1,0,0),(9003,900,903,'',0,0,0)`);
 db.run(`INSERT INTO kw_status (schueler_id,ausbildungsjahr,kalenderwoche,maengel_codes,fehltage,geprueft) VALUES (901,2,40,'A,F',0,1)`);
 db.run(`INSERT INTO wiedervorlagen (id,kontrollergebnis_id,schueler_id,art,frist_datum,status) VALUES (950,9001,901,'post_an_rp','2026-09-26','offen')`);
 App.invalidateTerminCache && App.invalidateTerminCache();

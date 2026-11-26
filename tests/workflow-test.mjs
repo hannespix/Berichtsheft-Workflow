@@ -503,6 +503,11 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   check(/\r\n--[^\r\n]+--\r\n$/.test(eml), 'Abschluss-Grenze am Ende');
   const ohne = App.emlErzeugen({ to: 'a@b.de', subject: 'Test', body: 'kurz' });
   check(!/multipart/.test(ohne) && /Content-Type: text\/plain; charset="utf-8"/.test(ohne) && /Subject: Test\r\n/.test(ohne), 'Ohne Anhang: einfacher Text-Teil, ASCII-Betreff unkodiert');
+  {
+    const mh = App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'Text', html: '<p>Tabelle</p>' });
+    const g = mh.match(/Content-Type: multipart\/alternative; boundary="([^"]+)"/);
+    check(g && !/multipart\/mixed/.test(mh) && mh.indexOf('text/plain') < mh.indexOf('text/html') && new RegExp('--' + g[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '--').test(mh), 'Mit HTML ohne Anhang: multipart/alternative, zuerst Text, dann HTML, sauber geschlossen');
+  }
   check(/\r\n\r\n[A-Za-z0-9+\/=\r\n]+$/.test(App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'ä'.repeat(3000) })) && App.emlErzeugen({ to: 'a@b.de', subject: 'x', body: 'ä'.repeat(3000) }).split('\r\n').every(z => z.length <= 78), 'Langer Text: base64 in Zeilen von höchstens 76 Zeichen – keine Längengrenze');
   // ZIP je Termin: eine .eml je Betrieb mit E-Mail, Bögen der bewerteten Azubis, LIESMICH
   vm.runInContext(read('libs/pizzip.js'), sandbox, { filename: 'pizzip.js' });
@@ -528,11 +533,49 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   // Datenschutz: niemand in Kopie, jeder Azubi bekommt nur das Eigene
   check(!/\r\nCc:/i.test(emlB) && !/Erik\.Eins@example\.org/.test(emlB) && !/dora@example\.org/.test(emlB), 'Betriebs-Entwurf ohne CC – keine Azubi-Adresse im Kopf');
   const emlA = zip.file('01_Azubi_Eins_Erik.eml').asText();
-  const teilA = (eml) => { const g = eml.match(/boundary="([^"]+)"/); return b64dec((g ? eml.split('--' + g[1])[1] : eml).split('\r\n\r\n').slice(1).join('\r\n\r\n')); };
+  // Textfassung (text/plain) eines Entwurfs – auch in multipart/alternative
+  const teilA = (eml) => { const m = eml.match(/Content-Type: text\/plain; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+\/=\r\n]+?)(?:\r\n\r\n|\r\n--|$)/); return m ? b64dec(m[1]) : ''; };
   const textA = teilA(emlA);
   check(/^X-Unsent: 1\r\n/.test(emlA) && /\r\nTo: Erik\.Eins@example\.org\r\n/.test(emlA) && !/\r\nCc:/i.test(emlA) && !/mail@example\.org/.test(emlA.split('\r\n\r\n')[0]), 'Azubi-Entwurf: an die eigene Adresse (getrimmt), niemand in Kopie');
   check((emlA.match(/Content-Disposition: attachment/g) || []).length === 1 && /filename="BH-Durchsicht_901\.pdf"/.test(emlA) && !/BH-Durchsicht_902/.test(emlA), 'Azubi-Entwurf trägt nur den eigenen Bogen');
   check(/^Guten Tag Erik Eins,/.test(textA) && /Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(textA) && /Ihr Ausbildungsbetrieb \(Gärtnerei Mail\) hat ebenfalls eine Mitteilung über das Ergebnis erhalten\./.test(textA) && /Durchsichtsbogen zu Ihrem Berichtsheft finden Sie im Anhang/.test(textA), `Azubi-Text: Anrede, eigene Nacharbeit, Hinweis „Betrieb ebenfalls informiert“, Bogen im Anhang (${JSON.stringify(textA.slice(0, 80))})`);
+  // ── HTML-Fassung mit Tabellen (Nov. 2026: „schöner formatiert, mit Tabelle zum Herauskopieren“) ──
+  {
+    const htmlVon = (eml) => { const m = eml.match(/Content-Type: text\/html; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+\/=\r\n]+?)(?:\r\n\r\n|\r\n--|$)/); return m ? b64dec(m[1]) : ''; };
+    const htmlB = htmlVon(emlB), textB = teilA(emlB);
+    check(/Content-Type: multipart\/mixed/.test(emlB) && /Content-Type: multipart\/alternative/.test(emlB) && emlB.indexOf('multipart/alternative') < emlB.indexOf('Content-Disposition: attachment'), 'Entwurf: Text- und HTML-Fassung (multipart/alternative) vor den Anhängen');
+    check(/<table[^>]*border-collapse:collapse/.test(htmlB) && /Ergebnis je Auszubildender\/Auszubildendem/.test(htmlB) && /Was ist noch zu erledigen\?/.test(htmlB) && /<th[^>]*>Was ist nachzuholen\?<\/th>/.test(htmlB) && /<th[^>]*>Erledigt am<\/th>/.test(htmlB), 'HTML: Übersicht je Azubi und Liste „Was ist noch zu erledigen?“ als Tabellen');
+    check(/Eins, Erik/.test(htmlB) && /Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(htmlB) && /Mängel/.test(htmlB) && /In Ordnung/.test(htmlB), 'HTML: Namen, Ergebnis (In Ordnung / Mängel) und offene Punkte stehen in den Tabellen');
+    check(/Anlagen \(2\)/.test(htmlB) && /BH-Durchsicht_901\.pdf/.test(htmlB) && /Anlagen \(2\):\n  - BH-Durchsicht_901\.pdf\n  - BH-Durchsicht_902\.pdf/.test(textB), 'Anlagen in HTML- und Textfassung aufgezählt');
+    check(!/\u0001/.test(htmlB + textB) && /  - Eins, Erik: /.test(textB), 'Textfassung behält den Block je Azubi, keine Marke bleibt stehen');
+    check(/<style|class=/.test(htmlB) === false && /bgcolor="#2A2623"/.test(htmlB) && /mso-data-placement:same-cell|<td/.test(htmlB) && /lang="de"/.test(htmlB), 'HTML nur mit Inline-Stilen (Outlook), Kopfzeile schwarz, lang="de"');
+    const htmlA = htmlVon(emlA);
+    check(/Bitte holen Sie Folgendes nach/.test(htmlA) && /<table/.test(htmlA) && /Fehlende Tagesberichte nachholen/.test(htmlA) && !/Gärtnerei Mail hat|BH-Durchsicht_902/.test(htmlA), 'Azubi-Entwurf: Nacharbeit als Tabelle, nur der eigene Bogen');
+    // Stand je Azubi – eine Quelle für Brief und Mail
+    const st = d.betriebe[0].azubis.map(a => Workflows._azubiStand(a));
+    check(st.some(x => x.art === 'maengel' && x.status === 'Mängel' && x.nachzuholen.length) && st.every(x => ['ok', 'maengel', 'offen'].includes(x.art)), 'Stand je Azubi: ok / maengel / offen mit offenen Punkten');
+    // Ankündigung vor der Kontrolle: einfache Namensliste als Tabelle
+    check(/<table/.test(Workflows._betriebTabellenHtml(d.betriebe[0].azubis, false)) && !/Was ist noch zu erledigen/.test(Workflows._betriebTabellenHtml(d.betriebe[0].azubis, false)), 'Vor der Kontrolle: Tabelle nur mit den Namen');
+    // E-Mail-Link (mailto) bleibt reiner Text ohne Anlagenliste
+    check(!/Anlagen/.test(Workflows._betriebMailInhalt(0).body) && /<html/.test(Workflows._betriebMailInhalt(0).html), 'Ohne Entwurf (E-Mail-Link): Text ohne Anlagenliste, HTML für die Vorschau');
+    // Einzelner Entwurf je Betrieb, fehlende Bögen werden gemeldet
+    const pdfAlt = sandbox.PDFExport.bogenBytes;
+    sandbox.PDFExport.bogenBytes = (tid, sid) => { if (sid === 902) throw new Error('kein Logo'); return pdfAlt(tid, sid); };
+    const e = Workflows._betriebEntwurf(0);
+    check(e && e.anhaenge.length === 1 && e.fehlend.length === 1 && /Anlagen \(1\)/.test(e.m.html), `Fehler beim Bogen: Entwurf mit den übrigen Bögen, fehlender wird gemeldet (${e && e.fehlend.join(', ')})`);
+    sandbox.PDFExport.bogenBytes = pdfAlt;
+    const toasts = []; const tAlt = App.toast; App.toast = (m, art) => toasts.push(m);
+    download = null;
+    Workflows.betriebEntwurfLaden(0);
+    App.toast = tAlt;
+    check(download && /^Betrieb_Gaertnerei_Mail_2026-09-16\.eml$/.test(download.name) && /X-Unsent: 1/.test(String(download.bytes)) && toasts.some(t => /2 Bögen/.test(t)), `⬇ Entwurf: eine .eml nur für diesen Betrieb mit allen Bögen (${download && download.name})`);
+    check(/Workflows\.betriebEntwurfLaden\(0\)/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Betriebszeile hat den Knopf „⬇ Entwurf“');
+    // Ergebnis im Dateinamen des Bogens
+    const PDF_SRC = read('src/js/modules/pdf-export.js');
+    const PE = vm.runInNewContext('(' + PDF_SRC.match(/bogenStatus\(ke\) \{[\s\S]*?\n  \}/)[0].replace(/^bogenStatus/, 'function') + ')');
+    check(PE({ ergebnis: 'in_ordnung' }) === 'OK' && PE({ ergebnis: 'post_an_rp' }) === 'Maengel' && PE({ ergebnis: 'nachholung_naechste_durchsicht' }) === 'Maengel' && PE({ ergebnis: '' }) === '' && PE(null) === '', 'Status im Dateinamen: OK / Maengel / ohne Ergebnis leer');
+    check(/BH-Durchsicht_\$\{status \? status \+ '_' : ''\}\$\{schuelerList\[0\]\.nachname\}/.test(PDF_SRC), 'Bogen eines Azubis heißt „BH-Durchsicht_OK_Name…“ bzw. „BH-Durchsicht_Maengel_Name…“');
+  }
   const andere = d.betriebe[0].azubis.filter(x => x.id !== 901).map(x => x.nachname);
   check(andere.length >= 1 && andere.every(n => !textA.includes(n)) && !/\n{3,}/.test(textA), `Azubi-Text nennt keinen anderen Azubi des Betriebs (${andere.join(', ')}) und hat keine Leerlücken`);
   check(Workflows._azubiMailEmpfaenger().every(x => x.to && x.to.includes('@')) && Workflows._azubiMailAdresse({ email: ' a@x.de ' }) === 'a@x.de' && Workflows._azubiMailAdresse({ email: 'kein-at' }) === '' && Workflows._azubiMailAdresse({}) === '', 'Azubi-Adressen: getrimmt, ohne ungültige oder leere');
@@ -660,8 +703,7 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
     if (saAlt) d.statusAzubi['0_' + ia] = saAlt; else delete d.statusAzubi['0_' + ia];
     check(/\.mail-vorlage \{[^}]*font-size: 12px/.test(read('src/css/styles.css')) && /Vorlage von Hand/.test(read('src/js/modules/views.js')), 'Auswahl mit 12 px Schrift, Hilfe beschreibt die Wahl');
   }
-  const textTeil = emlB.split('--' + emlB.match(/boundary="([^"]+)"/)[1])[1];
-  check(/Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(b64dec(textTeil.split('\r\n\r\n')[1])), 'Text des Entwurfs = Mängelmitteilung mit kompaktem Mängel-Block');
+  check(/Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(teilA(emlB)), 'Text des Entwurfs = Mängelmitteilung mit kompaktem Mängel-Block');
   check(/Doppelklick|doppelklicken/.test(zip.file('LIESMICH.txt').asText()) && /\d+ Durchsichtsbögen/.test(zip.file('LIESMICH.txt').asText()) && /1 Entwürfe? an Betriebe/.test(zip.file('LIESMICH.txt').asText()) && /\d+ Entwürfe? an Auszubildende/.test(zip.file('LIESMICH.txt').asText()), 'LIESMICH erklärt den Weg, zählt Betriebe, Azubis und Bögen');
   check(d.status[0] && d.status[0].entwurf === true && /Entwurf \(\.eml\) erzeugt/.test(Workflows._betriebMailZeile(d.betriebe[0], 0)), 'Zeile zeigt „Entwurf (.eml) erzeugt“');
   const w = App.query('SELECT * FROM wiedervorlagen WHERE id=950')[0];
@@ -706,7 +748,7 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
   Workflows.betriebMailsAlsZip();
   const zip2 = new sandbox.PizZip(download.bytes);
   const eml2 = zip2.file('01_Betrieb_Gaertnerei_Mail.eml').asText();
-  check(!/multipart/.test(eml2) && !/Content-Disposition: attachment/.test(eml2), 'Bögen abgewählt: Entwurf ohne Anhang');
+  check(!/multipart\/mixed/.test(eml2) && !/Content-Disposition: attachment/.test(eml2) && /multipart\/alternative/.test(eml2), 'Bögen abgewählt: Entwurf ohne Anhang (Text- und HTML-Fassung bleiben)');
   Workflows.emailBetriebIndividuell(900);
   check(Workflows._individualData.opts.anrede === true && Workflows._individualData.opts.signatur === 'keine' && Workflows._individualData.opts.boegen === false, 'Optionen beim nächsten Öffnen wieder da (je Person gemerkt)');
   Workflows.betriebMailOption('anrede', false); Workflows.betriebMailOption('signatur', 'ich'); Workflows.betriebMailOption('boegen', true);
