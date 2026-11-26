@@ -519,10 +519,14 @@ console.log('\n── E-Mail an die Betriebe: Tabellen und Bögen ──');
     g.email = merk;
     App.closeModal();
     App.run('UPDATE kontrolltermine SET status=? WHERE id=?', [alt, t.t]); App.invalidateTerminCache();
-    return { n: bewertet.length, namen: e.anhaenge.map(a => a.name), ok: bewertet.filter(a => a.ke.ergebnis === 'in_ordnung').length, fehlend: e.fehlend, html: /Ergebnis je Auszubildender/.test(e.m.html) && /<table/.test(e.m.html), eml: /multipart\/alternative/.test(e.eml) && /Content-Type: application\/pdf/.test(e.eml) };
+    const liste = e.anhaenge.find(a => /^Checkliste_/.test(a.name));
+    const pdf = liste ? new TextDecoder('latin1').decode(liste.bytes) : '';
+    const checkliste = { da: !!liste, acro: /\/AcroForm/.test(pdf), kaestchen: (pdf.match(/\/FT \/Btn/g) || []).length, leer: !/\/V \/On/.test(pdf), felder: (pdf.match(/\/FT \/Tx/g) || []).length, mail: /Checkliste als PDF bei/.test(e.m.html) && /muss nicht zurückgesendet/.test(e.m.body) };
+    return { checkliste, n: bewertet.length - 0, namen: e.anhaenge.filter(a => !/^Checkliste_/.test(a.name)).map(a => a.name), ok: bewertet.filter(a => a.ke.ergebnis === 'in_ordnung').length, fehlend: e.fehlend, html: /Ergebnis je Auszubildender/.test(e.m.html) && /<table/.test(e.m.html), eml: /multipart\/alternative/.test(e.eml) && /Content-Type: application\/pdf/.test(e.eml) };
   });
   if (r) {
     check(r.namen.length === r.n && !r.fehlend.length && r.eml && r.html, `Entwurf an einen Betrieb: alle ${r.n} Bögen der bewerteten Azubis (echte PDFs), HTML-Tabellen`);
+    check(r.checkliste.da && r.checkliste.acro && r.checkliste.kaestchen >= 9 && r.checkliste.leer && r.checkliste.mail, `Checkliste als PDF-Formular angehängt: ${r.checkliste.kaestchen} Kästchen (leer), ${r.checkliste.felder} Felder „erledigt am“, Hinweis „keine Rücksendung“ in der E-Mail`);
     check(r.namen.every(n => /^BH-Durchsicht_(OK|Maengel)_/.test(n)) && r.namen.filter(n => /^BH-Durchsicht_OK_/.test(n)).length === r.ok, `Dateinamen nennen das Ergebnis (${r.namen[0]})`);
   } else check(true, 'Betriebs-E-Mail (kein bewerteter Termin – übersprungen)');
   check(errors.length === before, 'Betriebs-E-Mail ohne Konsolenfehler');

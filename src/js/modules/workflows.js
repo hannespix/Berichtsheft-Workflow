@@ -412,12 +412,14 @@ const Workflows = {
         { html: this._h(s.art === 'ok' ? '–' : s.frist), nowrap: true },
         { html: this._h(s.fehltage) },
       ].concat(mitBem ? [{ html: this._zellUmbruch(s.bemerkung) }] : [])));
-    const offen = [];
-    staende.forEach(s => s.nachzuholen.forEach(z => offen.push([
-      { html: '<strong>' + this._h(s.name) + '</strong>' }, { html: this._h(z) }, { html: this._h(s.frist), nowrap: true }, { html: '&nbsp;' }])));
-    if (offen.length) html += this._mailUeberschrift('Was ist noch zu erledigen?')
-      + `<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${F.leise}">${offen.length} ${offen.length === 1 ? 'Punkt' : 'Punkte'} – je Zeile ein Punkt. Die Tabelle lässt sich markieren, kopieren und in Excel einfügen.</p>`
-      + this._mailTabelle([{ titel: 'Auszubildende/r' }, { titel: 'Was ist nachzuholen?' }, { titel: 'bis' }, { titel: 'Erledigt am', breite: '90px' }], offen);
+    // Je Azubi EINE Zeile, die Punkte untereinander in derselben Zelle
+    // (Rückmeldung: vorher stand der Name je Mangel-Art mehrfach da)
+    const mit = staende.filter(s => s.nachzuholen.length);
+    const punkte = mit.reduce((n, s) => n + s.nachzuholen.length, 0);
+    if (mit.length) html += this._mailUeberschrift('Was ist noch zu erledigen?')
+      + `<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${F.leise}">${mit.length} ${mit.length === 1 ? 'Auszubildende/r' : 'Auszubildende'} · ${punkte} ${punkte === 1 ? 'Punkt' : 'Punkte'}. Die Tabelle lässt sich markieren, kopieren und in Excel einfügen (eine Zeile je Auszubildender/Auszubildendem).</p>`
+      + this._mailTabelle([{ titel: 'Auszubildende/r' }, { titel: 'Was ist nachzuholen?' }, { titel: 'bis' }, { titel: 'Erledigt am', breite: '90px' }],
+        mit.map(s => [{ html: '<strong>' + this._h(s.name) + '</strong>' }, { html: this._zellUmbruch(s.nachzuholen.map(z => '– ' + z)) }, { html: this._h(s.frist), nowrap: true }, { html: '&nbsp;' }]));
     return html;
   },
   // Text der Vorlage → HTML: Absätze, Zeilenumbrüche; die Marke wird durch die
@@ -663,6 +665,7 @@ const Workflows = {
       anrede: App.uGet('mail_anrede', '0') === '1',
       signatur: App.uGet('mail_signatur', '') || this.MAIL_SIGNATUR_STANDARD,
       boegen: App.uGet('mail_boegen', '1') !== '0',
+      checkliste: App.uGet('mail_checkliste', '1') !== '0',
       azubis: App.uGet('mail_azubis', '1') !== '0',
     };
   },
@@ -671,6 +674,7 @@ const Workflows = {
     if (key === 'anrede') { d.opts.anrede = !!wert; App.uSet('mail_anrede', wert ? '1' : '0'); }
     else if (key === 'signatur') { d.opts.signatur = String(wert || this.MAIL_SIGNATUR_STANDARD); App.uSet('mail_signatur', d.opts.signatur); }
     else if (key === 'boegen') { d.opts.boegen = !!wert; App.uSet('mail_boegen', wert ? '1' : '0'); }
+    else if (key === 'checkliste') { d.opts.checkliste = !!wert; App.uSet('mail_checkliste', wert ? '1' : '0'); }
     else if (key === 'azubis') { d.opts.azubis = !!wert; App.uSet('mail_azubis', wert ? '1' : '0'); }
     // Vorschau, Längen-Hinweis und Fußzeile folgen den Optionen
     const liste = document.getElementById('betriebMailListe'); if (liste) liste.innerHTML = this._betriebMailListeHtml();
@@ -715,7 +719,8 @@ const Workflows = {
       <label style="display:flex;align-items:center;gap:5px" title="Wer unterschreibt: die angemeldete Person (Standard), ein anderer Prüfer oder niemand. Ist für die Person unter Stammdaten → Prüfer eine E-Mail-Signatur hinterlegt, steht sie unter der E-Mail; sonst Grußformel, Name und Adresse aus der Vorlage. „Keine“: dann hängt Outlook beim Senden die eigene Signatur an">Signatur
         <select class="form-control" style="width:auto;font-size:12px;padding:2px 6px" onchange="Workflows.betriebMailOption('signatur', this.value)">${wahl.map(w => `<option value="${esc(w.wert)}" ${w.wert === aktuell ? 'selected' : ''}>${esc(w.label)}</option>`).join('')}</select>
       </label>
-      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (⬇ Entwurf und ZIP; Dateiname mit „OK“ bzw. „Maengel“)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>` : ''}
+      ${d.isDone ? `<label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Durchsichtsbögen der bewerteten Azubis als PDF an die Entwürfe hängen (⬇ Entwurf und ZIP; Dateiname mit „OK“ bzw. „Maengel“)"><input type="checkbox" ${o.boegen ? 'checked' : ''} onchange="Workflows.betriebMailOption('boegen', this.checked)"> Durchsichtsbögen (PDF) anhängen</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Checkliste als PDF zum Ankreuzen an den Entwurf des Betriebs hängen: je Azubi die offenen Punkte, dazu die regelmäßigen Prüfpunkte. Nur zur Unterstützung – muss nicht zurückgesendet werden."><input type="checkbox" ${o.checkliste !== false ? 'checked' : ''} onchange="Workflows.betriebMailOption('checkliste', this.checked)"> Checkliste zum Abhaken (PDF)</label>` : ''}
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer" title="Jeder Azubi mit hinterlegter E-Mail-Adresse bekommt einen eigenen Entwurf – nur mit dem eigenen Ergebnis${d.isDone ? ' und dem eigenen Bogen' : ''}. Der Betrieb erhält seine E-Mail ohne Kopie an die Azubis."><input type="checkbox" ${o.azubis !== false ? 'checked' : ''} onchange="Workflows.betriebMailOption('azubis', this.checked)"> Eigene E-Mail je Azubi</label>
     </div>`;
   },
@@ -747,7 +752,7 @@ const Workflows = {
     const azubiMails = this._azubiMailEmpfaenger();
     if (!mit.length && !azubiMails.length) return App.toast('Kein Betrieb und kein Azubi mit E-Mail-Adresse', 'warning');
     const zip = new PizZip();
-    let pdfs = 0, anBetriebe = 0, anAzubis = 0;
+    let pdfs = 0, listen = 0, anBetriebe = 0, anAzubis = 0;
     const fehlend = [];
     const zeit = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
     const bogen = this._bogenQuelle();
@@ -758,7 +763,7 @@ const Workflows = {
         const e = this._betriebEntwurf(idx, bogen);
         if (e) {
           zip.file(App.safeFilename([nr, 'Betrieb', g.name], 'eml'), e.eml);
-          pdfs += e.anhaenge.length; anBetriebe++;
+          pdfs += e.boegen; listen += e.anhaenge.length - e.boegen; anBetriebe++;
           e.fehlend.forEach(n => fehlend.push(n));
           const erstesMal = !d.status[idx];
           d.status[idx] = { zeit, entwurf: true };
@@ -780,7 +785,7 @@ const Workflows = {
       'E-Mail-Entwürfe der Berichtsheftkontrolle',
       '',
       `Termin: ${d.t.ctx.datum} – ${d.t.ctx.schule}`,
-      `${anBetriebe} Entwürfe an Betriebe, ${anAzubis} Entwürfe an Auszubildende, ${pdfs} Durchsichtsbögen als Anhang`,
+      `${anBetriebe} Entwürfe an Betriebe, ${anAzubis} Entwürfe an Auszubildende, ${pdfs} Durchsichtsbögen als Anhang${listen ? `, ${listen} Checklisten zum Abhaken (nur zur Unterstützung, keine Rücksendung)` : ''}`,
       '',
       'Dateinamen: „NN_Betrieb_…“ geht an den Betrieb (alle seine Auszubildenden), „NN_Azubi_…“ an eine einzelne',
       'Auszubildende oder einen einzelnen Auszubildenden (nur das eigene Ergebnis, nur der eigene Bogen).',
@@ -828,9 +833,172 @@ const Workflows = {
       if (b) anhaenge.push(b);
       else if (bogen.erwartet && bogen.erwartet(a)) fehlend.push(a.vorname + ' ' + a.nachname);
     });
+    // Checkliste zum Abhaken (nur nach der Kontrolle, Option „Checkliste anhängen“)
+    if (d.isDone && d.opts.checkliste !== false) {
+      try { const c = this.checklisteBytes(idx); if (c) anhaenge.push(c); } catch(e) { console.warn('Checkliste:', e); fehlend.push('Checkliste'); }
+    }
     const m = this._betriebMailInhalt(idx, anhaenge.map(b => App.emlAnhangName(b.name)));
     if (!m) return null;
-    return { m, anhaenge, fehlend, eml: App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, html: m.html, anhaenge }) };
+    const boegen = anhaenge.filter(b => !/^Checkliste_/.test(b.name)).length;
+    return { m, anhaenge, boegen, fehlend, eml: App.emlErzeugen({ to: g.email, subject: m.betreff, body: m.body, html: m.html, anhaenge }) };
+  },
+  // ── Checkliste für den Betrieb (PDF mit Formularfeldern) ──
+  // Je Azubi die offenen Punkte mit Kästchen und Feld „erledigt am“, dazu die
+  // regelmäßigen Prüfpunkte als Raster (Zeile = Prüfpunkt, Spalte = Azubi).
+  // Nur zur Unterstützung – keine Rücksendung, nichts kommt zurück ins Tool.
+  CHECKLISTE_PRUEFPUNKTE: [
+    'Für jeden Arbeitstag ein Tagesbericht, Tätigkeiten vollständig',
+    'Berufsschulthemen eingetragen',
+    'Wetterbeobachtungen eingetragen',
+    'Datum und Kalenderwoche richtig',
+    'Jede Woche von der/dem Auszubildenden unterschrieben',
+    'Jede Woche von der Ausbilderin / dem Ausbilder unterschrieben (§ 14 Abs. 2 BBiG)',
+    'Fehlzeiten (Krankheit, Urlaub, Berufsschule) eingetragen',
+    'Teil 1.1: Ausbildungsplan vorhanden, geführt und unterschrieben',
+    'Teil 1.5: Bescheinigungen der überbetrieblichen Ausbildung und Zusammenstellung vorhanden',
+  ],
+  CHECKLISTE_HINWEIS: 'Nur zu Ihrer Unterstützung: Mit dieser Checkliste behalten Sie die Nacharbeit im Blick. Die Kästchen lassen sich am Bildschirm (PDF-Programm) oder ausgedruckt ankreuzen. Die Checkliste muss nicht zurückgesendet werden – maßgeblich sind die E-Mail und die Durchsichtsbögen.',
+  checklisteBytes(idx) {
+    const d = this._individualData; const g = d && d.betriebe[idx];
+    if (!g || !window.jspdf) return null;
+    const J = window.jspdf;
+    const doc = new J.jsPDF('p', 'mm', 'a4');
+    const INK = [42, 38, 35], GELB = [255, 252, 0], WARM = [242, 240, 239], LINIE = [201, 197, 193], LEISE = [86, 82, 78];
+    const GRUEN = [63, 107, 10];
+    const LM = 15, RM = 195, B = RM - LM, UNTEN = 280;
+    const t = d.t, datum = t.ctx.datum, schule = (t.ctx.schule || '') + (t.ctx.schule_ort || '');
+    const staende = g.azubis.map(a => ({ a, s: this._azubiStand(a) }));
+    let nFeld = 0;
+    const kaestchen = (x, y, name) => {
+      const cb = new J.AcroFormCheckBox();
+      cb.fieldName = name || ('k' + (++nFeld)); cb.x = x; cb.y = y; cb.width = 4.5; cb.height = 4.5;
+      cb.appearanceState = 'Off'; cb.value = 'Off'; cb.borderColor = INK;
+      doc.addField(cb);
+      doc.setDrawColor(...INK); doc.setLineWidth(0.3); doc.rect(x, y, 4.5, 4.5);
+    };
+    const feld = (x, y, w, name) => {
+      const tf = new J.AcroFormTextField();
+      tf.fieldName = name || ('t' + (++nFeld)); tf.x = x; tf.y = y; tf.width = w; tf.height = 5.5; tf.fontSize = 9;
+      doc.addField(tf);
+      doc.setDrawColor(...LINIE); doc.setLineWidth(0.3); doc.line(x, y + 5.5, x + w, y + 5.5);
+    };
+    let logo = null;
+    try { logo = typeof PDFExport !== 'undefined' && PDFExport._logoDataUrl ? PDFExport._logoDataUrl() : null; } catch(e) {}
+    const kopf = (erste) => {
+      let y = 12;
+      if (logo) { try { doc.addImage(logo, 'PNG', LM, y, 42, 12); } catch(e) {} }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...LEISE);
+      doc.text(['Regierungspräsidium Freiburg', 'Ausbildungsberatung Grüne Berufe'], RM, y + 4, { align: 'right' });
+      y += 15;
+      doc.setFillColor(...GELB); doc.rect(LM, y, B, 1.2, 'F');
+      y += 7;
+      if (!erste) { doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK); doc.text('Checkliste Berichtsheft – ' + g.name + ' (Fortsetzung)', LM, y); return y + 6; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(...INK);
+      doc.text('Checkliste Berichtsheft', LM, y + 2);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      y += 8;
+      doc.text(doc.splitTextToSize(`${g.name} · Durchsicht am ${datum}${schule ? ' an der ' + schule : ''}`, B), LM, y);
+      y += 6;
+      // Hinweis: nur Unterstützung, keine Rücksendung
+      const zeilen = doc.splitTextToSize(this.CHECKLISTE_HINWEIS, B - 10);
+      const h = zeilen.length * 4.2 + 5;
+      doc.setFillColor(...WARM); doc.rect(LM, y, B, h, 'F');
+      doc.setFillColor(...INK); doc.rect(LM, y, 1.5, h, 'F');
+      doc.setFontSize(9); doc.setTextColor(...INK);
+      doc.text(zeilen, LM + 5, y + 4.8);
+      return y + h + 8;
+    };
+    let y = kopf(true);
+    const platz = (h) => { if (y + h > UNTEN) { doc.addPage(); y = kopf(false); return true; } return false; };
+    const ueberschrift = (text) => {
+      platz(16);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...INK);
+      doc.text(text, LM, y); y += 1.8;
+      doc.setFillColor(...GELB); doc.rect(LM, y, B, 0.8, 'F'); y += 6;
+    };
+    // 1) Nacharbeit je Azubi
+    ueberschrift('1. Nacharbeit aus der Durchsicht');
+    const TX = LM + 8, TW = RM - 38 - TX;
+    staende.forEach(({ a, s }, ai) => {
+      const kopfAzubi = (fortsetzung) => {
+        platz(16);
+        doc.setFillColor(...INK); doc.rect(LM, y, B, 7, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+        doc.text(s.name + (fortsetzung ? ' (Fortsetzung)' : ''), LM + 2.5, y + 4.8);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        const rechts = s.art === 'ok' ? 'In Ordnung' : s.art === 'maengel' ? `Mängel · Nachweis bis ${s.frist}` : `Offen · bis ${s.frist}`;
+        doc.text(rechts, RM - 2.5, y + 4.8, { align: 'right' });
+        y += 10;
+      };
+      kopfAzubi(false);
+      if (!s.nachzuholen.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...GRUEN);
+        doc.text('Keine Nacharbeit aus dieser Durchsicht.', TX, y + 1); y += 8;
+        return;
+      }
+      // Spaltenzeile unter dem Namensbalken
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...LEISE);
+      doc.text('Was ist nachzuholen? (ankreuzen, wenn erledigt)', TX, y + 0.5); doc.text('erledigt am', RM - 28, y + 0.5);
+      y += 5.5;
+      s.nachzuholen.forEach((z, pi) => {
+        doc.setFontSize(9.5);
+        const zl = doc.splitTextToSize(z, TW);
+        const h = Math.max(7, zl.length * 4.3 + 3);
+        if (platz(h)) kopfAzubi(true);
+        kaestchen(LM + 1.5, y - 1, `azubi${ai + 1}_punkt${pi + 1}`);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK);
+        doc.text(zl, TX, y + 2.4);
+        feld(RM - 28, y - 1.5, 28, `azubi${ai + 1}_punkt${pi + 1}_erledigt`);
+        y += h;
+        doc.setDrawColor(...WARM); doc.setLineWidth(0.2); doc.line(LM, y - 2, RM, y - 2);
+      });
+      y += 4;
+    });
+    // 2) Regelmäßige Prüfpunkte: Zeile = Prüfpunkt, Spalte = Azubi (je Block bis 5)
+    y += 2;
+    ueberschrift('2. Regelmäßig prüfen – bei jeder Durchsicht im Betrieb');
+    const N = 5, LBW = 82;
+    for (let start = 0; start < staende.length; start += N) {
+      const teil = staende.slice(start, start + N);
+      const SW = (B - LBW) / teil.length;
+      const hKopf = 11, hZeile = 9;
+      platz(hKopf + hZeile * 2);
+      const kopfRaster = () => {
+        doc.setFillColor(...WARM); doc.rect(LM, y, B, hKopf, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...INK);
+        doc.text('Prüfpunkt', LM + 2, y + 6.8);
+        teil.forEach(({ a }, i) => {
+          const x = LM + LBW + i * SW;
+          const name = doc.splitTextToSize(a.nachname + ', ' + a.vorname, SW - 2).slice(0, 2);
+          doc.text(name, x + SW / 2, y + 4.3, { align: 'center' });
+        });
+        y += hKopf;
+      };
+      kopfRaster();
+      this.CHECKLISTE_PRUEFPUNKTE.forEach((pp, pi) => {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+        const zl = doc.splitTextToSize(pp, LBW - 4);
+        const h = Math.max(hZeile, zl.length * 3.8 + 3.5);
+        if (platz(h)) kopfRaster();
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...INK);
+        doc.text(zl, LM + 2, y + 4.6);
+        teil.forEach((x, i) => kaestchen(LM + LBW + i * SW + SW / 2 - 2.25, y + h / 2 - 2.25, `pruefen_${start + i + 1}_${pi + 1}`));
+        doc.setDrawColor(...LINIE); doc.setLineWidth(0.2); doc.line(LM, y + h, RM, y + h);
+        y += h;
+      });
+      y += 6;
+    }
+    // Fußzeile je Seite
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i);
+      doc.setFillColor(...GELB); doc.rect(LM, 287, B, 0.6, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...LEISE);
+      doc.text('Nur zur Unterstützung – keine Rücksendung erforderlich · erstellt am ' + new Date().toLocaleDateString('de-DE'), LM, 291);
+      doc.text(`Seite ${i} von ${n}`, RM, 291, { align: 'right' });
+    }
+    const bytes = new Uint8Array(doc.output('arraybuffer'));
+    return { name: `Checkliste_Nacharbeit_${g.name}_${String(t.termin.geplant_datum || '').replace(/-/g, '')}.pdf`, bytes };
   },
   // Ein einzelner Entwurf mit Bögen – für einen Betrieb, ohne alle zu packen
   betriebEntwurfLaden(idx) {
@@ -843,7 +1011,8 @@ const Workflows = {
     if (erstesMal) this._betriebVersandVermerken(e.m, 'Entwurf (.eml) erzeugt');
     if (d.isDone && !this._betriebMailOffen().length) { try { App.terminSchritt(d.terminId, 'nachbereitet'); } catch(err) {} }
     this._betriebMailZeileAuffrischen(idx);
-    App.toast(`Entwurf für ${e.m.g.name}${e.anhaenge.length ? ` mit ${e.anhaenge.length} ${e.anhaenge.length === 1 ? 'Bogen' : 'Bögen'}` : ''} gespeichert – Datei doppelklicken, in Outlook senden`, 'success', 8000);
+    const liste = e.anhaenge.length > e.boegen;
+    App.toast(`Entwurf für ${e.m.g.name}${e.boegen ? ` mit ${e.boegen} ${e.boegen === 1 ? 'Bogen' : 'Bögen'}` : ''}${liste ? `${e.boegen ? ' und' : ' mit'} Checkliste` : ''} gespeichert – Datei doppelklicken, in Outlook senden`, 'success', 8000);
     if (e.fehlend.length) App.toast(`Bogen nicht erzeugt für: ${e.fehlend.join(', ')}`, 'warning', 12000);
   },
   // ── Eigene E-Mail je Azubi (Datenschutz) ──
@@ -1017,8 +1186,11 @@ const Workflows = {
     if (!name) roh = roh.replace(/\s*Mit freundlichen Grüßen\s*$/i, '').replace(/\s+$/, '') + '\n';
     // Textfassung wie bisher (Block je Azubi), HTML-Fassung mit Tabellen –
     // ein Betrieb mit vielen Azubis kopiert sie sich als Liste heraus
-    const body = roh.split(this.MAIL_MARKE).join(this._azubiBlock(g.azubis, d.isDone)) + this._anlagenText(anlagen);
-    const html = this._mailHtml(betreff, roh, this._betriebTabellenHtml(g.azubis, d.isDone), anlagen);
+    const body = roh.split(this.MAIL_MARKE).join(this._azubiBlock(g.azubis, d.isDone) + ((anlagen || []).some(n => /^Checkliste_/.test(n)) ? '\n\nZum Abhaken liegt eine Checkliste als PDF bei. Sie dient nur Ihrer Unterstützung und muss nicht zurückgesendet werden.' : '')) + this._anlagenText(anlagen);
+    const mitListe = (anlagen || []).some(n => /^Checkliste_/.test(n));
+    const listeSatz = 'Zum Abhaken liegt eine Checkliste als PDF bei (am Bildschirm oder ausgedruckt ankreuzbar). Sie dient nur Ihrer Unterstützung und muss nicht zurückgesendet werden.';
+    const tab = this._betriebTabellenHtml(g.azubis, d.isDone) + (mitListe ? `<p style="margin:0 0 12px 0;font-size:13px;color:${this.MAIL_FARBEN.leise}">${this._h(listeSatz)}</p>` : '');
+    const html = this._mailHtml(betreff, roh, tab, anlagen);
     // Ohne Kopie an die Azubis: sie bekommen je eine eigene E-Mail (_azubiMailInhalt)
     return { g, typ, betreff, body, html };
   },
@@ -1044,7 +1216,7 @@ const Workflows = {
     const n = g.azubis.filter(a => bogen.erwartet(a)).length;
     pre.style.whiteSpace = 'normal';
     pre.innerHTML = `<div style="margin-bottom:6px"><strong>Betreff:</strong> ${esc(m.betreff)}</div>${inhalt}`
-      + (d.isDone ? `<div style="margin-top:6px;color:var(--clr-text-light)">${n ? `Anlagen im Entwurf (⬇ Entwurf / ZIP): ${n} ${n === 1 ? 'Durchsichtsbogen' : 'Durchsichtsbögen'} (PDF, Dateiname mit „OK“ bzw. „Maengel“)` : 'Keine Durchsichtsbögen als Anlage'} – der E-Mail-Link „Öffnen“ übergibt nur den Text ohne Anhang.</div>` : '');
+      + (d.isDone ? `<div style="margin-top:6px;color:var(--clr-text-light)">${n ? `Anlagen im Entwurf (⬇ Entwurf / ZIP): ${n} ${n === 1 ? 'Durchsichtsbogen' : 'Durchsichtsbögen'} (PDF, Dateiname mit „OK“ bzw. „Maengel“)` : 'Keine Durchsichtsbögen als Anlage'}${d.opts.checkliste !== false ? ' und eine Checkliste zum Abhaken (PDF, keine Rücksendung)' : ''} – der E-Mail-Link „Öffnen“ übergibt nur den Text ohne Anhang.</div>` : '');
     if (pre.dataset) pre.dataset.zeigt = 'betrieb';
     pre.style.display = '';
   },

@@ -546,6 +546,12 @@ console.log('\n══ Outlook-Entwürfe (.eml) mit Durchsichtsbögen als ZIP ═
     check(/Content-Type: multipart\/mixed/.test(emlB) && /Content-Type: multipart\/alternative/.test(emlB) && emlB.indexOf('multipart/alternative') < emlB.indexOf('Content-Disposition: attachment'), 'Entwurf: Text- und HTML-Fassung (multipart/alternative) vor den Anhängen');
     check(/<table[^>]*border-collapse:collapse/.test(htmlB) && /Ergebnis je Auszubildender\/Auszubildendem/.test(htmlB) && /Was ist noch zu erledigen\?/.test(htmlB) && /<th[^>]*>Was ist nachzuholen\?<\/th>/.test(htmlB) && /<th[^>]*>Erledigt am<\/th>/.test(htmlB), 'HTML: Übersicht je Azubi und Liste „Was ist noch zu erledigen?“ als Tabellen');
     check(/Eins, Erik/.test(htmlB) && /Fehlende Tagesberichte nachholen \(1 Woche: AJ 2: KW 40\)/.test(htmlB) && /Mängel/.test(htmlB) && /In Ordnung/.test(htmlB), 'HTML: Namen, Ergebnis (In Ordnung / Mängel) und offene Punkte stehen in den Tabellen');
+    {
+      const teil2 = htmlB.split('Was ist noch zu erledigen?')[1] || '';
+      check((teil2.match(/Eins, Erik/g) || []).length === 1 && /– Fehlende Tagesberichte nachholen/.test(teil2), 'Erledigen-Tabelle: jeder Azubi genau eine Zeile, Punkte als Liste in derselben Zelle');
+      check(/eine Zeile je Auszubildender\/Auszubildendem/.test(teil2), 'Erledigen-Tabelle sagt: eine Zeile je Azubi');
+    }
+    check(/muss nicht zurückgesendet werden/.test(Workflows.CHECKLISTE_HINWEIS) && Workflows.CHECKLISTE_PRUEFPUNKTE.length >= 8 && /Workflows\.betriebMailOption\('checkliste'/.test(Workflows._betriebMailOptionenHtml()), 'Checkliste: Hinweis „nur Unterstützung, keine Rücksendung“, Prüfpunkte, Option in der Liste');
     check(/Anlagen \(2\)/.test(htmlB) && /BH-Durchsicht_901\.pdf/.test(htmlB) && /Anlagen \(2\):\n  - BH-Durchsicht_901\.pdf\n  - BH-Durchsicht_902\.pdf/.test(textB), 'Anlagen in HTML- und Textfassung aufgezählt');
     check(!/\u0001/.test(htmlB + textB) && /  - Eins, Erik: /.test(textB), 'Textfassung behält den Block je Azubi, keine Marke bleibt stehen');
     check(/<style|class=/.test(htmlB) === false && /bgcolor="#2A2623"/.test(htmlB) && /mso-data-placement:same-cell|<td/.test(htmlB) && /lang="de"/.test(htmlB), 'HTML nur mit Inline-Stilen (Outlook), Kopfzeile schwarz, lang="de"');
